@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>现有台账与清洗规则</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#一-现有台账清单-注册b-填写">一、现有台账清单（注册B 填写）</a><a class="level-2" href="#二-导入模板">二、导入模板</a><a class="level-2" href="#三-清洗规则">三、清洗规则</a><a class="level-2" href="#确认">确认</a></nav><main><h1 id="现有台账与清洗规则">现有台账与清洗规则</h1>
+<blockquote><p>导入工具（PR-54）按本文件实现。云端只用示例台账演练；真实台账在 2027-02-22 本地上线时导入（D4）。</p></blockquote>
+<h2 id="一-现有台账清单-注册b-填写">一、现有台账清单（注册B 填写）</h2>
+<table><thead><tr><th>#</th><th>台账</th><th>文件名</th><th>维护人</th><th>行数（约）</th><th>导入到</th></tr></thead><tbody><tr><td>1</td><td>认证项目进度表</td><td>待注册B 提供</td><td>注册B</td><td></td><td>认证项目、节点</td></tr><tr><td>2</td><td>证照到期表</td><td>待注册B 提供</td><td>注册B</td><td></td><td>证照</td></tr><tr><td>3</td><td>产品—型号—市场—证书</td><td>待注册B 提供</td><td>注册B</td><td></td><td>产品、型号、型号 × 市场</td></tr></tbody></table>
+<h2 id="二-导入模板">二、导入模板</h2>
+<p>平台提供三份导入模板（导入页可下载，CSV 格式，用 WPS / Excel 打开填写后可直接上传 CSV，也可另存为 .xlsx 上传），第一行为列名，列名必须与模板一致；多余的列忽略并在报告中列出。</p>
+<p><strong>导入顺序：</strong> 先产品与型号，再证照，最后认证项目与节点。型号的“可售 / 已列名”必须关联证照，所以产品模板中的市场状态只接受“未申请、申请中、停用”；“可售 / 已列名”在证照模板的“授权状态”列设置（同时填写型号和市场）。</p>
+<table><thead><tr><th>模板</th><th>列</th></tr></thead><tbody><tr><td>产品与型号</td><td>产品代码、产品名称、型号、UDI-DI、UPC、包装层级、关联研发项目、美国状态、加拿大状态、来源</td></tr><tr><td>证照</td><td>类型、编号、持证主体、型号、市场、授权状态（可售 / 已列名，可选）、生效日、到期日、费用、币种、负责人账号、来源</td></tr><tr><td>认证项目与节点</td><td>项目名称、市场、路径、型号、关联研发项目、主责账号、复核账号、目标日期、状态、节点类型、节点内容、计划日期、完成日期、责任人账号</td></tr></tbody></table>
+<h2 id="三-清洗规则">三、清洗规则</h2>
+<ol><li><strong>日期：</strong> 接受 <code>2027-03-15</code>、<code>2027/3/15</code>、<code>2027.3.15</code>、Excel 日期单元格与日期序列号；其他写法（例如“3 月中”）报错，不猜。UPC 被 Excel 存成数字丢掉开头的 0 时（11 位）自动补回。</li><li><strong>人员：</strong> 按账号或显示名匹配平台账号；匹配不到时整行报错。</li><li><strong>去重键：</strong> 产品按产品代码；型号按型号；证照按“类型 + 编号”；认证项目按“名称 + 市场”；节点按“项目 + 类型 + 内容 + 计划日期”。</li><li><strong>已存在时：</strong> 字段完全相同则跳过；有不同则列入冲突报告（列出平台现有值与文件值），默认保留平台现有值，由注册人员在预览中逐条勾选“用导入文件覆盖”。</li><li><strong>必填缺失：</strong> 整行报错，不导入；报告列出行号和缺的字段。</li><li><strong>来源：</strong> 每行自动记录“文件名 第 n 行”。</li><li><strong>先预览、后导入：</strong> 先上传得到预览报告（新增、跳过、冲突、错误），确认后才写入；写入在一个事务内完成并写审计。</li><li><strong>原台账归档：</strong> 上传的原文件保存在平台文件存储（带版本、不可修改），导入记录页列出每次导入的原文件与结果，此后台账只在平台维护。</li></ol>
+<h2 id="确认">确认</h2>
+<table><thead><tr><th>角色</th><th>姓名</th><th>结论</th><th>日期</th></tr></thead><tbody><tr><td>注册B</td><td></td><td>待确认</td><td></td></tr></tbody></table><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

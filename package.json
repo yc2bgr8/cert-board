@@ -1,0 +1,36 @@
+{
+  "name": "cert-board",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=24.9.0"
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:int": "node scripts/placeholder.mjs test:int",
+    "test:py": "node scripts/placeholder.mjs test:py",
+    "test:real": "node scripts/placeholder.mjs test:real",
+    "test:l08": "node scripts/placeholder.mjs test:l08",
+    "test:e2e": "node scripts/placeholder.mjs test:e2e",
+    "eval": "node scripts/placeholder.mjs eval",
+    "eval:agent": "node scripts/placeholder.mjs eval:agent",
+    "docs:html": "node scripts/docs-html.mjs",
+    "dev:up": "node scripts/placeholder.mjs dev:up",
+    "dev:down": "node scripts/placeholder.mjs dev:down",
+    "format": "prettier --write apps packages scripts *.json *.mjs *.yaml",
+    "security:scan": "node scripts/secret-scan.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.10.1",
+    "eslint": "10.15.0",
+    "prettier": "3.10.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.73.0",
+    "vitest": "5.1.0"
+  }
+}

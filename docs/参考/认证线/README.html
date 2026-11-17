@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>认证线需求（阶段 1，PR-47）</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#范围提要">范围提要</a></nav><main><h1 id="认证线需求-阶段-1-pr-47">认证线需求（阶段 1，PR-47）</h1>
+<blockquote><p>依据：《研发流程平台 MVP 技术实施方案》第十三节、《研发流程平台 MVP 执行计划》第十节、公司《AI原生医疗产品_认证部门工作全景表》（主表 P01–P24、“90 天实施说明”）、原型 <code>docs/03-原型/研发流程MVP原型.html</code> 侧边栏“认证线 · 阶段 1”。<br>状态：<strong>草稿，待注册 A、B 逐页确认；URS 增补待 DA 签字。</strong> 确认结果填在各文件末尾的确认表，签字扫描件放在本目录 <code>签字/</code> 下。</p></blockquote>
+<table><thead><tr><th>文件</th><th>内容</th><th>谁确认</th></tr></thead><tbody><tr><td><a href="01-URS增补.html">01-URS增补.md</a></td><td>认证线用户需求（URS-C 编号），后续 PR 的测试追溯以此为准</td><td>注册 A、B 确认；DA 签字</td></tr><tr><td><a href="02-主表与数据字段.html">02-主表与数据字段.md</a></td><td>三张主表和其他台账的字段、取值、校验规则；与数据库表一一对应</td><td>注册 A、B</td></tr><tr><td><a href="03-现有台账与清洗规则.html">03-现有台账与清洗规则.md</a></td><td>现有 Excel 台账清单、列映射、去重和冲突处理规则（PR-54 导入工具按此实现）</td><td>注册B</td></tr><tr><td><a href="04-申报清单模板.html">04-申报清单模板.md</a></td><td>510(k)（eSTAR 章节）、加拿大 MDL、MDSAP 迎审的清单模板（PR-56 入库）</td><td>注册A</td></tr><tr><td><a href="05-页面确认表.html">05-页面确认表.md</a></td><td>原型认证线 9 个页面逐页确认记录</td><td>注册 A、B</td></tr><tr><td><a href="06-Agent决策.html">06-Agent决策.md</a></td><td>轻量试用结论与 Agent 决策（PR-65）：阶段 1 不引入 Agent 循环的暂定决定和改的条件</td><td>技术负责人、注册A</td></tr></tbody></table>
+<h2 id="范围提要">范围提要</h2>
+<ul><li><strong>云端先行：</strong> 全部功能先在云端测试环境 <code>idp-test.civasc.ai</code> 用示例认证数据和真实公开数据开发、验收；2027-02-22 随 MVP 部署到本地，导入真实台账，试点 12 周。</li><li><strong>数据边界（D4）：</strong> 云端只放示例认证数据和公开数据；真实台账、证书、发补信只在本地。</li><li><strong>AI 边界：</strong> 只做监测、整理、检查、底稿和提醒；不自动提交、不签字、不决定法规立场。所有 AI 输出都是“建议”，由注册人员采纳、修改或驳回。</li><li><strong>唯一入口：</strong> 三张主表上线并导入后，原 Excel 台账只读归档。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

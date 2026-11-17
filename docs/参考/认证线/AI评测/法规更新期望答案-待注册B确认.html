@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>法规更新摘要（rg）期望答案——待注册B 确认</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#需要确认的-4-条">需要确认的 4 条</a><a class="level-2" href="#确认后准备写进提示词的规则-草案-按确认结果调整">确认后准备写进提示词的规则（草案，按确认结果调整）</a></nav><main><h1 id="法规更新摘要-rg-期望答案-待注册b-确认">法规更新摘要（rg）期望答案——待注册B 确认</h1>
+<blockquote><p>用途：评测集 <code>apps/api/src/ai/eval/cert-cases.ts</code> 的 <code>RG_UPDATES</code> 里，每条示例更新&quot;应影响哪些公司型号&quot;是评测作者先写的。11 个模型对比（2026-11-16）中，rg 失分集中在下面 4 条，且模型的共同做法是&quot;判断不了就给空数组或只给部分型号&quot;（提示词 <code>prompts/rg_summary.v0.1.md</code> 第 4 条就是这样要求的）。<br>在调整提示词之前，需要注册B 确认期望答案本身是否成立。确认后：① 按确认结果修改 <code>RG_UPDATES</code>；② 把判断规则写进 rg 提示词（v0.2）；③ 重跑 rg。</p></blockquote>
+<p>公司型号（评测用示例）：JB-C1、JB-C2（持续正压通气设备）、SG-01（抗鼾口腔矫治器）、JB-APP（睡眠监测 App）。</p>
+<h2 id="需要确认的-4-条">需要确认的 4 条</h2>
+<table><thead><tr><th>#</th><th>示例更新</th><th>当前期望影响型号</th><th>模型常见答案</th><th>需要注册B 确认的问题</th><th>确认结果</th></tr></thead><tbody><tr><td>1</td><td>医疗器械网络安全指南定稿（适用于含软件或联网的器械）</td><td>JB-C1、JB-C2、JB-APP</td><td>只给 JB-APP</td><td>持续正压通气设备（JB-C1、JB-C2）是否含软件 / 联网功能，因而在该指南范围内？</td><td>☐ 同意 ☐ 改为：</td></tr><tr><td>2</td><td>正压通气设备附件（CPAP accessory）分类为 II 类 + 特殊控制</td><td>JB-C1、JB-C2</td><td>空数组</td><td>附件分类是否算&quot;影响&quot;主机型号（例如主机配套的面罩、管路、湿化器按附件管理）？还是只有单独申报的附件才算？</td><td>☐ 同意 ☐ 改为：</td></tr><tr><td>3</td><td>FDA 修改对 ISO 10993-1（生物学评价）的认可</td><td>JB-C1、JB-C2、SG-01</td><td>空数组或只给 SG-01</td><td>所有有患者接触材料的型号（面罩、口腔矫治器）都算影响？JB-APP 不算？</td><td>☐ 同意 ☐ 改为：</td></tr><tr><td>4</td><td>eSTAR 模板版本更新（过渡日期后 510(k) 必须使用）</td><td>全部 4 个型号</td><td>空数组</td><td>申报流程类变化是否标为&quot;影响全部走 510(k) 的型号&quot;？JB-APP 是否走 510(k)？</td><td>☐ 同意 ☐ 改为：</td></tr></tbody></table>
+<p>其余 6 条（口腔矫治器特殊控制 → SG-01；移动医疗软件政策 → JB-APP；眼压监测、骨生长刺激器、乳腺摄影、牙科汞合金 → 无）各模型基本都答对，不需要确认。</p>
+<h2 id="确认后准备写进提示词的规则-草案-按确认结果调整">确认后准备写进提示词的规则（草案，按确认结果调整）</h2>
+<blockquote><p>4\. impactModels 只能从&quot;公司型号&quot;列表中挑选（写型号编码）。以下情况视为有影响：<br>- 更新针对的器械类别、产品代码或附件与该型号相同或配套；<br>- 横向要求覆盖该型号：网络安全（含软件或联网的型号）、生物相容性等认可标准变化（有患者接触材料的型号）、申报模板或流程变化（走相应申报路径的型号）；<br><br>与公司型号无关的更新给空数组；拿不准时宁可多列，由注册人员在确认时删除（线上该触点只是提示，最终由人确认）。</p></blockquote>
+<p>最后一句&quot;宁可多列&quot;是否接受，也请注册B 一并确认：多列的代价是注册人员多看几条，漏列的代价是错过一条相关更新。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
