@@ -2,7 +2,7 @@ import pino, { type DestinationStream, type Logger } from 'pino';
 import type { BackendConfig } from '@cert-board/shared';
 
 const sensitiveField =
-  /(?:authorization|cookie|set-cookie|password|passwd|(?:^|_)(?:key|token|secret)$|database_url)/i;
+  /(?:authorization|cookie|set-cookie|password|passwd|(?:^|_)(?:key|token|secret)$|(?:csrf|session|access|refresh|id)Token$|(?:api|secret|access)Key$|database_url)/i;
 
 export function sanitizeLogValue(value: unknown, secrets: readonly string[] = []): unknown {
   const seen = new WeakSet<object>();

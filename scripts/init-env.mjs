@@ -30,6 +30,8 @@ export function initializeEnvironment(filename) {
     MINIO_BUCKET: 'cert-board',
     HOST: '127.0.0.1',
     PORT: '28081',
+      WEB_ORIGIN: 'http://127.0.0.1:28080',
+      SESSION_TTL_HOURS: '12',
     NODE_ENV: 'development',
     LOG_LEVEL: 'info',
   }))

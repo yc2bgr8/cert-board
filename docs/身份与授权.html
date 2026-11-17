@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>身份与授权（PR-04）</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong></nav><main><h1 id="身份与授权-pr-04">身份与授权（PR-04）</h1>
+<p>接口：<code>POST /api/auth/login</code>、<code>POST /api/auth/logout</code>、<code>GET /api/auth/me</code>。输入输出在共享包严格校验；密码只用于Argon2id验证，不返回或记录密码和哈希。</p>
+<p>Cookie为HttpOnly、SameSite=Strict、路径/api；生产环境要求HTTPS来源并加Secure。会话和CSRF只在数据库保存哈希。CSRF由随机会话令牌派生，刷新页面后可由me接口重新获取；它不进入Agent上下文或worker任务。</p>
+<p>浏览器请求标记必须为same-origin/same-site；所有写操作额外核对配置中的Origin，已有会话的写操作必须带<code>x-csrf-token</code>。缺失、跨来源、过期、注销、禁用用户或生产环境开发账号均拒绝。接口不启用跨域访问，认证响应禁止缓存。</p>
+<table><thead><tr><th>动作</th><th>角色</th><th>对象范围</th></tr></thead><tbody><tr><td>读取项目、业务记录、资料、工作区</td><td>RA、RB、GM</td><td>同一角色绑定中的global/project/own</td></tr><tr><td>修改上述对象</td><td>RA、RB</td><td>同上；后续业务工具还须检查动作级别/会话模式/版本</td></tr><tr><td>读取对话</td><td>RA、RB、GM</td><td>除角色范围外还必须是本人对话</td></tr><tr><td>在对话工作</td><td>RA、RB</td><td>同上</td></tr><tr><td>注册/维护审核</td><td>RA、RB</td><td>明确registration类型并检查对象范围</td></tr><tr><td>管理决策</td><td>GM</td><td>明确management类型并检查对象范围</td></tr><tr><td>技术管理与运维</td><td>TECH</td><td>仅global绑定</td></tr><tr><td>销售报告请求</td><td>SALES</td><td>只允许本人请求，不能因global绑定扩大到他人</td></tr></tbody></table>
+<p>未知动作、错误身份或不匹配范围一律拒绝。资源所属用户与项目必须从服务器读到的业务记录构造，不能相信客户端提交的所属字段。不得把一个角色的权限和另一个角色的范围拼接。</p>
+<p>登录/登出审计和会话修改在事务中完成。登录失败记录用户名及动作，不记录密码；默认限速见决定D-007。角色变更入口未实现，留待PR-59。</p>
+<p>前端登录页在PR-26接入，PR-03静态界面不是已登录业务界面。未来审批接口必须直接复用浏览器身份验证，审批不能注册成模型工具。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr">PR</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应的需求和技术方案">对应的需求和技术方案</a><a class="level-2" href="#真实模型测试">真实模型测试</a><a class="level-2" href="#新增依赖">新增依赖</a><a class="level-2" href="#风险和需要lan决定的事">风险和需要Lan决定的事</a></nav><main><h2 id="pr">PR</h2>
+<p>PR-04 身份与授权</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>登录、注销、当前身份三个接口；Argon2id验证、随机会话Cookie、CSRF，令牌只存哈希。</li><li>每次读取当前用户状态和角色；会话过期、注销、禁用、角色撤销立即生效，重新登录轮换会话。</li><li>来源Origin、浏览器请求标记、JSON输入、Cookie/CSRF共同校验；认证响应不缓存，生产要求HTTPS且拒绝开发账号。</li><li>15动作角色×对象授权矩阵，默认拒绝；对话和销售强制本人，TECH仅全局管理，审核显式区分注册/管理决策。</li><li>登录前同步预占限速次数，封住并发绕过；账号5次/IP30次，成功不清IP累计。</li><li>登录/登出审计事务；补充驼峰CSRF/会话/SDK凭据字段脱敏，错误不泄露密码/哈希。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>角色管理端点及角色变更审计留PR-59，当前不开放该入口，已记待办。</li><li>前端登录页在PR-26接入；业务对象路由及审批后续必须调用本PR授权/来源校验。本PR不声称已实现真实审批。</li><li>限速为单API进程内存计数；多实例部署前须改为共享计数，当前不扩展多实例。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>命令</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，17文件150测试；授权矩阵及边界95项</td></tr><tr><td><code>pnpm test:int</code></td><td>认证16项及原数据库12项，共28项通过；含Cookie/CSRF/跨来源/过期/注销/角色撤销/生产隔离/审计/并发及IP限速</td></tr><tr><td>并发限速</td><td>同账号8次并发：5个401、3个429；随后正确密码仍429</td></tr><tr><td>IP限速</td><td>15次失败→1次成功→15次请求：最后1个429，成功未清空IP计数</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>提交前执行</td></tr><tr><td>GitHub CI</td><td>开PR后执行，通过后才合并</td></tr></tbody></table>
+<h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
+<ul><li>需求V0.9：NF01；技术方案3.6、4.2、9；执行方案PR-04。</li></ul>
+<h2 id="真实模型测试">真实模型测试</h2>
+<p>无；全晚累计0美元。</p>
+<h2 id="新增依赖">新增依赖</h2>
+<p>@fastify/cookie11.1.5（MIT），仅解析/设置本站Cookie，无默认遥测或外部请求。其余使用已有依赖。</p>
+<h2 id="风险和需要lan决定的事">风险和需要Lan决定的事</h2>
+<ul><li>保守权限默认值、会话时间与限速见D-007。角色管理尚未开放。</li><li>新增日志驼峰凭据漏检回归先失败再修复；token用量计数仍保留可观测性。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

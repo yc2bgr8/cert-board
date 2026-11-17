@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@cert-board/shared": "workspace:*",
+    "@fastify/cookie": "11.1.5",
     "argon2": "0.45.2",
     "drizzle-orm": "0.45.4",
     "fastify": "5.12.8",

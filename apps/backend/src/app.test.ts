@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { parseBackendConfig } from '@cert-board/shared';
 import { createApp } from './app.js';
 import type { HealthDependencies } from './dependencies.js';
+import { AppError } from './api/errors.js';
 
 const config = parseBackendConfig({
   NODE_ENV: 'test',
@@ -28,10 +29,21 @@ afterEach(async () => {
 });
 
 describe('接口服务基础', () => {
+  test('已定义的授权错误保留正确状态和安全提示', async () => {
+    const app = appFor();
+    app.get('/test-forbidden', () => {
+      throw new AppError(403, 'FORBIDDEN', '没有访问权限。');
+    });
+    const response = await app.inject('/test-forbidden');
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error).toMatchObject({ code: 'FORBIDDEN', message: '没有访问权限。' });
+  });
   test('健康检查实际调用两个依赖检查', async () => {
     const deps = dependencies();
     const response = await appFor(deps).inject('/health');
     expect(response.statusCode).toBe(200);
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+    expect(response.headers['referrer-policy']).toBe('same-origin');
     expect(response.json()).toEqual({
       status: 'ok',
       dependencies: { database: 'up', storage: 'up' },

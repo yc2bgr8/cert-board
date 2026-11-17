@@ -74,3 +74,15 @@ test('子日志绑定与后续绑定中的秘密同样被隐藏', () => {
   child.info('普通事件');
   expect(output.join('')).not.toContain('bound-');
 });
+
+test('会话与SDK的驼峰凭据字段被隐藏，token计量仍可记录', () => {
+  const result = sanitizeLogValue({
+    csrfToken: 'hidden-csrf-value',
+    sessionToken: 'hidden-session-value',
+    accessToken: 'hidden-access-value',
+    secretKey: 'hidden-sdk-value',
+    inputTokens: 12,
+  });
+  expect(JSON.stringify(result)).not.toContain('hidden-');
+  expect(result).toMatchObject({ inputTokens: 12 });
+});
