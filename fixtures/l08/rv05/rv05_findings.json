@@ -1,0 +1,490 @@
+{
+  "summary": {
+    "seconds": 0.09,
+    "pages_checked": 398,
+    "findings": 13,
+    "by_rule": {
+      "R0": 4,
+      "R1": 1,
+      "R2": 1,
+      "R3": 2,
+      "R4": 1,
+      "R5": 1,
+      "R6": 2,
+      "R7": 1
+    },
+    "ground_truth": {
+      "GT1": "外层Cover letter联系人Leo Liu，eSTAR内为Emma Chen（同名文件不同版本）",
+      "GT2": "谓词器械号两种写法：K170825 / K170285",
+      "GT3": "L08-TB下托颜色：产品描述为蓝色，生物相容性评价第4页为紫色色母",
+      "GT4": "首次冲洗水温：说明书与清洁验证20—25℃，耐久性报告步骤h为25—30℃",
+      "GT5": "eSTAR正文引用MSDS，但eSTAR附件清单未列出MSDS",
+      "GT6": "接触时长类别（>24h至30天）与使用期限（6—12个月）不是同一概念",
+      "GT7": "未见独立完整的风险管理档案、项目计划等",
+      "GT8": "SGS材料报告汇总表结论栏为“/”"
+    },
+    "covered": [
+      "GT1",
+      "GT2",
+      "GT3",
+      "GT4",
+      "GT5",
+      "GT6",
+      "GT8"
+    ],
+    "not_covered": [
+      "GT7"
+    ],
+    "without_gt": 3,
+    "k_numbers": {
+      "K170825": 4,
+      "K170285": 2
+    },
+    "color_claims": 12,
+    "estar_refs_checked": 9,
+    "page_chars": {
+      "median": 1015,
+      "p90": 2510,
+      "max": 16218
+    }
+  },
+  "findings": [
+    {
+      "rule": "R0",
+      "title": "同名文件两个版本内容不同：Cover letter.pdf",
+      "values": {
+        "similarity": 0.984,
+        "changed_lines": 4,
+        "sample": [
+          "-6. Submitter: Mr. Leo Liu",
+          "-7. Official contact person: Mr. Leo Liu",
+          "+6. Submitter: Ms. Emma Chen",
+          "+7. Official contact person: Ms. Emma Chen"
+        ]
+      },
+      "citations": [
+        {
+          "ref": "D003#1",
+          "name": "Cover letter.pdf",
+          "source": "外层文件夹"
+        },
+        {
+          "ref": "D019#1",
+          "name": "Cover letter.pdf",
+          "source": "eSTAR附件"
+        }
+      ],
+      "gt": "GT1",
+      "status": "候选",
+      "note": null
+    },
+    {
+      "rule": "R0",
+      "title": "同名文件两个版本内容不同：Device Picture.pdf",
+      "values": {
+        "similarity": 0.999,
+        "changed_lines": 2,
+        "sample": [
+          "-3.5 L08-TP",
+          "+3.5 L08-TB"
+        ]
+      },
+      "citations": [
+        {
+          "ref": "D007#1",
+          "name": "Device Picture.pdf",
+          "source": "外层文件夹"
+        },
+        {
+          "ref": "D016#1",
+          "name": "Device Picture.pdf",
+          "source": "eSTAR附件"
+        }
+      ],
+      "gt": null,
+      "status": "候选",
+      "note": null
+    },
+    {
+      "rule": "R0",
+      "title": "同名文件两个版本内容不同：Durability verification report.pdf",
+      "values": {
+        "similarity": 0.869,
+        "changed_lines": 12,
+        "sample": [
+          "-Durability verification report ......................................................................................... 1",
+          "-4. Sample preparation .................................................................................................... 3",
+          "-5. Acceptance criteria .....................................................................................................4",
+          "-6. Procedure ................................................................................................................... 4",
+          "-7. Test result ................................................................................................................... 5",
+          "-8. Conclusion ................................................................................................................. 5"
+        ]
+      },
+      "citations": [
+        {
+          "ref": "D025#1",
+          "name": "Durability verification report.pdf",
+          "source": "eSTAR附件"
+        },
+        {
+          "ref": "D059#1",
+          "name": "Durability verification report.pdf",
+          "source": "外层文件夹"
+        }
+      ],
+      "gt": "GT1",
+      "status": "候选",
+      "note": null
+    },
+    {
+      "rule": "R0",
+      "title": "同名文件两个版本内容不同：Shelf-life verification report.pdf",
+      "values": {
+        "similarity": 0.998,
+        "changed_lines": 58,
+        "sample": [
+          "-Table 1 Test sample information",
+          "+Table 2 Test sample information",
+          "-Table 2 Accelerated aging equipment",
+          "+Table 3 Accelerated aging equipment",
+          "-Table 5 Result after the test",
+          "+Table 6 Result after the test"
+        ]
+      },
+      "citations": [
+        {
+          "ref": "D027#1",
+          "name": "Shelf-life verification report.pdf",
+          "source": "eSTAR附件"
+        },
+        {
+          "ref": "D044#1",
+          "name": "Shelf-life verification report.pdf",
+          "source": "外层文件夹"
+        }
+      ],
+      "gt": null,
+      "status": "候选",
+      "note": null
+    },
+    {
+      "rule": "R1",
+      "title": "510(k)编号疑似笔误：K170285 / K170825",
+      "values": {
+        "K170285": 2,
+        "K170825": 4
+      },
+      "citations": [
+        {
+          "ref": "D001#1",
+          "name": "510(k) summary.doc",
+          "source": "外层文件夹"
+        },
+        {
+          "ref": "D035#5",
+          "name": "510(k) summary.pdf",
+          "source": "eSTAR附件"
+        },
+        {
+          "ref": "D001#1",
+          "name": "510(k) summary.doc",
+          "source": "外层文件夹"
+        },
+        {
+          "ref": "D018#2",
+          "name": "SE Comparison.pdf",
+          "source": "eSTAR附件"
+        },
+        {
+          "ref": "D035#1",
+          "name": "510(k) summary.pdf",
+          "source": "eSTAR附件"
+        },
+        {
+          "ref": "D039#1",
+          "name": "SE Comparison.docx",
+          "source": "外层文件夹"
+        }
+      ],
+      "gt": "GT2",
+      "status": "候选",
+      "note": null
+    },
+    {
+      "rule": "R2",
+      "title": "申报联系人在不同文件中不一致",
+      "values": {
+        "Emma Chen": 4,
+        "Leo Liu": 4
+      },
+      "citations": [
+        {
+          "ref": "D001#1",
+          "name": "510(k) summary.doc",
+          "source": "外层文件夹",
+          "field": "Submitter"
+        },
+        {
+          "ref": "D019#1",
+          "name": "Cover letter.pdf",
+          "source": "eSTAR附件",
+          "field": "Submitter"
+        },
+        {
+          "ref": "D019#1",
+          "name": "Cover letter.pdf",
+          "source": "eSTAR附件",
+          "field": "Official contact person"
+        },
+        {
+          "ref": "D002#1",
+          "name": "Cover letter.doc",
+          "source": "外层文件夹",
+          "field": "Submitter"
+        },
+        {
+          "ref": "D002#1",
+          "name": "Cover letter.doc",
+          "source": "外层文件夹",
+          "field": "Official contact person"
+        },
+        {
+          "ref": "D003#1",
+          "name": "Cover letter.pdf",
+          "source": "外层文件夹",
+          "field": "Submitter"
+        }
+      ],
+      "gt": "GT1",
+      "status": "候选",
+      "note": null
+    },
+    {
+      "rule": "R3",
+      "title": "冲洗水温在不同文件中取值不同",
+      "values": {
+        "20-25℃": 11,
+        "20-30℃": 1,
+        "25-30℃": 5
+      },
+      "citations": [
+        {
+          "ref": "D021#29",
+          "name": "Instruction for use.pdf",
+          "source": "eSTAR附件",
+          "context": "t if dirt is not removed. 2.Rinse the device with 20-25 °C water for"
+        },
+        {
+          "ref": "D021#30",
+          "name": "Instruction for use.pdf",
+          "source": "eSTAR附件",
+          "context": ". ° Take out the device and rinse the device with 20-25  C water for"
+        },
+        {
+          "ref": "D023#8",
+          "name": "Reprocessing Validation Test.pdf",
+          "source": "eSTAR附件",
+          "context": " it if dirt is not removed. Rinse the device with 20-25°C water Rin"
+        },
+        {
+          "ref": "D023#17",
+          "name": "Reprocessing Validation Test.pdf",
+          "source": "eSTAR附件",
+          "context": "Rinse the upper tray and lower tray with water of 20-30°C until it "
+        },
+        {
+          "ref": "D024#4",
+          "name": "Durability verification protocol.pdf",
+          "source": "eSTAR附件",
+          "context": "15 seconds to remove dirt. h. Rinse with water at 25~30 degrees Celsius for 20 se"
+        },
+        {
+          "ref": "D025#4",
+          "name": "Durability verification report.pdf",
+          "source": "eSTAR附件",
+          "context": "15 seconds to remove dirt. h. Rinse with water at 25~30 degrees Celsius for 20 se"
+        },
+        {
+          "ref": "D056#1",
+          "name": "Durability verification protocol.docx",
+          "source": "外层文件夹",
+          "context": "or 15 seconds to remove dirt. Rinse with water at 25~30 degrees Celsius for 20 se"
+        }
+      ],
+      "gt": "GT4",
+      "status": "候选",
+      "note": null
+    },
+    {
+      "rule": "R3",
+      "title": "储存温度在不同文件中取值不同",
+      "values": {
+        "20-25℃": 2,
+        "2-8℃": 17
+      },
+      "citations": [
+        {
+          "ref": "D026#4",
+          "name": "Shelf-life verification protocol.pdf",
+          "source": "eSTAR附件",
+          "context": "ation Typically,the storage temperature isbetween 20 to 25℃.Therefore"
+        },
+        {
+          "ref": "D041#1",
+          "name": "Shelf-life verification protocol.docx",
+          "source": "外层文件夹",
+          "context": "ion Typically, the storage temperature is between 20 to 25℃. Therefor"
+        },
+        {
+          "ref": "D028#13",
+          "name": "Cytotoxicity_RT-W25-0003-BAR.pdf",
+          "source": "eSTAR附件",
+          "context": "Xi AppTec (Suzhou) Co., Ltd.  Storage Conditions: 2℃ to 8℃  4.4 Cell"
+        },
+        {
+          "ref": "D028#13",
+          "name": "Cytotoxicity_RT-W25-0003-BAR.pdf",
+          "source": "eSTAR附件",
+          "context": "uXi AppTec (Suzhou) Co., Ltd.  Storage Condition: 2℃ to 8℃     Ident"
+        },
+        {
+          "ref": "D028#13",
+          "name": "Cytotoxicity_RT-W25-0003-BAR.pdf",
+          "source": "eSTAR附件",
+          "context": "uXi AppTec (Suzhou) Co., Ltd.  Storage Condition: 2℃ to 8℃  4.5 Samp"
+        }
+      ],
+      "gt": null,
+      "status": "候选",
+      "note": null
+    },
+    {
+      "rule": "R4",
+      "title": "L08-TB 下托颜色说法不一致",
+      "values": {
+        "blue": 1,
+        "purple": 1
+      },
+      "citations": [
+        {
+          "ref": "D015#7",
+          "name": "Product description.pdf",
+          "source": "eSTAR附件"
+        },
+        {
+          "ref": "D037#4",
+          "name": "Biocompatibility evaluation report.pdf",
+          "source": "eSTAR附件"
+        }
+      ],
+      "gt": "GT3",
+      "status": "候选",
+      "note": null
+    },
+    {
+      "rule": "R5",
+      "title": "eSTAR正文引用的文件未出现在eSTAR附件清单中",
+      "values": {
+        "missing": [
+          "\"Contraindications\" in page 5-6",
+          "MSDS (Blue masterbatch)",
+          "MSDS (EVA)",
+          "MSDS (PP)",
+          "MSDS (Purple masterbatch)",
+          "VA0)"
+        ],
+        "checked_refs": 9
+      },
+      "citations": [
+        {
+          "ref": "D014#1",
+          "name": "nIVD_eSTAR_Anti Snoring Mouthpiece.pdf",
+          "source": "外层文件夹"
+        }
+      ],
+      "gt": "GT5",
+      "status": "候选",
+      "note": "引用可能以其他方式包含，需人工确认，不直接认定漏交"
+    },
+    {
+      "rule": "R6",
+      "title": "Material Characteristic Test (EVA).pdf 结果汇总表结论栏为“/”",
+      "values": {
+        "rows_with_slash": 6
+      },
+      "citations": [
+        {
+          "ref": "D032#2",
+          "name": "Material Characteristic Test (EVA).pdf",
+          "source": "eSTAR附件"
+        }
+      ],
+      "gt": "GT8",
+      "status": "提示",
+      "note": "实验室未给合格判定，需结合设计要求和申报论证解释"
+    },
+    {
+      "rule": "R6",
+      "title": "Material Characteristic Test (PP).pdf 结果汇总表结论栏为“/”",
+      "values": {
+        "rows_with_slash": 6
+      },
+      "citations": [
+        {
+          "ref": "D033#2",
+          "name": "Material Characteristic Test (PP).pdf",
+          "source": "eSTAR附件"
+        }
+      ],
+      "gt": "GT8",
+      "status": "提示",
+      "note": "实验室未给合格判定，需结合设计要求和申报论证解释"
+    },
+    {
+      "rule": "R7",
+      "title": "接触时长类别与使用期限同时出现，需要人解释累计接触评估",
+      "values": {
+        "contact_pages": 4,
+        "life_pages": 6
+      },
+      "citations": [
+        {
+          "ref": "D037#2",
+          "name": "Biocompatibility evaluation report.pdf",
+          "source": "eSTAR附件"
+        },
+        {
+          "ref": "D037#3",
+          "name": "Biocompatibility evaluation report.pdf",
+          "source": "eSTAR附件"
+        },
+        {
+          "ref": "D037#4",
+          "name": "Biocompatibility evaluation report.pdf",
+          "source": "eSTAR附件"
+        },
+        {
+          "ref": "D021#6",
+          "name": "Instruction for use.pdf",
+          "source": "eSTAR附件",
+          "value": "6-12 months"
+        },
+        {
+          "ref": "D024#3",
+          "name": "Durability verification protocol.pdf",
+          "source": "eSTAR附件",
+          "value": "6-12 months"
+        },
+        {
+          "ref": "D025#3",
+          "name": "Durability verification report.pdf",
+          "source": "eSTAR附件",
+          "value": "6-12 months"
+        }
+      ],
+      "gt": "GT6",
+      "status": "交人判断",
+      "note": "概念不同，程序不判断对错"
+    }
+  ]
+}

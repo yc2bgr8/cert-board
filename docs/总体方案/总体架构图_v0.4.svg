@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="860" viewBox="0 0 1200 860" font-family="Microsoft YaHei, PingFang SC, Noto Sans CJK SC, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#5b6b7f"/>
+    </marker>
+    <style>
+      .layer { fill: #f4f7fb; stroke: #9fb3c8; stroke-width: 1.2; }
+      .box { fill: #ffffff; stroke: #5b7fa6; stroke-width: 1.2; }
+      .dsh { fill: #eaf2ff; stroke: #2f5f98; stroke-width: 1.5; }
+      .guard { fill: #fff6e5; stroke: #c98a1a; stroke-width: 1.2; }
+      .model { fill: #eef8f0; stroke: #3f8f55; stroke-width: 1.2; }
+      .ext { fill: #f7f7f7; stroke: #8c8c8c; stroke-width: 1.2; stroke-dasharray: 4 3; }
+      .user { fill: #f0eefb; stroke: #6a5fb0; stroke-width: 1.2; }
+      .t { font-size: 13px; fill: #1f2d3d; }
+      .tb { font-size: 14px; font-weight: bold; fill: #1f2d3d; }
+      .tl { font-size: 13px; font-weight: bold; fill: #3d5a80; }
+      .ts { font-size: 11.5px; fill: #4a5a6a; }
+      .line { stroke: #5b6b7f; stroke-width: 1.3; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <text x="40" y="30" class="tb" font-size="17">AI原生器械认证板块 总体架构（逻辑视图，v0.4）</text>
+
+  <!-- 使用者 -->
+  <rect x="40" y="46" width="200" height="38" rx="6" class="user"/>
+  <text x="140" y="70" class="t" text-anchor="middle">注册人员A、B</text>
+  <rect x="260" y="46" width="200" height="38" rx="6" class="user"/>
+  <text x="360" y="70" class="t" text-anchor="middle">管理层</text>
+  <rect x="480" y="46" width="200" height="38" rx="6" class="user"/>
+  <text x="580" y="70" class="t" text-anchor="middle">销售人员</text>
+  <rect x="700" y="46" width="200" height="38" rx="6" class="user"/>
+  <text x="800" y="70" class="t" text-anchor="middle">资料提供方（内部与外部）</text>
+
+  <!-- 交互层 -->
+  <rect x="30" y="100" width="880" height="132" rx="8" class="layer"/>
+  <text x="44" y="120" class="tl">交互层</text>
+  <rect x="50" y="130" width="420" height="90" rx="6" class="dsh"/>
+  <text x="260" y="152" class="tb" text-anchor="middle">网页界面（自建）：项目栏、对话、审核卡</text>
+  <text x="260" y="174" class="ts" text-anchor="middle">过程可展开、可停止和插话；右栏看改动、证据、计划</text>
+  <text x="260" y="193" class="ts" text-anchor="middle">不含任何遥测；不加载外部资源</text>
+  <text x="260" y="211" class="ts" text-anchor="middle">只与后端的接口和事件流交互</text>
+  <rect x="485" y="130" width="200" height="90" rx="6" class="box"/>
+  <text x="585" y="155" class="t" text-anchor="middle">企业微信提醒</text>
+  <text x="585" y="177" class="ts" text-anchor="middle">提醒、摘要、链接</text>
+  <text x="585" y="196" class="ts" text-anchor="middle">回复不算审批</text>
+  <rect x="700" y="130" width="190" height="90" rx="6" class="box"/>
+  <text x="795" y="155" class="t" text-anchor="middle">辅助网页</text>
+  <text x="795" y="177" class="ts" text-anchor="middle">证据原文与原页、改动对比</text>
+  <text x="795" y="196" class="ts" text-anchor="middle">由审核卡链接打开</text>
+
+  <!-- 登录网关 -->
+  <rect x="30" y="246" width="880" height="44" rx="8" class="guard"/>
+  <text x="470" y="273" class="t" text-anchor="middle">接口服务：公司账号认证；按角色授权；对话、审核、项目、资料接口；事件流（SSE）</text>
+
+  <!-- 后端执行层 -->
+  <rect x="30" y="304" width="880" height="160" rx="8" class="layer"/>
+  <text x="44" y="324" class="tl">认证板块后端：Agent内核、执行与约束（规则在这里执行，不依赖模型自觉）</text>
+  <rect x="50" y="334" width="162" height="58" rx="6" class="guard"/>
+  <text x="131" y="357" class="t" text-anchor="middle">目标、等待与唤醒</text>
+  <text x="131" y="377" class="ts" text-anchor="middle">状态、唤醒、交还人工</text>
+  <rect x="222" y="334" width="162" height="58" rx="6" class="guard"/>
+  <text x="303" y="357" class="t" text-anchor="middle">动作级别与审批</text>
+  <text x="303" y="377" class="ts" text-anchor="middle">四级、提案、暂停外发</text>
+  <rect x="394" y="334" width="162" height="58" rx="6" class="guard"/>
+  <text x="475" y="357" class="t" text-anchor="middle">确定性检查</text>
+  <text x="475" y="377" class="ts" text-anchor="middle">V1–V8、一致性三层</text>
+  <rect x="566" y="334" width="162" height="58" rx="6" class="guard"/>
+  <text x="647" y="357" class="t" text-anchor="middle">预算与停止</text>
+  <text x="647" y="377" class="ts" text-anchor="middle">单次、目标、月度上限</text>
+  <rect x="738" y="334" width="152" height="58" rx="6" class="guard"/>
+  <text x="814" y="357" class="t" text-anchor="middle">评测与改进</text>
+  <text x="814" y="377" class="ts" text-anchor="middle">七维评测、版本化改进</text>
+  <rect x="50" y="402" width="410" height="50" rx="6" class="box"/>
+  <text x="255" y="423" class="t" text-anchor="middle">Agent内核（Pi）与项目工作区</text>
+  <text x="255" y="442" class="ts" text-anchor="middle">对话、唤醒、评测同一套；工作副本、版本、冻结</text>
+  <rect x="475" y="402" width="415" height="50" rx="6" class="box"/>
+  <text x="682" y="423" class="t" text-anchor="middle">业务语义层</text>
+  <text x="682" y="442" class="ts" text-anchor="middle">概念目录、可回答性检查、审阅过的查询、回执</text>
+
+  <!-- 能力与工具层 -->
+  <rect x="30" y="478" width="880" height="140" rx="8" class="layer"/>
+  <text x="44" y="498" class="tl">技能与业务工具层</text>
+  <rect x="50" y="508" width="270" height="46" rx="6" class="box"/>
+  <text x="185" y="528" class="t" text-anchor="middle">技能：注册流程 R01–R12</text>
+  <text x="185" y="546" class="ts" text-anchor="middle">方法、证据要求、必查项、等级</text>
+  <rect x="335" y="508" width="270" height="46" rx="6" class="box"/>
+  <text x="470" y="528" class="t" text-anchor="middle">技能：体系维护 M01–M12</text>
+  <text x="470" y="546" class="ts" text-anchor="middle">市场规则包（版本化）</text>
+  <rect x="620" y="508" width="270" height="46" rx="6" class="box"/>
+  <text x="755" y="528" class="t" text-anchor="middle">技能：支持 S01–S05</text>
+  <text x="755" y="546" class="ts" text-anchor="middle">报告、周报、质量保障</text>
+  <rect x="50" y="562" width="133" height="46" rx="6" class="box"/>
+  <text x="116" y="582" class="t" text-anchor="middle">资料检索</text>
+  <text x="116" y="599" class="ts" text-anchor="middle">与解析（T1）</text>
+  <rect x="193" y="562" width="133" height="46" rx="6" class="box"/>
+  <text x="259" y="582" class="t" text-anchor="middle">官方数据</text>
+  <text x="259" y="599" class="ts" text-anchor="middle">openFDA等</text>
+  <rect x="336" y="562" width="133" height="46" rx="6" class="box"/>
+  <text x="402" y="582" class="t" text-anchor="middle">业务记录</text>
+  <text x="402" y="599" class="ts" text-anchor="middle">台账、提醒、等待</text>
+  <rect x="479" y="562" width="133" height="46" rx="6" class="box"/>
+  <text x="545" y="582" class="t" text-anchor="middle">检查与规则</text>
+  <text x="545" y="599" class="ts" text-anchor="middle">V1–V8、规则库</text>
+  <rect x="622" y="562" width="133" height="46" rx="6" class="box"/>
+  <text x="688" y="582" class="t" text-anchor="middle">提交审核与提案</text>
+  <text x="688" y="599" class="ts" text-anchor="middle">审核卡；对外需审批</text>
+  <rect x="765" y="562" width="125" height="46" rx="6" class="box"/>
+  <text x="827" y="582" class="t" text-anchor="middle">通用工具</text>
+  <text x="827" y="599" class="ts" text-anchor="middle">文件、沙箱、网页</text>
+
+  <!-- 数据层 -->
+  <rect x="30" y="632" width="880" height="96" rx="8" class="layer"/>
+  <text x="44" y="652" class="tl">数据层（PostgreSQL + 文件存储，公司内网）</text>
+  <rect x="50" y="662" width="200" height="54" rx="6" class="box"/>
+  <text x="150" y="684" class="t" text-anchor="middle">业务记录</text>
+  <text x="150" y="703" class="ts" text-anchor="middle">主数据、证照、项目、证据</text>
+  <rect x="262" y="662" width="200" height="54" rx="6" class="box"/>
+  <text x="362" y="684" class="t" text-anchor="middle">知识与记忆</text>
+  <text x="362" y="703" class="ts" text-anchor="middle">技能、规则包、事实、概念目录</text>
+  <rect x="474" y="662" width="200" height="54" rx="6" class="box"/>
+  <text x="574" y="684" class="t" text-anchor="middle">资料库与工作区</text>
+  <text x="574" y="703" class="ts" text-anchor="middle">文件、版本、逐页文本</text>
+  <rect x="686" y="662" width="204" height="54" rx="6" class="box"/>
+  <text x="788" y="684" class="t" text-anchor="middle">执行记录</text>
+  <text x="788" y="703" class="ts" text-anchor="middle">目标、提案、事件、评测、用量</text>
+
+  <!-- 右侧：模型 -->
+  <rect x="935" y="246" width="235" height="84" rx="8" class="model"/>
+  <text x="1052" y="270" class="t" text-anchor="middle">模型网关（后端）</text>
+  <text x="1052" y="290" class="ts" text-anchor="middle">Agent内核的所有模型请求都经这里</text>
+  <text x="1052" y="308" class="ts" text-anchor="middle">按数据级别路由；计量与预算</text>
+  <text x="1052" y="324" class="ts" text-anchor="middle">未批准端点直接拒绝</text>
+  <rect x="935" y="344" width="235" height="56" rx="8" class="model"/>
+  <text x="1052" y="367" class="t" text-anchor="middle">自部署本地模型（为主）</text>
+  <text x="1052" y="387" class="ts" text-anchor="middle">可处理保密资料；选型待定</text>
+  <rect x="935" y="412" width="235" height="56" rx="8" class="model"/>
+  <text x="1052" y="435" class="t" text-anchor="middle">闭源模型（部分任务）</text>
+  <text x="1052" y="455" class="ts" text-anchor="middle">可处理公开和内部资料（已批准）</text>
+
+  <!-- 右侧：外部系统 -->
+  <rect x="935" y="490" width="235" height="238" rx="8" class="ext"/>
+  <text x="950" y="510" class="tl">外部系统</text>
+  <text x="955" y="540" class="t">WPS云文档（D03）</text>
+  <text x="955" y="570" class="t">邮件（D03）</text>
+  <text x="955" y="600" class="t">FDA、加拿大卫生部公开数据</text>
+  <text x="955" y="630" class="t">企业微信（D03）</text>
+  <text x="955" y="660" class="t">监管门户（只由人操作）</text>
+  <text x="955" y="694" class="ts">AI不接触监管门户、缴费、签名</text>
+  <text x="955" y="712" class="ts">不接入未批准的模型接口</text>
+
+  <!-- 连线 -->
+  <path d="M470,84 L470,98" class="line"/>
+  <path d="M260,220 L260,244" class="line"/>
+  <path d="M470,290 L470,302" class="line"/>
+  <path d="M470,464 L470,476" class="line"/>
+  <path d="M470,618 L470,630" class="line"/>
+  <path d="M910,300 L933,290" class="line"/>
+  <path d="M1052,330 L1052,342" class="line"/>
+  <path d="M1052,400 L1052,410" class="line"/>
+  <path d="M910,590 L933,600" class="line"/>
+
+  <text x="40" y="756" class="ts">说明：箭头表示主要调用方向。橙色框是系统强制执行的约束和边界，不依赖模型自觉；蓝色框是界面；绿色框是模型；虚线框是外部系统。</text>
+  <text x="40" y="776" class="ts">界面和后端都是自建的；审批、预算、业务记录以后端为准；Agent内核用Pi（MIT许可），版本固定。</text>
+  <text x="40" y="796" class="ts">数据边界：资料只经模型网关发往允许其级别的模型；代码只在不能出网的沙箱中运行；系统不默认向外发送数据（需求V0.9 第3.1、5.5节）。</text>
+  <text x="40" y="816" class="ts">复用：参考项目提供机制设计、后端模块和工作台的交互做法；组长认证线资产提供业务字段和规则；T1提供文档解析。</text>
+</svg>

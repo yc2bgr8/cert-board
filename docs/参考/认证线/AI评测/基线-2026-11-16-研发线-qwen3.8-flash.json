@@ -1,0 +1,2707 @@
+{
+  "date": "2026-11-16",
+  "model": "qwen/qwen3.8-flash",
+  "mock": false,
+  "prompts": [
+    "up_precheck v0.1",
+    "diff_summary v0.1",
+    "rv_candidates v0.1",
+    "rec_draft v0.1",
+    "bg_impact v0.1",
+    "wk_report v0.1"
+  ],
+  "summary": [
+    {
+      "t": "up",
+      "n": 25,
+      "valid": 25,
+      "pass": 24,
+      "lat": 3259,
+      "cost": 0.003369653999999999,
+      "tokens": 11377
+    },
+    {
+      "t": "diff",
+      "n": 25,
+      "valid": 25,
+      "pass": 25,
+      "lat": 1409,
+      "cost": 0.0018664299999999997,
+      "tokens": 9533
+    },
+    {
+      "t": "rv",
+      "n": 25,
+      "valid": 25,
+      "pass": 16,
+      "lat": 2950,
+      "cost": 0.0028297400000000003,
+      "tokens": 9794
+    },
+    {
+      "t": "rec",
+      "n": 25,
+      "valid": 25,
+      "pass": 25,
+      "lat": 3156,
+      "cost": 0.0036513200000000004,
+      "tokens": 13812
+    },
+    {
+      "t": "bg",
+      "n": 25,
+      "valid": 25,
+      "pass": 12,
+      "lat": 7799,
+      "cost": 0.006542874,
+      "tokens": 18247
+    },
+    {
+      "t": "wk",
+      "n": 25,
+      "valid": 24,
+      "pass": 24,
+      "lat": 2305,
+      "cost": 0.0032868999999999993,
+      "tokens": 13454
+    }
+  ],
+  "results": [
+    {
+      "id": "bg-01",
+      "touchpoint": "bg",
+      "title": "App 蓝牙配对改为扫码 + 数字比较",
+      "attempts": 1,
+      "latencyMs": 6354,
+      "inputTokens": 523,
+      "outputTokens": 468,
+      "costUsd": 0.00029841,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 letter-to-file",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述为“App 蓝牙配对改为扫码 + 数字比较”，属于用户交互与连接流程改变，而非仅加强网络安全。"
+          },
+          {
+            "q": 2,
+            "answer": "不确定",
+            "basis": "输入提及“风险管理文件更新...需评估”及“按变更评估风险档案”，但未提供具体的危害分析结论或新风险是否导致重大危害的判定结果。"
+          },
+          {
+            "q": 3,
+            "answer": "否",
+            "basis": "技术评估意见明确指出“不改变治疗参数、压力控制算法与报警逻辑”。"
+          },
+          {
+            "q": 4,
+            "answer": "不确定",
+            "basis": "输入未包含标签宣称或预期用途的具体变更描述，无法确认配对方式改变是否影响说明书中的操作指引或适应症范围。"
+          }
+        ],
+        "reasons": [
+          "虽然核心治疗功能（压力控制、报警）保持不变，但蓝牙配对机制的改变涉及软件架构和用户操作流程的重大调整。",
+          "风险档案更新状态标记为“需评估”，表明潜在的新风险（如配对失败导致的延迟、安全性漏洞等）尚未完成闭环验证。",
+          "缺乏关于标签/说明书是否需要同步修改的信息，这直接影响对预期用途影响的判断。"
+        ],
+        "uncovered": [
+          "需核实 FDA 指南中关于“用户界面/交互变化”的具体条款编号及对应决策树路径。",
+          "需补充风险评估报告的具体结论，确认新的配对方式是否引入不可接受的风险或需要额外的临床验证数据。",
+          "需确认产品标签（IFU）中关于蓝牙配对的描述是否需要更新，以及该更新是否被视为实质性变更。",
+          "需明确“扫码+数字比较”在异常场景下的失效模式及其对设备可用性的具体影响测试数据。"
+        ]
+      }
+    },
+    {
+      "id": "bg-02",
+      "touchpoint": "bg",
+      "title": "固件屏幕文字翻译修正",
+      "attempts": 1,
+      "latencyMs": 6754,
+      "inputTokens": 252,
+      "outputTokens": 419,
+      "costUsd": 0.00023882599999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "bg-03",
+      "touchpoint": "bg",
+      "title": "电源适配器增加第二供应商",
+      "attempts": 1,
+      "latencyMs": 7219,
+      "inputTokens": 254,
+      "outputTokens": 458,
+      "costUsd": 0.00025745599999999993,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "bg-04",
+      "touchpoint": "bg",
+      "title": "App 增加深色模式",
+      "attempts": 1,
+      "latencyMs": 5828,
+      "inputTokens": 253,
+      "outputTokens": 416,
+      "costUsd": 0.00023756599999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "bg-05",
+      "touchpoint": "bg",
+      "title": "云端日志保留期由 1 年改为 2 年",
+      "attempts": 1,
+      "latencyMs": 6574,
+      "inputTokens": 264,
+      "outputTokens": 408,
+      "costUsd": 0.00023545599999999996,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "bg-06",
+      "touchpoint": "bg",
+      "title": "修复 App 同步时偶发崩溃",
+      "attempts": 1,
+      "latencyMs": 7255,
+      "inputTokens": 258,
+      "outputTokens": 485,
+      "costUsd": 0.000270746,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 letter-to-file",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述为修复App同步时偶发崩溃，属于软件缺陷修复，未提及仅涉及网络安全加强。"
+          },
+          {
+            "q": 2,
+            "answer": "不确定",
+            "basis": "技术评估称治疗数据与算法不变，但风险管理文件更新状态为“需评估”，且风险档案更新需求指出需按变更评估风险，故是否引入新风险或导致重大危害尚待核实。"
+          },
+          {
+            "q": 3,
+            "answer": "是",
+            "basis": "变更涉及修复App同步时的崩溃问题，这直接影响软件的运行稳定性及同步功能的性能表现，属于对临床功能或性能规格的影响范畴。"
+          },
+          {
+            "q": 4,
+            "answer": "否",
+            "basis": "变更描述明确指出为缺陷修复，且治疗数据与算法不变，未提及修改预期用途、适应症或标签宣称。"
+          }
+        ],
+        "reasons": [
+          "虽然技术评估声称核心算法和数据不变，但Q3判定为影响性能规格（稳定性/同步功能），根据FDA指南逻辑，若影响性能则不能直接排除510(k)。",
+          "Q2关于风险影响的判断依赖于尚未完成的风险管理文件评估（状态为“需评估”），缺乏最终的风险控制结论支持“letter-to-file”。",
+          "示例变更性质特殊，需确认该崩溃修复是否改变了用户交互流程或数据处理路径，从而间接影响临床有效性。"
+        ],
+        "uncovered": [
+          "需补充具体的风险评估报告结论，以明确回答Q2（是否导致重大危害）。",
+          "需核实FDA 2017年指南中关于“软件缺陷修复”的具体流程图分支条款编号，确认此类稳定性修复在何种条件下可豁免提交。",
+          "需提供回归测试数据或验证报告，证明修复后的同步功能性能符合原有规格要求，以支撑Q3的最终定性。"
+        ]
+      }
+    },
+    {
+      "id": "bg-07",
+      "touchpoint": "bg",
+      "title": "升级 TLS 库版本修复漏洞",
+      "attempts": 1,
+      "latencyMs": 7213,
+      "inputTokens": 254,
+      "outputTokens": 500,
+      "costUsd": 0.00027719599999999995,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "bg-08",
+      "touchpoint": "bg",
+      "title": "包装箱尺寸调整",
+      "attempts": 1,
+      "latencyMs": 6775,
+      "inputTokens": 244,
+      "outputTokens": 445,
+      "costUsd": 0.00024984599999999997,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 letter-to-file",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述为包装箱尺寸调整，属于物理/硬件相关变更，非网络安全加强。"
+          },
+          {
+            "q": 2,
+            "answer": "不确定",
+            "basis": "技术评估称包装材料与保护性能不变，但风险管理文件更新标记为“需评估”，且风险档案更新需求未给出具体危害分析结论。"
+          },
+          {
+            "q": 3,
+            "answer": "否",
+            "basis": "变更仅涉及包装箱尺寸，未提及对App v1.3.0或固件v1.3.0的功能、算法或性能规格产生任何影响。"
+          },
+          {
+            "q": 4,
+            "answer": "否",
+            "basis": "变更描述中未提及预期用途、适应症或标签宣称的任何修改。"
+          }
+        ],
+        "reasons": [
+          "变更性质为物理包装调整，通常不直接影响软件功能或临床性能。",
+          "虽然技术评估声称保护性能不变，但内部流程要求对风险档案进行“需评估”状态的处理，表明尚未完成最终的风险接受性判定。",
+          "根据FDA指南逻辑，若变更不影响安全性有效性核心要素且无新风险，可能适用Letter-to-File；但因风险档案状态未闭环，无法直接下结论。"
+        ],
+        "uncovered": [
+          "需要确认包装尺寸变化是否影响运输验证数据或货架寿命稳定性测试的覆盖范围。",
+          "需要注册A核实风险管理文件更新的具体内容，确认是否识别出新的失效模式（如堆码强度变化导致的破损风险）。",
+          "需要明确该包装变更是否涉及无菌屏障系统（若适用），从而决定是否需要额外的生物相容性或密封完整性测试报告支持。"
+        ]
+      }
+    },
+    {
+      "id": "bg-09",
+      "touchpoint": "bg",
+      "title": "外壳颜色由灰改为白",
+      "attempts": 1,
+      "latencyMs": 8817,
+      "inputTokens": 254,
+      "outputTokens": 546,
+      "costUsd": 0.000298816,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "bg-10",
+      "touchpoint": "bg",
+      "title": "使用说明书增加二维码配对步骤图",
+      "attempts": 1,
+      "latencyMs": 8062,
+      "inputTokens": 258,
+      "outputTokens": 486,
+      "costUsd": 0.00027121599999999996,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "bg-11",
+      "touchpoint": "bg",
+      "title": "App 报表增加周统计视图",
+      "attempts": 1,
+      "latencyMs": 5134,
+      "inputTokens": 253,
+      "outputTokens": 396,
+      "costUsd": 0.000228166,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "bg-12",
+      "touchpoint": "bg",
+      "title": "固件看门狗超时由 2 s 改为 3 s",
+      "attempts": 1,
+      "latencyMs": 7987,
+      "inputTokens": 266,
+      "outputTokens": 546,
+      "costUsd": 0.00030061599999999997,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 letter-to-file",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述为固件看门狗超时时间调整，属于软件功能/性能参数修改，未提及仅为加强网络安全。"
+          },
+          {
+            "q": 2,
+            "answer": "不确定",
+            "basis": "技术评估称不影响压力输出与报警逻辑，但风险管理文件更新状态为“需评估”，且风险档案更新需求指出需按变更评估，故是否引入新风险或导致重大危害尚待核实。"
+          },
+          {
+            "q": 3,
+            "answer": "不确定",
+            "basis": "技术评估意见明确指出“不影响压力输出与报警逻辑”，暗示临床功能可能不受影响，但看门狗机制涉及系统稳定性，需确认该参数变化是否间接影响设备整体性能规格。"
+          },
+          {
+            "q": 4,
+            "answer": "否",
+            "basis": "输入信息中未提及预期用途、适应症或标签宣称的任何变更。"
+          }
+        ],
+        "reasons": [
+          "虽然技术评估声称不影响核心临床功能（压力输出与报警），但看门狗超时时间的改变直接影响系统的故障检测与恢复机制，属于软件架构层面的变更。",
+          "风险管理文件处于“需评估”状态，意味着尚未完成对该变更潜在危害的分析，无法直接排除对安全性的影响。",
+          "FDA指南通常要求评估软件变更是否影响设备的总体安全性或有效性，仅凭“不影响输出”不足以判定无需提交510(k)，需结合风险分析结果。"
+        ],
+        "uncovered": [
+          "需补充具体的风险分析报告，确认看门狗超时延长是否会导致在特定故障模式下设备响应延迟超出可接受范围。",
+          "需核实该技术评估意见是否经过测试验证（如故障注入测试），还是仅为理论分析。",
+          "需查阅 FDA 2017 年指南中关于“软件架构变更”或“错误处理机制变更”的具体条款，以确定此类非功能性参数调整的监管路径。",
+          "需确认基线版本 App v1.3.0 / 固件 v1.3.0 的原始510(k)文件中对看门狗机制的描述，以判断本次变更是否偏离了原申报的性能规格。"
+        ]
+      }
+    },
+    {
+      "id": "bg-13",
+      "touchpoint": "bg",
+      "title": "湿化器加热片供应商更换",
+      "attempts": 1,
+      "latencyMs": 7344,
+      "inputTokens": 262,
+      "outputTokens": 544,
+      "costUsd": 0.00029907599999999995,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 letter-to-file",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述为湿化器加热片供应商更换，属于硬件/组件变更，未提及网络安全相关修改。"
+          },
+          {
+            "q": 2,
+            "answer": "不确定",
+            "basis": "技术评估称'经等效性验证'且'同规格、同温控参数'，但风险管理文件更新状态为'需评估'，风险档案更新需求仅为示例，缺乏具体危害分析数据以确认是否引入新风险或重大危害。"
+          },
+          {
+            "q": 3,
+            "answer": "不确定",
+            "basis": "技术评估声称'同规格、同温控参数'暗示性能不变，但作为初稿，缺乏具体的测试报告或数据对比来证实临床功能或性能规格确实未受影响。"
+          },
+          {
+            "q": 4,
+            "answer": "否",
+            "basis": "变更仅涉及内部组件供应商更换，输入中未提及预期用途、适应症或标签宣称的任何修改。"
+          }
+        ],
+        "reasons": [
+          "虽然技术评估声明了等效性和参数一致，但风险管理文件的更新状态标记为'需评估'，表明风险评估过程尚未完成或结论未定。",
+          "输入信息中的'示例'字样及缺失的具体验证数据（如热分布测试、寿命测试等），使得无法直接依据FDA指南判定为无需提交510(k)。",
+          "根据FDA软件/硬件变更指南逻辑，若不能确凿证明变更不影响安全性与有效性（即Q2和Q3的答案必须明确为'否'），则不能直接得出'letter-to-file'的结论。"
+        ],
+        "uncovered": [
+          "需提供具体的等效性验证报告（包括温控精度、升温速率、最大温度等关键参数的实测数据对比）。",
+          "需完成风险管理文件（SYYFSC-JBR-RMF）的正式更新，并出具最终的风险评估结论，确认无新增不可接受风险。",
+          "需核实该加热片是否为关键安全组件，以及供应商变更是否影响生物相容性或电气安全标准符合性。",
+          "需补充FDA指南中关于'Minor Change'与'Major Change'的具体条款引用及对应测试要求。"
+        ]
+      }
+    },
+    {
+      "id": "bg-14",
+      "touchpoint": "bg",
+      "title": "新增自动压力调节（APAP）算法",
+      "attempts": 1,
+      "latencyMs": 6274,
+      "inputTokens": 260,
+      "outputTokens": 488,
+      "costUsd": 0.00027245599999999997,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 需要提交新的 510(k)",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述为新增APAP算法并改变治疗压力控制算法，非仅加强网络安全。"
+          },
+          {
+            "q": 2,
+            "answer": "不确定",
+            "basis": "风险管理文件更新标记为'需评估'，且风险档案更新需求仅为示例，未提供具体的危害分析或风险控制措施变更详情。"
+          },
+          {
+            "q": 3,
+            "answer": "是",
+            "basis": "技术评估明确指出'改变治疗压力控制算法与性能规格'。"
+          },
+          {
+            "q": 4,
+            "answer": "不确定",
+            "basis": "输入信息中未提及预期用途、适应症或标签宣称的具体变更内容，仅描述了算法和性能规格的变动。"
+          }
+        ],
+        "reasons": [
+          "变更直接影响了临床功能的核心参数（治疗压力控制算法及性能规格），这通常触发对510(k)影响的深入评估。",
+          "关于是否引入新风险导致重大危害（问题2）以及是否影响预期用途（问题4），当前输入缺乏具体的风险评估结论和标签变更说明，无法做出确定性判断。",
+          "虽然明确改变了性能规格，但根据FDA指南逻辑，若该改变不影响安全性有效性或预期用途，可能仅需Letter-to-File；反之则需提交新510(k)。鉴于关键信息缺失，目前状态为不确定。"
+        ],
+        "uncovered": [
+          "需要补充具体的风险分析报告，确认APAP算法引入的新风险是否可控且不导致重大危害。",
+          "需要核实新的性能规格是否仍在原Predicate Device的验证范围内，或是否需要额外的临床/台架测试数据支持。",
+          "需要确认产品标签（IFU/说明书）是否因新增APAP功能而修改了适应症或预期用途的描述。",
+          "需要引用FDA 2017指南中关于'改变性能规格'具体章节的判定逻辑进行详细比对。"
+        ]
+      }
+    },
+    {
+      "id": "bg-15",
+      "touchpoint": "bg",
+      "title": "适应症增加儿童患者",
+      "attempts": 1,
+      "latencyMs": 18215,
+      "inputTokens": 246,
+      "outputTokens": 477,
+      "costUsd": 0.00026518599999999994,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "bg-16",
+      "touchpoint": "bg",
+      "title": "最大治疗压力由 20 cmH2O 提高到 25 cmH2O",
+      "attempts": 1,
+      "latencyMs": 5864,
+      "inputTokens": 272,
+      "outputTokens": 424,
+      "costUsd": 0.000244176,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 需要提交新的 510(k)",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述为改变性能规格（最大治疗压力），非网络安全加强。"
+          },
+          {
+            "q": 2,
+            "answer": "不确定",
+            "basis": "风险管理文件更新状态为“需评估”，风险档案更新需求仅为示例，未提供具体危害分析结论。"
+          },
+          {
+            "q": 3,
+            "answer": "是",
+            "basis": "变更描述明确指出“改变性能规格”，且技术评估意见确认为“改变性能规格”。"
+          },
+          {
+            "q": 4,
+            "answer": "不确定",
+            "basis": "输入信息仅提及压力数值变化，未说明是否导致预期用途、适应症或标签宣称发生实质性改变。"
+          }
+        ],
+        "reasons": [
+          "变更直接涉及核心性能参数（最大治疗压力）的调整，属于对设备物理/软件控制逻辑的修改。",
+          "虽然确认影响了性能规格，但缺乏关于该变更是否引入新风险或导致重大危害的具体风险评估数据。",
+          "无法确定压力上限的提升是否改变了设备的临床适用范围或需要更新标签以反映新的安全边界。"
+        ],
+        "uncovered": [
+          "需补充具体的风险分析报告，确认压力提升是否引入新的失效模式或加重现有危害。",
+          "需核实 FDA 2017 指南中关于“性能规格变更”与“重大修改”判定的具体条款依据。",
+          "需确认是否需要针对新压力范围进行额外的台架测试或临床验证以支持安全性。",
+          "需明确标签和说明书是否需要同步更新以反映新的最大压力限制及潜在警告。"
+        ]
+      }
+    },
+    {
+      "id": "bg-17",
+      "touchpoint": "bg",
+      "title": "取消低压报警",
+      "attempts": 1,
+      "latencyMs": 16465,
+      "inputTokens": 246,
+      "outputTokens": 425,
+      "costUsd": 0.000240746,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "bg-18",
+      "touchpoint": "bg",
+      "title": "新增远程调整处方压力功能",
+      "attempts": 1,
+      "latencyMs": 5797,
+      "inputTokens": 254,
+      "outputTokens": 431,
+      "costUsd": 0.000244766,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 需要提交新的 510(k)",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述明确指出为“新增远程调整处方压力功能”，属于新增影响治疗的功能，而非仅为加强网络安全。"
+          },
+          {
+            "q": 2,
+            "answer": "是",
+            "basis": "技术评估意见指出“引入新风险”，且风险管理文件更新需求提示需评估风险档案。"
+          },
+          {
+            "q": 3,
+            "answer": "是",
+            "basis": "变更描述指出该功能“新增影响治疗的功能”，直接涉及临床性能规格中的压力参数调整。"
+          },
+          {
+            "q": 4,
+            "answer": "不确定",
+            "basis": "输入信息未明确说明是否改变了预期用途或适应症，仅提及新增功能，需核实标签宣称是否随之变更。"
+          }
+        ],
+        "reasons": [
+          "变更引入了新的临床功能（远程调整压力），直接影响治疗过程。",
+          "技术评估确认引入了新风险，触发了风险管理文件的更新需求。",
+          "根据FDA指南逻辑，当软件变更引入新风险且影响临床功能时，通常倾向于需要提交510(k)，但具体危害程度需进一步评估。"
+        ],
+        "uncovered": [
+          "需核实新引入的风险是否可能导致重大危害（Major Harm），以区分是否需要提交510(k)还是Letter-to-File。",
+          "需确认预期用途、适应症及标签宣称是否因新增远程功能而发生实质性改变。",
+          "需补充具体的风险分析报告或FMEA结果，以量化新风险的可接受性。",
+          "需核实FDA指南中关于“新风险”与“重大危害”判定的具体条款编号及适用情形。"
+        ]
+      }
+    },
+    {
+      "id": "bg-19",
+      "touchpoint": "bg",
+      "title": "鼻罩材料由硅胶改为新弹性体",
+      "attempts": 1,
+      "latencyMs": 8290,
+      "inputTokens": 264,
+      "outputTokens": 527,
+      "costUsd": 0.0002913859999999999,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 需要提交新的 510(k)",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述为鼻罩材料由硅胶改为新弹性体，属于物理/化学属性变化，非网络安全加强。"
+          },
+          {
+            "q": 2,
+            "answer": "是",
+            "basis": "技术评估指出患者接触材料变化需生物相容性评价，且风险管理文件更新需求提示需评估风险档案，暗示可能引入新的生物相容性风险或改变现有风险控制措施。"
+          },
+          {
+            "q": 3,
+            "answer": "不确定",
+            "basis": "输入仅提及材料变化和生物相容性评价需求，未明确说明该材料变更是否影响设备的临床功能（如密封性、耐用性）或性能规格参数。"
+          },
+          {
+            "q": 4,
+            "answer": "不确定",
+            "basis": "输入未提供标签宣称或预期用途的具体修改信息，仅提到材料变更，无法直接判断是否影响适应症或标签内容。"
+          }
+        ],
+        "reasons": [
+          "患者接触材料的根本性变化（硅胶至新弹性体）通常涉及生物相容性风险的重新评估，符合指南中关于‘引入新风险’的考量范畴。",
+          "虽然技术评估强调了生物相容性，但未提供具体的测试数据或结论来证明该变更不会导致重大危害或影响核心性能，因此不能直接排除510(k)提交要求。",
+          "缺乏关于临床功能、性能规格以及标签宣称是否受影响的明确证据，导致无法完成对问题3和问题4的最终判定。"
+        ],
+        "uncovered": [
+          "需核实新弹性体的具体生物相容性测试结果（细胞毒性、致敏、刺激等）以确认风险可控程度。",
+          "需补充技术评估意见，明确材料变更是否影响鼻罩的物理性能（如拉伸强度、密封压力），进而影响临床功能或性能规格。",
+          "需确认标签和说明书是否需要因材料名称变更而进行相应修改，以判断是否影响预期用途宣称。",
+          "需查阅FDA 2017年指南中关于“材料变更”的具体章节条款编号及示例，以支持最终决策依据。"
+        ]
+      }
+    },
+    {
+      "id": "bg-20",
+      "touchpoint": "bg",
+      "title": "宣称\"可治疗失眠\"",
+      "attempts": 1,
+      "latencyMs": 5304,
+      "inputTokens": 250,
+      "outputTokens": 295,
+      "costUsd": 0.00018024599999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "bg-21",
+      "touchpoint": "bg",
+      "title": "压力传感器更换为不同原理的型号",
+      "attempts": 1,
+      "latencyMs": 7416,
+      "inputTokens": 252,
+      "outputTokens": 478,
+      "costUsd": 0.00026655599999999993,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 需要提交新的 510(k)",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述明确指出更换为不同原理的压力传感器并影响压力测量与控制性能，非仅网络安全加强。"
+          },
+          {
+            "q": 2,
+            "answer": "不确定",
+            "basis": "风险管理文件更新状态为“需评估”，且风险档案更新需求仅为示例，未提供具体的新危害或重大性判定依据。"
+          },
+          {
+            "q": 3,
+            "answer": "是",
+            "basis": "技术评估意见明确记载“影响压力测量与控制性能”。"
+          },
+          {
+            "q": 4,
+            "answer": "不确定",
+            "basis": "输入信息中未提及预期用途、适应症或标签宣称的变更内容。"
+          }
+        ],
+        "reasons": [
+          "技术评估确认变更影响了核心临床功能（压力测量与控制性能），这通常触发对510(k)提交必要性的深入审查。",
+          "由于传感器原理改变，可能涉及新的失效模式，但当前风险档案更新处于“需评估”阶段，缺乏关于是否引入新风险或导致重大危害的最终结论。",
+          "虽然影响了性能规格，但未明确说明这种影响是否超出了原Predicate Device的性能范围或改变了安全有效性特征，因此无法直接得出无需提交或必须提交的结论。"
+        ],
+        "uncovered": [
+          "需要完成风险管理文件（SYYFSC-JBR-RMF）的具体评估，确定是否引入了新的危险源或显著改变了现有风险控制措施的有效性。",
+          "需要提供压力测量与控制性能变更后的具体测试数据或验证报告，以量化性能变化幅度及其对临床结果的影响。",
+          "需核实该变更是否导致设备的安全有效性特征（Safety and Effectiveness Profile）发生根本性改变，从而决定是否需要新的510(k)或仅需Letter to File。",
+          "需确认预期用途和标签宣称是否因传感器原理变更而需要同步修改。"
+        ]
+      }
+    },
+    {
+      "id": "bg-22",
+      "touchpoint": "bg",
+      "title": "App 新增呼吸暂停事件诊断提示",
+      "attempts": 1,
+      "latencyMs": 6916,
+      "inputTokens": 249,
+      "outputTokens": 440,
+      "costUsd": 0.000248246,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "bg-23",
+      "touchpoint": "bg",
+      "title": "新增电池供电（旅行版）",
+      "attempts": 1,
+      "latencyMs": 7234,
+      "inputTokens": 253,
+      "outputTokens": 441,
+      "costUsd": 0.00024931599999999997,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 需要提交新的 510(k)",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述为新增电池供电，非网络安全加强。"
+          },
+          {
+            "q": 2,
+            "answer": "是",
+            "basis": "技术评估意见明确指出“引入新风险”，且风险管理文件更新需求提及需评估风险档案。"
+          },
+          {
+            "q": 3,
+            "answer": "不确定",
+            "basis": "输入仅提及新增供电方式及引入新风险，未明确说明是否改变临床功能或性能规格的具体参数。"
+          },
+          {
+            "q": 4,
+            "answer": "不确定",
+            "basis": "输入未提供关于预期用途、适应症或标签宣称是否因新增旅行版而改变的直接证据。"
+          }
+        ],
+        "reasons": [
+          "技术评估确认变更引入了新风险，触发对重大危害可能性的深入分析需求。",
+          "风险管理文件状态标记为“需评估”，表明现有风险控制措施的有效性尚未在初稿中完成验证。",
+          "缺乏关于临床性能具体变化及标签修改的明确信息，导致无法直接判定是否影响510(k)核心要素。"
+        ],
+        "uncovered": [
+          "需核实新增电池供电是否导致设备关键性能指标（如续航下的输出稳定性）超出原510(k)申报范围。",
+          "需补充针对新引入风险（如电池过热、漏液等）的具体危害分析及控制措施有效性评估结论。",
+          "需确认标签/说明书是否需增加关于电池安全使用的新警告或注意事项，以及这是否构成预期用途的实质性变更。",
+          "需引用FDA 2017指南中关于硬件/软件结合体变更的具体决策流程图节点编号以支持最终判断。"
+        ]
+      }
+    },
+    {
+      "id": "bg-24",
+      "touchpoint": "bg",
+      "title": "加湿器最高温度由 70 ℃ 提高到 80 ℃",
+      "attempts": 1,
+      "latencyMs": 8144,
+      "inputTokens": 274,
+      "outputTokens": 529,
+      "costUsd": 0.00029382599999999996,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 需要提交新的 510(k)",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述为加湿器最高温度由 70 ℃ 提高到 80 ℃，属于物理性能规格改变，非网络安全加强。"
+          },
+          {
+            "q": 2,
+            "answer": "是",
+            "basis": "技术评估明确指出“修改烫伤风险控制”，且风险档案更新需求要求按变更评估风险档案。"
+          },
+          {
+            "q": 3,
+            "answer": "是",
+            "basis": "变更描述和技术评估均指出“改变性能规格”（最高温度参数变化）。"
+          },
+          {
+            "q": 4,
+            "answer": "不确定",
+            "basis": "输入信息仅提及性能规格和风险控制变更，未明确说明是否影响预期用途、适应症或标签宣称。"
+          }
+        ],
+        "reasons": [
+          "变更直接影响了设备的核心性能规格（最高温度），符合指南中关于性能规格变化的考量因素。",
+          "变更涉及安全关键控制措施（烫伤风险控制）的修改，需要进一步评估该修改是否足以防止重大危害。",
+          "虽然性能和安全控制发生变化，但缺乏关于临床功能实质改变或预期用途变更的明确证据，因此无法直接判定是否需要新 510(k)。",
+          "风险管理文件状态为“需评估”，表明尚未完成最终的风险可接受性论证，这是做出监管决策的关键前置条件。"
+        ],
+        "uncovered": [
+          "需核实新的 80℃ 最高温度是否仍在原预期用途的安全范围内，或是否改变了用户交互方式从而间接影响预期用途。",
+          "需补充具体的测试数据或工程分析，证明修改后的烫伤风险控制能有效将剩余风险降至可接受水平（即确认是否构成“重大危害”）。",
+          "需确认 FDA 2017 软件变更指南的具体适用条款编号，因为本变更主要涉及硬件/固件控制的物理参数，可能不完全适用于纯软件变更流程，需注册A 确认适用的具体法规路径。",
+          "需核实标签（IFU）是否需要同步更新以反映新的温度限制，以及这是否被视为对预期用途声明的实质性修改。"
+        ]
+      }
+    },
+    {
+      "id": "bg-25",
+      "touchpoint": "bg",
+      "title": "报警音量最小值降低",
+      "attempts": 1,
+      "latencyMs": 7737,
+      "inputTokens": 246,
+      "outputTokens": 514,
+      "costUsd": 0.00028257599999999993,
+      "valid": true,
+      "pass": false,
+      "reason": "结论 不确定（需注册A 判断），期望 需要提交新的 510(k)",
+      "output": {
+        "conclusion": "不确定（需注册A 判断）",
+        "answers": [
+          {
+            "q": 1,
+            "answer": "否",
+            "basis": "变更描述为修改报警音量最小值及风险控制措施，未提及网络安全相关改动。"
+          },
+          {
+            "q": 2,
+            "answer": "是",
+            "basis": "技术评估明确指出'修改报警这一风险控制措施'，且风险管理文件更新需求提示'需评估'风险档案。"
+          },
+          {
+            "q": 3,
+            "answer": "不确定",
+            "basis": "输入仅说明修改了报警音量最小值，未提供该参数变化是否超出原性能规格或影响临床报警有效性的具体数据。"
+          },
+          {
+            "q": 4,
+            "answer": "不确定",
+            "basis": "输入未明确说明标签宣称或预期用途是否因报警阈值调整而需要同步修改。"
+          }
+        ],
+        "reasons": [
+          "变更直接涉及风险控制措施（报警功能）的修改，根据FDA指南逻辑，这通常触发对是否需要新510(k)的深度评估。",
+          "虽然问题2回答为'是'（引入/修改风险控制），但缺乏关于该修改是否导致'重大危害'（significant harm）的具体风险评估结论，无法直接判定为letter-to-file或必须提交。",
+          "问题3和4的回答均为'不确定'，因为缺少具体的性能测试对比数据和标签审查结果，这些是决定最终监管路径的关键缺失信息。"
+        ],
+        "uncovered": [
+          "需核实报警音量降低后的具体数值是否仍满足IEC 60601-1-8等标准中关于报警可听度的最低要求（若适用）。",
+          "需补充风险评估报告，明确该变更是否可能导致用户忽略报警从而引发严重伤害（即判断是否构成'significant change in safety or effectiveness'）。",
+          "需确认产品标签（IFU）中关于报警音量的描述是否需要同步更新，以及更新后是否改变预期用途。",
+          "需引用FDA 2017年软件变更指南中关于'修改风险控制措施'的具体决策流程图节点编号以辅助注册A判断。"
+        ]
+      }
+    },
+    {
+      "id": "diff-CH-JDJH-1",
+      "touchpoint": "diff",
+      "title": "设计开发进度计划 · 修改一个数值",
+      "attempts": 1,
+      "latencyMs": 1298,
+      "inputTokens": 319,
+      "outputTokens": 26,
+      "costUsd": 0.00006007,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-CH-JDJH-2",
+      "touchpoint": "diff",
+      "title": "设计开发进度计划 · 新增一章",
+      "attempts": 1,
+      "latencyMs": 1048,
+      "inputTokens": 283,
+      "outputTokens": 34,
+      "costUsd": 0.000058429999999999995,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-CH-JDJH-3",
+      "touchpoint": "diff",
+      "title": "设计开发进度计划 · 删除一章",
+      "attempts": 1,
+      "latencyMs": 1132,
+      "inputTokens": 282,
+      "outputTokens": 39,
+      "costUsd": 0.000060629999999999994,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-CH-JDJH-4",
+      "touchpoint": "diff",
+      "title": "设计开发进度计划 · 改写一章并新增一章",
+      "attempts": 1,
+      "latencyMs": 1656,
+      "inputTokens": 396,
+      "outputTokens": 72,
+      "costUsd": 0.00009324,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-CH-JDJH-5",
+      "touchpoint": "diff",
+      "title": "设计开发进度计划 · 两章各改一句",
+      "attempts": 1,
+      "latencyMs": 1377,
+      "inputTokens": 376,
+      "outputTokens": 67,
+      "costUsd": 0.00008789,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-DS-M-1",
+      "touchpoint": "diff",
+      "title": "设计说明书（结构） · 修改一个数值",
+      "attempts": 1,
+      "latencyMs": 1097,
+      "inputTokens": 322,
+      "outputTokens": 39,
+      "costUsd": 0.00006662999999999999,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-DS-M-2",
+      "touchpoint": "diff",
+      "title": "设计说明书（结构） · 新增一章",
+      "attempts": 1,
+      "latencyMs": 1302,
+      "inputTokens": 284,
+      "outputTokens": 36,
+      "costUsd": 0.00005952,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-DS-M-3",
+      "touchpoint": "diff",
+      "title": "设计说明书（结构） · 删除一章",
+      "attempts": 1,
+      "latencyMs": 1157,
+      "inputTokens": 283,
+      "outputTokens": 44,
+      "costUsd": 0.00006313,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-DS-M-4",
+      "touchpoint": "diff",
+      "title": "设计说明书（结构） · 改写一章并新增一章",
+      "attempts": 1,
+      "latencyMs": 1637,
+      "inputTokens": 342,
+      "outputTokens": 79,
+      "costUsd": 0.00008842999999999999,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-DS-M-5",
+      "touchpoint": "diff",
+      "title": "设计说明书（结构） · 两章各改一句",
+      "attempts": 1,
+      "latencyMs": 1661,
+      "inputTokens": 379,
+      "outputTokens": 71,
+      "costUsd": 0.00009021999999999999,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-RMF-1",
+      "touchpoint": "diff",
+      "title": "风险管理文件更新 · 修改一个数值",
+      "attempts": 1,
+      "latencyMs": 1171,
+      "inputTokens": 321,
+      "outputTokens": 39,
+      "costUsd": 0.00006648,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-RMF-2",
+      "touchpoint": "diff",
+      "title": "风险管理文件更新 · 新增一章",
+      "attempts": 1,
+      "latencyMs": 1273,
+      "inputTokens": 281,
+      "outputTokens": 36,
+      "costUsd": 0.00005907,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-RMF-3",
+      "touchpoint": "diff",
+      "title": "风险管理文件更新 · 删除一章",
+      "attempts": 1,
+      "latencyMs": 1307,
+      "inputTokens": 281,
+      "outputTokens": 41,
+      "costUsd": 0.00006141999999999999,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-RMF-4",
+      "touchpoint": "diff",
+      "title": "风险管理文件更新 · 改写一章并新增一章",
+      "attempts": 1,
+      "latencyMs": 1732,
+      "inputTokens": 358,
+      "outputTokens": 69,
+      "costUsd": 0.00008612999999999999,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-RMF-5",
+      "touchpoint": "diff",
+      "title": "风险管理文件更新 · 两章各改一句",
+      "attempts": 1,
+      "latencyMs": 1460,
+      "inputTokens": 393,
+      "outputTokens": 83,
+      "costUsd": 0.00009795999999999999,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-STC-1",
+      "touchpoint": "diff",
+      "title": "软件测试用例 · 修改一个数值",
+      "attempts": 1,
+      "latencyMs": 1439,
+      "inputTokens": 318,
+      "outputTokens": 33,
+      "costUsd": 0.00006321,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-STC-2",
+      "touchpoint": "diff",
+      "title": "软件测试用例 · 新增一章",
+      "attempts": 1,
+      "latencyMs": 1125,
+      "inputTokens": 280,
+      "outputTokens": 36,
+      "costUsd": 0.00005892,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-STC-3",
+      "touchpoint": "diff",
+      "title": "软件测试用例 · 删除一章",
+      "attempts": 1,
+      "latencyMs": 1541,
+      "inputTokens": 280,
+      "outputTokens": 39,
+      "costUsd": 0.00006033,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-STC-4",
+      "touchpoint": "diff",
+      "title": "软件测试用例 · 改写一章并新增一章",
+      "attempts": 1,
+      "latencyMs": 2040,
+      "inputTokens": 366,
+      "outputTokens": 116,
+      "costUsd": 0.00010941999999999999,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SC-STC-5",
+      "touchpoint": "diff",
+      "title": "软件测试用例 · 两章各改一句",
+      "attempts": 1,
+      "latencyMs": 1985,
+      "inputTokens": 401,
+      "outputTokens": 116,
+      "costUsd": 0.00011466999999999998,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SR-SRSA-1",
+      "touchpoint": "diff",
+      "title": "软件需求规范（App·云） · 修改一个数值",
+      "attempts": 1,
+      "latencyMs": 1318,
+      "inputTokens": 335,
+      "outputTokens": 38,
+      "costUsd": 0.00006811,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SR-SRSA-2",
+      "touchpoint": "diff",
+      "title": "软件需求规范（App·云） · 新增一章",
+      "attempts": 1,
+      "latencyMs": 1172,
+      "inputTokens": 286,
+      "outputTokens": 36,
+      "costUsd": 0.00005981999999999999,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SR-SRSA-3",
+      "touchpoint": "diff",
+      "title": "软件需求规范（App·云） · 删除一章",
+      "attempts": 1,
+      "latencyMs": 1187,
+      "inputTokens": 282,
+      "outputTokens": 36,
+      "costUsd": 0.00005921999999999999,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SR-SRSA-4",
+      "touchpoint": "diff",
+      "title": "软件需求规范（App·云） · 改写一章并新增一章",
+      "attempts": 1,
+      "latencyMs": 1477,
+      "inputTokens": 344,
+      "outputTokens": 58,
+      "costUsd": 0.00007886,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "diff-SR-SRSA-5",
+      "touchpoint": "diff",
+      "title": "软件需求规范（App·云） · 两章各改一句",
+      "attempts": 1,
+      "latencyMs": 1624,
+      "inputTokens": 377,
+      "outputTokens": 81,
+      "costUsd": 0.00009461999999999999,
+      "valid": true,
+      "pass": true,
+      "coverage": 1,
+      "reason": ""
+    },
+    {
+      "id": "rec-CH-1",
+      "touchpoint": "rec",
+      "title": "CH 门 · 0 项发现 · 0 项行动项",
+      "attempts": 1,
+      "latencyMs": 2847,
+      "inputTokens": 482,
+      "outputTokens": 111,
+      "costUsd": 0.00012447,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-CH-11",
+      "touchpoint": "rec",
+      "title": "CH 门 · 0 项发现 · 0 项行动项",
+      "attempts": 1,
+      "latencyMs": 2533,
+      "inputTokens": 228,
+      "outputTokens": 138,
+      "costUsd": 0.00010315599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-CH-16",
+      "touchpoint": "rec",
+      "title": "CH 门 · 0 项发现 · 0 项行动项",
+      "attempts": 1,
+      "latencyMs": 2631,
+      "inputTokens": 226,
+      "outputTokens": 135,
+      "costUsd": 0.00010144599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-CH-21",
+      "touchpoint": "rec",
+      "title": "CH 门 · 0 项发现 · 0 项行动项",
+      "attempts": 1,
+      "latencyMs": 2705,
+      "inputTokens": 228,
+      "outputTokens": 104,
+      "costUsd": 0.000087176,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-CH-6",
+      "touchpoint": "rec",
+      "title": "CH 门 · 0 项发现 · 0 项行动项",
+      "attempts": 1,
+      "latencyMs": 4461,
+      "inputTokens": 229,
+      "outputTokens": 162,
+      "costUsd": 0.00011458599999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-SC-13",
+      "touchpoint": "rec",
+      "title": "SC 门 · 2 项发现 · 1 项行动项",
+      "attempts": 1,
+      "latencyMs": 2937,
+      "inputTokens": 352,
+      "outputTokens": 182,
+      "costUsd": 0.000142436,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-SC-18",
+      "touchpoint": "rec",
+      "title": "SC 门 · 2 项发现 · 1 项行动项",
+      "attempts": 1,
+      "latencyMs": 2620,
+      "inputTokens": 360,
+      "outputTokens": 176,
+      "costUsd": 0.00014081600000000002,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-SC-23",
+      "touchpoint": "rec",
+      "title": "SC 门 · 2 项发现 · 1 项行动项",
+      "attempts": 1,
+      "latencyMs": 3067,
+      "inputTokens": 98,
+      "outputTokens": 181,
+      "costUsd": 0.00010796200000000001,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-SC-3",
+      "touchpoint": "rec",
+      "title": "SC 门 · 2 项发现 · 1 项行动项",
+      "attempts": 1,
+      "latencyMs": 3436,
+      "inputTokens": 354,
+      "outputTokens": 200,
+      "costUsd": 0.000151196,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-SC-8",
+      "touchpoint": "rec",
+      "title": "SC 门 · 2 项发现 · 1 项行动项",
+      "attempts": 1,
+      "latencyMs": 3284,
+      "inputTokens": 360,
+      "outputTokens": 196,
+      "costUsd": 0.000150216,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-SR-12",
+      "touchpoint": "rec",
+      "title": "SR 门 · 1 项发现 · 0 项行动项",
+      "attempts": 1,
+      "latencyMs": 2561,
+      "inputTokens": 264,
+      "outputTokens": 129,
+      "costUsd": 0.00010432599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-SR-17",
+      "touchpoint": "rec",
+      "title": "SR 门 · 1 项发现 · 0 项行动项",
+      "attempts": 1,
+      "latencyMs": 2808,
+      "inputTokens": 268,
+      "outputTokens": 122,
+      "costUsd": 0.00010163599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-SR-2",
+      "touchpoint": "rec",
+      "title": "SR 门 · 1 项发现 · 0 项行动项",
+      "attempts": 1,
+      "latencyMs": 2504,
+      "inputTokens": 264,
+      "outputTokens": 139,
+      "costUsd": 0.00010902599999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-SR-22",
+      "touchpoint": "rec",
+      "title": "SR 门 · 1 项发现 · 0 项行动项",
+      "attempts": 1,
+      "latencyMs": 2969,
+      "inputTokens": 262,
+      "outputTokens": 157,
+      "costUsd": 0.00011718599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-SR-7",
+      "touchpoint": "rec",
+      "title": "SR 门 · 1 项发现 · 0 项行动项",
+      "attempts": 1,
+      "latencyMs": 3058,
+      "inputTokens": 266,
+      "outputTokens": 171,
+      "costUsd": 0.000124366,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-YP-14",
+      "touchpoint": "rec",
+      "title": "YP 门 · 3 项发现 · 2 项行动项",
+      "attempts": 1,
+      "latencyMs": 3499,
+      "inputTokens": 452,
+      "outputTokens": 236,
+      "costUsd": 0.000182816,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-YP-19",
+      "touchpoint": "rec",
+      "title": "YP 门 · 3 项发现 · 2 项行动项",
+      "attempts": 1,
+      "latencyMs": 3541,
+      "inputTokens": 448,
+      "outputTokens": 244,
+      "costUsd": 0.000185976,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-YP-24",
+      "touchpoint": "rec",
+      "title": "YP 门 · 3 项发现 · 2 项行动项",
+      "attempts": 1,
+      "latencyMs": 3450,
+      "inputTokens": 452,
+      "outputTokens": 211,
+      "costUsd": 0.000171066,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-YP-4",
+      "touchpoint": "rec",
+      "title": "YP 门 · 3 项发现 · 2 项行动项",
+      "attempts": 1,
+      "latencyMs": 3340,
+      "inputTokens": 450,
+      "outputTokens": 221,
+      "costUsd": 0.00017546600000000002,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-YP-9",
+      "touchpoint": "rec",
+      "title": "YP 门 · 3 项发现 · 2 项行动项",
+      "attempts": 1,
+      "latencyMs": 3268,
+      "inputTokens": 450,
+      "outputTokens": 196,
+      "costUsd": 0.000163716,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-YZ-10",
+      "touchpoint": "rec",
+      "title": "YZ 门 · 4 项发现 · 3 项行动项",
+      "attempts": 1,
+      "latencyMs": 3544,
+      "inputTokens": 542,
+      "outputTokens": 232,
+      "costUsd": 0.000194436,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-YZ-15",
+      "touchpoint": "rec",
+      "title": "YZ 门 · 4 项发现 · 3 项行动项",
+      "attempts": 1,
+      "latencyMs": 4323,
+      "inputTokens": 539,
+      "outputTokens": 269,
+      "costUsd": 0.00021137600000000002,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-YZ-20",
+      "touchpoint": "rec",
+      "title": "YZ 门 · 4 项发现 · 3 项行动项",
+      "attempts": 1,
+      "latencyMs": 3117,
+      "inputTokens": 544,
+      "outputTokens": 253,
+      "costUsd": 0.000204606,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-YZ-25",
+      "touchpoint": "rec",
+      "title": "YZ 门 · 4 项发现 · 3 项行动项",
+      "attempts": 1,
+      "latencyMs": 3094,
+      "inputTokens": 538,
+      "outputTokens": 219,
+      "costUsd": 0.000187726,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rec-YZ-5",
+      "touchpoint": "rec",
+      "title": "YZ 门 · 4 项发现 · 3 项行动项",
+      "attempts": 1,
+      "latencyMs": 3299,
+      "inputTokens": 540,
+      "outputTokens": 232,
+      "costUsd": 0.000194136,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-da-1",
+      "touchpoint": "rv",
+      "title": "第二线 · 软件测试用例 · 有隐患",
+      "attempts": 1,
+      "latencyMs": 2826,
+      "inputTokens": 600,
+      "outputTokens": 163,
+      "costUsd": 0.00016660999999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-da-2",
+      "touchpoint": "rv",
+      "title": "第二线 · 软件需求规范（App·云） · 有隐患",
+      "attempts": 1,
+      "latencyMs": 2372,
+      "inputTokens": 322,
+      "outputTokens": 112,
+      "costUsd": 0.00010503599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-da-3",
+      "touchpoint": "rv",
+      "title": "第二线 · 设计说明书（结构） · 有隐患",
+      "attempts": 1,
+      "latencyMs": 3366,
+      "inputTokens": 325,
+      "outputTokens": 123,
+      "costUsd": 0.00011065599999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-da-4",
+      "touchpoint": "rv",
+      "title": "第二线 · 风险管理文件更新 · 有隐患",
+      "attempts": 1,
+      "latencyMs": 2829,
+      "inputTokens": 338,
+      "outputTokens": 142,
+      "costUsd": 0.00012153599999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-da-5",
+      "touchpoint": "rv",
+      "title": "第二线 · 设计开发进度计划 · 有隐患",
+      "attempts": 1,
+      "latencyMs": 3274,
+      "inputTokens": 326,
+      "outputTokens": 167,
+      "costUsd": 0.000131486,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-da-6",
+      "touchpoint": "rv",
+      "title": "第二线 · 软件测试用例 · 无隐患",
+      "attempts": 1,
+      "latencyMs": 3158,
+      "inputTokens": 113,
+      "outputTokens": 169,
+      "costUsd": 0.000104572,
+      "valid": true,
+      "pass": false,
+      "reason": "误报高严重度候选：文档正文中仅列出1条测试用例（TC-BLE-07），但第4章声称有378条用例，必填章节内容缺失或严重不完整。",
+      "output": {
+        "candidates": [
+          {
+            "text": "文档正文中仅列出1条测试用例（TC-BLE-07），但第4章声称有378条用例，必填章节内容缺失或严重不完整。",
+            "docNumber": "SYYFSC-JBR-STC",
+            "quote": "TC-BLE-07 配对超时：依据 SRS-A-043，配对 120 s 未完成时提示重试。",
+            "severity": "高"
+          },
+          {
+            "text": "上游输入引用不明确，第5章回归范围引用“SRS-A A2”，未提供具体批准状态或完整文档编号，需核实上游是否已批准。",
+            "docNumber": "SYYFSC-JBR-STC",
+            "quote": "回归范围引用 SRS-A A2，基线 v1.3.0。",
+            "severity": "中"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rv-da-7",
+      "touchpoint": "rv",
+      "title": "第二线 · 软件需求规范（App·云） · 无隐患",
+      "attempts": 1,
+      "latencyMs": 3086,
+      "inputTokens": 73,
+      "outputTokens": 149,
+      "costUsd": 0.00008917199999999999,
+      "valid": true,
+      "pass": false,
+      "reason": "误报高严重度候选：追溯章节仅声明追溯到PRS A1第3章，但未提供具体的上游批准状态证明（如签字、日期或批准文号），无法确认上游输入是否已正式批准。",
+      "output": {
+        "candidates": [
+          {
+            "text": "文档正文中未包含“独立评审员在场”或“行动项已关闭”的相关记录章节，不符合过程完整性要求。",
+            "docNumber": "SYYFSR-JBR-SRSA",
+            "quote": "1 引言\n本规范描述 JoyBreath App 与云端的软件需求。",
+            "severity": "中"
+          },
+          {
+            "text": "追溯章节仅声明追溯到PRS A1第3章，但未提供具体的上游批准状态证明（如签字、日期或批准文号），无法确认上游输入是否已正式批准。",
+            "docNumber": "SYYFSR-JBR-SRSA",
+            "quote": "5 追溯\n需求逐条追溯到 PRS A1 第 3 章。",
+            "severity": "高"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rv-da-8",
+      "touchpoint": "rv",
+      "title": "第二线 · 设计说明书（结构） · 无隐患",
+      "attempts": 1,
+      "latencyMs": 2221,
+      "inputTokens": 93,
+      "outputTokens": 131,
+      "costUsd": 0.000083712,
+      "valid": true,
+      "pass": false,
+      "reason": "误报高严重度候选：文档缺少“上游输入已批准”的相关章节或引用，无法确认设计输入是否经过正式批准。",
+      "output": {
+        "candidates": [
+          {
+            "text": "文档缺少“上游输入已批准”的相关章节或引用，无法确认设计输入是否经过正式批准。",
+            "docNumber": "SYYFSC-JBR-DS-M",
+            "quote": "1 结构总体方案\n主机外壳采用 PC/ABS，上下壳卡扣连接。",
+            "severity": "高"
+          },
+          {
+            "text": "文档未包含独立评审员签字或评审记录章节，不符合过程合规要求。",
+            "docNumber": "SYYFSC-JBR-DS-M",
+            "quote": "5 风险控制落实\nH-07 跌落破裂的控制措施在第 2、4 章落实。",
+            "severity": "中"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rv-da-9",
+      "touchpoint": "rv",
+      "title": "第二线 · 风险管理文件更新 · 无隐患",
+      "attempts": 1,
+      "latencyMs": 4675,
+      "inputTokens": 86,
+      "outputTokens": 254,
+      "costUsd": 0.00014047199999999997,
+      "valid": true,
+      "pass": false,
+      "reason": "误报高严重度候选：修订记录中审核人标注为“DA”，但文档性质为风险管理文件更新，通常需由具备风险管理专业知识的评审员（如临床、工程或注册）签署，仅由过程合规人员（DA）审核可能不符合独立性与专业性要求。",
+      "output": {
+        "candidates": [
+          {
+            "text": "修订记录中审核人标注为“DA”，但文档性质为风险管理文件更新，通常需由具备风险管理专业知识的评审员（如临床、工程或注册）签署，仅由过程合规人员（DA）审核可能不符合独立性与专业性要求。",
+            "docNumber": "SYYFSC-JBR-RMF",
+            "quote": "A1 2026-11-09 审核人：DA。",
+            "severity": "高"
+          },
+          {
+            "text": "文档正文缺少明确的“上游输入”章节或引用说明，无法确认本次风险管理更新所依据的设计变更、不良事件报告或法规变化等输入是否已获批准。",
+            "docNumber": "SYYFSC-JBR-RMF",
+            "quote": "1 危险清单\nH-07 跌落导致外壳破裂；H-21 BLE 配对失败导致无法同步治疗数据。",
+            "severity": "中"
+          },
+          {
+            "text": "剩余风险评价部分仅给出结论“全部剩余风险可接受”，缺乏对具体风险项的受益-风险分析描述或支持性证据引用，不符合风险管理文档完整性要求。",
+            "docNumber": "SYYFSC-JBR-RMF",
+            "quote": "4 剩余风险\n全部剩余风险可接受。",
+            "severity": "中"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rv-peer-10",
+      "touchpoint": "rv",
+      "title": "第一线 · 软件测试用例 · 有隐患",
+      "attempts": 1,
+      "latencyMs": 3547,
+      "inputTokens": 368,
+      "outputTokens": 221,
+      "costUsd": 0.000163166,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-peer-11",
+      "touchpoint": "rv",
+      "title": "第一线 · 软件需求规范（App·云） · 有隐患",
+      "attempts": 1,
+      "latencyMs": 2501,
+      "inputTokens": 346,
+      "outputTokens": 130,
+      "costUsd": 0.00011709599999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-peer-12",
+      "touchpoint": "rv",
+      "title": "第一线 · 设计说明书（结构） · 有隐患",
+      "attempts": 1,
+      "latencyMs": 3230,
+      "inputTokens": 349,
+      "outputTokens": 167,
+      "costUsd": 0.000134936,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-peer-13",
+      "touchpoint": "rv",
+      "title": "第一线 · 风险管理文件更新 · 有隐患",
+      "attempts": 1,
+      "latencyMs": 2716,
+      "inputTokens": 362,
+      "outputTokens": 152,
+      "costUsd": 0.000129836,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-peer-14",
+      "touchpoint": "rv",
+      "title": "第一线 · 软件测试用例 · 无隐患",
+      "attempts": 1,
+      "latencyMs": 2995,
+      "inputTokens": 113,
+      "outputTokens": 156,
+      "costUsd": 0.000098462,
+      "valid": true,
+      "pass": false,
+      "reason": "误报高严重度候选：测试用例 TC-BLE-07 引用的上游需求编号为 SRS-A-043，需确认该编号在已批准的需求规格说明书中是否存在且内容一致。",
+      "output": {
+        "candidates": [
+          {
+            "text": "测试用例 TC-BLE-07 引用的上游需求编号为 SRS-A-043，需确认该编号在已批准的需求规格说明书中是否存在且内容一致。",
+            "docNumber": "SYYFSC-JBR-STC",
+            "quote": "依据 SRS-A-043，配对 120 s 未完成时提示重试",
+            "severity": "高"
+          },
+          {
+            "text": "文档声明回归范围引用 SRS-A A2，但正文未列出具体受影响的接口或参数变更点，无法直接验证与 ICD 的一致性。",
+            "docNumber": "SYYFSC-JBR-STC",
+            "quote": "回归范围引用 SRS-A A2，基线 v1.3.0",
+            "severity": "中"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rv-peer-15",
+      "touchpoint": "rv",
+      "title": "第一线 · 设计说明书（结构） · 无隐患",
+      "attempts": 1,
+      "latencyMs": 2957,
+      "inputTokens": 93,
+      "outputTokens": 159,
+      "costUsd": 0.000096872,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-peer-16",
+      "touchpoint": "rv",
+      "title": "第一线 · 设计开发进度计划 · 无隐患",
+      "attempts": 1,
+      "latencyMs": 3234,
+      "inputTokens": 343,
+      "outputTokens": 161,
+      "costUsd": 0.000131216,
+      "valid": true,
+      "pass": false,
+      "reason": "误报高严重度候选：进度计划中未明确列出风险控制措施（如特定测试阶段、评审节点）的具体落实时间点，仅有关键路径描述，可能无法满足“风险控制措施已在本文档落实”的技术一致性要求。",
+      "output": {
+        "candidates": [
+          {
+            "text": "关键路径依赖的文档版本（A2/A1）与上游设计输入或接口控制文档（ICD）中规定的基线版本是否一致，需核对以确认技术状态正确。",
+            "docNumber": "SYYFCH-JBR-JDJH",
+            "quote": "结构图纸 A2 与 STC A1 完成后评审",
+            "severity": "中"
+          },
+          {
+            "text": "进度计划中未明确列出风险控制措施（如特定测试阶段、评审节点）的具体落实时间点，仅有关键路径描述，可能无法满足“风险控制措施已在本文档落实”的技术一致性要求。",
+            "docNumber": "SYYFCH-JBR-JDJH",
+            "quote": "SC 门：结构图纸 A2 与 STC A1 完成后评审",
+            "severity": "高"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rv-reg-17",
+      "touchpoint": "rv",
+      "title": "第三线 · 风险管理文件更新 · 有隐患",
+      "attempts": 1,
+      "latencyMs": 2680,
+      "inputTokens": 336,
+      "outputTokens": 124,
+      "costUsd": 0.00011277599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-reg-18",
+      "touchpoint": "rv",
+      "title": "第三线 · 风险管理文件更新 · 有隐患",
+      "attempts": 1,
+      "latencyMs": 2390,
+      "inputTokens": 87,
+      "outputTokens": 130,
+      "costUsd": 0.00008234199999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-reg-19",
+      "touchpoint": "rv",
+      "title": "第三线 · 设计说明书（结构） · 有隐患",
+      "attempts": 1,
+      "latencyMs": 2526,
+      "inputTokens": 323,
+      "outputTokens": 120,
+      "costUsd": 0.000108946,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-reg-20",
+      "touchpoint": "rv",
+      "title": "第三线 · 软件需求规范（App·云） · 有隐患",
+      "attempts": 1,
+      "latencyMs": 3370,
+      "inputTokens": 327,
+      "outputTokens": 149,
+      "costUsd": 0.000123176,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-reg-21",
+      "touchpoint": "rv",
+      "title": "第三线 · 软件测试用例 · 有隐患",
+      "attempts": 1,
+      "latencyMs": 1766,
+      "inputTokens": 342,
+      "outputTokens": 89,
+      "costUsd": 0.000097226,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "rv-reg-22",
+      "touchpoint": "rv",
+      "title": "第三线 · 风险管理文件更新 · 无隐患",
+      "attempts": 1,
+      "latencyMs": 2970,
+      "inputTokens": 76,
+      "outputTokens": 188,
+      "costUsd": 0.00010795199999999999,
+      "valid": true,
+      "pass": false,
+      "reason": "误报高严重度候选：风险控制措施仅描述设计手段，未明确对应的验证或确认方案（如跌落测试、配对功能验证），无法判断风险是否通过客观证据受控。",
+      "output": {
+        "candidates": [
+          {
+            "text": "风险控制措施仅描述设计手段，未明确对应的验证或确认方案（如跌落测试、配对功能验证），无法判断风险是否通过客观证据受控。",
+            "docNumber": "SYYFSC-JBR-RMF",
+            "quote": "H-07 加厚卡扣（固有安全）；H-21 配对超时提示重试（防护）。",
+            "severity": "高"
+          },
+          {
+            "text": "剩余风险可接受的结论缺乏依据，未说明是否经过综合评估或与受益权衡，也未引用具体的验收准则。",
+            "docNumber": "SYYFSC-JBR-RMF",
+            "quote": "全部剩余风险可接受。",
+            "severity": "中"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rv-reg-23",
+      "touchpoint": "rv",
+      "title": "第三线 · 软件需求规范（App·云） · 无隐患",
+      "attempts": 1,
+      "latencyMs": 2583,
+      "inputTokens": 63,
+      "outputTokens": 137,
+      "costUsd": 0.000082032,
+      "valid": true,
+      "pass": false,
+      "reason": "误报高严重度候选：文档未包含风险控制措施的具体描述，无法评估其合理性",
+      "output": {
+        "candidates": [
+          {
+            "text": "文档未包含风险控制措施的具体描述，无法评估其合理性",
+            "docNumber": "SYYFSR-JBR-SRSA",
+            "quote": "本规范描述 JoyBreath App 与云端的软件需求。",
+            "severity": "高"
+          },
+          {
+            "text": "缺少针对网络安全风险的验证确认方案或测试要求",
+            "docNumber": "SYYFSR-JBR-SRSA",
+            "quote": "配对使用 LE Secure Connections 数字比较。",
+            "severity": "中"
+          },
+          {
+            "text": "性能指标缺乏对应的验证方法说明，风险受控状态不明",
+            "docNumber": "SYYFSR-JBR-SRSA",
+            "quote": "治疗数据同步延迟不超过 5 min。",
+            "severity": "低"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rv-reg-24",
+      "touchpoint": "rv",
+      "title": "第三线 · 设计说明书（结构） · 无隐患",
+      "attempts": 1,
+      "latencyMs": 2703,
+      "inputTokens": 83,
+      "outputTokens": 151,
+      "costUsd": 0.000091612,
+      "valid": true,
+      "pass": false,
+      "reason": "误报高严重度候选：验证方案仅规定跌落次数和外观判定，缺乏对内部组件位移、功能失效及电气安全影响的量化验收标准",
+      "output": {
+        "candidates": [
+          {
+            "text": "风险控制措施仅提及壁厚和圆角，未明确材料改性或结构加强筋等具体设计参数以支撑1m跌落无破裂的受控状态",
+            "docNumber": "SYYFSC-JBR-DS-M",
+            "quote": "H-07 跌落破裂的控制措施在第 2、4 章落实。",
+            "severity": "中"
+          },
+          {
+            "text": "验证方案仅规定跌落次数和外观判定，缺乏对内部组件位移、功能失效及电气安全影响的量化验收标准",
+            "docNumber": "SYYFSC-JBR-DS-M",
+            "quote": "1 m 跌落 6 面各 1 次，外壳无破裂（对应 RMF H-07）。",
+            "severity": "高"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rv-reg-25",
+      "touchpoint": "rv",
+      "title": "第三线 · 软件测试用例 · 无隐患",
+      "attempts": 1,
+      "latencyMs": 3769,
+      "inputTokens": 103,
+      "outputTokens": 160,
+      "costUsd": 0.00009884199999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-CH-JDJH-badid",
+      "touchpoint": "up",
+      "title": "设计开发进度计划 · 无效需求编号",
+      "attempts": 1,
+      "latencyMs": 3344,
+      "inputTokens": 54,
+      "outputTokens": 219,
+      "costUsd": 0.000119222,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-CH-JDJH-empty",
+      "touchpoint": "up",
+      "title": "设计开发进度计划 · 必填章节写\"见附件\"",
+      "attempts": 1,
+      "latencyMs": 3210,
+      "inputTokens": 25,
+      "outputTokens": 142,
+      "costUsd": 0.00007868199999999999,
+      "valid": true,
+      "pass": false,
+      "reason": "未检出（期望含 见附件）",
+      "output": {
+        "issues": [
+          {
+            "check": "必填章节语义",
+            "section": "4 里程碑",
+            "finding": "“里程碑”章节仅标注“见附件”，缺乏实质内容，不符合模板要求。",
+            "quote": "见附件",
+            "severity": "高"
+          },
+          {
+            "check": "上游一致性",
+            "section": "",
+            "finding": "正文未引用上游文档《新产品开发方案书》的编号或版本，无法进行一致性比对，视为无问题。",
+            "quote": "",
+            "severity": "无问题"
+          },
+          {
+            "check": "术语 / 编号",
+            "section": "",
+            "finding": "正文中出现的阶段缩写（CH/SR/SC/YP）及版本号（A2/A1）在局部语境下逻辑自洽，未发现明显无效或冲突引用。",
+            "quote": "",
+            "severity": "无问题"
+          }
+        ]
+      }
+    },
+    {
+      "id": "up-CH-JDJH-none",
+      "touchpoint": "up",
+      "title": "设计开发进度计划 · 无问题",
+      "attempts": 1,
+      "latencyMs": 4223,
+      "inputTokens": 298,
+      "outputTokens": 189,
+      "costUsd": 0.00013762599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-CH-JDJH-oldver",
+      "touchpoint": "up",
+      "title": "设计开发进度计划 · 引用上游旧版本",
+      "attempts": 1,
+      "latencyMs": 3264,
+      "inputTokens": 311,
+      "outputTokens": 225,
+      "costUsd": 0.00015649599999999997,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-CH-JDJH-tbd",
+      "touchpoint": "up",
+      "title": "设计开发进度计划 · 章节\"待补充\"",
+      "attempts": 1,
+      "latencyMs": 2625,
+      "inputTokens": 277,
+      "outputTokens": 213,
+      "costUsd": 0.000145756,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-DS-M-badid",
+      "touchpoint": "up",
+      "title": "设计说明书（结构） · 无效需求编号",
+      "attempts": 1,
+      "latencyMs": 4323,
+      "inputTokens": 325,
+      "outputTokens": 287,
+      "costUsd": 0.00018773599999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-DS-M-empty",
+      "touchpoint": "up",
+      "title": "设计说明书（结构） · 必填章节写\"见附件\"",
+      "attempts": 1,
+      "latencyMs": 3963,
+      "inputTokens": 289,
+      "outputTokens": 220,
+      "costUsd": 0.000150846,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-DS-M-none",
+      "touchpoint": "up",
+      "title": "设计说明书（结构） · 无问题",
+      "attempts": 1,
+      "latencyMs": 2261,
+      "inputTokens": 313,
+      "outputTokens": 121,
+      "costUsd": 0.00010791599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-DS-M-oldver",
+      "touchpoint": "up",
+      "title": "设计说明书（结构） · 引用上游旧版本",
+      "attempts": 1,
+      "latencyMs": 2453,
+      "inputTokens": 325,
+      "outputTokens": 131,
+      "costUsd": 0.00011441599999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-DS-M-tbd",
+      "touchpoint": "up",
+      "title": "设计说明书（结构） · 章节\"待补充\"",
+      "attempts": 1,
+      "latencyMs": 3305,
+      "inputTokens": 291,
+      "outputTokens": 201,
+      "costUsd": 0.000142216,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-RMF-badid",
+      "touchpoint": "up",
+      "title": "风险管理文件更新 · 无效需求编号",
+      "attempts": 1,
+      "latencyMs": 3839,
+      "inputTokens": 311,
+      "outputTokens": 217,
+      "costUsd": 0.000152736,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-RMF-empty",
+      "touchpoint": "up",
+      "title": "风险管理文件更新 · 必填章节写\"见附件\"",
+      "attempts": 1,
+      "latencyMs": 3354,
+      "inputTokens": 39,
+      "outputTokens": 216,
+      "costUsd": 0.000115562,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-RMF-none",
+      "touchpoint": "up",
+      "title": "风险管理文件更新 · 无问题",
+      "attempts": 1,
+      "latencyMs": 2076,
+      "inputTokens": 299,
+      "outputTokens": 108,
+      "costUsd": 0.00009970599999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-RMF-oldver",
+      "touchpoint": "up",
+      "title": "风险管理文件更新 · 引用上游旧版本",
+      "attempts": 1,
+      "latencyMs": 2900,
+      "inputTokens": 311,
+      "outputTokens": 209,
+      "costUsd": 0.000148976,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-RMF-tbd",
+      "touchpoint": "up",
+      "title": "风险管理文件更新 · 章节\"待补充\"",
+      "attempts": 1,
+      "latencyMs": 2265,
+      "inputTokens": 274,
+      "outputTokens": 111,
+      "costUsd": 0.00009736599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-STC-badid",
+      "touchpoint": "up",
+      "title": "软件测试用例 · 无效需求编号",
+      "attempts": 1,
+      "latencyMs": 3239,
+      "inputTokens": 93,
+      "outputTokens": 233,
+      "costUsd": 0.00013165199999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-STC-empty",
+      "touchpoint": "up",
+      "title": "软件测试用例 · 必填章节写\"见附件\"",
+      "attempts": 1,
+      "latencyMs": 2886,
+      "inputTokens": 568,
+      "outputTokens": 136,
+      "costUsd": 0.00014911999999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-STC-none",
+      "touchpoint": "up",
+      "title": "软件测试用例 · 无问题",
+      "attempts": 1,
+      "latencyMs": 4216,
+      "inputTokens": 81,
+      "outputTokens": 257,
+      "costUsd": 0.00014113199999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-STC-oldver",
+      "touchpoint": "up",
+      "title": "软件测试用例 · 引用上游旧版本",
+      "attempts": 1,
+      "latencyMs": 4810,
+      "inputTokens": 349,
+      "outputTokens": 267,
+      "costUsd": 0.000181936,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SC-STC-tbd",
+      "touchpoint": "up",
+      "title": "软件测试用例 · 章节\"待补充\"",
+      "attempts": 1,
+      "latencyMs": 3808,
+      "inputTokens": 315,
+      "outputTokens": 222,
+      "costUsd": 0.000155686,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SR-SRSA-badid",
+      "touchpoint": "up",
+      "title": "软件需求规范（App·云） · 无效需求编号",
+      "attempts": 1,
+      "latencyMs": 3464,
+      "inputTokens": 295,
+      "outputTokens": 245,
+      "costUsd": 0.000163496,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SR-SRSA-empty",
+      "touchpoint": "up",
+      "title": "软件需求规范（App·云） · 必填章节写\"见附件\"",
+      "attempts": 1,
+      "latencyMs": 2324,
+      "inputTokens": 276,
+      "outputTokens": 122,
+      "costUsd": 0.00010283599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SR-SRSA-none",
+      "touchpoint": "up",
+      "title": "软件需求规范（App·云） · 无问题",
+      "attempts": 1,
+      "latencyMs": 3958,
+      "inputTokens": 283,
+      "outputTokens": 238,
+      "costUsd": 0.000158406,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SR-SRSA-oldver",
+      "touchpoint": "up",
+      "title": "软件需求规范（App·云） · 引用上游旧版本",
+      "attempts": 1,
+      "latencyMs": 2857,
+      "inputTokens": 295,
+      "outputTokens": 179,
+      "costUsd": 0.000132476,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "up-SR-SRSA-tbd",
+      "touchpoint": "up",
+      "title": "软件需求规范（App·云） · 章节\"待补充\"",
+      "attempts": 1,
+      "latencyMs": 2518,
+      "inputTokens": 254,
+      "outputTokens": 118,
+      "costUsd": 0.00009765599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-01",
+      "touchpoint": "wk",
+      "title": "1 个在研项目 · 0 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 1429,
+      "inputTokens": 361,
+      "outputTokens": 60,
+      "costUsd": 0.00008235,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-02",
+      "touchpoint": "wk",
+      "title": "2 个在研项目 · 3 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 2196,
+      "inputTokens": 532,
+      "outputTokens": 161,
+      "costUsd": 0.00015547,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-03",
+      "touchpoint": "wk",
+      "title": "3 个在研项目 · 3 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 2757,
+      "inputTokens": 551,
+      "outputTokens": 177,
+      "costUsd": 0.00016584,
+      "valid": false,
+      "pass": false,
+      "reason": "未通过校验：数字或编号与视图不一致，已拒绝：逾期列表中的 JBR AI-01 与视图不一致；逾期 1 项，视图为 0 项",
+      "output": {
+        "lines": [
+          "JoyBreath CPAP（JBR，SC门，2026-11-20）：阻塞 2 项——必交文档已上传、行动项已关闭",
+          "加湿器 H2（JBH，SR门，2026-12-05）：阻塞 4 项——必交文档已上传、行动项已关闭",
+          "BPAP 衍生型（JBB，CH门，2026-12-15）：可签门"
+        ],
+        "overdue": [
+          "JBR AI-01"
+        ],
+        "risks": [
+          "旅行版 CPAP（JBT）因管理评审决定暂停"
+        ]
+      }
+    },
+    {
+      "id": "wk-04",
+      "touchpoint": "wk",
+      "title": "1 个在研项目 · 0 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 2173,
+      "inputTokens": 397,
+      "outputTokens": 138,
+      "costUsd": 0.00012440999999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-05",
+      "touchpoint": "wk",
+      "title": "2 个在研项目 · 3 项未关闭 · 逾期 2 项",
+      "attempts": 1,
+      "latencyMs": 2520,
+      "inputTokens": 504,
+      "outputTokens": 145,
+      "costUsd": 0.00014375,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-06",
+      "touchpoint": "wk",
+      "title": "3 个在研项目 · 3 项未关闭 · 逾期 2 项",
+      "attempts": 1,
+      "latencyMs": 3211,
+      "inputTokens": 595,
+      "outputTokens": 254,
+      "costUsd": 0.00020862999999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-07",
+      "touchpoint": "wk",
+      "title": "1 个在研项目 · 0 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 1332,
+      "inputTokens": 361,
+      "outputTokens": 54,
+      "costUsd": 0.00007952999999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-08",
+      "touchpoint": "wk",
+      "title": "2 个在研项目 · 3 项未关闭 · 逾期 2 项",
+      "attempts": 1,
+      "latencyMs": 2926,
+      "inputTokens": 540,
+      "outputTokens": 195,
+      "costUsd": 0.00017265,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-09",
+      "touchpoint": "wk",
+      "title": "3 个在研项目 · 3 项未关闭 · 逾期 3 项",
+      "attempts": 1,
+      "latencyMs": 2604,
+      "inputTokens": 563,
+      "outputTokens": 197,
+      "costUsd": 0.00017704,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-10",
+      "touchpoint": "wk",
+      "title": "1 个在研项目 · 0 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 2038,
+      "inputTokens": 397,
+      "outputTokens": 131,
+      "costUsd": 0.00012111999999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-11",
+      "touchpoint": "wk",
+      "title": "2 个在研项目 · 3 项未关闭 · 逾期 3 项",
+      "attempts": 1,
+      "latencyMs": 2354,
+      "inputTokens": 508,
+      "outputTokens": 158,
+      "costUsd": 0.00015046,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-12",
+      "touchpoint": "wk",
+      "title": "3 个在研项目 · 3 项未关闭 · 逾期 3 项",
+      "attempts": 1,
+      "latencyMs": 3544,
+      "inputTokens": 599,
+      "outputTokens": 255,
+      "costUsd": 0.0002097,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-13",
+      "touchpoint": "wk",
+      "title": "1 个在研项目 · 0 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 1388,
+      "inputTokens": 361,
+      "outputTokens": 77,
+      "costUsd": 0.00009033999999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-14",
+      "touchpoint": "wk",
+      "title": "2 个在研项目 · 3 项未关闭 · 逾期 3 项",
+      "attempts": 1,
+      "latencyMs": 2638,
+      "inputTokens": 544,
+      "outputTokens": 194,
+      "costUsd": 0.00017277999999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-15",
+      "touchpoint": "wk",
+      "title": "3 个在研项目 · 3 项未关闭 · 逾期 3 项",
+      "attempts": 1,
+      "latencyMs": 2602,
+      "inputTokens": 563,
+      "outputTokens": 190,
+      "costUsd": 0.00017374999999999997,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-16",
+      "touchpoint": "wk",
+      "title": "1 个在研项目 · 0 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 1887,
+      "inputTokens": 141,
+      "outputTokens": 116,
+      "costUsd": 0.00007976599999999998,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-17",
+      "touchpoint": "wk",
+      "title": "2 个在研项目 · 3 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 1796,
+      "inputTokens": 240,
+      "outputTokens": 129,
+      "costUsd": 0.000100726,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-18",
+      "touchpoint": "wk",
+      "title": "3 个在研项目 · 3 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 3147,
+      "inputTokens": 331,
+      "outputTokens": 224,
+      "costUsd": 0.00015902600000000002,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-19",
+      "touchpoint": "wk",
+      "title": "1 个在研项目 · 0 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 1366,
+      "inputTokens": 105,
+      "outputTokens": 70,
+      "costUsd": 0.00005274599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-20",
+      "touchpoint": "wk",
+      "title": "2 个在研项目 · 3 项未关闭 · 逾期 2 项",
+      "attempts": 1,
+      "latencyMs": 2530,
+      "inputTokens": 284,
+      "outputTokens": 176,
+      "costUsd": 0.000129416,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-21",
+      "touchpoint": "wk",
+      "title": "3 个在研项目 · 3 项未关闭 · 逾期 2 项",
+      "attempts": 1,
+      "latencyMs": 2279,
+      "inputTokens": 303,
+      "outputTokens": 167,
+      "costUsd": 0.000128036,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-22",
+      "touchpoint": "wk",
+      "title": "1 个在研项目 · 0 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 1698,
+      "inputTokens": 141,
+      "outputTokens": 105,
+      "costUsd": 0.00007459599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-23",
+      "touchpoint": "wk",
+      "title": "2 个在研项目 · 3 项未关闭 · 逾期 2 项",
+      "attempts": 1,
+      "latencyMs": 2874,
+      "inputTokens": 248,
+      "outputTokens": 152,
+      "costUsd": 0.00011273599999999999,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-24",
+      "touchpoint": "wk",
+      "title": "3 个在研项目 · 3 项未关闭 · 逾期 3 项",
+      "attempts": 1,
+      "latencyMs": 2783,
+      "inputTokens": 343,
+      "outputTokens": 235,
+      "costUsd": 0.000165996,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    },
+    {
+      "id": "wk-25",
+      "touchpoint": "wk",
+      "title": "1 个在研项目 · 0 项未关闭 · 逾期 0 项",
+      "attempts": 1,
+      "latencyMs": 1544,
+      "inputTokens": 105,
+      "outputTokens": 77,
+      "costUsd": 0.000056036,
+      "valid": true,
+      "pass": true,
+      "reason": ""
+    }
+  ]
+}

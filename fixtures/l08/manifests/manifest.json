@@ -1,0 +1,583 @@
+[
+  {
+    "file": "510k/510(k) summary.doc",
+    "bytes": 62976,
+    "not_extracted": true
+  },
+  {
+    "file": "510k/Cover letter.doc",
+    "bytes": 18944,
+    "not_extracted": true
+  },
+  {
+    "file": "510k/Cover letter.pdf",
+    "bytes": 70399,
+    "pages": 1,
+    "page_chars": [
+      1412
+    ],
+    "text": "510k__Cover letter.pdf.txt"
+  },
+  {
+    "file": "510k/Device Packaging.docx",
+    "bytes": 2069215,
+    "text": "510k__Device Packaging.docx.txt"
+  },
+  {
+    "file": "510k/Device Packaging.pdf",
+    "bytes": 217269,
+    "pages": 3,
+    "page_chars": [
+      520,
+      47,
+      69
+    ],
+    "text": "510k__Device Packaging.pdf.txt"
+  },
+  {
+    "file": "510k/Device Picture.docx",
+    "bytes": 4300595,
+    "text": "510k__Device Picture.docx.txt"
+  },
+  {
+    "file": "510k/Device Picture.pdf",
+    "bytes": 644930,
+    "pages": 9,
+    "page_chars": [
+      383,
+      138,
+      138,
+      143,
+      144,
+      144,
+      214,
+      110,
+      54
+    ],
+    "text": "510k__Device Picture.pdf.txt"
+  },
+  {
+    "file": "510k/MSDS/MSDS (Blue masterbatch).pdf",
+    "bytes": 1091174,
+    "pages": 3,
+    "page_chars": [
+      1462,
+      2304,
+      1735
+    ],
+    "text": "510k__MSDS__MSDS (Blue masterbatch).pdf.txt"
+  },
+  {
+    "file": "510k/MSDS/MSDS (EVA).pdf",
+    "bytes": 395245,
+    "pages": 14,
+    "page_chars": [
+      1700,
+      1705,
+      2986,
+      2989,
+      2724,
+      1825,
+      1326,
+      1683,
+      1656,
+      1542,
+      2532,
+      2138,
+      4282,
+      841
+    ],
+    "text": "510k__MSDS__MSDS (EVA).pdf.txt"
+  },
+  {
+    "file": "510k/MSDS/MSDS (PP).pdf",
+    "bytes": 273822,
+    "pages": 4,
+    "page_chars": [
+      2423,
+      3228,
+      2185,
+      1781
+    ],
+    "text": "510k__MSDS__MSDS (PP).pdf.txt"
+  },
+  {
+    "file": "510k/MSDS/MSDS (Purple masterbatch).pdf",
+    "bytes": 129187,
+    "pages": 4,
+    "page_chars": [
+      1165,
+      1834,
+      1252,
+      1192
+    ],
+    "text": "510k__MSDS__MSDS (Purple masterbatch).pdf.txt"
+  },
+  {
+    "file": "510k/MSDS/中文及草稿/MSDS (Purple masterbatch).docx",
+    "bytes": 61503,
+    "text": "510k__MSDS__中文及草稿__MSDS (Purple masterbatch).docx.txt"
+  },
+  {
+    "file": "510k/MSDS/中文及草稿/透明紫P020857（2655U） MSDS.pdf",
+    "bytes": 571217,
+    "pages": 3,
+    "page_chars": [
+      1026,
+      1195,
+      858
+    ],
+    "text": "510k__MSDS__中文及草稿__透明紫P020857（2655U） MSDS.pdf.txt"
+  },
+  {
+    "file": "510k/nIVD_eSTAR_Anti Snoring Mouthpiece.pdf",
+    "bytes": 72947624,
+    "pages": 1,
+    "page_chars": [
+      698
+    ],
+    "error": "OSError(22, 'Invalid argument')"
+  },
+  {
+    "file": "510k/Product description.docx",
+    "bytes": 4372739,
+    "text": "510k__Product description.docx.txt"
+  },
+  {
+    "file": "510k/SE Comparison.docx",
+    "bytes": 25566,
+    "text": "510k__SE Comparison.docx.txt"
+  },
+  {
+    "file": "510k/SE Comparison.pdf",
+    "bytes": 110159,
+    "pages": 4,
+    "page_chars": [
+      597,
+      734,
+      1252,
+      1015
+    ],
+    "text": "510k__SE Comparison.pdf.txt"
+  },
+  {
+    "file": "510k/寿命验证/Shelf-life verification protocol.docx",
+    "bytes": 41695,
+    "text": "510k__寿命验证__Shelf-life verification protocol.docx.txt"
+  },
+  {
+    "file": "510k/寿命验证/Shelf-life verification protocol.pdf",
+    "bytes": 129272,
+    "pages": 5,
+    "page_chars": [
+      236,
+      1087,
+      1337,
+      1433,
+      674
+    ],
+    "text": "510k__寿命验证__Shelf-life verification protocol.pdf.txt"
+  },
+  {
+    "file": "510k/寿命验证/Shelf-life verification report.docx",
+    "bytes": 66806,
+    "text": "510k__寿命验证__Shelf-life verification report.docx.txt"
+  },
+  {
+    "file": "510k/寿命验证/Shelf-life verification report.pdf",
+    "bytes": 145311,
+    "pages": 18,
+    "page_chars": [
+      236,
+      1377,
+      1506,
+      1372,
+      1697,
+      346,
+      336,
+      336,
+      336,
+      337,
+      337,
+      337,
+      490,
+      490,
+      490,
+      490,
+      490,
+      490
+    ],
+    "text": "510k__寿命验证__Shelf-life verification report.pdf.txt"
+  },
+  {
+    "file": "510k/材料特性测试/Material Characteristic Test (EVA).pdf",
+    "bytes": 1807557,
+    "pages": 19,
+    "page_chars": [
+      1124,
+      558,
+      547,
+      320,
+      437,
+      258,
+      526,
+      96,
+      287,
+      532,
+      101,
+      73,
+      288,
+      537,
+      274,
+      555,
+      274,
+      602,
+      357
+    ],
+    "text": "510k__材料特性测试__Material Characteristic Test (EVA).pdf.txt"
+  },
+  {
+    "file": "510k/材料特性测试/Material Characteristic Test (PP).pdf",
+    "bytes": 1861588,
+    "pages": 19,
+    "page_chars": [
+      1121,
+      558,
+      520,
+      262,
+      437,
+      258,
+      532,
+      96,
+      287,
+      545,
+      101,
+      73,
+      288,
+      537,
+      274,
+      554,
+      274,
+      603,
+      356
+    ],
+    "text": "510k__材料特性测试__Material Characteristic Test (PP).pdf.txt"
+  },
+  {
+    "file": "510k/标签说明书/Instruction for use.pdf",
+    "bytes": 19645995,
+    "pages": 36,
+    "page_chars": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      360,
+      483,
+      0,
+      0,
+      2,
+      0,
+      0,
+      0
+    ],
+    "text": "510k__标签说明书__Instruction for use.pdf.txt"
+  },
+  {
+    "file": "510k/标签说明书/Label.pdf",
+    "bytes": 525396,
+    "pages": 1,
+    "page_chars": [
+      183
+    ],
+    "text": "510k__标签说明书__Label.pdf.txt"
+  },
+  {
+    "file": "510k/标签说明书/Outer Package.pdf",
+    "bytes": 2702421,
+    "pages": 1,
+    "page_chars": [
+      1942
+    ],
+    "text": "510k__标签说明书__Outer Package.pdf.txt"
+  },
+  {
+    "file": "510k/清洁验证测试/Reprocessing Validation Test.pdf",
+    "bytes": 14344146,
+    "pages": 18,
+    "page_chars": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "text": "510k__清洁验证测试__Reprocessing Validation Test.pdf.txt"
+  },
+  {
+    "file": "510k/生物相容性/Biocompatibility evaluation report.docx",
+    "bytes": 33361,
+    "text": "510k__生物相容性__Biocompatibility evaluation report.docx.txt"
+  },
+  {
+    "file": "510k/生物相容性/RT-W25/RS-W25-0003-BAR Final Report.pdf",
+    "bytes": 403253,
+    "pages": 5,
+    "page_chars": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "text": "510k__生物相容性__RT-W25__RS-W25-0003-BAR Final Report.pdf.txt"
+  },
+  {
+    "file": "510k/生物相容性/RT-W25/RT-W25-0001-BVO Final Signed Report.pdf",
+    "bytes": 8144704,
+    "pages": 49,
+    "page_chars": [
+      663,
+      4392,
+      4413,
+      1087,
+      637,
+      1068,
+      1896,
+      2302,
+      928,
+      1514,
+      2335,
+      1793,
+      1451,
+      1003,
+      2585,
+      1887,
+      2077,
+      2104,
+      2130,
+      1856,
+      2325,
+      145,
+      1088,
+      1124,
+      406,
+      1226,
+      149,
+      160,
+      1008,
+      4802,
+      3885,
+      2360,
+      1131,
+      1925,
+      1478,
+      1156,
+      2772,
+      2229,
+      2417,
+      2671,
+      2119,
+      2614,
+      2247,
+      2807,
+      939,
+      755,
+      395,
+      328,
+      196
+    ],
+    "text": "510k__生物相容性__RT-W25__RT-W25-0001-BVO Final Signed Report.pdf.txt"
+  },
+  {
+    "file": "510k/生物相容性/RT-W25/RT-W25-0002-BVO Final Signed Report.pdf",
+    "bytes": 8506992,
+    "pages": 60,
+    "page_chars": [
+      648,
+      4200,
+      5071,
+      759,
+      1309,
+      724,
+      1069,
+      1993,
+      2276,
+      933,
+      1809,
+      2381,
+      2419,
+      2337,
+      1523,
+      944,
+      1270,
+      1622,
+      2472,
+      1761,
+      1971,
+      2091,
+      2248,
+      1139,
+      2528,
+      1896,
+      1722,
+      145,
+      1001,
+      1693,
+      728,
+      149,
+      158,
+      993,
+      4754,
+      4937,
+      269,
+      2330,
+      1198,
+      2313,
+      2576,
+      1452,
+      1717,
+      1005,
+      1991,
+      2552,
+      1933,
+      2564,
+      2896,
+      2466,
+      2214,
+      943,
+      2115,
+      2334,
+      2773,
+      1202,
+      758,
+      395,
+      391,
+      188
+    ],
+    "text": "510k__生物相容性__RT-W25__RT-W25-0002-BVO Final Signed Report.pdf.txt"
+  },
+  {
+    "file": "510k/生物相容性/RT-W25/RT-W25-0003-BAR Final Signed Report.pdf",
+    "bytes": 8450515,
+    "pages": 42,
+    "page_chars": [
+      673,
+      4813,
+      784,
+      1164,
+      678,
+      1069,
+      2019,
+      1970,
+      942,
+      1844,
+      2489,
+      1035,
+      1448,
+      2357,
+      977,
+      2339,
+      1772,
+      2472,
+      2397,
+      2433,
+      497,
+      149,
+      158,
+      1025,
+      4625,
+      1573,
+      2134,
+      1250,
+      2132,
+      1004,
+      1595,
+      2202,
+      2843,
+      2684,
+      2414,
+      2561,
+      2313,
+      719,
+      758,
+      397,
+      815,
+      187
+    ],
+    "text": "510k__生物相容性__RT-W25__RT-W25-0003-BAR Final Signed Report.pdf.txt"
+  },
+  {
+    "file": "510k/耐久性/Durability verification protocol.docx",
+    "bytes": 40775,
+    "text": "510k__耐久性__Durability verification protocol.docx.txt"
+  },
+  {
+    "file": "510k/耐久性/Durability verification protocol.pdf",
+    "bytes": 100901,
+    "pages": 4,
+    "page_chars": [
+      236,
+      726,
+      1508,
+      2144
+    ],
+    "text": "510k__耐久性__Durability verification protocol.pdf.txt"
+  },
+  {
+    "file": "510k/耐久性/Durability verification report.docx",
+    "bytes": 48140,
+    "text": "510k__耐久性__Durability verification report.docx.txt"
+  },
+  {
+    "file": "510k/耐久性/Durability verification report.pdf",
+    "bytes": 139155,
+    "pages": 6,
+    "page_chars": [
+      236,
+      1150,
+      1642,
+      2213,
+      1053,
+      654
+    ],
+    "text": "510k__耐久性__Durability verification report.pdf.txt"
+  }
+]

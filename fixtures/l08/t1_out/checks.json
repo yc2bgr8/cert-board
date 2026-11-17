@@ -1,0 +1,183 @@
+{
+  "versions": [
+    {
+      "name": "cover letter.pdf",
+      "docs": [
+        [
+          "D003",
+          "外层文件夹",
+          "b2350d57bfe4"
+        ],
+        [
+          "D019",
+          "eSTAR附件",
+          "89db469862ea"
+        ]
+      ]
+    },
+    {
+      "name": "device picture.pdf",
+      "docs": [
+        [
+          "D007",
+          "外层文件夹",
+          "bd6caefe318a"
+        ],
+        [
+          "D016",
+          "eSTAR附件",
+          "30e76fe69118"
+        ]
+      ]
+    },
+    {
+      "name": "durability verification report.pdf",
+      "docs": [
+        [
+          "D025",
+          "eSTAR附件",
+          "c6fc59ca4e32"
+        ],
+        [
+          "D059",
+          "外层文件夹",
+          "c2dd6f592763"
+        ]
+      ]
+    },
+    {
+      "name": "shelf-life verification report.pdf",
+      "docs": [
+        [
+          "D027",
+          "eSTAR附件",
+          "510c585c956d"
+        ],
+        [
+          "D044",
+          "外层文件夹",
+          "3388558881fb"
+        ]
+      ]
+    }
+  ],
+  "citations": [
+    {
+      "file": "Product description",
+      "source_type": "eSTAR附件",
+      "page": 2,
+      "quote": "It is intended for adults with at least 18 years old.",
+      "ok": true,
+      "where": "D015 Product description.pdf 第2页",
+      "method": "text"
+    },
+    {
+      "file": "Product description",
+      "source_type": "eSTAR附件",
+      "page": 2,
+      "quote": "The device is not suitable for treating OSA.",
+      "ok": true,
+      "where": "D015 Product description.pdf 第2页",
+      "method": "text"
+    },
+    {
+      "file": "Product description",
+      "source_type": "eSTAR附件",
+      "page": 5,
+      "quote": "There are 7 combinations for upper tray and lower tray",
+      "ok": true,
+      "where": "D015 Product description.pdf 第5页",
+      "method": "text"
+    },
+    {
+      "file": "Product description",
+      "source_type": "eSTAR附件",
+      "page": 7,
+      "quote": "Transparent Transparent Purple",
+      "ok": true,
+      "where": "D015 Product description.pdf 第7页",
+      "method": "text"
+    },
+    {
+      "file": "Shelf-life verification report",
+      "source_type": "eSTAR附件",
+      "page": 3,
+      "quote": "Shelf life: 2 years",
+      "ok": true,
+      "where": "D027 Shelf-life verification report.pdf 第3页",
+      "method": "text"
+    },
+    {
+      "file": "510(k) summary",
+      "source_type": "eSTAR附件",
+      "page": 1,
+      "quote": "510(k) Number: K170825",
+      "ok": true,
+      "where": "D035 510(k) summary.pdf 第1页",
+      "method": "text"
+    },
+    {
+      "file": "510(k) summary",
+      "source_type": "eSTAR附件",
+      "page": 5,
+      "quote": "510(K) number K170285",
+      "ok": true,
+      "where": "D035 510(k) summary.pdf 第5页",
+      "method": "text"
+    },
+    {
+      "file": "Durability verification report",
+      "source_type": "eSTAR附件",
+      "page": 4,
+      "quote": "Rinse with water at 25~30 degrees Celsius for 20 seconds",
+      "ok": true,
+      "where": "D025 Durability verification report.pdf 第4页",
+      "method": "text"
+    },
+    {
+      "file": "Cover letter",
+      "source_type": "eSTAR附件",
+      "page": 1,
+      "quote": "Official contact person: Ms. Emma Chen",
+      "ok": true,
+      "where": "D019 Cover letter.pdf 第1页",
+      "method": "text"
+    },
+    {
+      "file": "Cover letter",
+      "source_type": "外层文件夹",
+      "page": 1,
+      "quote": "Official contact person: Mr. Leo Liu",
+      "ok": true,
+      "where": "D003 Cover letter.pdf 第1页",
+      "method": "text"
+    },
+    {
+      "file": "Material Characteristic Test (PP)",
+      "source_type": "eSTAR附件",
+      "page": 2,
+      "quote": "Flexural Test ASTM D790-17 See result /",
+      "ok": true,
+      "where": "D033 Material Characteristic Test (PP).pdf 第2页",
+      "method": "text"
+    },
+    {
+      "file": "Biocompatibility evaluation report",
+      "source_type": "eSTAR附件",
+      "page": 4,
+      "quote": "Purple masterbatch",
+      "ok": true,
+      "where": "D037 Biocompatibility evaluation report.pdf 第4页",
+      "method": "text"
+    },
+    {
+      "file": "Instruction for use",
+      "source_type": "外层文件夹",
+      "page": 29,
+      "quote": "Rinse the device with 20-25°C water for 20 seconds",
+      "ok": true,
+      "where": "D047 Instruction for use.pdf 第29页",
+      "method": "text"
+    }
+  ]
+}

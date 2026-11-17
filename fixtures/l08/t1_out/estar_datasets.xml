@@ -1,0 +1,1123 @@
+
+<xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/"
+><xfa:data
+><root
+><ApplicationType
+><ATRadioButton100
+>1</ATRadioButton100
+><ATRadioButton050
+>1</ATRadioButton050
+><IMDRF
+><ATRadioButton010
+/></IMDRF
+><USA
+><ATRadioButton110
+>1</ATRadioButton110
+><ATRadioButton114
+/><ATRadioButton115
+>1</ATRadioButton115
+><ATDropDownList116
+/><ATCheckBox117a
+>1</ATCheckBox117a
+><ATCheckBox117b
+>1</ATCheckBox117b
+><ATCheckBox117c
+>1</ATCheckBox117c
+><ATCheckBox117d
+>1</ATCheckBox117d
+><ATCheckBox117e
+>1</ATCheckBox117e
+><ATCheckBox117f
+>1</ATCheckBox117f
+><ATCheckBox117g
+>1</ATCheckBox117g
+><ATCheckBox117h
+>1</ATCheckBox117h
+><ATCheckBox117i
+>1</ATCheckBox117i
+><ATCheckBox117j
+>1</ATCheckBox117j
+><ATCheckBox117k
+>1</ATCheckBox117k
+><ATCheckBox117l
+>1</ATCheckBox117l
+></USA
+><CDN
+><ATRadioButton120
+/></CDN
+><ApplicationSubType
+><ATRadioButton130
+>1</ATRadioButton130
+><ATTextField135
+/></ApplicationSubType
+></ApplicationType
+><CoverLetter xfa:dataNode="dataGroup"
+/><AdministrativeInformation
+><ApplicationForm
+><ADDropDownList055
+/></ApplicationForm
+><ApplicantInformation
+><ADDropDownList120
+>3</ADDropDownList120
+><ADTextField140
+>Emma</ADTextField140
+><ADTextField130
+>Chen</ADTextField130
+><ADTextField160
+>compliance@complianceglobe.com</ADTextField160
+><ADTextField170
+>+65 62262377 </ADTextField170
+><ADTextField190
+/><ADTextField210
+>RAM.SHAW PTE.LTD.</ADTextField210
+><ADTextField220
+>112 Robinson Road # 03-01 Robinson 112, Singapore</ADTextField220
+><ADTextField230
+/><ADTextField240
+>Singapore</ADTextField240
+><ADTextField250
+/><ADTextField260
+>068902</ADTextField260
+><ADDropDownList270
+>SGP</ADDropDownList270
+><ADDropDownList295
+>2</ADDropDownList295
+></ApplicantInformation
+><CorrespondentInformation
+><ADDropDownList320
+/><ADTextField340
+/><ADTextField330
+/><ADTextField360
+/><ADTextField370
+/><ADTextField390
+/><ADTextField410
+/><ADTextField420
+/><ADTextField430
+/><ADTextField440
+/><ADTextField450
+/><ADTextField460
+/><ADDropDownList470
+>USA</ADDropDownList470
+></CorrespondentInformation
+><RelatedSubmissions
+><ADDropDownList610
+>2</ADDropDownList610
+><SubmissionsFeedback
+><Submissions
+><Submission
+/></Submissions
+></SubmissionsFeedback
+><NSE510k
+><ADDropDownList650
+/><ADTextField655
+/><ADDropDownList670
+/></NSE510k
+></RelatedSubmissions
+><EssentialPrinciples xfa:dataNode="dataGroup"
+/><Standards
+><RecogStandard
+><Organization
+>ISO</Organization
+><Year
+>10993-5 Third edition 2009-06-01</Year
+><RecogNumber
+>2-245</RecogNumber
+><TitleReference
+>Biological evaluation of medical devices - Part 5: Tests for in vitro cytotoxicity</TitleReference
+><StandardUse
+>2</StandardUse
+></RecogStandard
+><RecogStandard
+><Organization
+>ISO</Organization
+><Year
+>10993-10 Fourth edition 2021-11</Year
+><RecogNumber
+>2-296</RecogNumber
+><TitleReference
+>Biological evaluation of medical devices -  Part 10: Tests for skin sensitization</TitleReference
+><StandardUse
+>2</StandardUse
+></RecogStandard
+><RecogStandard
+><Organization
+>ISO</Organization
+><Year
+>10993-23 First edition 2021-01</Year
+><RecogNumber
+>2-291</RecogNumber
+><TitleReference
+>Biological evaluation of medical devices - Part 23: Tests for irritation</TitleReference
+><StandardUse
+>2</StandardUse
+></RecogStandard
+><RecogStandard
+><Organization
+>ISO</Organization
+><Year
+>10993-1 Fifth edition 2018-08</Year
+><RecogNumber
+>2-258</RecogNumber
+><TitleReference
+>Biological evaluation of medical devices - Part 1: Evaluation and testing within a risk management process</TitleReference
+><StandardUse
+>2</StandardUse
+></RecogStandard
+></Standards
+></AdministrativeInformation
+><DeviceDescription
+><Devices
+><Device
+><TradeName
+>Anti Snoring Mouthpiece</TradeName
+><Model
+>L08-BP, L08-PT, L08-BT, L08-TP, L08-TB, L08-PB</Model
+></Device
+></Devices
+><GeneralConsiderations
+><DDDropDownList107
+/><DDTextField109
+/><DDDropDownList108
+/></GeneralConsiderations
+><GeneralCharacteristics
+><DDDropDownList110
+>2</DDDropDownList110
+><DDDropDownList120
+>1</DDDropDownList120
+><DDDropDownList130
+>2</DDDropDownList130
+><DDDropDownList140
+>2</DDDropDownList140
+><DDDropDownList150
+/><DDCheckBox161
+>0</DDCheckBox161
+><DDCheckBox162
+>0</DDCheckBox162
+><DDCheckBox163
+>0</DDCheckBox163
+><DDCheckBox164
+>0</DDCheckBox164
+><DDCheckBox165
+>0</DDCheckBox165
+><DDCheckBox166
+>0</DDCheckBox166
+><DDDropDownList180
+>2</DDDropDownList180
+><DDCheckBox191
+>0</DDCheckBox191
+><DDCheckBox192
+>0</DDCheckBox192
+><DDCheckBox193
+>1</DDCheckBox193
+><DDCheckBox194
+>0</DDCheckBox194
+><DDCheckBox211
+>0</DDCheckBox211
+><DDCheckBox212
+>1</DDCheckBox212
+><DDCheckBox213
+>0</DDCheckBox213
+><DDCheckBox214
+>0</DDCheckBox214
+><DDCheckBox215
+>0</DDCheckBox215
+><DDDropDownList230
+>2</DDDropDownList230
+><DDDropDownList233
+/><DDTextField235
+/><DDDropDownList236
+/><DDDropDownList240
+>4</DDDropDownList240
+><DDDropDownList250
+/><DDCheckBox255
+>0</DDCheckBox255
+><DDCheckBox260
+>0</DDCheckBox260
+><DDCheckBox270
+>0</DDCheckBox270
+><DDCheckBox280
+>0</DDCheckBox280
+><DDCheckBox290
+>0</DDCheckBox290
+><DDCheckBox300
+>0</DDCheckBox300
+><DDCheckBox310
+>0</DDCheckBox310
+></GeneralCharacteristics
+><Description
+><DDTextField400
+>The L08 series anti snoring device is a thermoforming device to reduce snoring. The device works by putting into the mouth and pulling the lower jaw forward.&#xD;L08 series anti snoring device include 6 models: L08-BP, L08-PT, L08-BT, L08-TP, L08-TB, L08-PB. These models are only different in the color of their supports.&#xD;Each model is available for two sizes: Large (L) and Standard (S).&#xD;As for the construction of each model, each model includes three upper trays (A0, A2, A4) and three lower trays (B0, B1, B2). One upper tray and one lower tray are combined together for use.&#xD;1.Principle of mandibular advancement&#xD;Two protrusions are designed on the lateral side of upper tray assembly and lower tray assembly separately so as to fix the upper tray assembly and lower tray assembly together.&#xD;By restricting the lower protrusion to be located in front of the upper protrusion, the lower tray assembly is thereby restricted to the front side of the upper tray assembly, ensuring that the lower dental arch remains in a forward position relative to the upper dental arch during use. &#xD;2.Realization of different mandibular advancement distance&#xD;By positioning the upper protrusion and the lower protrusion at different locations within the upper tray assembly and the lower tray assembly, respectively, different forward displacement distances of the lower tray assembly relative to the upper tray assembly can be restricted (for example, the B2 protrusion is positioned further rearward relative to the B0 protrusion, resulting in a greater forward displacement of the mandible when assembled with the upper tray). Therefore, multiple combinations of protrusions at different positions in the tray assemblies (i.e., multiple sets of devices) can achieve restrictions on different forward displacement distances of the lower dental arch.&#xD;There are 7 combinations for upper tray and lower tray, each combination has its different mandibular advancement distance (0-6 mm). By selecting suitable upper and lower trays and using the “Boil-and-Bite” method, users can customize the fit to their dentition.</DDTextField400
+><DDTextField405
+/></Description
+><ComponentsAccessories
+><DDDropDownList430
+>2</DDDropDownList430
+><DDDropDownList460
+/></ComponentsAccessories
+><Guidance
+><DDTextField605
+>Intraoral Devices for Snoring and/or Obstructive Sleep Apnea - Class II Special Controls Guidance Document for Industry and FDA&#xD;&#xD;5.Risks to Health&#xD;Requirements: In the table below, FDA has identified the risks to health generally associated with the use of the intraoral devices for snoring and/or obstructive sleep apnea addressed in this document. The measures recommended to mitigate these identified risks are given in this guidance document, as shown in the table below. You should also conduct a risk analysis, prior to submitting your premarket notification, to identify any other risks specific to your device. The premarket notification should describe the risk analysis method. If you elect to use an alternative approach to address a particular risk identified in this guidance document, or have identified risks additional to those in the guidance, you should provide sufficient detail to support the approach you have used to address that risk.&#xD;Identified risk:&#xD;1) Intraoral gingival, palatal, or dental soreness&#xD;2) Temporomandibular Joint (TMJ) Dysfunction Syndrome&#xD;3) Obstruction of oral breathing&#xD;4) Loosening or flaring of lower anterior teeth or general tooth movement&#xD;Solutions:&#xD;We have conducted risk analysis for these risks, and we have added these information as contraindication or warning in the instruction for use based on risk control measure, please see "Contraindications" in page 5-6 and "Warnings" in page 7 of instruction for use (SYL08-T, VA0).&#xD;&#xD;6. Material Composition&#xD;Requirements:&#xD;Your summary report should include the following information for all components.&#xD;The material identity &#xD;The complete chemical composition, unless declaring conformance to a materials standard &#xD;Material safety data sheets (MSDS) for all materials used in the device (appended to your summary report).&#xD;Solutions:&#xD;We have provided MSDS, please see: MSDS (Blue masterbatch), MSDS (Purple masterbatch), MSDS (EVA),  MSDS (PP)&#xD;&#xD;7.Biocompatibility&#xD;Requirements:&#xD;You should perform biocompatibility testing as outlined in the FDA-modified "Use of International Standard ISO-10993, Biological Evaluation of Medical Devices Part-1: Evaluation and Testing” for a surface device that contacts intraoral (i.e., mucosal, gingival, and palatal) surfaces for prolonged contact. Your summary report should contain a statement that testing will be conducted as described in Parts 5 and 10 of ISO-10993 the standard (the statement should also include the acceptance criteria to be applied).&#xD;Solutions: We have performed biocompatibility evaluation in accordance with FDA guidance, please refer to bio-compatibility evaluation report. A summary of biocompatibility testing can be found in this report.&#xD;&#xD;8. Clinical Testing&#xD;Clinical testing is not required for demonstrating substantially equivalent.&#xD;&#xD;9.Labeling&#xD;The premarket notification should include labeling in sufficient detail to satisfy the requirements of 21 CFR 807.87(e). The following suggestions are aimed at assisting you in preparing labeling that satisfies the requirements of 21 CFR 807.87(e).&#xD;&#xD;Requirement:&#xD;Directions for use&#xD;As a prescription device, under 21 CFR 801.109, the device is exempt from having adequate directions for lay use. Nevertheless, under 21 CFR 807.87(e), we expect to see clear and concise instructions that delineate the technological features of the specific device and how the device is to be used on patients. Instructions should encourage local/institutional training programs designed to familiarize users with the features of the device and how to use it in a safe and effective manner.&#xD;Solutions:&#xD;The usage of device is disclosed in "Instruction for use" section from preparation to storage of Instruction for use (SYL08-T, VA0).&#xD;&#xD;Requirements:&#xD;Devices with Thermal Setting Resins&#xD;If the device contains a thermal setting resin, you should include instructions for heating, cooling, and setting time in the labeling.&#xD;Solutions:&#xD;The instructions for heating, cooling, and setting time is disclosed in page 17-18 of Instruction for use (SYL08-T, VA0).&#xD;&#xD;Requirements:&#xD;Contraindications&#xD;You should include the following contraindications in your labeling. The device is contraindicated for patients who:&#xD;have central sleep apnea&#xD;have severe respiratory disorders&#xD;have loose teeth or advanced periodontal disease&#xD;are under 18 years of age.&#xD;Solutions:&#xD;We have added these information as contraindication in the instruction for use, please see "Contraindications" in page 5-6 of instruction for use (SYL08-T, VA0).&#xD;&#xD;Requirements:&#xD;Warnings&#xD;You should include the following warnings in your labeling. Use of the device may cause:&#xD;tooth movement or changes in dental occlusion&#xD;gingival or dental soreness&#xD;pain or soreness to the temporomandibular joint&#xD;obstruction of oral breathing&#xD;excessive salivation.&#xD;Solutions: We have added these information as warnings in the instruction for use, please see "Warning" in page 7 of instruction for use (SYL08-T, VA0).&#xD;&#xD;Requirements:&#xD;Precautions&#xD;You should include the following precaution: Dentists should consider the medical history of the patients, including history of asthma, breathing, or respiratory disorders, or other relevant health problems, and refer the patient to the appropriate healthcare provider before prescribing the device.&#xD;Solutions: The device is OTC home-use device, thus this precautions is not required.</DDTextField605
+><DDTextField610
+/></Guidance
+></DeviceDescription
+><IndicationsForUse
+><SubandDevice
+><IUTextField120
+/><IUTextField130
+>Anti Snoring Mouthpiece (L08-BP, L08-PT, L08-BT, L08-TP, L08-TB, L08-PB)</IUTextField130
+></SubandDevice
+><Indications
+><IUTextField141
+>The Anti Snoring Mouthpiece is designed to advance the user's lower jaw and maintain this position during use, opening the airway to reduce snoring during sleep. It is intended for adults with at least 18 years old.</IUTextField141
+></Indications
+><TypeOfUse
+><IUCheckBox111
+>0</IUCheckBox111
+><IUCheckBox112
+>1</IUCheckBox112
+></TypeOfUse
+></IndicationsForUse
+><Classification
+><USAKnownClassification
+><DDDropDownList519
+>DE</DDDropDownList519
+><DDDropDownList513
+>872.5570 - Intraoral devices for snoring and intraoral devices for snoring and obstructive sleep apnea</DDDropDownList513
+><DDDropDownList517
+>LRK (Class 2) - Device, Anti-Snoring</DDDropDownList517
+><DDTextField517a
+>NA</DDTextField517a
+></USAKnownClassification
+><USAProposedClassification
+><DDDropDownList519
+/><DDDropDownList505
+/><DDTextField506
+/><DDTextField508
+/><DDTextField510
+/></USAProposedClassification
+></Classification
+><MarketingHistory xfa:dataNode="dataGroup"
+/><PredicatesSE
+><PredicateReference
+><ADDropDownList820
+>2</ADDropDownList820
+><ADTextField830
+>K170825</ADTextField830
+><ADTextField840
+>SnoreRx</ADTextField840
+><ADDropDownList851
+>DE</ADDropDownList851
+><ADDropDownList853
+>872.5570 - Intraoral devices for snoring and intraoral devices for snoring and obstructive sleep apnea</ADDropDownList853
+><ADDropDownList855
+>LRK (Class 2) - Device, Anti-Snoring</ADDropDownList855
+></PredicateReference
+><SubstantialEquivalence
+><ADTextField870
+>Indications for use of subject device and predicate device are the same: Minimize air turbulence that causes snoring. Device is intended for Over The-Counter use. </ADTextField870
+><ADTextField880
+>Equivalence to Predicate device:&#xD;The subject device has the same intended use and similar technological characteristics as the predicate device - SnoreRx (K170825) .&#xD;&#xD;Comparison of Indication for Use:&#xD;Both the subject and predicate devices are indicated for Over-the-Counter (OTC) use in alleviating snoring for adults 18 and older by way of mandibular repositioning.&#xD;&#xD;Comparison of Technological Features:&#xD;Both subject and predicate devices include two trays that fit separately over the upper and lower dental arches and engage each other in the anterior area of the mouth. Both devices include thermal impression material - EVA that can be heat molded to the user 's dentition in a home environment via common "Boil and Bite" method for retention.&#xD;The subject and predicate devices position the lower mandible anteriorly to increase pharyngeal space. The subject device achieves this by selecting different trays (A0, A2, A4, B0, B1, B2) to adjust the level of lower mandible tray anterior positioning to a comfort level, up to 6mm. The predicate device achieves this through a central sliding connection mechanism, and the advancing distance is up to 6mm. The advancing distance of both devices are the same. Therefore, the technological features of the subject device does not raise any questions of safety or performance.&#xD;&#xD;Comparison of Material Characteristics&#xD;The subject and predicate devices require biocompatibility testing for a surface device that contacts intraoral surfaces for prolonged contact (&gt;24h to 30 days), per "Intraoral Devices for Snoring and/or Obstructive Sleep Apnea - Class II Special Controls Guidance Document for Industry and FDA," ISO 10993 Part 5 and Part 10 respectively. A summary of the biocompatibility testing conducted for the subject device can be found in the Biocompatibility Evaluation Report.&#xD;The tray of the subject device is comprised of a polypropylene support overmolded with ethylene vinyl acetate thermal moldable resin. And the tray of predicate device is comprised of a polycarbonate resin support overmolded with ethylene vinyl acetate thermal moldable resin. Both polypropylene support and polycarbonate resin support are rigid enough to position the lower tray and mandible forward to increase pharyngeal space. And both device use thermoforming resin (EVA) that can be heat molded to the user's dentition. &#xD;Both the subject and predicate devices use materials with similar characteristics to achieve the same principle of operation and do not raise any questions of the safety or performance of the subject device.&#xD;&#xD;Substantial Equivalence Conclusion&#xD;Based on the comparison of indication of use, material characteristics, technological features, the subject device -anti snoring device is substantially equivalent to the predicate device - SnoreRx.</ADTextField880
+></SubstantialEquivalence
+></PredicatesSE
+><RiskManagement
+><DesignControl xfa:dataNode="dataGroup"
+/><VerificationValidation xfa:dataNode="dataGroup"
+/><RiskMitigationTable xfa:dataNode="dataGroup"
+/><SpecialControls
+><SCTextField100
+/></SpecialControls
+><BenefitRisk xfa:dataNode="dataGroup"
+/><AlternativePractices xfa:dataNode="dataGroup"
+/></RiskManagement
+><Labeling
+><GeneralLabeling
+><LBDropDownList120
+>1</LBDropDownList120
+><LBTextField170
+>Refer to Page 29-30 of the instruction for use (SYL08-T, VA0)</LBTextField170
+><LBDropDownList200
+>4</LBDropDownList200
+><LBTextField202
+>N/A</LBTextField202
+></GeneralLabeling
+><Packaging xfa:dataNode="dataGroup"
+/><Instructions xfa:dataNode="dataGroup"
+/><OtherLabeling xfa:dataNode="dataGroup"
+/><SpecificLabeling
+><LBTextField110
+/><LBTextField130
+>Refer to Page 1 of the instruction for use (SYL08-T, VA0)</LBTextField130
+><LBTextField140
+>Refer to Page 1, 5-7 of the instruction for use (SYL08-T, VA0)</LBTextField140
+><LBTextField440
+>Refer to the second page of the instruction for use (SYL08-T, VA0)&#xD;Refer to label and outer package</LBTextField440
+><LBTextField450
+>Refer to the cover page of the instruction for use (SYL08-T, VA0)&#xD;Refer to label and outer package</LBTextField450
+><LBDropDownList460
+/><LBTextField470
+/></SpecificLabeling
+><Guidance
+><LBTextField605
+>Intraoral Devices for Snoring and/or Obstructive Sleep Apnea - Class II Special Controls Guidance Document for Industry and FDA&#xD;&#xD;5.Risks to Health&#xD;Requirements: In the table below, FDA has identified the risks to health generally associated with the use of the intraoral devices for snoring and/or obstructive sleep apnea addressed in this document. The measures recommended to mitigate these identified risks are given in this guidance document, as shown in the table below. You should also conduct a risk analysis, prior to submitting your premarket notification, to identify any other risks specific to your device. The premarket notification should describe the risk analysis method. If you elect to use an alternative approach to address a particular risk identified in this guidance document, or have identified risks additional to those in the guidance, you should provide sufficient detail to support the approach you have used to address that risk.&#xD;Identified risk:&#xD;1) Intraoral gingival, palatal, or dental soreness&#xD;2) Temporomandibular Joint (TMJ) Dysfunction Syndrome&#xD;3) Obstruction of oral breathing&#xD;4) Loosening or flaring of lower anterior teeth or general tooth movement&#xD;Solutions:&#xD;We have conducted risk analysis for these risks, and we have added these information as contraindication or warning in the instruction for use based on risk control measure, please see "Contraindications" in page 5-6 and "Warnings" in page 7 of instruction for use (SYL08-T, VA0).&#xD;&#xD;6. Material Composition&#xD;Requirements:&#xD;Your summary report should include the following information for all components.&#xD;The material identity &#xD;The complete chemical composition, unless declaring conformance to a materials standard &#xD;Material safety data sheets (MSDS) for all materials used in the device (appended to your summary report).&#xD;Solutions:&#xD;We have provided MSDS, please see: MSDS (Blue masterbatch), MSDS (Purple masterbatch), MSDS (EVA),  MSDS (PP)&#xD;&#xD;7.Biocompatibility&#xD;Requirements:&#xD;You should perform biocompatibility testing as outlined in the FDA-modified "Use of International Standard ISO-10993, Biological Evaluation of Medical Devices Part-1: Evaluation and Testing” for a surface device that contacts intraoral (i.e., mucosal, gingival, and palatal) surfaces for prolonged contact. Your summary report should contain a statement that testing will be conducted as described in Parts 5 and 10 of ISO-10993 the standard (the statement should also include the acceptance criteria to be applied).&#xD;Solutions: We have performed biocompatibility evaluation in accordance with FDA guidance, please refer to bio-compatibility evaluation report. A summary of biocompatibility testing can be found in this report.&#xD;&#xD;8. Clinical Testing&#xD;Clinical testing is not required for demonstrating substantially equivalent.&#xD;&#xD;9.Labeling&#xD;The premarket notification should include labeling in sufficient detail to satisfy the requirements of 21 CFR 807.87(e). The following suggestions are aimed at assisting you in preparing labeling that satisfies the requirements of 21 CFR 807.87(e).&#xD;&#xD;Requirement:&#xD;Directions for use&#xD;As a prescription device, under 21 CFR 801.109, the device is exempt from having adequate directions for lay use. Nevertheless, under 21 CFR 807.87(e), we expect to see clear and concise instructions that delineate the technological features of the specific device and how the device is to be used on patients. Instructions should encourage local/institutional training programs designed to familiarize users with the features of the device and how to use it in a safe and effective manner.&#xD;Solutions:&#xD;The usage of device is disclosed in "Instruction for use" section from preparation to storage of Instruction for use (SYL08-T, VA0).&#xD;&#xD;Requirements:&#xD;Devices with Thermal Setting Resins&#xD;If the device contains a thermal setting resin, you should include instructions for heating, cooling, and setting time in the labeling.&#xD;Solutions:&#xD;The instructions for heating, cooling, and setting time is disclosed in page 17-18 of Instruction for use (SYL08-T, VA0).&#xD;&#xD;Requirements:&#xD;Contraindications&#xD;You should include the following contraindications in your labeling. The device is contraindicated for patients who:&#xD;have central sleep apnea&#xD;have severe respiratory disorders&#xD;have loose teeth or advanced periodontal disease&#xD;are under 18 years of age.&#xD;Solutions:&#xD;We have added these information as contraindication in the instruction for use, please see "Contraindications" in page 5-6 of instruction for use (SYL08-T, VA0).&#xD;&#xD;Requirements:&#xD;Warnings&#xD;You should include the following warnings in your labeling. Use of the device may cause:&#xD;tooth movement or changes in dental occlusion&#xD;gingival or dental soreness&#xD;pain or soreness to the temporomandibular joint&#xD;obstruction of oral breathing&#xD;excessive salivation.&#xD;Solutions: We have added these information as warnings in the instruction for use, please see "Warning" in page 7 of instruction for use (SYL08-T, VA0).&#xD;&#xD;Requirements:&#xD;Precautions&#xD;You should include the following precaution: Dentists should consider the medical history of the patients, including history of asthma, breathing, or respiratory disorders, or other relevant health problems, and refer the patient to the appropriate healthcare provider before prescribing the device.&#xD;Solutions: The device is OTC home-use device, thus this precautions is not required.</LBTextField605
+><LBTextField610
+/></Guidance
+></Labeling
+><ReprocSter
+><Reprocessing
+><RPDropDownList102
+>1</RPDropDownList102
+><RPTextField103
+/><RPDropDownList105
+>1</RPDropDownList105
+><RPInstruction
+><RPTextField145
+>Anti Snoring Mouthpiece</RPTextField145
+><RPTextField150
+>Refer to Page 24 - 26 of the instruction for use (SYL08-T, VA0)</RPTextField150
+><RPDropDownList165
+>2</RPDropDownList165
+><RPDropDownList170
+>2</RPDropDownList170
+><RPTextField180
+>N/A</RPTextField180
+><RPTextField190
+>Refer to Page 24 - 25 of the instruction for use (SYL08-T, VA0)</RPTextField190
+><RPTextField200
+>Refer to Page 24 - 25 of the instruction for use (SYL08-T, VA0)</RPTextField200
+><RPTextField210
+>Refer to Page 24 - 25 of the instruction for use (SYL08-T, VA0)</RPTextField210
+><RPTextField220
+>Refer to Page 24 - 25 of the instruction for use (SYL08-T, VA0)</RPTextField220
+><RPTextField230
+>N/A</RPTextField230
+><RPTextField240
+>N/A</RPTextField240
+><RPDropDownList250
+>3</RPDropDownList250
+><RPTextField260
+>Refer to Page 1 of the instruction for use (SYL08-T, VA0)</RPTextField260
+><RPDropDownList285
+>5</RPDropDownList285
+><RPTextField310
+/><RPTextField320
+/><RPTextField350
+/><RPTextField360
+/><RPTextField370
+/><RPTextField400
+/><RPTextField410
+/><RPTextField420
+/><RPTextField430
+/><RPTextField460
+/></RPInstruction
+></Reprocessing
+><Sterility
+><STDropDownList105
+/><STMethod
+><STTextField110
+/><STDropDownList140
+/><STTextField160
+/><STTextField170
+/><STTextField171
+/><STTextField180
+/><STDropDownList191
+/><STDropDownList192
+/><STDropDownList200
+/><STTextField205
+/><STDropDownList210
+/><STTextField220
+/></STMethod
+></Sterility
+><Guidance
+><STTextField405
+>Intraoral Devices for Snoring and/or Obstructive Sleep Apnea - Class II Special Controls Guidance Document for Industry and FDA.&#xD;No special control requirement for reprocessing.</STTextField405
+><STTextField410
+/></Guidance
+><ShelfLife
+><SLDropDownList105
+>1</SLDropDownList105
+><SLTextField110
+/><SLDecimalField120
+>2.00</SLDecimalField120
+><SLDropDownList120
+>1</SLDropDownList120
+><SLTextField130
+>The L08 series anti snoring mouthpiece have 2 years of shelf life.&#xD;&#xD;L08-BP with Large size is selected as test sample. &#xD;For the difference between different models, they are only different in the color of support. &#xD;For the difference between different size, they are only different in the dimension of tray. &#xD;Given that this test is mainly related to the characteristic of material - EVA, and different models or different sizes use the same EVA, thus the L08-BP with large size can represent all the models and size.&#xD;&#xD;10 L08-BP with L size are selected in this test, which make 10 Tray A0, 10 Tray A2, 10 Tray A4, 10 Tray B0, 10 Tray B1, 10 Tray B2. A total of 60 samples are selected.&#xD;&#xD;Based on the accelerated ageing model referenced to ASTM F 1980-21-Standard Guide for Accelerated ageing of Sterile Barrier Systems for Medical Devices, we select accelerated aging temperature as 60℃ and humidity as 50%RH. The accelerated ageing time is 65 days.&#xD;Before accelerated ageing, the test item and acceptance criteria are shown below:&#xD;Visual check: No cracks, no scratches, no deformation.&#xD;Odour: No pungent odor, no odor.&#xD;After accelerated ageing, the test item and acceptance criteria are shown below:&#xD;Visual check: No cracks, no scratches, no deformation.&#xD;Odour: No pungent odor, no odor.&#xD;Molding: Verify if the device still can be molded by using denture.&#xD;Other abnormal condition should also be documented.&#xD;&#xD;After the end of accelerated ageing, all the post-test item can meet the acceptance criteria. Therefore, it can be concluded that the shelf life of device can reach 2 years.</SLTextField130
+></ShelfLife
+><ReprocSterDocs xfa:dataNode="dataGroup"
+/></ReprocSter
+><Biocompatibility
+><PatientMaterials
+><BCDropDownList105
+>1</BCDropDownList105
+><PatientMaterial
+><BCTextField911
+>The anti snoring mouthpiece includes the following components that directly contact tissue:&#xD;Upper support, Lower support, Moldable component</BCTextField911
+><BCTextField912
+>The components of different models include different color additive:&#xD;&#xD;L08-BP: &#xD;Upper support: PP (Name: Yungsox Copolymer polpropylene) + Color Additive (Name: Blue masterbatch)&#xD;Lower support: PP (Name: Yungsox Copolymer polpropylene) + Color Additive (Name: Purple masterbatch)&#xD;Moldable component: EVA (Name: ELVAX™ 150 Ethylene Vinyl Acetate)&#xD;&#xD;L08-PB: &#xD;Upper support: PP (Name: Yungsox Copolymer polpropylene) + Color Additive (Name: Purple masterbatch)&#xD;Lower support: PP (Name: Yungsox Copolymer polpropylene) + Color Additive (Name: Blue masterbatch)&#xD;Moldable component: EVA (Name: ELVAX™ 150 Ethylene Vinyl Acetate)&#xD;&#xD;L08-PT: &#xD;Upper support: PP (Name: Yungsox Copolymer polpropylene) + Color Additive (Name: Purple masterbatch)&#xD;Lower support: PP (Name: Yungsox Copolymer polpropylene)&#xD;Moldable component: EVA (Name: ELVAX™ 150 Ethylene Vinyl Acetate)&#xD;&#xD;L08-BT: &#xD;Upper support: PP (Name: Yungsox Copolymer polpropylene) + Color Additive (Name: Blue masterbatch)&#xD;Lower support: PP (Name: Yungsox Copolymer polpropylene)&#xD;Moldable component: EVA (Name: ELVAX™ 150 Ethylene Vinyl Acetate)&#xD;&#xD;L08-TP: &#xD;Upper support: PP (Name: Yungsox Copolymer polpropylene) &#xD;Lower support: PP (Name: Yungsox Copolymer polpropylene) + Color Additive (Name: Purple masterbatch)&#xD;Moldable component: EVA (Name: ELVAX™ 150 Ethylene Vinyl Acetate)&#xD;&#xD;L08-TB: &#xD;Upper support: PP (Name: Yungsox Copolymer polpropylene) &#xD;Lower support: PP (Name: Yungsox Copolymer polpropylene) + Color Additive (Name: Blue masterbatch)&#xD;Moldable component: EVA (Name: ELVAX™ 150 Ethylene Vinyl Acetate)</BCTextField912
+><BCTextField915
+>Yes:&#xD;Blue masterbatch: 9003-07-0, 57455-37-5, 147-14-8, 1333-86-4, 110-30-5&#xD;Purple masterbatch: 9003-07-0, 57455-37-5, 980-26-7, 115-83-3, 13463-67-7</BCTextField915
+><BCDropDownList913
+>1</BCDropDownList913
+><BCTextField132
+/><BCTextField133
+/><BCDropDownList138
+>2</BCDropDownList138
+><BCDropDownList151
+>2</BCDropDownList151
+><BCTextField155
+/><BCDropDownList161
+>2</BCDropDownList161
+><BCDropDownList171
+>2</BCDropDownList171
+><Cytotoxicity
+><BCDropDownList181
+>2</BCDropDownList181
+><BCTextField195
+>L08-BP Anti Snoring Mouthpiece (L size)</BCTextField195
+><DirectMethod
+><BCDropDownList188
+/><BCDropDownList189
+/></DirectMethod
+><ExtractionConditions
+><BCDropDownList191
+>2</BCDropDownList191
+><BCDropDownList192
+>1</BCDropDownList192
+><BCDropDownList193
+>2</BCDropDownList193
+><BCDropDownList194
+>2</BCDropDownList194
+><BCDropDownList196
+>4</BCDropDownList196
+><BCDropDownList197
+>2</BCDropDownList197
+><BCDropDownList198
+>1</BCDropDownList198
+></ExtractionConditions
+><BCDropDownList190
+/><BCDropDownList199
+>1</BCDropDownList199
+><BCDropDownList200
+/><BCDropDownList209
+>1</BCDropDownList209
+><BCDropDownList201
+>1</BCDropDownList201
+><BCDropDownList208
+/><BCDropDownList202
+>2</BCDropDownList202
+><BCDropDownList203
+>2</BCDropDownList203
+><BCDropDownList204
+/><BCDropDownList205
+/><BCDropDownList211
+>1</BCDropDownList211
+><BCDropDownList206
+/><BCDropDownList210
+>1</BCDropDownList210
+><BCTextField215
+/></Cytotoxicity
+><Sensitization
+><BCDropDownList221
+>1</BCDropDownList221
+><BCTextField250
+>L08-BP Anti Snoring Mouthpiece (L size)</BCTextField250
+><BCDropDownList231
+>2</BCDropDownList231
+><BCDropDownList232
+>3</BCDropDownList232
+><BCDropDownList233
+>3</BCDropDownList233
+><BCDropDownList234
+>2</BCDropDownList234
+><BCDropDownList249
+>2</BCDropDownList249
+><BCDropDownList235
+>1</BCDropDownList235
+><BCDropDownList236
+>1</BCDropDownList236
+><BCDropDownList251
+>1</BCDropDownList251
+><BCDropDownList252
+>1</BCDropDownList252
+><BCDropDownList237
+>1</BCDropDownList237
+><BCDropDownList238
+>1</BCDropDownList238
+><BCDropDownList239
+>1</BCDropDownList239
+><BCDropDownList240
+>1</BCDropDownList240
+><BCDropDownList241
+>1</BCDropDownList241
+><BCDropDownList242
+>1</BCDropDownList242
+><BCDropDownList243
+>2</BCDropDownList243
+><BCDropDownList244
+>1</BCDropDownList244
+><BCDropDownList245
+>1</BCDropDownList245
+><BCDropDownList246
+>1</BCDropDownList246
+><BCDropDownList253
+>1</BCDropDownList253
+><BCDropDownList247
+>1</BCDropDownList247
+><BCTextField255
+/></Sensitization
+><Irritation
+><BCDropDownList261
+>1</BCDropDownList261
+><BCTextField275
+>L08-BP Anti Snoring Mouthpiece (L size)</BCTextField275
+><SamplePreparation
+><BCDropDownList262
+/></SamplePreparation
+><ExtractionConditions
+><BCDropDownList271
+>2</BCDropDownList271
+><BCDropDownList272
+>3</BCDropDownList272
+><BCDropDownList273
+>3</BCDropDownList273
+><BCDropDownList274
+>2</BCDropDownList274
+><BCDropDownList276
+>1</BCDropDownList276
+><BCDropDownList277
+>1</BCDropDownList277
+><BCDropDownList278
+>1</BCDropDownList278
+></ExtractionConditions
+><IntraCutMethods
+><BCDropDownList279
+>1</BCDropDownList279
+><BCDropDownList280
+>1</BCDropDownList280
+><BCDropDownList281
+>1</BCDropDownList281
+><BCDropDownList282
+>1</BCDropDownList282
+><BCDropDownList285
+>2</BCDropDownList285
+></IntraCutMethods
+><SolidMethods
+><BCDropDownList263
+/><BCDropDownList264
+/><BCDropDownList265
+/></SolidMethods
+><ExtractMethods
+><BCDropDownList283
+/><BCDropDownList284
+/></ExtractMethods
+><IntraCutResults
+><BCDropDownList286
+>1</BCDropDownList286
+><BCDropDownList287
+>1</BCDropDownList287
+><BCDropDownList288
+>1</BCDropDownList288
+></IntraCutResults
+><DermalResults
+><BCDropDownList266
+/><BCDropDownList268
+/><BCDropDownList267
+/><BCDropDownList269
+/><BCDropDownList270
+/></DermalResults
+><BCDropDownList289
+>1</BCDropDownList289
+><BCDropDownList291
+/><BCTextField295
+/></Irritation
+><AcuteSys
+><BCDropDownList301
+>2</BCDropDownList301
+><BCDropDownList302
+>2</BCDropDownList302
+><BCTextField339
+>Based on Guidance "Intraoral Devices for Snoring and/or Obstructive Sleep Apnea - Class II Special Controls Guidance Document for Industry and FDA" and the information of Predicate device, it is considered that Acute Systemic Toxicity Testing &amp; Material Mediated Pyrogenicity Testing are not required for demonstrating substantial equivalence.</BCTextField339
+></AcuteSys
+><SubacuteTox
+><BCDropDownList341
+>2</BCDropDownList341
+><BCTextField379
+>Based on Guidance "Intraoral Devices for Snoring and/or Obstructive Sleep Apnea - Class II Special Controls Guidance Document for Industry and FDA" and the information of Predicate device, it is considered that Subacute/Subchronic Toxicity Testing is not required for demonstrating substantial equivalence.</BCTextField379
+></SubacuteTox
+><Genotoxicity
+><BCDropDownList381
+/><BCTextField419
+/></Genotoxicity
+><Implantation
+><BCDropDownList421
+>2</BCDropDownList421
+><BCTextField459
+>Based on Guidance "Intraoral Devices for Snoring and/or Obstructive Sleep Apnea - Class II Special Controls Guidance Document for Industry and FDA" and the information of Predicate device, it is considered that Implanatation Testing is not required for demonstrating substantial equivalence.</BCTextField459
+></Implantation
+><Hemocompatibility
+><BCDropDownList461
+/><BCDropDownList462
+/><BCDropDownList463
+/><BCTextField499
+/></Hemocompatibility
+><ChronicTox
+><BCDropDownList501
+/><BCTextField539
+/></ChronicTox
+><Carcinogenicity
+><BCDropDownList541
+/><BCTextField599
+/></Carcinogenicity
+></PatientMaterial
+></PatientMaterials
+><BiocompatibilityDocs xfa:dataNode="dataGroup"
+/></Biocompatibility
+><SoftwareCyber
+><Software
+><SoftwareDocLevel
+><SWDropDownList115
+/></SoftwareDocLevel
+><SoftwareDocs xfa:dataNode="dataGroup"
+/></Software
+><Cybersecurity
+><CSDropDownList412
+/><General xfa:dataNode="dataGroup"
+/><RMReport xfa:dataNode="dataGroup"
+/><RMThreatModel
+><CSTextField440
+/><CSDropDownList450
+/></RMThreatModel
+><RMRiskAssessment
+><CSTextField470
+/><CSDropDownList480
+/></RMRiskAssessment
+><RMSBOM
+><CSTextField510
+/></RMSBOM
+><ChangeImpact xfa:dataNode="dataGroup"
+/><UnresolvedAnomalies xfa:dataNode="dataGroup"
+/><Metrics xfa:dataNode="dataGroup"
+/><Controls
+><CSTextField595
+><body xmlns="http://www.w3.org/1999/xhtml"
+><p style="margin-top:0pt;font-size:8pt"
+><span style="xfa-spacerun:yes"
+>                     </span
+></p
+><p style="margin-top:0pt"
+>A) Authentication controls:<span style="xfa-spacerun:yes"
+> </span
+></p
+><p style="margin-top:0pt"
+>B) Authorization controls:<span style="xfa-spacerun:yes"
+> </span
+></p
+><p style="margin-top:0pt"
+>C) Cryptography controls:<span style="xfa-spacerun:yes"
+> </span
+></p
+><p style="margin-top:0pt"
+>D) Code, data, and execution integrity controls:<span style="xfa-spacerun:yes"
+> </span
+></p
+><p style="margin-top:0pt"
+>E) Confidentiality controls:<span style="xfa-spacerun:yes"
+> </span
+></p
+><p style="margin-top:0pt"
+>F) Event detection and logging controls:<span style="xfa-spacerun:yes"
+> </span
+></p
+><p style="margin-top:0pt"
+>G) Resiliency and recovery controls:<span style="xfa-spacerun:yes"
+> </span
+></p
+><p style="margin-top:0pt"
+>H) Firmware and software update controls:</p
+><p style="margin-top:0pt"
+><br
+/></p
+><p style="margin-top:0pt"
+><br
+/></p
+></body
+></CSTextField595
+></Controls
+><ArchViews xfa:dataNode="dataGroup"
+/><Testing xfa:dataNode="dataGroup"
+/><Labeling
+><CSTextField660
+/></Labeling
+><ManagementPlan
+><CSTextField690
+/><CSTextField695
+/></ManagementPlan
+></Cybersecurity
+><Interoperability
+><CSDropDownList240
+/><ElectronicInterface
+><CSTextField245
+/><CSDropDownList250
+/><CSDropDownList260
+/><CSDropDownList270
+/><CSTextField280
+/><CSTextField310
+/></ElectronicInterface
+></Interoperability
+></SoftwareCyber
+><EMCWireless
+><EMC
+><EMDropDownList105
+/><EMCTest
+><EMDropDownList115
+/><EMDropDownList140
+/><EMTextField160
+/><EMTextField170
+/><EMTextField180
+/><EMTextField190
+/><EMDropDownList200
+/><EMTextField230
+/><EMDropDownList235
+/><EMTextField240
+/><EMTextField250
+/><EMTextField260
+/><EMTextField270
+/><EMTextField280
+/><EMTextField290
+/><EMTextField300
+/><EMTextField310
+/><EMTextField330
+/><EMTextField410
+/><EMTextField420
+/><EMTextField430
+/><EMTextField452
+/><EMTextField454
+/><EMTextField530
+/></EMCTest
+></EMC
+><Wireless
+><WTDropDownList105
+/><WirelessFxn
+><WTTextField120
+/><WTDropDownList111
+/><WTTextField130
+/><WTCheckBox151
+>0</WTCheckBox151
+><WTCheckBox152
+>0</WTCheckBox152
+><WTCheckBox153
+>0</WTCheckBox153
+><WTCheckBox154
+>0</WTCheckBox154
+><WTCheckBox155
+>0</WTCheckBox155
+><WTCheckBox156
+>0</WTCheckBox156
+><WTDropDownList170
+/><WTDropDownList175
+/><WTTextField225
+/><WTTextField230
+/><WTDropDownList240
+/><WTDropDownList260
+/><WTDropDownList263
+/><WTTextField270
+/><WTTextField280
+/><WTTextField290
+/></WirelessFxn
+></Wireless
+><EMCEMTSummary
+><EMTextField910
+>The device is non-active device. Therefore, there is no need for the Electrical, the Mechanical and the Thermal Safety Testing.</EMTextField910
+></EMCEMTSummary
+><EMCEMTDocs xfa:dataNode="dataGroup"
+/></EMCWireless
+><PerformanceTesting
+><PTDropDownList110
+>1</PTDropDownList110
+><PTDropDownList120
+>2</PTDropDownList120
+><PTDropDownList130
+>2</PTDropDownList130
+><PMNSummaries
+><PTTextField310
+>Physical properties testing was performed for material.&#xD;It includes:&#xD;ASTM D790-17 for flexural strength and flexural modulus. &#xD;ASTM D638-22 for Tensile Strength and Elongation at break.&#xD;ASTM D570-22 for water absorption.&#xD;ASTM D3418-21 for melting temperature.&#xD;ASTMD 792-20 for Density.</PTTextField310
+><PTTextField320
+/><PTTextField330
+/></PMNSummaries
+><BenchTesting
+><PTTextField410
+>K170825</PTTextField410
+><StudyName
+/><StudyName
+/></BenchTesting
+><AnimalTesting
+><PTTextField510
+/><PTTextField550
+/></AnimalTesting
+><ClinicalTesting
+><PTTextField610
+/><StudyName
+/><PROPPI
+><PPDropDownList110
+/><PPTextField120
+/><PPTextField130
+/></PROPPI
+><CDR
+><PIDropDownList105
+/><PIDropDownList110
+/></CDR
+><GeneralClinical
+><CTTextField110
+/><CTTextField120
+/><CTTextField130
+/><CTTextField140
+/><CTTextField150
+/><CTTextField160
+/><CTTextField170
+/><CTTextField180
+/><CTTextField190
+/><CTTextField200
+/><CTTextField210
+/><CTTextField220
+/><CTTextField230
+/><CTTextField310
+/><CTTextField320
+/><CTTextField330
+/><CTTextField340
+/><CTTextField350
+/><CTTextField360
+/><CTTextField370
+/><CTTextField380
+/><CTTextField390
+/><CTTextField400
+/><CTTextField410
+/><CTTextField420
+/><CTTextField430
+/><CTTextField440
+/><CTTextField450
+/><CTTextField460
+/><CTTextField470
+/><CTTextField475
+/><CTTextField480
+/><CTTextField490
+/><CTTextField500
+/></GeneralClinical
+></ClinicalTesting
+><Guidance
+><PTTextField710
+>Intraoral Devices for Snoring and/or Obstructive Sleep Apnea - Class II Special Controls Guidance Document for Industry and FDA&#xD;&#xD;No additional requirement for performance testing</PTTextField710
+><PTTextField715
+/></Guidance
+></PerformanceTesting
+><QualityManagement
+><Procedures xfa:dataNode="dataGroup"
+/><ManufacturingChanges
+><QMTextField603
+/><QMTextField610
+/><QMTextField615
+/><QMCheckBox620a
+>0</QMCheckBox620a
+><QMCheckBox620b
+>0</QMCheckBox620b
+><QMCheckBox620c
+>0</QMCheckBox620c
+><QMCheckBox620d
+>0</QMCheckBox620d
+><QMCheckBox620e
+>0</QMCheckBox620e
+><QMTextField630
+/></ManufacturingChanges
+><FacilitiesInfo
+><QMDropDownList810
+/><Facility
+><QMTextField905
+/><QMDropDownList910
+/><QMTextField915
+/><QMDropDownList920
+/><QMTextField925
+/><QMDropDownList930
+/><QMDropDownList935
+/><QMTextField940
+/></Facility
+></FacilitiesInfo
+></QualityManagement
+><PAS
+><PASInfo
+><PADropDownList160
+/><EachPAS
+><PATextField107
+/><PATextField110
+/><PATextField120
+/><PATextField125
+/><PATextField127
+/><PATextField130
+/><PATextField135
+/></EachPAS
+><PASAttachment xfa:dataNode="dataGroup"
+/></PASInfo
+></PAS
+><References
+><RFDropDownList110
+>2</RFDropDownList110
+><RFTextField130
+/></References
+><AdministrativeDocumentation
+><ADCheckBox855a
+>0</ADCheckBox855a
+><ADCheckBox855b
+>0</ADCheckBox855b
+><ADCheckBox855c
+>0</ADCheckBox855c
+><ADCheckBox855d
+>0</ADCheckBox855d
+><ADCheckBox855e
+>0</ADCheckBox855e
+><ADCheckBox855f
+>0</ADCheckBox855f
+><ADCheckBox855g
+>0</ADCheckBox855g
+><ADDropDownList870
+>2</ADDropDownList870
+><ADDropDownList890
+>1</ADDropDownList890
+><ADTextField920
+>MD6155755</ADTextField920
+><TAStatement
+><TATextField105
+/><TATextField106
+/><TextField102
+/></TAStatement
+><DoC
+><DCTextField110
+/><DCTextField120
+>RAM.SHAW PTE.LTD.</DCTextField120
+><DCTextField130
+>112 Robinson Road # 03-01 Robinson 112, Singapore Singapore 068902 Singapore</DCTextField130
+><DCTextField140
+>Anti Snoring Mouthpiece (L08-BP, L08-PT, L08-BT, L08-TP, L08-TB, L08-PB)</DCTextField140
+><Standards
+><DCTextField160
+>ISO</DCTextField160
+><DCTextField170
+>10993-5 Third edition 2009-06-01</DCTextField170
+><DCTextField180
+>2-245</DCTextField180
+></Standards
+><DCTextField190
+/><DCTextField210
+>Singapore</DCTextField210
+><DCTextField220
+>2025.12.01</DCTextField220
+><DCTextField230
+>Emma chen, Regulatory Affairs Manager</DCTextField230
+><Standards
+><DCTextField160
+>ISO</DCTextField160
+><DCTextField170
+>10993-10 Fourth edition 2021-11</DCTextField170
+><DCTextField180
+>2-296</DCTextField180
+></Standards
+><Standards
+><DCTextField160
+>ISO</DCTextField160
+><DCTextField170
+>10993-23 First edition 2021-01</DCTextField170
+><DCTextField180
+>2-291</DCTextField180
+></Standards
+><Standards
+><DCTextField160
+>ISO</DCTextField160
+><DCTextField170
+>10993-1 Fifth edition 2018-08</DCTextField170
+><DCTextField180
+>2-258</DCTextField180
+></Standards
+></DoC
+><PMNSummary
+><SSTextField110
+>RAM.SHAW PTE.LTD.</SSTextField110
+><SSTextField120
+>112 Robinson Road # 03-01 Robinson 112, Singapore Singapore 068902 Singapore</SSTextField120
+><SSTextField130
+>+65 62262377 </SSTextField130
+><SSTextField140
+>Ms. Emma Chen</SSTextField140
+><SSTextField150
+>compliance@complianceglobe.com</SSTextField150
+><SSTextField160
+/><SSTextField170
+/><SSTextField180
+/><SSTextField190
+/><SSTextField200
+/><SSTextField220
+>Anti Snoring Mouthpiece (L08-BP, L08-PT, L08-BT, L08-TP, L08-TB, L08-PB)</SSTextField220
+><SSTextField230
+>Intraoral devices for snoring and intraoral devices for snoring and obstructive sleep apnea</SSTextField230
+><SSTextField240
+>Device, Anti-Snoring</SSTextField240
+><SSTextField250
+>872.5570</SSTextField250
+><SSTextField260
+>LRK, NA</SSTextField260
+><Predicates
+><SSTextField280
+>K170825</SSTextField280
+><SSTextField290
+>SnoreRx</SSTextField290
+><SSTextField300
+>LRK</SSTextField300
+></Predicates
+><SSTextField400
+>The L08 series anti snoring device is a thermoforming device to reduce snoring. The device works by putting into the mouth and pulling the lower jaw forward.&#xD;L08 series anti snoring device include 6 models: L08-BP, L08-PT, L08-BT, L08-TP, L08-TB, L08-PB. These models are only different in the color of their supports.&#xD;Each model is available for two sizes: Large (L) and Standard (S).&#xD;As for the construction of each model, each model includes three upper trays (A0, A2, A4) and three lower trays (B0, B1, B2). One upper tray and one lower tray are combined together for use.&#xD;1.Principle of mandibular advancement&#xD;Two protrusions are designed on the lateral side of upper tray assembly and lower tray assembly separately so as to fix the upper tray assembly and lower tray assembly together.&#xD;By restricting the lower protrusion to be located in front of the upper protrusion, the lower tray assembly is thereby restricted to the front side of the upper tray assembly, ensuring that the lower dental arch remains in a forward position relative to the upper dental arch during use. &#xD;2.Realization of different mandibular advancement distance&#xD;By positioning the upper protrusion and the lower protrusion at different locations within the upper tray assembly and the lower tray assembly, respectively, different forward displacement distances of the lower tray assembly relative to the upper tray assembly can be restricted (for example, the B2 protrusion is positioned further rearward relative to the B0 protrusion, resulting in a greater forward displacement of the mandible when assembled with the upper tray). Therefore, multiple combinations of protrusions at different positions in the tray assemblies (i.e., multiple sets of devices) can achieve restrictions on different forward displacement distances of the lower dental arch.&#xD;There are 7 combinations for upper tray and lower tray, each combination has its different mandibular advancement distance (0-6 mm). By selecting suitable upper and lower trays and using the “Boil-and-Bite” method, users can customize the fit to their dentition.</SSTextField400
+><SSTextField410
+>The Anti Snoring Mouthpiece is designed to advance the user's lower jaw and maintain this position during use, opening the airway to reduce snoring during sleep. It is intended for adults with at least 18 years old.</SSTextField410
+><SSTextField420
+>Indications for use of subject device and predicate device are the same: Minimize air turbulence that causes snoring. Device is intended for Over The-Counter use. </SSTextField420
+><SSTextField430
+>Equivalence to Predicate device:&#xD;The subject device has the same intended use and similar technological characteristics as the predicate device - SnoreRx (K170825) .&#xD;&#xD;Comparison of Indication for Use:&#xD;Both the subject and predicate devices are indicated for Over-the-Counter (OTC) use in alleviating snoring for adults 18 and older by way of mandibular repositioning.&#xD;&#xD;Comparison of Technological Features:&#xD;Both subject and predicate devices include two trays that fit separately over the upper and lower dental arches and engage each other in the anterior area of the mouth. Both devices include thermal impression material - EVA that can be heat molded to the user 's dentition in a home environment via common "Boil and Bite" method for retention.&#xD;The subject and predicate devices position the lower mandible anteriorly to increase pharyngeal space. The subject device achieves this by selecting different trays (A0, A2, A4, B0, B1, B2) to adjust the level of lower mandible tray anterior positioning to a comfort level, up to 6mm. The predicate device achieves this through a central sliding connection mechanism, and the advancing distance is up to 6mm. The advancing distance of both devices are the same. Therefore, the technological features of the subject device does not raise any questions of safety or performance.&#xD;&#xD;Comparison of Material Characteristics&#xD;The subject and predicate devices require biocompatibility testing for a surface device that contacts intraoral surfaces for prolonged contact (&gt;24h to 30 days), per "Intraoral Devices for Snoring and/or Obstructive Sleep Apnea - Class II Special Controls Guidance Document for Industry and FDA," ISO 10993 Part 5 and Part 10 respectively. A summary of the biocompatibility testing conducted for the subject device can be found in the Biocompatibility Evaluation Report.&#xD;The tray of the subject device is comprised of a polypropylene support overmolded with ethylene vinyl acetate thermal moldable resin. And the tray of predicate device is comprised of a polycarbonate resin support overmolded with ethylene vinyl acetate thermal moldable resin. Both polypropylene support and polycarbonate resin support are rigid enough to position the lower tray and mandible forward to increase pharyngeal space. And both device use thermoforming resin (EVA) that can be heat molded to the user's dentition. &#xD;Both the subject and predicate devices use materials with similar characteristics to achieve the same principle of operation and do not raise any questions of the safety or performance of the subject device.&#xD;&#xD;Substantial Equivalence Conclusion&#xD;Based on the comparison of indication of use, material characteristics, technological features, the subject device -anti snoring device is substantially equivalent to the predicate device - SnoreRx.</SSTextField430
+><SSTextField440
+>Physical properties testing was performed for material.&#xD;It includes:&#xD;ASTM D790-17 for flexural strength and flexural modulus. &#xD;ASTM D638-22 for Tensile Strength and Elongation at break.&#xD;ASTM D570-22 for water absorption.&#xD;ASTM D3418-21 for melting temperature.&#xD;ASTMD 792-20 for Density.
+
+</SSTextField440
+></PMNSummary
+></AdministrativeDocumentation
+><Amendment
+><ADDropDownList950
+/><AdditionalInformation
+><Response
+><ADTextFieldD
+/><ADTextFieldR
+/></Response
+></AdditionalInformation
+><UnsolicitedAI
+><ADTextField985
+/></UnsolicitedAI
+></Amendment
+><AttachmentManifest
+>***Start***&lt;&lt;Product description.pdf|/CHAPTER 2/CH2.04/CH2.04.01/&gt;&gt;&lt;&lt;Device Picture.pdf|/CHAPTER 2/CH2.04/CH2.04.01/&gt;&gt;&lt;&lt;Device Packaging.pdf|/CHAPTER 2/CH2.04/CH2.04.02/&gt;&gt;&lt;&lt;SE Comparison.pdf|/CHAPTER 2/CH2.04/CH2.04.05/&gt;&gt;&lt;&lt;Cover letter.pdf|/CHAPTER 1/CH1.01/&gt;&gt;&lt;&lt;Outer Package.pdf|/CHAPTER 5/CH5.02/&gt;&gt;&lt;&lt;Instruction for use.pdf|/CHAPTER 5/CH5.03/&gt;&gt;&lt;&lt;Label.pdf|/CHAPTER 5/CH5.10/&gt;&gt;&lt;&lt;Reprocessing Validation Test.pdf|/CHAPTER 3/CH3.08/&gt;&gt;&lt;&lt;Durability verification protocol.pdf|/CHAPTER 3/CH3.08/&gt;&gt;&lt;&lt;Durability verification report.pdf|/CHAPTER 3/CH3.08/&gt;&gt;&lt;&lt;Shelf-life verification protocol.pdf|/CHAPTER 3/CH3.08/&gt;&gt;&lt;&lt;Shelf-life verification report.pdf|/CHAPTER 3/CH3.08/&gt;&gt;&lt;&lt;Cytotoxicity_RT-W25-0003-BAR.pdf|/CHAPTER 3/CH3.05/CH3.05.06/&gt;&gt;&lt;&lt;Sensitization_RT-W25-0002-BVO.pdf|/CHAPTER 3/CH3.05/CH3.05.06/&gt;&gt;&lt;&lt;Intracutaneous reactivity_RT-W25-0001-BVO.pdf|/CHAPTER 3/CH3.05/CH3.05.06/&gt;&gt;&lt;&lt;ASCA summary test report_RS-W25-0003-BAR.pdf|/CHAPTER 3/CH3.05/CH3.05.06/&gt;&gt;&lt;&lt;Material Characteristic Test (EVA).pdf|/CHAPTER 3/CH3.08/&gt;&gt;&lt;&lt;Material Characteristic Test (PP).pdf|/CHAPTER 3/CH3.08/&gt;&gt;&lt;&lt;Truthful and accurate statement.pdf|/CHAPTER 1/CH1.12/CH1.12.05/&gt;&gt;&lt;&lt;510(k) summary.pdf|/CHAPTER 2/CH2.03/&gt;&gt;&lt;&lt;Site_  MDUFMA Cover Sheet.pdf|/CHAPTER 1/CH1.09/&gt;&gt;&lt;&lt;Biocompatibility evaluation report.pdf|/CHAPTER 3/CH3.05/CH3.05.06/&gt;&gt;</AttachmentManifest
+><CompletionCheck
+>1</CompletionCheck
+><ViewerType
+>Exchange-Pro</ViewerType
+><ViewerTypeHistory
+>2025-12-01T15:23:08 Exchange-Pro</ViewerTypeHistory
+><SavedTime
+>2025-12-02T11:38:05</SavedTime
+><Version
+>6.00</Version
+><Footer
+>Anti Snoring Mouthpiece</Footer
+><FormID
+><body xmlns="http://www.w3.org/1999/xhtml"
+><p style="margin-top:0in;margin-bottom:0in;"
+>Form FDA 4062<span style="xfa-spacerun:yes"
+>                                                                                                        </span
+>Built by Patrick Axtell, FDA/CDRH/OPEQ/ORP</p
+></body
+></FormID
+></root
+></xfa:data
+></xfa:datasets
+>

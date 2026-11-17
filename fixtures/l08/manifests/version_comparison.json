@@ -1,0 +1,72 @@
+[
+  {
+    "name": "Cover letter.pdf",
+    "same_bytes": false,
+    "source": "source\\510k\\Cover letter.pdf"
+  },
+  {
+    "name": "Device Packaging.pdf",
+    "same_bytes": true,
+    "source": "source\\510k\\Device Packaging.pdf"
+  },
+  {
+    "name": "Device Picture.pdf",
+    "same_bytes": false,
+    "source": "source\\510k\\Device Picture.pdf"
+  },
+  {
+    "name": "Durability verification protocol.pdf",
+    "same_bytes": true,
+    "source": "source\\510k\\耐久性\\Durability verification protocol.pdf"
+  },
+  {
+    "name": "Durability verification report.pdf",
+    "same_bytes": false,
+    "source": "source\\510k\\耐久性\\Durability verification report.pdf"
+  },
+  {
+    "name": "Instruction for use.pdf",
+    "same_bytes": true,
+    "source": "source\\510k\\标签说明书\\Instruction for use.pdf"
+  },
+  {
+    "name": "Label.pdf",
+    "same_bytes": true,
+    "source": "source\\510k\\标签说明书\\Label.pdf"
+  },
+  {
+    "name": "Material Characteristic Test (EVA).pdf",
+    "same_bytes": true,
+    "source": "source\\510k\\材料特性测试\\Material Characteristic Test (EVA).pdf"
+  },
+  {
+    "name": "Material Characteristic Test (PP).pdf",
+    "same_bytes": true,
+    "source": "source\\510k\\材料特性测试\\Material Characteristic Test (PP).pdf"
+  },
+  {
+    "name": "Outer Package.pdf",
+    "same_bytes": true,
+    "source": "source\\510k\\标签说明书\\Outer Package.pdf"
+  },
+  {
+    "name": "Reprocessing Validation Test.pdf",
+    "same_bytes": true,
+    "source": "source\\510k\\清洁验证测试\\Reprocessing Validation Test.pdf"
+  },
+  {
+    "name": "SE Comparison.pdf",
+    "same_bytes": true,
+    "source": "source\\510k\\SE Comparison.pdf"
+  },
+  {
+    "name": "Shelf-life verification protocol.pdf",
+    "same_bytes": true,
+    "source": "source\\510k\\寿命验证\\Shelf-life verification protocol.pdf"
+  },
+  {
+    "name": "Shelf-life verification report.pdf",
+    "same_bytes": false,
+    "source": "source\\510k\\寿命验证\\Shelf-life verification report.pdf"
+  }
+]
