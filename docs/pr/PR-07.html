@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr">PR</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应的需求和技术方案">对应的需求和技术方案</a><a class="level-2" href="#真实模型测试">真实模型测试</a><a class="level-2" href="#新增依赖">新增依赖</a><a class="level-2" href="#风险和需要lan决定的事">风险和需要Lan决定的事</a></nav><main><h2 id="pr">PR</h2>
+<p>PR-07 项目工作区与独立工作副本</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>新0003：工作区、不可变版本与文件、对话私有工作副本及overlay；前置最小conversation表保证真实归属，组合外键阻止项目/用户/版本错配。</li><li>每文件SHA比较并交换、基础版本冲突；保留失败副本并返回有界变动路径。显式核对最新版本和草稿后重基，重叠改动需逐路径双方SHA确认，不提供force覆盖。</li><li>恢复生成新版本；决定记录只追加，写入/保存二次检查，恢复保留最新及未保存追加历史。最高资料级别传播且数据库禁止下降。</li><li>已发布版本禁止改动和追加文件，当前指针不能回退/清空；补snapshot同项目工作区版本外键。</li><li>路径NFC与越界防护、严格UTF8读取、完整字符分页、有界行对比及非文本哈希对比；公开API仅读。</li><li>幂等L08初始工作区5文件和资料引用清单；项目说明包含安全工作方法，不植入K号预期答案。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>审批冻结服务与HTTP入口留PR-16；没有给Agent提供冻结调用。</li><li>Word解析对比、二进制内容预览留PR-27。文本差异有1百万码元/1万行/计算时间上限，长行与分页有限额，超限明确提示，不假装完整比较。</li><li>决定记录的并行分叉不自动重排或覆盖，需新建基于最新版本的对话再追加；原副本保留。</li><li>本PR内部写服务仍未暴露为模型工具，撤销/幂等与动作级别在PR-08/21接入；会话表不等于对话运行已实现。</li><li>项目说明模板当前仅静态约束测试，真实Agent回归在PR-20/21执行；没有把占位eval正常退出写成通过。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，28文件186测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，13文件82测试；另单独复跑15项工作区服务集成全部通过</td></tr><tr><td>路径/读取/对比</td><td>NFC重名、越界、UTF8错误、Unicode续读、非连续行修改及输出上限测试通过</td></tr><tr><td>种子归属回归</td><td>先复现固定workspace编号被别的项目占用仍成功，修复为同时核对project_id后拒绝，不覆盖</td></tr><tr><td><code>pnpm db:generate</code>、<code>pnpm db:setup</code>两次</td><td>无差异；日常库应用0003并建5文件初始版本；第二次保留原版本与改动</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>提交前执行</td></tr><tr><td>GitHub CI</td><td>开PR后运行，通过后合并</td></tr></tbody></table>
+<h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
+<ul><li>需求V0.9：2.6；技术方案4.25；执行方案PR-07。前置会话与保守决定见D-011。</li></ul>
+<h2 id="真实模型测试">真实模型测试</h2>
+<p>无；全晚累计0美元。</p>
+<h2 id="新增依赖">新增依赖</h2>
+<p>diff9.0.0（BSD-3-Clause），本地字符串按行比较，设置计算上限和输出分页；无网络、遥测或错误上报。</p>
+<h2 id="风险和需要lan决定的事">风险和需要Lan决定的事</h2>
+<ul><li>重基确认版本/哈希不能代替正文语义审核；调用方应先读差异并整理合并，最终定稿仍需人审核。</li><li>旧迁移0000–0002保持不变；已保存版本与决定记录的强约束不能通过恢复/重基绕过。</li><li>独立预审意见均先回归后修复：种子跨项目误认、冲突无重试路径，以及重基联合文件数超过10000导致副本不可操作；越界重基现在原子拒绝并保留原副本。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

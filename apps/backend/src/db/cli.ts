@@ -7,6 +7,7 @@ import { seedT1Documents } from '../documents/t1-seed.js';
 import { BlobStore } from '../documents/blob-store.js';
 import { createDependencies } from '../dependencies.js';
 import { AppError } from '../api/errors.js';
+import { seedDevelopmentWorkspace } from '../workspace/seed.js';
 
 async function main() {
   const action = process.argv[2];
@@ -35,6 +36,10 @@ async function main() {
         const documents = await seedT1Documents(pool, store, process.env);
         console.log(
           `T1解析快照已就绪：${documents.documentCount}份资料、${documents.pageCount}条逐页文本；未导入原始文件。`,
+        );
+        const workspace = await seedDevelopmentWorkspace(pool, store, process.env);
+        console.log(
+          workspace.created ? 'L08工作区初始版本已建立。' : 'L08工作区已存在，保留已有版本与改动。',
         );
       } finally {
         await dependencies.close();
