@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr">PR</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应的需求和技术方案">对应的需求和技术方案</a><a class="level-2" href="#真实模型测试">真实模型测试</a><a class="level-2" href="#新增依赖">新增依赖</a><a class="level-2" href="#风险和需要lan决定的事">风险和需要Lan决定的事</a></nav><main><h2 id="pr">PR</h2>
+<p>PR-02 数据库基础</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>Drizzle定义与可审阅0000 SQL：app_user、role_binding、web_session、audit_log、legal_entity、entity_role。</li><li>审计UPDATE/DELETE/TRUNCATE保护；只读无登录角色只授权两张业务表，不暴露密码和会话秘密。</li><li>迁移执行器校验历史SHA-256、按编号互斥执行、事务回滚；生成、审阅、执行命令分离。</li><li>开发五角色账号，Argon2id哈希，密码仅来自.env.local；幂等且不重置已有账号；拒绝接管非开发同名账号；生产拒绝种子。</li><li>测试使用本次独有的随机临时数据库，结束后清理；补充数据库说明及启动步骤。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>登录和浏览器会话接口留给PR-04；业务台账和领域服务留给PR-05。</li><li>不初始化真实法律主体或法规期限，避免虚构业务数据。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>命令</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，13个测试文件37项测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，3个测试文件12项测试；空库迁移、幂等、并发、DDL/账本回滚、历史篡改拒绝、审计不可修改、只读角色、账号种子</td></tr><tr><td><code>pnpm db:generate</code></td><td>无结构差异，schema和快照一致</td></tr><tr><td><code>pnpm db:setup</code>连续两次</td><td>首次1迁移/5账号，第二次0迁移/0新账号、保留5账号</td></tr><tr><td><code>pnpm docs:html</code>及密钥扫描</td><td>提交前执行并记录结果</td></tr><tr><td>GitHub CI</td><td>开PR后执行，通过后才合并</td></tr></tbody></table>
+<h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
+<ul><li>需求V0.9：5.1、NF03；技术方案4.16、4.22、6。</li></ul>
+<h2 id="真实模型测试">真实模型测试</h2>
+<p>无；全晚累计0美元。</p>
+<h2 id="新增依赖">新增依赖</h2>
+<p>drizzle-orm0.45.4（Apache-2.0）、drizzle-kit0.31.11（MIT，仅生成迁移）、argon2 0.45.2（MIT，本地哈希，原生预编译模块）。未配置遥测、错误上报或远程数据库管理服务；Drizzle Kit只生成本地SQL，不启用Studio。依赖安装中的原生构建只发生在开发/CI安装阶段。</p>
+<h2 id="风险和需要lan决定的事">风险和需要Lan决定的事</h2>
+<ul><li>独立预审发现用户名约束与ra/rb/gm长度不一致，本PR首次迁移尚未应用时已统一为至少2字符并用真实种子验证；未修改任何已合并迁移。</li><li>迁移与开发初始化使用本项目管理员连接；模型和工具尚未提供数据库执行入口。后续语义层必须使用受限只读角色。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

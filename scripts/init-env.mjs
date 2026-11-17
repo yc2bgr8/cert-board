@@ -17,6 +17,9 @@ export function initializeEnvironment(filename) {
   set('POSTGRES_PASSWORD', randomBytes(24).toString('hex'));
   set('MINIO_ROOT_USER', 'certboard');
   set('MINIO_ROOT_PASSWORD', randomBytes(24).toString('hex'));
+  for (const role of ['RA', 'RB', 'GM', 'SALES', 'TECH']) {
+    set(`DEV_${role}_PASSWORD`, randomBytes(24).toString('hex'));
+  }
   const prefix = `postgresql://cert_board:${encodeURIComponent(values.POSTGRES_PASSWORD)}@127.0.0.1:25432/`;
   set('DATABASE_URL', `${prefix}cert_board`);
   set('TEST_DATABASE_URL', `${prefix}cert_board_test`);

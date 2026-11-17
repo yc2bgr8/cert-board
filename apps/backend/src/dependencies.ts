@@ -3,6 +3,7 @@ import { Agent as HttpsAgent } from 'node:https';
 import { Client } from 'minio';
 import pg from 'pg';
 import type { BackendConfig } from '@cert-board/shared';
+import { createDatabase } from './db/client.js';
 import { createStorageTransport } from './storage-transport.js';
 
 export interface HealthDependencies {
@@ -37,6 +38,7 @@ export function createDependencies(config: BackendConfig) {
   let closing: Promise<void> | undefined;
   return {
     database,
+    orm: createDatabase(database),
     storage,
     async checkDatabase() {
       await database.query('SELECT 1');
