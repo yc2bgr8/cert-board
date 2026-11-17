@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@cert-board/shared": "workspace:*"
+    "@cert-board/shared": "workspace:*",
+    "fastify": "5.12.8",
+    "minio": "8.0.7",
+    "pg": "8.23.1",
+    "pino": "10.4.0"
   }
 }

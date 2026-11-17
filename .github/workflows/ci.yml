@@ -23,5 +23,10 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm env:init
+      - run: pnpm dev:up
+      - run: pnpm test:int
+      - if: always()
+        run: pnpm dev:down
       - name: 密钥扫描（不使用外部服务）
         run: docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.24.3 git /repo --redact --no-banner

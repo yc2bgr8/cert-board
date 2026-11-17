@@ -1,0 +1,78 @@
+name: cert-board
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg16
+    environment:
+      POSTGRES_DB: cert_board
+      POSTGRES_USER: cert_board
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在.env.local设置POSTGRES_PASSWORD}
+    networks: [internal]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/001-test-database.sql:/docker-entrypoint-initdb.d/001-test-database.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U cert_board -d cert_board']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  minio:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?请在.env.local设置MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?请在.env.local设置MINIO_ROOT_PASSWORD}
+      MINIO_UPDATE: 'off'
+    networks: [internal]
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:9000/minio/health/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  relay:
+    image: nginxinc/nginx-unprivileged:1.30.6-alpine3.24
+    entrypoint: ['nginx', '-g', 'daemon off;']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks: [internal, ingress]
+    ports:
+      - '127.0.0.1:25432:5432'
+      - '127.0.0.1:29000:9000'
+      - '127.0.0.1:29001:9001'
+    volumes:
+      - ./deploy/relay/nginx.conf:/etc/nginx/nginx.conf:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:9000/minio/health/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+networks:
+  internal:
+    internal: true
+  ingress:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  minio_data:
+
+# PR-13 将中继扩展到解析/沙箱/抓取服务；此时仅转发数据库和存储的固定端口。
