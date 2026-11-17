@@ -825,6 +825,10 @@ export const run = pgTable(
     budgetTotalTokens: bigint('budget_total_tokens', { mode: 'number' }).notNull().default(0),
     budgetCostNano: bigint('budget_cost_nano', { mode: 'bigint' }),
     budgetStopReason: varchar('budget_stop_reason', { length: 500 }),
+    leaseOwner: uuid('lease_owner'),
+    leaseGeneration: bigint('lease_generation', { mode: 'number' }).notNull().default(0),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+    lastEventSeq: bigint('last_event_seq', { mode: 'number' }).notNull().default(0),
     ...timestamps(),
     version: integer('version').notNull().default(1),
   },
@@ -864,6 +868,18 @@ export const run = pgTable(
     ),
     check('run_version_positive', sql`${table.version} > 0`),
     check(
+      'run_lease_generation_safe',
+      sql`${table.leaseGeneration} >= 0 AND ${table.leaseGeneration} <= 9007199254740991`,
+    ),
+    check(
+      'run_event_seq_safe',
+      sql`${table.lastEventSeq} >= 0 AND ${table.lastEventSeq} <= 9007199254740991`,
+    ),
+    check(
+      'run_lease_complete',
+      sql`(${table.leaseOwner} IS NULL AND ${table.leaseExpiresAt} IS NULL) OR (${table.leaseOwner} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL AND ${table.leaseGeneration} > 0)`,
+    ),
+    check(
       'run_budget_steps_safe',
       sql`${table.budgetSteps} >= 0 AND ${table.budgetSteps} <= 9007199254740991`,
     ),
@@ -899,6 +915,7 @@ export const toolInvocation = pgTable(
   },
   (table) => [
     unique('tool_invocation_call_unique').on(table.runId, table.callId),
+    unique('tool_invocation_id_run_unique').on(table.id, table.runId),
     unique('tool_invocation_owner_unique').on(table.id, table.conversationId, table.userId),
     unique('tool_invocation_run_owner_unique').on(
       table.id,
@@ -1269,6 +1286,8 @@ export const usageLedger = pgTable(
     ...timestamps(),
   },
   (table) => [
+    unique('usage_ledger_request_run_unique').on(table.requestKey, table.runId),
+    unique('usage_ledger_request_run_user_unique').on(table.requestKey, table.runId, table.userId),
     foreignKey({
       name: 'usage_ledger_run_owner_fk',
       columns: [table.runId, table.conversationId, table.userId],
@@ -1330,5 +1349,116 @@ export const usageLedger = pgTable(
     index('usage_ledger_goal_idx').on(table.goalId),
     index('usage_ledger_month_idx').on(table.policyId, table.monthKey),
     index('usage_ledger_night_idx').on(table.policyId, table.nightKey),
+  ],
+);
+
+export const runEventType = pgEnum('run_event_type', [
+  'run_started',
+  'model_started',
+  'model_completed',
+  'tool_started',
+  'tool_completed',
+  'tool_failed',
+  'run_waiting',
+  'run_completed',
+  'run_failed',
+  'run_stopped',
+  'budget_stopped',
+]);
+export const runEventReason = pgEnum('run_event_reason', [
+  'authorization_denied',
+  'validation_failed',
+  'version_conflict',
+  'budget_limit',
+  'metering_incomplete',
+  'provider_unavailable',
+  'timeout',
+  'cancelled',
+  'lease_expired',
+  'lease_replaced',
+  'internal_error',
+]);
+
+export const runEvent = pgTable(
+  'run_event',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => run.id, { onDelete: 'restrict' }),
+    seq: bigint('seq', { mode: 'number' }).notNull(),
+    type: runEventType('type').notNull(),
+    invocationId: uuid('invocation_id'),
+    requestId: uuid('request_id'),
+    contentHash: varchar('content_hash', { length: 64 }),
+    dataLevel: documentDataLevel('data_level'),
+    reasonCode: runEventReason('reason_code'),
+    inputTokens: bigint('input_tokens', { mode: 'number' }),
+    outputTokens: bigint('output_tokens', { mode: 'number' }),
+    totalTokens: bigint('total_tokens', { mode: 'number' }),
+    costNano: bigint('cost_nano', { mode: 'bigint' }),
+    durationMs: bigint('duration_ms', { mode: 'number' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('run_event_sequence_unique').on(table.runId, table.seq),
+    foreignKey({
+      name: 'run_event_invocation_run_fk',
+      columns: [table.invocationId, table.runId],
+      foreignColumns: [toolInvocation.id, toolInvocation.runId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'run_event_request_run_fk',
+      columns: [table.requestId, table.runId],
+      foreignColumns: [usageLedger.requestKey, usageLedger.runId],
+    }).onDelete('restrict'),
+    check('run_event_seq_positive', sql`${table.seq} > 0 AND ${table.seq} <= 9007199254740991`),
+    check(
+      'run_event_hash_format',
+      sql`${table.contentHash} IS NULL OR ${table.contentHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      'run_event_input_tokens_safe',
+      sql`${table.inputTokens} IS NULL OR (${table.inputTokens} >= 0 AND ${table.inputTokens} <= 9007199254740991)`,
+    ),
+    check(
+      'run_event_output_tokens_safe',
+      sql`${table.outputTokens} IS NULL OR (${table.outputTokens} >= 0 AND ${table.outputTokens} <= 9007199254740991)`,
+    ),
+    check(
+      'run_event_total_tokens_safe',
+      sql`${table.totalTokens} IS NULL OR (${table.totalTokens} >= 0 AND ${table.totalTokens} <= 9007199254740991)`,
+    ),
+    check(
+      'run_event_cost_safe',
+      sql`${table.costNano} IS NULL OR (${table.costNano} >= 0 AND ${table.costNano} <= 999999999999999999)`,
+    ),
+    check(
+      'run_event_duration_safe',
+      sql`${table.durationMs} IS NULL OR (${table.durationMs} >= 0 AND ${table.durationMs} <= 9007199254740991)`,
+    ),
+  ],
+);
+
+// 真实请求正文默认不持久化；仅保留服务显式授权的内容，独立按 expires_at 清理。
+export const modelRequestContent = pgTable(
+  'model_request_content',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    runId: uuid('run_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    requestId: uuid('request_id').notNull().unique(),
+    contentJson: jsonb('content_json').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'model_request_content_usage_owner_fk',
+      columns: [table.requestId, table.runId, table.userId],
+      foreignColumns: [usageLedger.requestKey, usageLedger.runId, usageLedger.userId],
+    }).onDelete('restrict'),
+    check('model_request_content_expiry_order', sql`${table.expiresAt} >= ${table.createdAt}`),
+    index('model_request_content_expiry_idx').on(table.expiresAt),
   ],
 );

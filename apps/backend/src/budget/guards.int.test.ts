@@ -121,7 +121,9 @@ describe('预算账本数据库保护', () => {
     await denied('UPDATE usage_ledger SET night_key=$2 WHERE id=$1', [id, 'new-night']);
     await denied('UPDATE usage_ledger SET project_id=$2 WHERE id=$1', [id, randomUUID()]);
     await denied('DELETE FROM usage_ledger WHERE id=$1', [id]);
-    await denied('TRUNCATE usage_ledger');
+    // PR-11新增私有请求/事件外键：普通TRUNCATE先由外键拒绝；CASCADE仍须被不可清空守卫拒绝。
+    await denied('TRUNCATE usage_ledger', [], '0A000');
+    await denied('TRUNCATE usage_ledger CASCADE');
     await denied('UPDATE budget_policy SET night_key=$1', ['new-night']);
     await denied('UPDATE budget_policy SET environment=$1', ['production']);
     await denied('DELETE FROM budget_policy');

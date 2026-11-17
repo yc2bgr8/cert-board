@@ -16,6 +16,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 @media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
 </style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#需要-lan-处理">需要 Lan 处理</a><a class="level-2" href="#各-pr-未完成验收">各 PR 未完成验收</a></nav><main><h1 id="待办">待办</h1>
+<ul><li>PR-11：执行权和事件的真实运行接入在PR-20；私有对话/SSE在PR-25；真实请求原文正期限保留未开放，今晚为0天；清理常驻调度和各后续业务的审计分别随worker/业务PR完成。</li><li>PR-20接入执行权时：工具写入必须在registry现有tx内核对owner/generation/数据库到期时间，并在提交前复核，不能在持run锁时另开Pool连接调用assertRunLease，也不能把一次事务外检查当成完整fencing。worker应重扫handoffBlockedBudgetRuns，保持已知计量结果不受后置停止故障影响。</li></ul>
 <ul><li>PR-10：网关最大输出/价格限制和调用前预算在PR-12接入；Agent停止汇报在PR-20接入，目标完整交还状态机/通知在PR-28及通知PR；预算管理界面与生产额度批准后续完成。</li></ul>
 <h2 id="需要-lan-处理">需要 Lan 处理</h2>
 <ul><li>GitHub 私有仓库分支保护：API 返回403，当前套餐需要升级 GitHub Pro 才能启用。保留私有仓库，今晚手动强制遵循 PR、CI 和禁止强推纪律；Lan 后续决定是否升级。GitHub 登录已完成，仓库身份已改为账号 noreply 邮箱；初始提交保留原 Lan 身份，不改写历史。</li><li>界面稿和技能内容的注册人员确认；正式业务使用仍需审阅。</li><li>顶级闭源模型的真实比选预算，今晚只做脚本和剧本测试。</li></ul>

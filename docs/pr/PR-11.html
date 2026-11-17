@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr">PR</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应的需求和技术方案">对应的需求和技术方案</a><a class="level-2" href="#真实模型测试">真实模型测试</a><a class="level-2" href="#新增依赖">新增依赖</a><a class="level-2" href="#风险和需要lan决定的事">风险和需要Lan决定的事</a></nav><main><h2 id="pr">PR</h2>
+<p>PR-11 执行事件、执行权与私有请求清理</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>扩展run的执行权和事件序号；run_event使用明确字段白名单和受控值，不记录资料正文、原始参数或凭据。</li><li>事件只追加，引用绑定同一运行；租约以owner、generation和数据库到期时间识别。</li><li>私有请求内容关联计量请求及其运行/用户，不授予通用只读角色；默认0天直接不存。</li><li>提供<code>pnpm requests:purge</code>，按数据库时间批量清理到期内容，删除与只含元数据的审计同事务。非零保留只用于隔离库的合成测试。</li><li>联动修复PR-10全局停止的锁顺序风险：真实费用与冻结先提交，其他运行在后置独立事务中停止；后置失败保留账目及冻结，不伪装结算失败。事件和租约也统一先锁对话再锁运行。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>Agent、模型网关与工具执行器的实际事件/执行权接入留PR-12/20/21；当前尚未宣称运行中的模型或工具已被lease保护。</li><li>完整私有对话正文、实时SSE和运行界面留PR-20/25/26/27。</li><li>真实请求正文的正期限保留暂不开放；默认0天的保守决定见D-015。</li><li>尚未实现的管理操作与冻结审计随对应业务PR接入；清理常驻调度在worker接入时完成。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，235项单元测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，182项集成测试，含2项锁序与2项预算后置交回回归</td></tr><tr><td><code>pnpm db:generate</code>、<code>pnpm db:migrate</code></td><td>schema无差异，0007已应用，旧迁移未改</td></tr><tr><td><code>pnpm requests:purge</code></td><td>通过，本地无持久化模型请求，清理0条</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>文档生成与密钥扫描在提交前检查</td></tr><tr><td>GitHub CI、独立AI审查</td><td>开PR后执行</td></tr></tbody></table>
+<p>测试期望调整：PR-10原有<code>TRUNCATE usage_ledger</code>期望42501；PR-11新增引用账本的私有请求/事件外键后，PostgreSQL会先以0A000拒绝普通TRUNCATE。保留该拒绝校验，并增加<code>TRUNCATE usage_ledger CASCADE</code>仍须以42501失败的回归，没有移除不可清空约束或放行任一清空路径。</p>
+<h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
+<ul><li>需求V0.9 NF03、5.5第4条；技术方案4.16。</li></ul>
+<h2 id="真实模型测试">真实模型测试</h2>
+<p>无；全晚累计0美元。</p>
+<h2 id="新增依赖">新增依赖</h2>
+<p>无；没有遥测或外部上报。</p>
+<h2 id="风险和需要lan决定的事">风险和需要Lan决定的事</h2>
+<ul><li>真实请求原文的保留期限和访问规则待后续确认；今晚保持零保留。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
