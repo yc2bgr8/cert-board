@@ -100,6 +100,7 @@ const fingerprint = (value: unknown) =>
 async function transaction<T>(
   pool: Pool,
   operation: (tx: PoolClient) => Promise<T | Rejection>,
+  handoffAfterCommit = true,
 ): Promise<T> {
   const tx = await pool.connect();
   let result: T | Rejection;
@@ -118,6 +119,8 @@ async function transaction<T>(
   } finally {
     tx.release();
   }
+  // 费用已经提交并释放所有锁；后置交回失败绝不能变成结算失败或模型重发的依据。
+  if (handoffAfterCommit) await handoffBlockedBudgetRuns(pool);
   if (result instanceof Rejection) throw result.error;
   return result;
 }
@@ -260,14 +263,90 @@ async function stop(tx: PoolClient, runId: string, reason: string, global = fals
       [reason],
     );
   const affected = await tx.query<{ id: string }>(
-    `UPDATE run SET status='budget_exhausted',budget_stop_reason=$1,finished_at=COALESCE(finished_at,CURRENT_TIMESTAMP),version=version+1,updated_at=CURRENT_TIMESTAMP WHERE ${global ? "status IN ('running','waiting')" : "id=$2 AND status IN ('running','waiting','queued')"} RETURNING id`,
-    global ? [reason] : [reason, runId],
+    "UPDATE run SET status='budget_exhausted',budget_stop_reason=$1,finished_at=COALESCE(finished_at,CURRENT_TIMESTAMP),version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND status IN ('running','waiting','queued') RETURNING id",
+    [reason, runId],
   );
   for (const row of affected.rows)
     await tx.query(
       "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system',$1,'run',$2)",
       [`budget.stop_${reason}`, row.id],
     );
+  return affected.rowCount ?? 0;
+}
+
+function warnHandoffDeferred() {
+  try {
+    console.warn('BUDGET_HANDOFF_DEFERRED');
+  } catch {
+    // 日志出口故障也不能使已经提交的模型费用看起来未结算。
+  }
+}
+
+async function recordHandoffFailure(pool: Pool, runId?: string) {
+  try {
+    await pool.query(
+      "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system','budget.handoff_failed',$1,$2)",
+      [runId ? 'run' : 'budget_policy', runId ?? 'default'],
+    );
+  } catch {
+    warnHandoffDeferred();
+  }
+}
+
+/** 可由 worker 显式重扫；失败只产生固定告警，永远不改变先前已提交的计量结果。 */
+export async function handoffBlockedBudgetRuns(pool: Pool) {
+  const outcome = { stopped: 0, failed: 0, hasMore: false };
+  try {
+    const found = await pool.query<{ blocked_reason: string | null; environment: string }>(
+      "SELECT blocked_reason,environment FROM budget_policy WHERE id='default'",
+    );
+    const configured = found.rows[0];
+    if (!configured?.blocked_reason) return outcome;
+    if (configured.environment !== (process.env.NODE_ENV ?? 'production')) {
+      outcome.failed = 1;
+      await recordHandoffFailure(pool);
+      return outcome;
+    }
+    const reason = [
+      'month_limit',
+      'night_limit',
+      'reservation_exceeded',
+      'metering_incomplete',
+    ].includes(configured.blocked_reason)
+      ? configured.blocked_reason
+      : 'global_policy_blocked';
+    const candidates = await pool.query<{ id: string; user_id: string }>(
+      "SELECT id,user_id FROM run WHERE status IN ('queued','running','waiting') ORDER BY id LIMIT 65",
+    );
+    outcome.hasMore = candidates.rows.length > 64;
+    const deadline = Date.now() + 2000;
+    for (const candidate of candidates.rows.slice(0, 64)) {
+      if (Date.now() >= deadline) {
+        outcome.hasMore = true;
+        break;
+      }
+      try {
+        outcome.stopped += await transaction(
+          pool,
+          async (tx) => {
+            await tx.query("SET LOCAL lock_timeout='500ms'");
+            await tx.query("SET LOCAL statement_timeout='2000ms'");
+            // 逐个新事务按 user→goal→conversation→run 加锁，不带入任何前一运行的锁。
+            await runContext(tx, { runId: candidate.id, userId: candidate.user_id }, false);
+            return stop(tx, candidate.id, reason);
+          },
+          false,
+        );
+      } catch {
+        outcome.failed += 1;
+        await recordHandoffFailure(pool, candidate.id);
+      }
+    }
+  } catch {
+    outcome.failed += 1;
+    await recordHandoffFailure(pool);
+  }
+  return outcome;
 }
 async function totals(
   tx: PoolClient,
