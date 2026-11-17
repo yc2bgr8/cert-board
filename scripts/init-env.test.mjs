@@ -16,6 +16,8 @@ test('首次生成隔离库与随机凭据，重复运行不改已有值', () =>
     const values = parseEnv(first);
     expect(values.POSTGRES_PASSWORD).toHaveLength(48);
     expect(values.MINIO_ROOT_PASSWORD).not.toEqual(values.POSTGRES_PASSWORD);
+    expect(values.DEV_RA_PASSWORD).toHaveLength(48);
+    expect(values.DEV_RB_PASSWORD).not.toBe(values.DEV_RA_PASSWORD);
     expect(new URL(values.TEST_DATABASE_URL).pathname).toBe('/cert_board_test');
     expect(values.CUSTOM_VALUE).toBe('keep');
     expect(values.OPENROUTER_API_KEY).toBeUndefined();

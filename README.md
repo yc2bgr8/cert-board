@@ -15,6 +15,7 @@ AI原生器械认证板块，形态是器械认证版的Claude Code：人在自�
 pnpm install
 pnpm env:init
 pnpm dev:up
+pnpm db:setup
 pnpm dev:api
 ```
 
@@ -25,3 +26,7 @@ pnpm dev:api
 `pnpm dev:down` 仅停止 cert-board 项目并保留命名卷。已有项目的服务不受影响。
 
 密码与密钥只在 `.env.local`，初始化不会覆盖已有值；不要输出完整配置或将它加入提交。
+
+开发账号为 `ra`、`rb`、`gm`、`sales`、`tech`；密码分别读取 `.env.local` 的 `DEV_RA_PASSWORD` 等对应变量。种子只在 development/test 环境执行；生产环境禁止开发账号种子。登录接口在 PR-04 实现。
+
+数据库结构改动先改 Drizzle schema，再运行 `pnpm db:generate` 并审阅生成的 SQL；`pnpm db:migrate` 执行迁移。已应用/已合并的迁移不可修改，必须另建迁移。执行器会校验历史文件哈希，重复运行不会重复执行。
