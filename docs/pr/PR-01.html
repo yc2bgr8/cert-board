@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr">PR</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应的需求和技术方案">对应的需求和技术方案</a><a class="level-2" href="#真实模型测试">真实模型测试</a><a class="level-2" href="#新增依赖">新增依赖</a><a class="level-2" href="#风险和需要lan决定的事">风险和需要Lan决定的事</a></nav><main><h2 id="pr">PR</h2>
+<p>PR-01 本地依赖服务与后端骨架</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>独立 cert-board Compose 项目、PostgreSQL16/pgvector、MinIO命名卷、单独测试库；Node脚本经WSL启动，Linux直接调用Docker。</li><li>只传递数据库/MinIO必需凭据，模型密钥不进入容器；配置初始化生成随机密码，已有值保持不变。</li><li>Fastify API与worker两入口；共享zod配置及响应模式；依赖真实健康检查、超时和优雅关闭；安全中文错误。</li><li>Pino递归脱敏，包含child/setBindings最终输出边界；不打印原始异常、请求、配置值。</li><li>单元及集成测试；CI增加依赖启动和集成测试，仍无模型密钥与L08原始资料。</li><li>因本机Docker内部网端口发布限制，提前实现最小开发中继，保留依赖服务的无出口内部网络，见D-006。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>业务表、登录、Agent、界面留给后续PR；worker此时仅写心跳。</li><li>沙箱、解析、抓取中继网段及模型出网代理留给对应PR；不登记代码执行工具。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>命令</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，11个文件31项测试</td></tr><tr><td><code>pnpm dev:up</code>、<code>pnpm dev:status</code></td><td>三个容器Healthy；Windows三个回环端口可连接；数据库/MinIO外网探测失败；其他项目未停止或修改</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，2项；独立cert_board_test、PG16、vector0.8.1、真实MinIO健康检查</td></tr><tr><td><code>pnpm dev:api</code>、<code>pnpm dev:worker</code></td><td>实际启动通过，HTTP /health返回ok及两个依赖up；worker写心跳；验证后已退出探针进程</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>提交前执行并检查结果</td></tr><tr><td>GitHub CI</td><td>开PR后运行，通过才合并</td></tr></tbody></table>
+<h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
+<ul><li>需求V0.9：NF03、5.5；执行方案PR-01。</li><li>技术方案：T05～T08、T12、T18、10。</li></ul>
+<h2 id="真实模型测试">真实模型测试</h2>
+<p>无；全晚累计0美元。</p>
+<h2 id="新增依赖">新增依赖</h2>
+<p>fastify5.12.8、pino10.4.0、pg8.23.1、zod4.6.7、tsx4.20.6、@types/pg8.15.6（MIT）；minio8.0.7（Apache-2.0）。包元数据及入口检查未见默认遥测或错误上报依赖；没有配置外部传输日志。容器：pgvector0.8.1/Postgres16（PostgreSQL License）、pgsty/minio指定2026-08-04版本（AGPL-3.0）、Nginx开发转发镜像（BSD-2-Clause）。MinIO自动更新关闭，内部网络没有出口。</p>
+<h2 id="风险和需要lan决定的事">风险和需要Lan决定的事</h2>
+<ul><li>独立审查指出日志绑定字段漏脱敏、主机别名绕过测试库隔离；均先写失败测试，再修复并验证。</li><li>网络回归测试调整必须体现最终的双网络中继方案，原因是Docker29对internal网络端口不发布；不是跳过连通性或沙箱隔离验收。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

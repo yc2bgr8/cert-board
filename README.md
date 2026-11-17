@@ -8,3 +8,20 @@ AI原生器械认证板块，形态是器械认证版的Claude Code：人在自�
 - 测试资料：`fixtures/`（L08派生资料为「内部」级别；L08原始文件不在仓库中）
 
 开发按执行方案逐个PR进行，从PR-00开始。
+
+## 本地开发
+
+```text
+pnpm install
+pnpm env:init
+pnpm dev:up
+pnpm dev:api
+```
+
+另一个终端运行 `pnpm dev:worker`。后端健康检查：`http://127.0.0.1:28081/health`。
+当前尚未实现网页和登录，后续 PR 接入 `http://127.0.0.1:28080`。
+
+`pnpm lint`、`pnpm typecheck`、`pnpm test` 运行基础检查；依赖服务启动后运行 `pnpm test:int`。
+`pnpm dev:down` 仅停止 cert-board 项目并保留命名卷。已有项目的服务不受影响。
+
+密码与密钥只在 `.env.local`，初始化不会覆盖已有值；不要输出完整配置或将它加入提交。
