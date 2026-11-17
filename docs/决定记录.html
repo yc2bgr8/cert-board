@@ -15,7 +15,7 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;backgrou
 img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
 @media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
-</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#d-001-今晚开发与合并授权-2026-11-17">D-001 今晚开发与合并授权（2026-11-17）</a><a class="level-2" href="#d-002-主路径的必要前置部分">D-002 主路径的必要前置部分</a><a class="level-2" href="#d-003-内容与模型">D-003 内容与模型</a><a class="level-2" href="#d-004-初始身份与密钥">D-004 初始身份与密钥</a><a class="level-2" href="#d-005-github-登录和私有仓库保护限制">D-005 GitHub 登录和私有仓库保护限制</a><a class="level-2" href="#d-006-本机-docker-的内部网络端口发布">D-006 本机 Docker 的内部网络端口发布</a><a class="level-2" href="#d-007-身份与审核权限的保守默认值">D-007 身份与审核权限的保守默认值</a></nav><main><h1 id="决定记录">决定记录</h1>
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#d-001-今晚开发与合并授权-2026-11-17">D-001 今晚开发与合并授权（2026-11-17）</a><a class="level-2" href="#d-002-主路径的必要前置部分">D-002 主路径的必要前置部分</a><a class="level-2" href="#d-003-内容与模型">D-003 内容与模型</a><a class="level-2" href="#d-004-初始身份与密钥">D-004 初始身份与密钥</a><a class="level-2" href="#d-005-github-登录和私有仓库保护限制">D-005 GitHub 登录和私有仓库保护限制</a><a class="level-2" href="#d-006-本机-docker-的内部网络端口发布">D-006 本机 Docker 的内部网络端口发布</a><a class="level-2" href="#d-007-身份与审核权限的保守默认值">D-007 身份与审核权限的保守默认值</a><a class="level-2" href="#d-008-主路径项目数据与未知业务期限">D-008 主路径项目数据与未知业务期限</a></nav><main><h1 id="决定记录">决定记录</h1>
 <h2 id="d-001-今晚开发与合并授权-2026-11-17">D-001 今晚开发与合并授权（2026-11-17）</h2>
 <p>用户授权截至明早连续开发，自行按保守可撤销默认值解决问题；每个 PR 本地检查与验收通过、AI 审查后自行合并。有 GitHub 时还必须等待 CI。无 GitHub 登录时使用本地分支、PR 说明和本地 squash 合并，明早由 Lan 推送。初始提交允许直接提交 main。</p>
 <h2 id="d-002-主路径的必要前置部分">D-002 主路径的必要前置部分</h2>
@@ -32,4 +32,8 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <p>PR-04浏览器会话默认12小时，最大24小时；写操作同时要求本站Origin、浏览器请求标记、Cookie及CSRF（登录尚无Cookie时要求Origin和JSON）。令牌只存哈希，开发账号在生产环境拒绝登录。</p>
 <p>启动API/worker时使用配置白名单，均不继承DEV_*开发账号密码和宿主机无关令牌；模型密钥仅交worker。不能通过把整个.env.local传入每个运行进程来启动服务。</p>
 <p>动作按角色及同一条授权范围共同判定。对话和销售请求必须属于当前用户；技术维护操作只允许全局TECH。审核必须声明类型：注册人员职责范围（含维护）用registration，仅RA/RB；管理决策用management，仅GM；不明类型默认拒绝。审核卡在PR-16接入这些规则。</p>
-<p>当前单API进程按15分钟窗口限制账号5次、来源IP30次尝试；在异步验证密码前预占次数，成功只清账号次数，不清IP次数。计数保存在进程内存，重启清零；如后续增加多API进程，须先改为共享限速。角色管理界面及角色变更入口/审计留给PR-59，不为本次主路径提前开放。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
+<p>当前单API进程按15分钟窗口限制账号5次、来源IP30次尝试；在异步验证密码前预占次数，成功只清账号次数，不清IP次数。计数保存在进程内存，重启清零；如后续增加多API进程，须先改为共享限速。角色管理界面及角色变更入口/审计留给PR-59，不为本次主路径提前开放。</p>
+<h2 id="d-008-主路径项目数据与未知业务期限">D-008 主路径项目数据与未知业务期限</h2>
+<p>PR-05按用户主路径优先授权先建六张表：产品、型号、项目、目标、测试联系人、快照；其余七张表及非主路径领域接口列入待办与字段对照。项目API仅开放读取，增改领域服务留给后续登记业务工具，不另开旁路写入口。</p>
+<p>参考台账要求项目目标日期必填，但当前没有L08真实业务期限证据。选择target_at/due_at可空并标待确认，不能把今晚开发截止时间当成申报期限。L08种子不猜测产品型号、持证主体或申请人；这些字段空置。America/New_York仅为美国项目的法域上下文默认值，不是法规截止日结论。</p>
+<p>快照当前仅建立不可修改的数据结构；工作区版本外键、清单真实性校验和审批冻结分别在PR-07/16落实。approved_review表示内部审核定稿，不表示监管提交或批准。目标预算默认10美元只是一条目标配置，最终仍受PR-10全晚累计10美元限制。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

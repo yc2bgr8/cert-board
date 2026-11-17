@@ -4,7 +4,10 @@ import {
   check,
   index,
   integer,
+  jsonb,
+  numeric,
   pgEnum,
+  pgSequence,
   pgTable,
   text,
   timestamp,
@@ -190,5 +193,242 @@ export const entityRole = pgTable(
     check('entity_role_source_not_blank', sql`length(btrim(${table.source})) > 0`),
     check('entity_role_version_positive', sql`${table.version} > 0`),
     index('entity_role_entity_idx').on(table.entityId),
+  ],
+);
+
+export const modelStatus = pgEnum('model_status', ['active', 'retired']);
+export const certProjectType = pgEnum('cert_project_type', ['registration', 'maintenance']);
+export const certMarket = pgEnum('cert_market', ['US', 'CA', 'US_CA']);
+export const certProjectStatus = pgEnum('cert_project_status', [
+  'preparing',
+  'submitted',
+  'under_review',
+  'deficiency',
+  'approved',
+  'rejected',
+  'closed',
+  'cancelled',
+]);
+export const goalStatus = pgEnum('goal_status', [
+  'active',
+  'waiting_materials',
+  'waiting_external',
+  'waiting_decision',
+  'pending_review',
+  'human_controlled',
+  'paused',
+  'completed',
+  'cancelled',
+]);
+export const contactChannel = pgEnum('contact_channel', ['local_test']);
+export const submissionSnapshotKind = pgEnum('submission_snapshot_kind', [
+  'approved_review',
+  'rehearsal',
+  'submission',
+]);
+export const certProjectCodeSequence = pgSequence('cert_project_code_seq', {
+  startWith: 1,
+  minValue: 1,
+  cycle: false,
+});
+
+export const product = pgTable(
+  'product',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    code: varchar('code', { length: 32 }).notNull().unique(),
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description').notNull().default(''),
+    createdBy: uuid('created_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    check('product_code_format', sql`${table.code} ~ '^[A-Z0-9][A-Z0-9-]{1,31}$'`),
+    check('product_name_not_blank', sql`length(btrim(${table.name})) > 0`),
+    check('product_version_positive', sql`${table.version} > 0`),
+  ],
+);
+
+export const model = pgTable(
+  'model',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => product.id, { onDelete: 'restrict' }),
+    code: varchar('code', { length: 32 }).notNull().unique(),
+    name: varchar('name', { length: 255 }).notNull().default(''),
+    udiDi: varchar('udi_di', { length: 128 }),
+    upc: varchar('upc', { length: 12 }),
+    upcNote: text('upc_note'),
+    packaging: text('packaging'),
+    researchProjectRef: varchar('research_project_ref', { length: 120 }),
+    status: modelStatus('status').notNull().default('active'),
+    source: text('source').notNull(),
+    createdBy: uuid('created_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    check('model_code_format', sql`${table.code} ~ '^[A-Z0-9][A-Z0-9.-]{1,31}$'`),
+    check('model_upc_format', sql`${table.upc} IS NULL OR ${table.upc} ~ '^[0-9]{12}$'`),
+    check('model_source_not_blank', sql`length(btrim(${table.source})) > 0`),
+    check('model_version_positive', sql`${table.version} > 0`),
+    index('model_product_idx').on(table.productId),
+  ],
+);
+
+export const certProject = pgTable(
+  'cert_project',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    // format 的宽度是最小宽度；编号超过四位时保留全部数字，不截断回已用编号。
+    code: varchar('code', { length: 32 })
+      .notNull()
+      .unique()
+      .default(sql`replace(format('C%4s', nextval('public.cert_project_code_seq')), ' ', '0')`),
+    name: varchar('name', { length: 255 }).notNull(),
+    developmentSeedKey: varchar('development_seed_key', { length: 80 }).unique(),
+    projectType: certProjectType('project_type').notNull().default('registration'),
+    market: certMarket('market').notNull(),
+    pathway: varchar('pathway', { length: 255 }).notNull(),
+    modelId: uuid('model_id').references(() => model.id, { onDelete: 'restrict' }),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    reviewerUserId: uuid('reviewer_user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    applicantEntityId: uuid('applicant_entity_id').references(() => legalEntity.id, {
+      onDelete: 'restrict',
+    }),
+    holderEntityId: uuid('holder_entity_id').references(() => legalEntity.id, {
+      onDelete: 'restrict',
+    }),
+    targetAt: timestamp('target_at', { withTimezone: true }),
+    jurisdictionTz: varchar('jurisdiction_tz', { length: 100 })
+      .notNull()
+      .default('America/New_York'),
+    status: certProjectStatus('status').notNull().default('preparing'),
+    submissionNumber: varchar('submission_number', { length: 255 }),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    nextAction: text('next_action'),
+    note: text('note').notNull().default(''),
+    createdBy: uuid('created_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    ...timestamps(),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    check('cert_project_code_format', sql`${table.code} ~ '^C[0-9]{4,}$'`),
+    check('cert_project_name_not_blank', sql`length(btrim(${table.name})) > 0`),
+    check('cert_project_pathway_not_blank', sql`length(btrim(${table.pathway})) > 0`),
+    check('cert_project_timezone_not_blank', sql`length(btrim(${table.jurisdictionTz})) > 0`),
+    check(
+      'cert_project_owner_reviewer_distinct',
+      sql`${table.ownerUserId} <> ${table.reviewerUserId}`,
+    ),
+    check(
+      'cert_project_submission_dates_order',
+      sql`${table.submittedAt} IS NULL OR ${table.acceptedAt} IS NULL OR ${table.acceptedAt} >= ${table.submittedAt}`,
+    ),
+    check('cert_project_version_positive', sql`${table.version} > 0`),
+    index('cert_project_model_idx').on(table.modelId),
+    index('cert_project_owner_idx').on(table.ownerUserId),
+    index('cert_project_reviewer_idx').on(table.reviewerUserId),
+  ],
+);
+
+export const goal = pgTable(
+  'goal',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => certProject.id, { onDelete: 'restrict' }),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    title: varchar('title', { length: 255 }).notNull(),
+    acceptanceCriteria: text('acceptance_criteria').notNull(),
+    dueAt: timestamp('due_at', { withTimezone: true }),
+    budgetUsd: numeric('budget_usd', { precision: 12, scale: 6 }).notNull().default('10'),
+    status: goalStatus('status').notNull().default('active'),
+    directionVersion: integer('direction_version').notNull().default(1),
+    createdBy: uuid('created_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    check('goal_title_not_blank', sql`length(btrim(${table.title})) > 0`),
+    check('goal_acceptance_not_blank', sql`length(btrim(${table.acceptanceCriteria})) > 0`),
+    check(
+      'goal_budget_nonnegative_finite',
+      sql`${table.budgetUsd} >= 0 AND ${table.budgetUsd} < 'Infinity'::numeric`,
+    ),
+    check('goal_direction_version_positive', sql`${table.directionVersion} > 0`),
+    check('goal_version_positive', sql`${table.version} > 0`),
+    index('goal_project_idx').on(table.projectId),
+    index('goal_owner_idx').on(table.ownerUserId),
+  ],
+);
+
+export const contact = pgTable(
+  'contact',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => certProject.id, { onDelete: 'restrict' }),
+    name: varchar('name', { length: 120 }).notNull(),
+    channel: contactChannel('channel').notNull().default('local_test'),
+    address: varchar('address', { length: 255 }).notNull(),
+    active: boolean('active').notNull().default(true),
+    source: text('source').notNull(),
+    createdBy: uuid('created_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    unique('contact_project_channel_address_unique').on(
+      table.projectId,
+      table.channel,
+      table.address,
+    ),
+    check('contact_name_not_blank', sql`length(btrim(${table.name})) > 0`),
+    check(
+      'contact_address_format',
+      sql`length(btrim(${table.address})) > 0 AND ${table.address} !~ '[[:cntrl:]]'`,
+    ),
+    check('contact_source_not_blank', sql`length(btrim(${table.source})) > 0`),
+    check('contact_version_positive', sql`${table.version} > 0`),
+    index('contact_project_idx').on(table.projectId),
+  ],
+);
+
+export const submissionSnapshot = pgTable(
+  'submission_snapshot',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => certProject.id, { onDelete: 'restrict' }),
+    sequence: integer('sequence').notNull(),
+    kind: submissionSnapshotKind('kind').notNull(),
+    fileManifest: jsonb('file_manifest').$type<unknown[]>().notNull(),
+    manifestSha256: varchar('manifest_sha256', { length: 64 }).notNull(),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    ...timestamps(),
+  },
+  (table) => [
+    unique('submission_snapshot_project_sequence_unique').on(table.projectId, table.sequence),
+    check('submission_snapshot_sequence_positive', sql`${table.sequence} > 0`),
+    check('submission_snapshot_manifest_array', sql`jsonb_typeof(${table.fileManifest}) = 'array'`),
+    check('submission_snapshot_hash_format', sql`${table.manifestSha256} ~ '^[0-9a-f]{64}$'`),
+    index('submission_snapshot_project_idx').on(table.projectId),
   ],
 );
