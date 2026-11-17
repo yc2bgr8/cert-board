@@ -23,6 +23,15 @@ export const backendConfigSchema = z
     HOST: z.literal('127.0.0.1').default('127.0.0.1'),
     PORT: z.coerce.number().int().min(1024).max(65535).default(28081),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'silent']).default('info'),
+    WEB_ORIGIN: z
+      .enum([
+        'http://127.0.0.1:28080',
+        'http://localhost:28080',
+        'https://127.0.0.1:28080',
+        'https://localhost:28080',
+      ])
+      .default('http://127.0.0.1:28080'),
+    SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(24).default(12),
     DATABASE_URL: databaseUrl,
     TEST_DATABASE_URL: databaseUrl,
     MINIO_ENDPOINT: z
@@ -42,6 +51,9 @@ export const backendConfigSchema = z
       .default('cert-board'),
   })
   .superRefine((config, context) => {
+    if (config.NODE_ENV === 'production' && !config.WEB_ORIGIN.startsWith('https://')) {
+      context.addIssue({ code: 'custom', path: ['WEB_ORIGIN'], message: '生产环境必须使用HTTPS' });
+    }
     if (!URL.canParse(config.DATABASE_URL) || !URL.canParse(config.TEST_DATABASE_URL)) return;
     const primary = new URL(config.DATABASE_URL);
     const test = new URL(config.TEST_DATABASE_URL);

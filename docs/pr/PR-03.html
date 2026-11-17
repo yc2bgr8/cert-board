@@ -22,7 +22,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="没做什么">没做什么</h2>
 <ul><li>Lan和注册人员A/B尚未确认界面稿。按用户今晚特别授权先标待确认并继续，明早补审，不伪造确认。</li><li>只使用虚构示例；不连接真实模型/业务后端，不声称已实现登录、安全授权或审批来源校验。</li><li>上传、下载、Word对比和PDF原页目前为明确的界面占位；真实能力在对应PR接入。</li></ul>
 <h2 id="验收结果">验收结果</h2>
-<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，15文件50测试（新增13项界面/安全测试）</td></tr><tr><td><code>pnpm build</code></td><td>通过，本站JS/CSS资源</td></tr><tr><td>浏览器构建预览</td><td>检查→审核第1版→对话改意见→第2版审核通过；console errors 0、外部资源请求0</td></tr><tr><td>视口</td><td>1440×1000桌面审核卡、390×844窄屏均检查；窄屏无横向溢出；截图docs/evidence/</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>提交前执行</td></tr><tr><td>GitHub CI</td><td>开PR后运行，通过才合并</td></tr></tbody></table>
+<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，15文件50测试（新增13项界面/安全测试）</td></tr><tr><td><code>pnpm build</code></td><td>通过，本站JS/CSS资源</td></tr><tr><td>浏览器构建预览</td><td>检查→审核第1版→对话改意见→第2版审核通过；console errors 0、外部资源请求0</td></tr><tr><td>视口</td><td>1440×1000桌面审核卡、390×844窄屏均检查；窄屏无横向溢出；截图docs/evidence/</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>通过：29份HTML、索引与gitleaks历史无密钥</td></tr><tr><td>GitHub CI</td><td>f598052通过，Actions44093595861；复审无阻断，已合并#4，2cd7d09</td></tr></tbody></table>
 <h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
 <ul><li>需求V0.9：3.1、3.4、3.5；技术方案第3章；执行方案PR-03。</li></ul>
 <h2 id="真实模型测试">真实模型测试</h2>

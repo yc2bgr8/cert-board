@@ -47,3 +47,19 @@ test('数据库主机别名和编码差异不能绕过测试库隔离', () => {
     }),
   ).toThrow(ConfigurationError);
 });
+
+test('会话配置限制可信来源，生产环境必须使用HTTPS', () => {
+  expect(() =>
+    parseBackendConfig({ ...environment, WEB_ORIGIN: 'http://untrusted.example' }),
+  ).toThrow(ConfigurationError);
+  expect(() => parseBackendConfig({ ...environment, NODE_ENV: 'production' })).toThrow(
+    ConfigurationError,
+  );
+  expect(
+    parseBackendConfig({
+      ...environment,
+      NODE_ENV: 'production',
+      WEB_ORIGIN: 'https://127.0.0.1:28080',
+    }).SESSION_TTL_HOURS,
+  ).toBe(12);
+});
