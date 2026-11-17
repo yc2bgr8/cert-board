@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>原型页面确认表</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#已知的有意偏离-开发时确定">已知的有意偏离（开发时确定）</a></nav><main><h1 id="原型页面确认表">原型页面确认表</h1>
+<blockquote><p>原型：<code>docs/03-原型/研发流程MVP原型.html</code> 侧边栏“认证线 · 阶段 1（草图）”。切换右上角角色为注册A、注册B 或销售查看。<br>平台页面以原型为准；每个界面 PR 附原型与平台的并排截图（<code>docs/08-原型对照/PR-xx/</code>）。</p></blockquote>
+<table><thead><tr><th>#</th><th>页面</th><th>原型路由</th><th>对应 PR</th><th>注册A</th><th>注册B</th><th>意见</th></tr></thead><tbody><tr><td>1</td><td>认证看板</td><td><code>#cert</code></td><td>PR-53</td><td>待确认</td><td>待确认</td><td></td></tr><tr><td>2</td><td>认证项目（列表与详情：节点、申报清单、申报快照、测试与机构）</td><td><code>#certprj</code>、<code>#certprj/C01</code></td><td>PR-51、PR-56、PR-58、PR-62</td><td>待确认</td><td>待确认</td><td></td></tr><tr><td>3</td><td>证照与产品主表</td><td><code>#creds</code></td><td>PR-49、PR-50</td><td>待确认</td><td>待确认</td><td></td></tr><tr><td>4</td><td>申报检查与派工</td><td><code>#subchk</code></td><td>PR-56、PR-57</td><td>待确认</td><td>待确认</td><td></td></tr><tr><td>5</td><td>发补应答</td><td><code>#defs</code></td><td>PR-66、PR-67</td><td>待确认</td><td>待确认</td><td></td></tr><tr><td>6</td><td>法规更新与同类产品</td><td><code>#regw</code></td><td>PR-63、PR-64</td><td>待确认</td><td>待确认</td><td></td></tr><tr><td>7</td><td>合规报告与表单</td><td><code>#reqs</code></td><td>PR-59、PR-60</td><td>待确认</td><td>待确认</td><td></td></tr><tr><td>8</td><td>机构与测试</td><td><code>#vendors</code></td><td>PR-61、PR-62</td><td>待确认</td><td>待确认</td><td></td></tr><tr><td>9</td><td>迎审与月度盘点</td><td><code>#qms</code></td><td>PR-69、PR-70</td><td>待确认</td><td>待确认</td><td></td></tr></tbody></table>
+<h2 id="已知的有意偏离-开发时确定">已知的有意偏离（开发时确定）</h2>
+<ul><li>原型中的负责人显示为角色（注册A、注册B）；平台显示为具体的人（账号），一人可兼多个角色。</li><li>原型的“示例”标记在平台不显示（与 MVP 一致）。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

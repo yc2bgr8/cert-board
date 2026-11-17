@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr">PR</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应的需求和技术方案">对应的需求和技术方案</a><a class="level-2" href="#真实模型测试">真实模型测试</a><a class="level-2" href="#新增依赖">新增依赖</a><a class="level-2" href="#风险和需要lan决定的事">风险和需要Lan决定的事</a></nav><main><h2 id="pr">PR</h2>
+<p>PR-00 仓库骨架与持续集成</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>pnpm workspace、三个 TypeScript ESM 空包、strict 配置、ESLint、Prettier、Vitest、锁文件和 Node 版本。</li><li>真实 lint/typecheck/test 命令；Python服务、技能、知识和评测目录说明。</li><li>跨平台 Node 离线 HTML 生成器及测试；对原始 HTML、危险链接和远程图片做限制。</li><li>GitHub Actions 安装、检查及 gitleaks；本地索引秘密匹配工具；gitleaks 临时分支探针。</li><li>开发进度、决定、待办；私有仓库及 Git 身份；更新 PR 模板需求版本为V0.9。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>本 PR 不实现业务、数据库和界面。其余命令明确输出“尚未实现”，正常退出不构成功能验收。</li><li>私有仓库分支保护 API 返回403（需 GitHub Pro），维持私有并人工执行 PR/CI 纪律，记录 D-005。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>命令</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm install</code></td><td>通过，锁定版本</td></tr><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，5个测试文件、10项测试</td></tr><tr><td><code>node scripts/verify-gitleaks.mjs</code></td><td>临时本地分支的合成密钥被gitleaks拦截，退出码1；临时分支已删除、从未推送</td></tr><tr><td><code>pnpm docs:html</code></td><td>通过，递归生成全部文档的同名HTML</td></tr><tr><td><code>git diff --check</code></td><td>通过</td></tr><tr><td>GitHub CI</td><td>开 PR 后运行，必须通过后合并</td></tr></tbody></table>
+<h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
+<ul><li>需求V0.9：NF03、5.5（密钥与数据）；执行方案PR-00。</li><li>技术方案：2.1、9、10.2。</li></ul>
+<h2 id="真实模型测试">真实模型测试</h2>
+<p>无；累计0美元。</p>
+<h2 id="新增依赖">新增依赖</h2>
+<p>均为开发检查工具，应用尚无运行时依赖：@eslint/js 10.0.1、eslint 10.15.0、typescript-eslint 8.73.0、prettier 3.10.1、vitest 5.1.0、@types/node 24.10.1（MIT）；typescript 5.9.3（Apache-2.0）。版本与许可证依据npm包元数据；未配置遥测、错误上报或远程上传，CI和扫描都在运行器本地执行。gitleaks镜像v8.24.3（MIT）。</p>
+<h2 id="风险和需要lan决定的事">风险和需要Lan决定的事</h2>
+<ul><li>分支保护套餐限制，见待办；内容稿件待注册人员审阅。</li><li>独立 AI 审查已进行，指出短秘密和Windows大小写环境文件漏检；已修复并补回归。最终检查后再复核。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

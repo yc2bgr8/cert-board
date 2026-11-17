@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>开发进度</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong></nav><main><h1 id="开发进度">开发进度</h1>
+<p>更新时间：2026-11-17 晚间（北京时间）。会话恢复时先读本文件。</p>
+<p>今晚按用户特别授权逐个 PR 开发、自查、AI 审查及合并；优先 L08 K 号写法核查主路径。安全约束不得放宽。</p>
+<table><thead><tr><th>PR</th><th>内容</th><th>状态</th><th>未完成项</th></tr></thead><tbody><tr><td>初始提交</td><td>开发约定、文档与测试资料</td><td>已推送私有仓库 main，9d0185c</td><td>无</td></tr><tr><td>PR-00</td><td>仓库骨架与持续集成</td><td>本地验收通过，待 GitHub CI 与合并</td><td>私有仓库分支保护受账号套餐限制</td></tr></tbody></table>
+<p>当前分支：<code>pr-00-foundation</code>。累计真实模型费用：0 美元（尚未调用）。</p>
+<p>GitHub CLI 位于 <code>C:\Program Files\GitHub CLI\gh.exe</code>，已登录 yc2bgr8。私有仓库：https://github.com/yc2bgr8/cert-board 。后续按 GitHub PR/CI 流程，不推送 main、不强推。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

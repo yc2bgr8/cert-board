@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>申报清单模板</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#一-510-k-estar">一、510(k)（eSTAR）</a><a class="level-2" href="#二-加拿大-mdl-class-ii">二、加拿大 MDL（Class II）</a><a class="level-2" href="#三-mdsap-迎审-初审-监督审核-再认证">三、MDSAP 迎审（初审、监督审核、再认证）</a><a class="level-2" href="#确认">确认</a></nav><main><h1 id="申报清单模板">申报清单模板</h1>
+<blockquote><p>PR-56 把以下模板作为种子数据入库；新建认证项目时按路径生成清单，之后可在项目内增删。<br>510(k) 章节按 FDA eSTAR 的章节组织【推断：章节名称以注册A 使用的 eSTAR 版本为准】。</p></blockquote>
+<h2 id="一-510-k-estar">一、510(k)（eSTAR）</h2>
+<table><thead><tr><th>#</th><th>章节</th><th>内容</th><th>默认负责</th></tr></thead><tbody><tr><td>1</td><td>申请人与联系人</td><td>申请人、联系人、美国代理人</td><td>注册B</td></tr><tr><td>2</td><td>器械描述</td><td>器械描述（含型号、配件、原理、图片）</td><td>注册A</td></tr><tr><td>3</td><td>预期用途与适应症</td><td>适应症声明（FDA 3881）</td><td>注册A</td></tr><tr><td>4</td><td>分类</td><td>产品代码、法规号、分类</td><td>注册A</td></tr><tr><td>5</td><td>实质等同比较</td><td>与同类器械的对比表</td><td>注册A</td></tr><tr><td>6</td><td>标签</td><td>标签、说明书、包装标识</td><td>注册A</td></tr><tr><td>7</td><td>灭菌与有效期</td><td>灭菌、货架期、包装验证（不适用时注明）</td><td>注册B</td></tr><tr><td>8</td><td>生物相容性</td><td>ISO 10993 / ISO 18562 报告</td><td>注册B</td></tr><tr><td>9</td><td>软件</td><td>软件文档（按文档级别）</td><td>注册A</td></tr><tr><td>10</td><td>网络安全</td><td>威胁模型、SBOM、渗透测试报告</td><td>注册A</td></tr><tr><td>11</td><td>电气安全与 EMC</td><td>IEC 60601-1、-1-2 及并列标准报告</td><td>注册B</td></tr><tr><td>12</td><td>性能测试（台架）</td><td>产品专用标准（例如 ISO 80601-2-70）报告</td><td>注册B</td></tr><tr><td>13</td><td>人因</td><td>人因 / 可用性总结报告</td><td>注册A</td></tr><tr><td>14</td><td>510(k) 摘要或声明</td><td>510(k) Summary 或 Statement</td><td>注册A</td></tr><tr><td>15</td><td>真实性与准确性声明、用户费</td><td>声明、用户费缴纳凭证</td><td>注册B</td></tr></tbody></table>
+<h2 id="二-加拿大-mdl-class-ii">二、加拿大 MDL（Class II）</h2>
+<table><thead><tr><th>#</th><th>章节</th><th>内容</th><th>默认负责</th></tr></thead><tbody><tr><td>1</td><td>申请表</td><td>MDL 申请表（按主表预填）</td><td>注册B</td></tr><tr><td>2</td><td>器械清单</td><td>型号、配件清单</td><td>注册B</td></tr><tr><td>3</td><td>体系证书</td><td>MDSAP 证书</td><td>注册B</td></tr><tr><td>4</td><td>标签</td><td>英法双语标签、说明书</td><td>注册B</td></tr><tr><td>5</td><td>安全与有效性声明</td><td>安全有效性证明文件清单</td><td>注册A</td></tr><tr><td>6</td><td>费用</td><td>申请费</td><td>注册B</td></tr></tbody></table>
+<h2 id="三-mdsap-迎审-初审-监督审核-再认证">三、MDSAP 迎审（初审、监督审核、再认证）</h2>
+<table><thead><tr><th>#</th><th>章节</th><th>内容</th><th>默认负责</th></tr></thead><tbody><tr><td>1</td><td>管理</td><td>质量手册、管理评审、内审</td><td>注册B</td></tr><tr><td>2</td><td>器械上市授权与注册</td><td>各市场证照、注册与列名</td><td>注册B</td></tr><tr><td>3</td><td>测量、分析与改进</td><td>CAPA、投诉、数据分析</td><td>注册B</td></tr><tr><td>4</td><td>不良事件与警戒</td><td>MDR、加拿大问题报告程序</td><td>注册B</td></tr><tr><td>5</td><td>设计与开发</td><td>设计控制程序与记录</td><td>注册A</td></tr><tr><td>6</td><td>生产与服务控制</td><td>生产、检验、标识与追溯</td><td>注册B</td></tr><tr><td>7</td><td>采购</td><td>供应商控制</td><td>注册B</td></tr><tr><td>8</td><td>上次审核不符合项整改</td><td>整改与验证记录</td><td>注册B</td></tr></tbody></table>
+<h2 id="确认">确认</h2>
+<table><thead><tr><th>角色</th><th>姓名</th><th>结论</th><th>日期</th></tr></thead><tbody><tr><td>注册A</td><td></td><td>待确认</td><td></td></tr></tbody></table><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
