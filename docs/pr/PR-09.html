@@ -22,7 +22,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="没做什么">没做什么</h2>
 <ul><li>真实邮件、企业微信、监管门户无发送实现；没有新增出网地址。</li><li>附件、提案编辑重提界面、通知和常驻轮询未接入；本PR只完成文本本地测试安全流程。</li><li>本切片只处理active目标，其他等待态业务流转后续完善。专业审核卡与工作区冻结仍为PR-16。</li><li>完整Agent工具说明评测待PR-20/21；不把策略/事务测试称为模型行为验收。</li></ul>
 <h2 id="验收结果">验收结果</h2>
-<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，215项单元测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，143项集成测试（含8项SQL直接保护与18项浏览器/队列流程）</td></tr><tr><td>静态安全边界</td><td>Agent/worker不能导入审批API、浏览器会话、child_process/vm；真实ESLint回归通过</td></tr><tr><td><code>pnpm db:generate</code>、<code>pnpm db:migrate</code></td><td>通过，schema无差异，0005已应用本地数据库</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>文档生成与暂存区扫描在提交前检查</td></tr><tr><td>GitHub CI</td><td>开PR后执行，通过后合并</td></tr></tbody></table>
+<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，215项单元测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，143项集成测试（含8项SQL直接保护与18项浏览器/队列流程）</td></tr><tr><td>静态安全边界</td><td>Agent/worker不能导入审批API、浏览器会话、child_process/vm；真实ESLint回归通过</td></tr><tr><td><code>pnpm db:generate</code>、<code>pnpm db:migrate</code></td><td>通过，schema无差异，0005已应用本地数据库</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>通过，40份离线HTML；暂存区扫描及全Git历史gitleaks无泄漏</td></tr><tr><td>GitHub CI</td><td>通过，运行44138709466；独立AI最终复审无阻断</td></tr></tbody></table>
 <h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
 <ul><li>需求V0.9：2.4规则6、3.4；技术方案T04、4.6；保守边界见D-013。</li></ul>
 <h2 id="真实模型测试">真实模型测试</h2>
