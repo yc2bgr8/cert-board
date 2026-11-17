@@ -50,7 +50,7 @@ type SessionRow = {
 
 export async function readBrowserSession(
   request: FastifyRequest,
-  pool: Pool,
+  pool: Pick<Pool, 'query'>,
   config: BackendConfig,
   options: { write?: boolean } = {},
 ) {
@@ -101,7 +101,7 @@ export async function readBrowserSession(
 
 export async function requireBrowserIdentity(
   request: FastifyRequest,
-  pool: Pool,
+  pool: Pick<Pool, 'query'>,
   config: BackendConfig,
   options: { write?: boolean } = {},
 ): Promise<BrowserIdentity> {
