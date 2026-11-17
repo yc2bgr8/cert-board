@@ -15,6 +15,13 @@
       "when": 1794923735530,
       "tag": "0001_project_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794924714710,
+      "tag": "0002_document_library",
+      "breakpoints": true
     }
   ]
 }

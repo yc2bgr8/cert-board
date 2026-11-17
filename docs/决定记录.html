@@ -15,7 +15,7 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;backgrou
 img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
 @media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
-</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#d-001-今晚开发与合并授权-2026-11-17">D-001 今晚开发与合并授权（2026-11-17）</a><a class="level-2" href="#d-002-主路径的必要前置部分">D-002 主路径的必要前置部分</a><a class="level-2" href="#d-003-内容与模型">D-003 内容与模型</a><a class="level-2" href="#d-004-初始身份与密钥">D-004 初始身份与密钥</a><a class="level-2" href="#d-005-github-登录和私有仓库保护限制">D-005 GitHub 登录和私有仓库保护限制</a><a class="level-2" href="#d-006-本机-docker-的内部网络端口发布">D-006 本机 Docker 的内部网络端口发布</a><a class="level-2" href="#d-007-身份与审核权限的保守默认值">D-007 身份与审核权限的保守默认值</a><a class="level-2" href="#d-008-主路径项目数据与未知业务期限">D-008 主路径项目数据与未知业务期限</a></nav><main><h1 id="决定记录">决定记录</h1>
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#d-001-今晚开发与合并授权-2026-11-17">D-001 今晚开发与合并授权（2026-11-17）</a><a class="level-2" href="#d-002-主路径的必要前置部分">D-002 主路径的必要前置部分</a><a class="level-2" href="#d-003-内容与模型">D-003 内容与模型</a><a class="level-2" href="#d-004-初始身份与密钥">D-004 初始身份与密钥</a><a class="level-2" href="#d-005-github-登录和私有仓库保护限制">D-005 GitHub 登录和私有仓库保护限制</a><a class="level-2" href="#d-006-本机-docker-的内部网络端口发布">D-006 本机 Docker 的内部网络端口发布</a><a class="level-2" href="#d-007-身份与审核权限的保守默认值">D-007 身份与审核权限的保守默认值</a><a class="level-2" href="#d-008-主路径项目数据与未知业务期限">D-008 主路径项目数据与未知业务期限</a><a class="level-2" href="#d-009-t1资料快照与版本含义">D-009 T1资料快照与版本含义</a><a class="level-2" href="#d-010-摘要与unicode分页">D-010 摘要与Unicode分页</a></nav><main><h1 id="决定记录">决定记录</h1>
 <h2 id="d-001-今晚开发与合并授权-2026-11-17">D-001 今晚开发与合并授权（2026-11-17）</h2>
 <p>用户授权截至明早连续开发，自行按保守可撤销默认值解决问题；每个 PR 本地检查与验收通过、AI 审查后自行合并。有 GitHub 时还必须等待 CI。无 GitHub 登录时使用本地分支、PR 说明和本地 squash 合并，明早由 Lan 推送。初始提交允许直接提交 main。</p>
 <h2 id="d-002-主路径的必要前置部分">D-002 主路径的必要前置部分</h2>
@@ -36,4 +36,10 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="d-008-主路径项目数据与未知业务期限">D-008 主路径项目数据与未知业务期限</h2>
 <p>PR-05按用户主路径优先授权先建六张表：产品、型号、项目、目标、测试联系人、快照；其余七张表及非主路径领域接口列入待办与字段对照。项目API仅开放读取，增改领域服务留给后续登记业务工具，不另开旁路写入口。</p>
 <p>参考台账要求项目目标日期必填，但当前没有L08真实业务期限证据。选择target_at/due_at可空并标待确认，不能把今晚开发截止时间当成申报期限。L08种子不猜测产品型号、持证主体或申请人；这些字段空置。America/New_York仅为美国项目的法域上下文默认值，不是法规截止日结论。</p>
-<p>快照当前仅建立不可修改的数据结构；工作区版本外键、清单真实性校验和审批冻结分别在PR-07/16落实。approved_review表示内部审核定稿，不表示监管提交或批准。目标预算默认10美元只是一条目标配置，最终仍受PR-10全晚累计10美元限制。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
+<p>快照当前仅建立不可修改的数据结构；工作区版本外键、清单真实性校验和审批冻结分别在PR-07/16落实。approved_review表示内部审核定稿，不表示监管提交或批准。目标预算默认10美元只是一条目标配置，最终仍受PR-10全晚累计10美元限制。</p>
+<h2 id="d-009-t1资料快照与版本含义">D-009 T1资料快照与版本含义</h2>
+<p>PR-06导入59份T1来源记录与664条逐页文本。文档版本1表示本次解析快照的导入版本，不代表原文档修订号；原文件SHA仅保留T1清单声明，MinIO内容SHA由实际解析JSON重新计算。重复原件仍保留各自来源身份，内容按实际哈希去重。未导入原始PDF/Word，也未导入eSTAR XML表单数据。</p>
+<p>D014第1页只是PDF阅读器Please wait提示，保留占位标记并拒绝作为正文读取/检索；Word页是提取单元而非物理页。D005、D017第2页OCR置信度0.812，读取时提示核对原件。所有种子资料标内部，读取任一版本使用该资料历史最高级别，避免版本降级。</p>
+<h2 id="d-010-摘要与unicode分页">D-010 摘要与Unicode分页</h2>
+<p>本机PG镜像的最小测试中，UTF8长中文落表后直接substring会报UTF8字节序列错误；同一文本完整读取、lower与长度计算有效。根因尚未确认，不推断为已知数据库缺陷。当前先在SQL中完成权限、检索条件与行数限制，再由程序截取不超过300字符的摘要，输出不含完整pageText，原文不改；原失败回归保留并通过。后续单独核查镜像补丁版本。</p>
+<p>正文分页保持完整Unicode字符，偏移落在代理对中间或limit不足以容纳一个完整字符时明确拒绝并说明续读方式。偏移沿用JavaScript UTF-16位置，应使用返回的nextOffset；每次输出仍不超过12000码元。源正文含孤立代理码元时拒绝导入，避免UTF8存储静默替换。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

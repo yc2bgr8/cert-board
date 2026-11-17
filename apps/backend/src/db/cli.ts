@@ -3,6 +3,10 @@ import { ConfigurationError, parseBackendConfig, SeedConfigurationError } from '
 import { migrateDatabase, MigrationError } from './migrate.js';
 import { DevelopmentSeedError, seedDevelopmentAccounts } from './seed.js';
 import { seedDevelopmentProject } from '../projects/seed.js';
+import { seedT1Documents } from '../documents/t1-seed.js';
+import { BlobStore } from '../documents/blob-store.js';
+import { createDependencies } from '../dependencies.js';
+import { AppError } from '../api/errors.js';
 
 async function main() {
   const action = process.argv[2];
@@ -25,6 +29,16 @@ async function main() {
           ? 'L08开发项目及目标已建立，业务日期保持待确认。'
           : 'L08开发项目已存在，保留已有内容。',
       );
+      const dependencies = createDependencies(config);
+      try {
+        const store = new BlobStore(dependencies.storage, config.MINIO_BUCKET);
+        const documents = await seedT1Documents(pool, store, process.env);
+        console.log(
+          `T1解析快照已就绪：${documents.documentCount}份资料、${documents.pageCount}条逐页文本；未导入原始文件。`,
+        );
+      } finally {
+        await dependencies.close();
+      }
     }
   } finally {
     await pool.end();
@@ -36,6 +50,7 @@ main().catch((error: unknown) => {
     error instanceof ConfigurationError ||
       error instanceof SeedConfigurationError ||
       error instanceof MigrationError ||
+      error instanceof AppError ||
       error instanceof DevelopmentSeedError
       ? error.message
       : '数据库操作失败，请检查依赖服务、迁移文件和配置。未输出底层连接或输入内容。',

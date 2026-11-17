@@ -4,3 +4,5 @@ export * from './config.js';
 export * from './seed.js';
 export * from './auth.js';
 export * from './projects.js';
+export * from './t1-fixture.js';
+export * from './documents.js';

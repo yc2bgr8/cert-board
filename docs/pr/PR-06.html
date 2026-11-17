@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr">PR</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应的需求和技术方案">对应的需求和技术方案</a><a class="level-2" href="#真实模型测试">真实模型测试</a><a class="level-2" href="#新增依赖">新增依赖</a><a class="level-2" href="#风险和需要lan决定的事">风险和需要Lan决定的事</a></nav><main><h2 id="pr">PR</h2>
+<p>PR-06 资料库、版本和T1开发种子</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>新0002建立document/version/page，原文与版本只追加、不可覆盖，资料只能标作废不能删除；数据级别显式必填。</li><li>私有MinIO按实际内容SHA保存、去重、读取校验。原文件声明哈希与实际解析内容哈希分列，不声称原始PDF已导入。</li><li>幂等T1种子：59来源身份、664逐页记录，版本1是导入快照；新快照新版本，旧快照重放不切回旧版，同快照内容冲突拒绝。</li><li>授权仅读API、最小关键词检索（主路径前置PR-18）、有界摘要/正文和续读；作废和占位页排除，历史最高级别传播。</li><li>实际验证D035第1/5页两处不同K号摘录；Word抽取单元、低OCR置信度及eSTAR占位明确提示。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>单文件上传HTTP入口、原始文件存储导入、人工作废工具和界面、上传大小配置入口延后；不提前开放绕过工具的业务写入口。</li><li>原始PDF/Word、eSTAR XML正文、原页图像、解析服务和整包导入未实现；doc_search/doc_read模型工具在PR-21登记。</li><li>完整检索排名/索引及PR-18其余验收延后；当前逐页关键词匹配足以主路径。</li><li>PG长中文substring异常根因未确定，保留回归并采用程序有界摘要，后续单独核查镜像补丁（D-010）。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>命令</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，23文件169测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，9文件55测试，含真实私有MinIO去重/SHA、版本幂等/冲突、隔离、级别、作废、占位、OCR/Word提示及真实T1读取</td></tr><tr><td>Unicode回归</td><td>“甲😀𠀀乙”先复现半字符失败，修复后分页重组与原文一致；非法偏移/过小limit拒绝；上限不变</td></tr><tr><td><code>pnpm db:generate</code></td><td>无结构差异；0000/0001未改</td></tr><tr><td><code>pnpm db:setup</code>连续两次</td><td>日常库应用0002并导入59/664；第二次无重复版本或页</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>提交前执行</td></tr><tr><td>GitHub CI</td><td>开PR后执行，通过后才合并</td></tr></tbody></table>
+<h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
+<ul><li>需求V0.9：5.4、5.5、5.7；技术方案4.1、6；执行方案PR-06；种子替代解析的用户特别授权。</li></ul>
+<h2 id="真实模型测试">真实模型测试</h2>
+<p>无；全晚累计0美元。</p>
+<h2 id="新增依赖">新增依赖</h2>
+<p>无；复用已有MinIO、pg、zod，无外部服务或遥测。测试桶随机且只清理本次成功创建的桶，不操作日常桶。</p>
+<h2 id="风险和需要lan决定的事">风险和需要Lan决定的事</h2>
+<ul><li>解析原文保真不等于OCR或原文事实正确；原文件与eSTAR XML仍需后续解析。</li><li>存储与数据库不共用事务，失败可能留无引用私有内容；不得删除已有引用的同哈希对象，受控回收留后续。</li><li>SQL摘要和Unicode分页均先有失败回归再修复，没有放宽输出上限或改变原文/预期答案。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

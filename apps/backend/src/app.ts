@@ -8,6 +8,7 @@ import { createLogger } from './logger.js';
 import { AppError } from './api/errors.js';
 import { registerAuthRoutes } from './auth/routes.js';
 import { registerProjectRoutes } from './projects/routes.js';
+import { registerDocumentRoutes } from './documents/routes.js';
 
 export interface AppDependencies extends HealthDependencies {
   database?: pg.Pool;
@@ -46,6 +47,7 @@ export function createApp(
   if (dependencies.database) {
     registerAuthRoutes(app, dependencies.database, config);
     registerProjectRoutes(app, dependencies.database, config);
+    registerDocumentRoutes(app, dependencies.database, config);
   }
   app.addHook('onSend', async (_request, reply, payload) => {
     reply.header('x-content-type-options', 'nosniff');
