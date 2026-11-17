@@ -8,6 +8,7 @@ import { BlobStore } from '../documents/blob-store.js';
 import { createDependencies } from '../dependencies.js';
 import { AppError } from '../api/errors.js';
 import { seedDevelopmentWorkspace } from '../workspace/seed.js';
+import { seedDevelopmentBudgetPolicy } from '../budget/service.js';
 
 async function main() {
   const action = process.argv[2];
@@ -25,6 +26,8 @@ async function main() {
         `开发账号种子完成：新建${result.created.length}个，保留已有${result.unchanged.length}个。密码只保存在 .env.local。`,
       );
       const project = await seedDevelopmentProject(pool, process.env);
+      await seedDevelopmentBudgetPolicy(pool, config.NODE_ENV);
+      console.log('开发预算已就绪，保留已有额度、整晚批次和停止状态。');
       console.log(
         project.created
           ? 'L08开发项目及目标已建立，业务日期保持待确认。'

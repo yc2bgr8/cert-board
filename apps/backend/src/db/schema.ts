@@ -821,6 +821,10 @@ export const run = pgTable(
     status: runStatus('status').notNull().default('queued'),
     maxDataLevel: documentDataLevel('max_data_level').notNull().default('internal'),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
+    budgetSteps: bigint('budget_steps', { mode: 'number' }).notNull().default(0),
+    budgetTotalTokens: bigint('budget_total_tokens', { mode: 'number' }).notNull().default(0),
+    budgetCostNano: bigint('budget_cost_nano', { mode: 'bigint' }),
+    budgetStopReason: varchar('budget_stop_reason', { length: 500 }),
     ...timestamps(),
     version: integer('version').notNull().default(1),
   },
@@ -859,6 +863,18 @@ export const run = pgTable(
       sql`${table.finishedAt} IS NULL OR ${table.finishedAt} >= ${table.createdAt}`,
     ),
     check('run_version_positive', sql`${table.version} > 0`),
+    check(
+      'run_budget_steps_safe',
+      sql`${table.budgetSteps} >= 0 AND ${table.budgetSteps} <= 9007199254740991`,
+    ),
+    check(
+      'run_budget_tokens_safe',
+      sql`${table.budgetTotalTokens} >= 0 AND ${table.budgetTotalTokens} <= 9007199254740991`,
+    ),
+    check(
+      'run_budget_cost_safe',
+      sql`${table.budgetCostNano} IS NULL OR (${table.budgetCostNano} >= 0 AND ${table.budgetCostNano} <= 999999999999999999)`,
+    ),
     index('run_conversation_idx').on(table.conversationId),
     index('run_user_status_idx').on(table.userId, table.status),
   ],
@@ -1148,5 +1164,171 @@ export const outboundMessage = pgTable(
     ),
     index('outbound_message_status_idx').on(table.status),
     index('outbound_message_goal_idx').on(table.goalId),
+  ],
+);
+
+export const budgetEnvironment = pgEnum('budget_environment', [
+  'development',
+  'test',
+  'production',
+]);
+export const usageLedgerStatus = pgEnum('usage_ledger_status', [
+  'reserved',
+  'settled',
+  'unknown',
+  'not_sent',
+]);
+export const budgetIncompleteReason = pgEnum('budget_incomplete_reason', [
+  'missing_usage',
+  'missing_price',
+  'request_uncertain',
+  'reservation_exceeded',
+  'timeout',
+  'aborted',
+  'provider_error',
+  'manual_stop',
+]);
+
+// 所有金额均为整数 nanoUSD；运营限额只能由获授权的初始化/管理流程显式写入。
+export const budgetPolicy = pgTable(
+  'budget_policy',
+  {
+    id: varchar('id', { length: 32 }).primaryKey(),
+    environment: budgetEnvironment('environment').notNull(),
+    nightKey: varchar('night_key', { length: 80 }).notNull(),
+    runLimitNano: bigint('run_limit_nano', { mode: 'bigint' }).notNull(),
+    monthLimitNano: bigint('month_limit_nano', { mode: 'bigint' }).notNull(),
+    nightLimitNano: bigint('night_limit_nano', { mode: 'bigint' }).notNull(),
+    maxSteps: bigint('max_steps', { mode: 'number' }).notNull(),
+    maxTokens: bigint('max_tokens', { mode: 'number' }).notNull(),
+    alertPercent: integer('alert_percent').notNull(),
+    blockedReason: varchar('blocked_reason', { length: 500 }),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    check('budget_policy_singleton', sql`${table.id} = 'default'`),
+    check('budget_policy_night_key_format', sql`${table.nightKey} ~ '^[A-Za-z0-9_-]{1,80}$'`),
+    check(
+      'budget_policy_run_limit_positive',
+      sql`${table.runLimitNano} > 0 AND ${table.runLimitNano} <= 999999999999999999`,
+    ),
+    check(
+      'budget_policy_month_limit_positive',
+      sql`${table.monthLimitNano} > 0 AND ${table.monthLimitNano} <= 999999999999999999`,
+    ),
+    check(
+      'budget_policy_night_limit_positive',
+      sql`${table.nightLimitNano} > 0 AND ${table.nightLimitNano} <= 999999999999999999`,
+    ),
+    check(
+      'budget_policy_step_limit_safe',
+      sql`${table.maxSteps} > 0 AND ${table.maxSteps} <= 9007199254740991`,
+    ),
+    check(
+      'budget_policy_token_limit_safe',
+      sql`${table.maxTokens} > 0 AND ${table.maxTokens} <= 9007199254740991`,
+    ),
+    check(
+      'budget_policy_alert_range',
+      sql`${table.alertPercent} >= 1 AND ${table.alertPercent} <= 100`,
+    ),
+    check('budget_policy_version_positive', sql`${table.version} > 0`),
+  ],
+);
+
+export const usageLedger = pgTable(
+  'usage_ledger',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    requestKey: uuid('request_key').notNull().unique(),
+    requestFingerprint: varchar('request_fingerprint', { length: 64 }).notNull(),
+    settlementFingerprint: varchar('settlement_fingerprint', { length: 64 }),
+    policyId: varchar('policy_id', { length: 32 })
+      .notNull()
+      .references(() => budgetPolicy.id, { onDelete: 'restrict' }),
+    runId: uuid('run_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    projectId: uuid('project_id'),
+    goalId: uuid('goal_id'),
+    modelId: varchar('model_id', { length: 200 }).notNull(),
+    purpose: varchar('purpose', { length: 64 }).notNull(),
+    monthKey: varchar('month_key', { length: 7 }).notNull(),
+    nightKey: varchar('night_key', { length: 80 }).notNull(),
+    status: usageLedgerStatus('status').notNull().default('reserved'),
+    reservedNano: bigint('reserved_nano', { mode: 'bigint' }).notNull(),
+    actualNano: bigint('actual_nano', { mode: 'bigint' }),
+    estimatedInputTokens: bigint('estimated_input_tokens', { mode: 'number' }).notNull(),
+    maxOutputTokens: bigint('max_output_tokens', { mode: 'number' }).notNull(),
+    inputTokens: bigint('input_tokens', { mode: 'number' }),
+    cacheReadTokens: bigint('cache_read_tokens', { mode: 'number' }),
+    outputTokens: bigint('output_tokens', { mode: 'number' }),
+    priceSnapshot: jsonb('price_snapshot').$type<Record<string, string>>().notNull(),
+    reasonCode: budgetIncompleteReason('reason_code'),
+    ...timestamps(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'usage_ledger_run_owner_fk',
+      columns: [table.runId, table.conversationId, table.userId],
+      foreignColumns: [run.id, run.conversationId, run.userId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'usage_ledger_run_context_fk',
+      columns: [table.runId, table.conversationId, table.userId, table.projectId, table.goalId],
+      foreignColumns: [run.id, run.conversationId, run.userId, run.projectId, run.goalId],
+    }).onDelete('restrict'),
+    check(
+      'usage_ledger_request_fingerprint_format',
+      sql`${table.requestFingerprint} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      'usage_ledger_settlement_fingerprint_format',
+      sql`${table.settlementFingerprint} IS NULL OR ${table.settlementFingerprint} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      'usage_ledger_model_id_format',
+      sql`${table.modelId} ~ '^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$'`,
+    ),
+    check('usage_ledger_purpose_format', sql`${table.purpose} ~ '^[a-z][a-z0-9_]{0,63}$'`),
+    check('usage_ledger_month_key_format', sql`${table.monthKey} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
+    check('usage_ledger_night_key_format', sql`${table.nightKey} ~ '^[A-Za-z0-9_-]{1,80}$'`),
+    check(
+      'usage_ledger_reserved_nano_safe',
+      sql`${table.reservedNano} >= 0 AND ${table.reservedNano} <= 999999999999999999`,
+    ),
+    check(
+      'usage_ledger_actual_nano_safe',
+      sql`${table.actualNano} IS NULL OR (${table.actualNano} >= 0 AND ${table.actualNano} <= 999999999999999999)`,
+    ),
+    check(
+      'usage_ledger_estimated_tokens_safe',
+      sql`${table.estimatedInputTokens} >= 0 AND ${table.estimatedInputTokens} <= 9007199254740991 AND ${table.maxOutputTokens} >= 0 AND ${table.maxOutputTokens} <= 9007199254740991`,
+    ),
+    check(
+      'usage_ledger_input_tokens_safe',
+      sql`${table.inputTokens} IS NULL OR (${table.inputTokens} >= 0 AND ${table.inputTokens} <= 9007199254740991)`,
+    ),
+    check(
+      'usage_ledger_output_tokens_safe',
+      sql`${table.outputTokens} IS NULL OR (${table.outputTokens} >= 0 AND ${table.outputTokens} <= 9007199254740991)`,
+    ),
+    check(
+      'usage_ledger_cache_tokens_safe',
+      sql`${table.cacheReadTokens} IS NULL OR (${table.cacheReadTokens} >= 0 AND ${table.cacheReadTokens} <= 9007199254740991 AND (${table.inputTokens} IS NULL OR ${table.cacheReadTokens} <= ${table.inputTokens}))`,
+    ),
+    check(
+      'usage_ledger_price_snapshot_object',
+      sql`jsonb_typeof(${table.priceSnapshot}) = 'object'`,
+    ),
+    check(
+      'usage_ledger_state_consistent',
+      sql`(${table.status} = 'reserved' AND ${table.actualNano} IS NULL AND ${table.settlementFingerprint} IS NULL) OR (${table.status} = 'settled' AND ${table.actualNano} IS NOT NULL AND ${table.settlementFingerprint} IS NOT NULL AND ${table.inputTokens} IS NOT NULL AND ${table.cacheReadTokens} IS NOT NULL AND ${table.outputTokens} IS NOT NULL) OR (${table.status} = 'unknown' AND ${table.reasonCode} IS NOT NULL) OR (${table.status} = 'not_sent' AND (${table.actualNano} IS NULL OR ${table.actualNano} = 0))`,
+    ),
+    index('usage_ledger_run_idx').on(table.runId),
+    index('usage_ledger_goal_idx').on(table.goalId),
+    index('usage_ledger_month_idx').on(table.policyId, table.monthKey),
+    index('usage_ledger_night_idx').on(table.policyId, table.nightKey),
   ],
 );
