@@ -23,6 +23,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm build
       - run: pnpm env:init
       - run: pnpm dev:up
       - run: pnpm test:int

@@ -1,0 +1,12 @@
+{
+  "checked_at_beijing": "2026-11-17 21:26",
+  "url": "http://127.0.0.1:28080/",
+  "server": "Vite production preview",
+  "browser": "Tabbit",
+  "desktop": { "width": 1440, "height": 1000, "screenshot": "pr03-review-desktop.png" },
+  "narrow": { "width": 390, "height": 844, "document_scroll_width": 375, "horizontal_overflow": false, "screenshot": "pr03-approved-mobile.png" },
+  "verified_path": ["启动示例检查", "打开第1版审核卡", "对话提出修改意见", "打开第2版审核卡", "点击通过", "页面显示审核已通过"],
+  "page_errors": [],
+  "external_resource_requests": [],
+  "data": "全部为静态虚构示例，未调用模型、未提交真实业务审批"
+}

@@ -20,7 +20,7 @@ pnpm dev:api
 ```
 
 另一个终端运行 `pnpm dev:worker`。后端健康检查：`http://127.0.0.1:28081/health`。
-当前尚未实现网页和登录，后续 PR 接入 `http://127.0.0.1:28080`。
+`pnpm dev:web` 启动界面稿：`http://127.0.0.1:28080`。也可 `pnpm build` 后 `pnpm preview` 查看严格CSP下的构建。当前界面稿只有虚构示例交互，尚未接入登录和真实业务，页面有明确标识。
 
 `pnpm lint`、`pnpm typecheck`、`pnpm test` 运行基础检查；依赖服务启动后运行 `pnpm test:int`。
 `pnpm dev:down` 仅停止 cert-board 项目并保留命名卷。已有项目的服务不受影响。
