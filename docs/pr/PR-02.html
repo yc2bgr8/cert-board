@@ -22,7 +22,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="没做什么">没做什么</h2>
 <ul><li>登录和浏览器会话接口留给PR-04；业务台账和领域服务留给PR-05。</li><li>不初始化真实法律主体或法规期限，避免虚构业务数据。</li></ul>
 <h2 id="验收结果">验收结果</h2>
-<table><thead><tr><th>命令</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，13个测试文件37项测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，3个测试文件12项测试；空库迁移、幂等、并发、DDL/账本回滚、历史篡改拒绝、审计不可修改、只读角色、账号种子</td></tr><tr><td><code>pnpm db:generate</code></td><td>无结构差异，schema和快照一致</td></tr><tr><td><code>pnpm db:setup</code>连续两次</td><td>首次1迁移/5账号，第二次0迁移/0新账号、保留5账号</td></tr><tr><td><code>pnpm docs:html</code>及密钥扫描</td><td>提交前执行并记录结果</td></tr><tr><td>GitHub CI</td><td>开PR后执行，通过后才合并</td></tr></tbody></table>
+<table><thead><tr><th>命令</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，13个测试文件37项测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，3个测试文件12项测试；空库迁移、幂等、并发、DDL/账本回滚、历史篡改拒绝、审计不可修改、只读角色、账号种子</td></tr><tr><td><code>pnpm db:generate</code></td><td>无结构差异，schema和快照一致</td></tr><tr><td><code>pnpm db:setup</code>连续两次</td><td>首次1迁移/5账号，第二次0迁移/0新账号、保留5账号</td></tr><tr><td><code>pnpm docs:html</code>及密钥扫描</td><td>通过：27份HTML、索引和gitleaks历史扫描无密钥</td></tr><tr><td>GitHub CI</td><td>通过，Actions44090242314；开PR后独立审查无阻断，已合并#3，367bf9f</td></tr></tbody></table>
 <h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
 <ul><li>需求V0.9：5.1、NF03；技术方案4.16、4.22、6。</li></ul>
 <h2 id="真实模型测试">真实模型测试</h2>

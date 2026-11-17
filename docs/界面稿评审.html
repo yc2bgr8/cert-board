@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>界面稿评审（PR-03）</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#布局与用语">布局与用语</a><a class="level-2" href="#界面稿的边界">界面稿的边界</a><a class="level-2" href="#评审与验收记录">评审与验收记录</a><a class="level-2" href="#未确认事项">未确认事项</a></nav><main><h1 id="界面稿评审-pr-03">界面稿评审（PR-03）</h1>
+<p>状态：<strong>待Lan及注册人员A、B确认</strong>。按2026-11-17晚间特别授权，先依技术方案第3章实现并继续后续界面PR；不代替注册人员确认。</p>
+<h2 id="布局与用语">布局与用语</h2>
+<ul><li>左栏：待我处理、注册项目、维护事项、新对话。销售视图只显示合规报告和自己的请求。</li><li>项目页顶部说明状态和目标，分为对话、文件、资料；中间以当前工作对话为主。</li><li>工作过程默认收起，点击展开摘要；计划、审核、证据和改动在右栏按需显示。</li><li>审核卡按结论、需要人做什么、改动、关键依据、AI自检、不确定事项、操作七部分呈现，显示工作区版本。</li><li>采用中文系统字体、深青导航和浅色内容，不加载外部字体、图片或脚本。</li></ul>
+<h2 id="界面稿的边界">界面稿的边界</h2>
+<p>所有记录为虚构示例；示例K号K123456/K123465不代表真实L08资料。页面标明“界面稿·待确认”“示例数据·未调用模型”。角色切换、流程状态、审批及高风险先写判断均为浏览器中的静态演示，不代表身份授权、真实审核或业务执行。PR-04/16/25/26/27逐步接入真实后端约束。</p>
+<p>模型Markdown组件禁用原始HTML与所有图片，链接仅允许锚点及HTTP(S)，外部链接显示提示且点击才打开。</p>
+<h2 id="评审与验收记录">评审与验收记录</h2>
+<table><thead><tr><th>项目</th><th>状态</th><th>说明</th></tr></thead><tbody><tr><td>技术方案第3章布局</td><td>开发验收通过</td><td>桌面1440×1000、窄屏390×844已截图检查，无横向溢出；正文14px、辅助文字至少12px</td></tr><tr><td>检查申报包→改意见→审核通过</td><td>浏览器与组件测试通过</td><td>第1版检查、对话修改、第2版审核通过；只验证示例交互</td></tr><tr><td>M02维护核查与提醒</td><td>组件测试通过</td><td>M02技能名称与维护内容一致，只验证示例交互</td></tr><tr><td>待我处理、销售隔离视图</td><td>组件测试通过</td><td>真实授权后端另验收</td></tr><tr><td>Lan确认</td><td>待确认</td><td>今晚不等待，不伪造确认</td></tr><tr><td>注册人员A、B确认</td><td>待确认</td><td>明早可依截图和可点击界面逐条反馈</td></tr></tbody></table>
+<p>开发自查修复：新一版高风险审核重置独立判断；维护工具过程显示M02；文件计数包含AGENTS.md；提高过小字号。独立审查另发现维护路径仍复用注册依据，已统一替换为三份维护专用虚构资料，覆盖过程、审核、证据、资料、文件、计划和改动，并补3项先失败后修复的回归。维护读取计数由误用模板的2改为3，对应企业注册记录、年费凭据和代理人协议。共13项新增组件与Markdown安全测试通过。</p>
+<p>截图与证据：</p>
+<ul><li><a href="evidence/pr03-review-desktop.png">桌面审核卡</a></li><li><a href="evidence/pr03-approved-mobile.png">窄屏已通过状态</a></li><li><a href="evidence/pr03-browser-check.json">浏览器验证记录</a>：构建预览使用严格本站CSP，控制台错误0、外部资源请求0。</li></ul>
+<h2 id="未确认事项">未确认事项</h2>
+<ul><li>信息密度、审核卡用语、证据/改动的阅读顺序。</li><li>窄屏是否仅作为临时查看入口；完整审核建议桌面浏览器。</li><li>拖拽上传、Word改动和PDF原页在对应后续PR接入真实数据。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
