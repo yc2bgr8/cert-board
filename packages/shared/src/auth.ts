@@ -51,6 +51,17 @@ export const browserIdentitySchema = z
   .strict();
 export type BrowserIdentity = z.infer<typeof browserIdentitySchema>;
 
+export const agentIdentitySchema = browserIdentitySchema
+  .omit({ kind: true, sessionId: true })
+  .extend({ kind: z.literal('agent'), runId: z.string().uuid() })
+  .strict();
+export type AgentIdentity = z.infer<typeof agentIdentitySchema>;
+export const serviceIdentitySchema = z.discriminatedUnion('kind', [
+  browserIdentitySchema,
+  agentIdentitySchema,
+]);
+export type ServiceIdentity = z.infer<typeof serviceIdentitySchema>;
+
 export const loginInputSchema = z
   .object({
     username: usernameSchema,

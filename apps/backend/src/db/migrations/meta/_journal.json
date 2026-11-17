@@ -29,6 +29,13 @@
       "when": 1794926709551,
       "tag": "0003_project_workspace",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794930166035,
+      "tag": "0004_tool_authorization",
+      "breakpoints": true
     }
   ]
 }

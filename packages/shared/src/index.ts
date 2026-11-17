@@ -9,3 +9,4 @@ export * from './documents.js';
 export * from './workspace-path.js';
 export * from './workspace-diff.js';
 export * from './workspace.js';
+export * from './tools.js';

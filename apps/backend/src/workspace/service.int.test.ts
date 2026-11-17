@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, expect, test } from 'vitest';
-import { browserIdentitySchema, type BrowserIdentity } from '@cert-board/shared';
+import { agentIdentitySchema, type AgentIdentity } from '@cert-board/shared';
 import { createTestDatabase } from '../db/test-database.js';
 import { migrateDatabase } from '../db/migrate.js';
 import { seedDevelopmentAccounts } from '../db/seed.js';
@@ -24,8 +24,8 @@ import {
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let blobs: Awaited<ReturnType<typeof createTestBlobStore>>;
-let ra: BrowserIdentity;
-let rb: BrowserIdentity;
+let ra: AgentIdentity;
+let rb: AgentIdentity;
 let projectId: string;
 let workspaceId: string;
 let initialVersionId: string;
@@ -33,7 +33,7 @@ let sequence = 0;
 const initialDecisions = '# 决定记录\n';
 const initialReport = '初始检查记录\n';
 
-async function conversation(identity: BrowserIdentity, mode = 'execute', project = projectId) {
+async function conversation(identity: AgentIdentity, mode = 'execute', project = projectId) {
   const result = await database.pool.query<{ id: string }>(
     'INSERT INTO conversation(project_id,user_id,title,mode) VALUES($1,$2,$3,$4) RETURNING id',
     [project, identity.userId, '独立工作区测试对话', mode],
@@ -64,13 +64,13 @@ beforeAll(async () => {
   );
   const identity = (username: string) => {
     const user = users.rows.find((entry) => entry.username === username);
-    return browserIdentitySchema.parse({
-      kind: 'browser',
+    return agentIdentitySchema.parse({
+      kind: 'agent',
       userId: user.id,
       username,
       displayName: user.display_name,
       isDevelopment: true,
-      sessionId: randomUUID(),
+      runId: randomUUID(),
       roles: [{ role: username.toUpperCase(), scopeType: 'global', scopeId: null }],
     });
   };
@@ -571,7 +571,7 @@ test('其他用户不能读取或写入私有副本，项目权限与数据库�
       expectedSha256: null,
     }),
   ).rejects.toMatchObject({ statusCode: 404 });
-  const restricted: BrowserIdentity = {
+  const restricted: AgentIdentity = {
     ...ra,
     roles: [{ role: 'RA', scopeType: 'project', scopeId: randomUUID() }],
   };

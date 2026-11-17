@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>工具执行边界（PR-08）</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong></nav><main><h1 id="工具执行边界-pr-08">工具执行边界（PR-08）</h1>
+<p>工具只能来自静态登记的已发布版本，目录冻结后不能被调用方改写。工具说明分别记录用途、适用时机、不适用情形、参数和示例；模型拿到的是按当前权限与模式过滤的目录。</p>
+<p>每次调用都重新读取运行、会话、用户、角色、项目和目标。运行不能通过空项目/目标绕过其会话归属；目标方向变化、运行停止、会话归档或用户停用都拒绝继续。工具允许的角色与对象范围必须来自同一组绑定，回调也只能看到这组授权，不能拼接另一个角色的全局范围。</p>
+<table><thead><tr><th>级别</th><th>处理</th></tr></thead><tbody><tr><td>read</td><td>按权限读取，输出有界并标资料级别</td></tr><tr><td>reversible_write</td><td>仅执行模式、活动目标、具备完整撤销契约才执行</td></tr><tr><td>external</td><td>只调用提案工厂；未接入时明确返回“尚未建立真实提案”，不调用执行回调</td></tr><tr><td>irreversible</td><td>始终拒绝</td></tr></tbody></table>
+<p>审批与安全配置管理不能以Agent身份执行；没有公开工具执行HTTP入口。真实浏览器身份仍只由Cookie、CSRF及来源校验获得，不能把Agent权限主体伪造成浏览器身份。</p>
+<p>调用先锁定幂等标识，再按用户→工作区→目标→对话→运行的顺序核对并锁定上下文。角色行也锁定，撤权与已授权事务按先后串行。相同运行/调用编号仅生效一次；参数或工具版本变化拒绝复用编号。</p>
+<p>可撤销写入先捕获原值和版本，在同一SQL事务内保存撤销记录、执行业务、验证新版本并保存会话回执。写入必须推进版本；失败整体回滚。原值模式只规范化一次，保存解析后的JSON结果并检查大小；撤销不重复运行非幂等变换。快照传入回调前冻结，防止回调改写目标或期望版本。撤销检查当前版本，之后有人修改过则拒绝；只允许同一用户、会话、项目和目标，重复撤销不重复生效。</p>
+<p>tool_invocation仅存元数据和参数哈希；返回正文属于私有conversation_tool_result，不能进入run_event/审计，通用只读角色没有读取权。动态资料工具必须提供当前级别刷新方法，重放前重验权限/有效性/级别，不能从旧缓存降低级别。</p>
+<p>此PR使用真实数据库事务剧本验证框架，不等于Agent内核已实现。完整Agent测试及技能评测在PR-20/21接入时进行。实际工作区写工具必须改为复用执行器tx后才能登记，不能直接调用另开事务的旧封装。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
