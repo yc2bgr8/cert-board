@@ -12,6 +12,7 @@ import { registerProjectRoutes } from './projects/routes.js';
 import { registerDocumentRoutes } from './documents/routes.js';
 import { BlobStore, type DocumentBlobStore } from './documents/blob-store.js';
 import { registerWorkspaceRoutes } from './workspace/routes.js';
+import { registerProposalRoutes } from './api/proposal-routes.js';
 
 export interface AppDependencies extends HealthDependencies {
   database?: pg.Pool;
@@ -53,6 +54,7 @@ export function createApp(
     registerAuthRoutes(app, dependencies.database, config);
     registerProjectRoutes(app, dependencies.database, config);
     registerDocumentRoutes(app, dependencies.database, config);
+    registerProposalRoutes(app, dependencies.database, config);
     registerWorkspaceRoutes(
       app,
       dependencies.database,

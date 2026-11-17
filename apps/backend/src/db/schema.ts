@@ -104,6 +104,7 @@ export const webSession = pgTable(
     ...timestamps(),
   },
   (table) => [
+    unique('web_session_actor_unique').on(table.id, table.userId),
     check('web_session_token_hash_format', sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
     check('web_session_csrf_hash_format', sql`${table.csrfTokenHash} ~ '^[0-9a-f]{64}$'`),
     check('web_session_expiry_order', sql`${table.expiresAt} > ${table.createdAt}`),
@@ -361,6 +362,7 @@ export const goal = pgTable(
     budgetUsd: numeric('budget_usd', { precision: 12, scale: 6 }).notNull().default('10'),
     status: goalStatus('status').notNull().default('active'),
     directionVersion: integer('direction_version').notNull().default(1),
+    outboundPaused: boolean('outbound_paused').notNull().default(false),
     createdBy: uuid('created_by').references(() => appUser.id, { onDelete: 'restrict' }),
     ...timestamps(),
     version: integer('version').notNull().default(1),
@@ -402,6 +404,7 @@ export const contact = pgTable(
       table.channel,
       table.address,
     ),
+    unique('contact_id_project_unique').on(table.id, table.projectId),
     check('contact_name_not_blank', sql`length(btrim(${table.name})) > 0`),
     check(
       'contact_address_format',
@@ -823,6 +826,13 @@ export const run = pgTable(
   },
   (table) => [
     unique('run_conversation_user_unique').on(table.id, table.conversationId, table.userId),
+    unique('run_proposal_context_unique').on(
+      table.id,
+      table.conversationId,
+      table.userId,
+      table.projectId,
+      table.goalId,
+    ),
     foreignKey({
       name: 'run_conversation_owner_fk',
       columns: [table.conversationId, table.userId],
@@ -971,5 +981,172 @@ export const undoRecord = pgTable(
       sql`${table.undoneAt} IS NULL OR ${table.undoneAt} >= ${table.createdAt}`,
     ),
     index('undo_record_conversation_idx').on(table.conversationId),
+  ],
+);
+
+export const proposalStatus = pgEnum('proposal_status', [
+  'proposed',
+  'approved',
+  'executing',
+  'done',
+  'failed',
+  'reconcile',
+  'rejected',
+  'expired',
+]);
+export const proposalDecisionAction = pgEnum('proposal_decision_action', ['approved', 'rejected']);
+export const outboundMessageStatus = pgEnum('outbound_message_status', [
+  'queued',
+  'done',
+  'failed',
+  'reconcile',
+  'cancelled',
+]);
+
+export const proposal = pgTable(
+  'proposal',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id').notNull(),
+    goalId: uuid('goal_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    runId: uuid('run_id').notNull(),
+    invocationId: uuid('invocation_id').notNull().unique(),
+    proposedBy: uuid('proposed_by').notNull(),
+    contactId: uuid('contact_id').notNull(),
+    recipientVersion: integer('recipient_version').notNull(),
+    recipientName: varchar('recipient_name', { length: 120 }).notNull(),
+    recipientAddress: varchar('recipient_address', { length: 255 }).notNull(),
+    channel: contactChannel('channel').notNull().default('local_test'),
+    subject: varchar('subject', { length: 200 }).notNull(),
+    body: text('body').notNull(),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    dataLevel: documentDataLevel('data_level').notNull().default('internal'),
+    status: proposalStatus('status').notNull().default('proposed'),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    unique('proposal_queue_context_unique').on(
+      table.id,
+      table.projectId,
+      table.goalId,
+      table.contactId,
+    ),
+    foreignKey({
+      name: 'proposal_run_context_fk',
+      columns: [table.runId, table.conversationId, table.proposedBy, table.projectId, table.goalId],
+      foreignColumns: [run.id, run.conversationId, run.userId, run.projectId, run.goalId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'proposal_invocation_context_fk',
+      columns: [table.invocationId, table.runId, table.conversationId, table.proposedBy],
+      foreignColumns: [
+        toolInvocation.id,
+        toolInvocation.runId,
+        toolInvocation.conversationId,
+        toolInvocation.userId,
+      ],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'proposal_contact_project_fk',
+      columns: [table.contactId, table.projectId],
+      foreignColumns: [contact.id, contact.projectId],
+    }).onDelete('restrict'),
+    check('proposal_recipient_version_positive', sql`${table.recipientVersion} > 0`),
+    check('proposal_recipient_name_not_blank', sql`length(btrim(${table.recipientName})) > 0`),
+    check(
+      'proposal_recipient_address_not_blank',
+      sql`length(btrim(${table.recipientAddress})) > 0`,
+    ),
+    check(
+      'proposal_subject_not_blank',
+      sql`length(btrim(${table.subject})) > 0 AND ${table.subject} !~ '[[:cntrl:]]'`,
+    ),
+    check(
+      'proposal_body_limit',
+      sql`length(btrim(${table.body})) > 0 AND length(${table.body}) <= 8000`,
+    ),
+    check('proposal_content_hash_format', sql`${table.contentHash} ~ '^[0-9a-f]{64}$'`),
+    check('proposal_data_level_internal', sql`${table.dataLevel} IN ('internal', 'confidential')`),
+    check('proposal_version_positive', sql`${table.version} > 0`),
+    index('proposal_project_status_idx').on(table.projectId, table.status),
+    index('proposal_goal_idx').on(table.goalId),
+  ],
+);
+
+export const decision = pgTable(
+  'decision',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposal.id, { onDelete: 'restrict' }),
+    actorUserId: uuid('actor_user_id').notNull(),
+    sessionId: uuid('session_id').notNull(),
+    requestKey: uuid('request_key').notNull(),
+    sourceVersion: integer('source_version').notNull(),
+    action: proposalDecisionAction('action').notNull(),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('decision_actor_request_unique').on(table.actorUserId, table.requestKey),
+    unique('decision_proposal_source_unique').on(table.proposalId, table.sourceVersion),
+    unique('decision_proposal_identity_unique').on(table.id, table.proposalId),
+    foreignKey({
+      name: 'decision_browser_session_actor_fk',
+      columns: [table.sessionId, table.actorUserId],
+      foreignColumns: [webSession.id, webSession.userId],
+    }).onDelete('restrict'),
+    check('decision_source_version_positive', sql`${table.sourceVersion} > 0`),
+    check('decision_content_hash_format', sql`${table.contentHash} ~ '^[0-9a-f]{64}$'`),
+    index('decision_proposal_idx').on(table.proposalId),
+  ],
+);
+
+export const outboundMessage = pgTable(
+  'outbound_message',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    proposalId: uuid('proposal_id').notNull(),
+    decisionId: uuid('decision_id').notNull().unique(),
+    goalId: uuid('goal_id').notNull(),
+    projectId: uuid('project_id').notNull(),
+    contactId: uuid('contact_id').notNull(),
+    approvedVersion: integer('approved_version').notNull(),
+    channel: contactChannel('channel').notNull().default('local_test'),
+    status: outboundMessageStatus('status').notNull().default('queued'),
+    attempts: integer('attempts').notNull().default(0),
+    lastReason: varchar('last_reason', { length: 500 }),
+    receiptId: uuid('receipt_id'),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    foreignKey({
+      name: 'outbound_message_proposal_context_fk',
+      columns: [table.proposalId, table.projectId, table.goalId, table.contactId],
+      foreignColumns: [proposal.id, proposal.projectId, proposal.goalId, proposal.contactId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'outbound_message_decision_proposal_fk',
+      columns: [table.decisionId, table.proposalId],
+      foreignColumns: [decision.id, decision.proposalId],
+    }).onDelete('restrict'),
+    check('outbound_message_approved_version_positive', sql`${table.approvedVersion} > 0`),
+    check('outbound_message_attempts_nonnegative', sql`${table.attempts} >= 0`),
+    check('outbound_message_version_positive', sql`${table.version} > 0`),
+    check(
+      'outbound_message_processed_time_order',
+      sql`${table.processedAt} IS NULL OR ${table.processedAt} >= ${table.createdAt}`,
+    ),
+    check(
+      'outbound_message_receipt_complete',
+      sql`${table.receiptId} IS NULL OR ${table.processedAt} IS NOT NULL`,
+    ),
+    index('outbound_message_status_idx').on(table.status),
+    index('outbound_message_goal_idx').on(table.goalId),
   ],
 );
