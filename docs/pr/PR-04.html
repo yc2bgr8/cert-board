@@ -22,7 +22,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="没做什么">没做什么</h2>
 <ul><li>角色管理端点及角色变更审计留PR-59，当前不开放该入口，已记待办。</li><li>前端登录页在PR-26接入；业务对象路由及审批后续必须调用本PR授权/来源校验。本PR不声称已实现真实审批。</li><li>限速为单API进程内存计数；多实例部署前须改为共享计数，当前不扩展多实例。</li></ul>
 <h2 id="验收结果">验收结果</h2>
-<table><thead><tr><th>命令</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，18文件153测试；授权矩阵及边界95项，启动环境隔离3项</td></tr><tr><td><code>pnpm test:int</code></td><td>认证16项及原数据库12项，共28项通过；含Cookie/CSRF/跨来源/过期/注销/角色撤销/生产隔离/审计/并发及IP限速</td></tr><tr><td>并发限速</td><td>同账号8次并发：5个401、3个429；随后正确密码仍429</td></tr><tr><td>IP限速</td><td>15次失败→1次成功→15次请求：最后1个429，成功未清空IP计数</td></tr><tr><td>白名单启动器</td><td>API/worker实际启动通过，HTTP健康检查正常；两者均不继承DEV_*，API不继承模型密钥</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>提交前执行</td></tr><tr><td>GitHub CI</td><td>开PR后执行，通过后才合并</td></tr></tbody></table>
+<table><thead><tr><th>命令</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，18文件153测试；授权矩阵及边界95项，启动环境隔离3项</td></tr><tr><td><code>pnpm test:int</code></td><td>认证16项及原数据库12项，共28项通过；含Cookie/CSRF/跨来源/过期/注销/角色撤销/生产隔离/审计/并发及IP限速</td></tr><tr><td>并发限速</td><td>同账号8次并发：5个401、3个429；随后正确密码仍429</td></tr><tr><td>IP限速</td><td>15次失败→1次成功→15次请求：最后1个429，成功未清空IP计数</td></tr><tr><td>白名单启动器</td><td>API/worker实际启动通过，HTTP健康检查正常；两者均不继承DEV_*，API不继承模型密钥</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>通过：31份HTML、索引与gitleaks无密钥</td></tr><tr><td>GitHub CI</td><td>bb7897c通过，Actions44096471558；AI复审无阻断，已合并#5，812f276</td></tr></tbody></table>
 <h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
 <ul><li>需求V0.9：NF01；技术方案3.6、4.2、9；执行方案PR-04。</li></ul>
 <h2 id="真实模型测试">真实模型测试</h2>

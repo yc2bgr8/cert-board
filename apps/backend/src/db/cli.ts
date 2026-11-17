@@ -2,6 +2,7 @@ import pg from 'pg';
 import { ConfigurationError, parseBackendConfig, SeedConfigurationError } from '@cert-board/shared';
 import { migrateDatabase, MigrationError } from './migrate.js';
 import { DevelopmentSeedError, seedDevelopmentAccounts } from './seed.js';
+import { seedDevelopmentProject } from '../projects/seed.js';
 
 async function main() {
   const action = process.argv[2];
@@ -17,6 +18,12 @@ async function main() {
       const result = await seedDevelopmentAccounts(pool, process.env);
       console.log(
         `开发账号种子完成：新建${result.created.length}个，保留已有${result.unchanged.length}个。密码只保存在 .env.local。`,
+      );
+      const project = await seedDevelopmentProject(pool, process.env);
+      console.log(
+        project.created
+          ? 'L08开发项目及目标已建立，业务日期保持待确认。'
+          : 'L08开发项目已存在，保留已有内容。',
       );
     }
   } finally {

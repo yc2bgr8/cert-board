@@ -7,6 +7,7 @@ import { createDependencies, type HealthDependencies } from './dependencies.js';
 import { createLogger } from './logger.js';
 import { AppError } from './api/errors.js';
 import { registerAuthRoutes } from './auth/routes.js';
+import { registerProjectRoutes } from './projects/routes.js';
 
 export interface AppDependencies extends HealthDependencies {
   database?: pg.Pool;
@@ -42,7 +43,10 @@ export function createApp(
     bodyLimit: 1024 * 1024,
   });
   app.register(cookie);
-  if (dependencies.database) registerAuthRoutes(app, dependencies.database, config);
+  if (dependencies.database) {
+    registerAuthRoutes(app, dependencies.database, config);
+    registerProjectRoutes(app, dependencies.database, config);
+  }
   app.addHook('onSend', async (_request, reply, payload) => {
     reply.header('x-content-type-options', 'nosniff');
     reply.header('referrer-policy', 'same-origin');
