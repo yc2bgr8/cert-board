@@ -57,6 +57,56 @@ const phaseLabels: Record<Phase, string> = {
 };
 const decisionLabels = { amend: '修改后通过', return: '退回', question: '追问', transfer: '转交' };
 
+const registrationSources = [
+  {
+    id: 'EXAMPLE-01',
+    name: '示例对比表',
+    page: 2,
+    prefix: 'Predicate device 510(k) number: ',
+    highlight: 'K123456',
+    suffix: '.',
+  },
+  {
+    id: 'EXAMPLE-02',
+    name: '示例摘要',
+    page: 4,
+    prefix: 'Predicate device 510(k) number: ',
+    highlight: 'K123465',
+    suffix: '.',
+  },
+];
+const maintenanceSources = [
+  {
+    id: 'MAINT-EXAMPLE-01',
+    name: '企业注册示例记录',
+    page: 1,
+    prefix: '企业注册状态：',
+    highlight: '待核对',
+    suffix: '。',
+  },
+  {
+    id: 'MAINT-EXAMPLE-02',
+    name: '年费付款凭据示例',
+    page: 1,
+    prefix: '付款适用年度与金额：',
+    highlight: '待核对',
+    suffix: '。',
+  },
+  {
+    id: 'MAINT-EXAMPLE-03',
+    name: '美国代理人协议示例',
+    page: 1,
+    prefix: '协议有效期：',
+    highlight: '待核对',
+    suffix: '。',
+  },
+];
+const maintenanceChecklist = [
+  '企业注册状态：待核对。',
+  '年费付款凭据：适用年度与金额待核对。',
+  '美国代理人协议：有效期待核对。',
+];
+
 function ReviewSection({
   number,
   title,
@@ -109,6 +159,21 @@ export function PrototypeApp() {
   );
 
   const maintenance = project === 'maintenance';
+  const sources = maintenance ? maintenanceSources : registrationSources;
+  const recordFilename = maintenance ? '年度维护核查记录.md' : '检查记录.md';
+  const planSteps = [
+    '读取项目说明和相关技能',
+    maintenance ? '检索、读取三份维护示例资料' : '检索、读取两份示例资料',
+    maintenance ? '整理维护事项并执行自检' : '整理差异并执行自检',
+    '提交审核，等待你的决定',
+  ];
+  const diffLines = maintenance
+    ? maintenanceChecklist
+    : [
+        '示例对比表：K123456',
+        '示例摘要：K123465',
+        version > 1 ? '已按人工意见补充差异原因，待确认。' : '两处写法不一致，待人工确认。',
+      ];
   const sales = role === 'SALES';
   const title =
     project === 'todo'
@@ -244,7 +309,9 @@ export function PrototypeApp() {
           <Icon name={phase === 'running' ? 'clock' : 'check'} size={14} />
         </span>
         <span>
-          {phase === 'running' ? '正在读取示例资料…' : '已读取 2 份示例资料，完成 3 步检查'}
+          {phase === 'running'
+            ? '正在读取示例资料…'
+            : `已读取 ${sources.length} 份示例资料，完成 3 步检查`}
         </span>
         <Icon name="chevron" size={14} />
       </Collapsible.Trigger>
@@ -257,13 +324,19 @@ export function PrototypeApp() {
         </div>
         <div>
           <span>02</span>
-          <strong>查找对比器械 K 号</strong>
+          <strong>
+            {maintenance ? '读取企业注册、年费凭据与美国代理人协议' : '查找对比器械 K 号'}
+          </strong>
           <code>doc_search → doc_read</code>
-          <p>资料 EXAMPLE-01 / EXAMPLE-02，v1，第 2 / 4 页；仅显示摘要。</p>
+          <p>
+            {maintenance
+              ? '资料 MAINT-EXAMPLE-01 / 02 / 03，v1，均为第 1 页；三项记录仍待核对。'
+              : '资料 EXAMPLE-01 / EXAMPLE-02，v1，第 2 / 4 页；仅显示摘要。'}
+          </p>
         </div>
         <div>
           <span>03</span>
-          <strong>整理差异并自检</strong>
+          <strong>{maintenance ? '整理维护事项并自检' : '整理差异并自检'}</strong>
           <code>submit_review</code>
           <p>虚构摘录检查通过；真实法规判断仍待注册人员确认。</p>
         </div>
@@ -332,7 +405,7 @@ export function PrototypeApp() {
           <ReviewSection number="02" title="需要你做什么">
             <p>
               {maintenance
-                ? '核对正式台账和付款凭据，确认各项状态及适用期限。'
+                ? '核对正式台账、年费付款凭据与美国代理人协议，确认记录状态、适用年度和协议有效期。'
                 : '确认正确号码与差异原因，决定是否通过这份检查记录。此操作不修改原始申报资料。'}
             </p>
           </ReviewSection>
@@ -340,18 +413,24 @@ export function PrototypeApp() {
             <button type="button" className="file-link" onClick={() => setPanel('changes')}>
               <Icon name="file" />
               <span>
-                检查记录.md<small>已保存为第 {version || 1} 版 · 1 个文件</small>
+                {recordFilename}
+                <small>已保存为第 {version || 1} 版 · 1 个文件</small>
               </span>
               <Icon name="chevron" size={14} />
             </button>
           </ReviewSection>
           <ReviewSection number="04" title="关键依据">
-            <button type="button" className="evidence-link" onClick={() => setPanel('evidence')}>
-              [1] 示例对比表 · v1 · 第 2 页<Icon name="arrow" size={14} />
-            </button>
-            <button type="button" className="evidence-link" onClick={() => setPanel('evidence')}>
-              [2] 示例摘要 · v1 · 第 4 页<Icon name="arrow" size={14} />
-            </button>
+            {sources.map((source, index) => (
+              <button
+                key={source.id}
+                type="button"
+                className="evidence-link"
+                onClick={() => setPanel('evidence')}
+              >
+                [{index + 1}] {source.name} · v1 · 第 {source.page} 页
+                <Icon name="arrow" size={14} />
+              </button>
+            ))}
             <small className="muted">虚构原文，仅供界面评审。</small>
           </ReviewSection>
           <ReviewSection number="05" title="AI 自检">
@@ -371,7 +450,11 @@ export function PrototypeApp() {
             </ul>
           </ReviewSection>
           <ReviewSection number="06" title="不确定事项">
-            <p>尚未核实哪个号码为正确记录。法规判断与真实资料均需注册人员确认。</p>
+            <p>
+              {maintenance
+                ? '未核实企业注册状态、付款对应年度与金额、美国代理人协议有效期。法规判断与真实资料均需注册人员确认。'
+                : '尚未核实哪个号码为正确记录。法规判断与真实资料均需注册人员确认。'}
+            </p>
           </ReviewSection>
           <ReviewSection number="07" title="操作">
             {phase === 'approved' ? (
@@ -695,7 +778,7 @@ export function PrototypeApp() {
                 文件<span>{version ? '2' : '1'}</span>
               </Tabs.Trigger>
               <Tabs.Trigger value="documents">
-                资料<span>2</span>
+                资料<span>{sources.length}</span>
               </Tabs.Trigger>
               <span className="tab-list-spacer" />
               <span className={`conversation-status ${phase === 'running' ? 'is-running' : ''}`}>
@@ -814,7 +897,7 @@ export function PrototypeApp() {
                         <strong>本轮改动</strong>
                       </span>
                       <button type="button" onClick={() => setPanel('changes')}>
-                        检查记录.md
+                        {recordFilename}
                         <Icon name="chevron" size={14} />
                       </button>
                       <small>已保存为第 {version} 版 · 演示</small>
@@ -877,10 +960,13 @@ export function PrototypeApp() {
                   </Collapsible.Trigger>
                   <Collapsible.Content>
                     <div className="question-card">
-                      <h3>这项差异应如何记录？</h3>
+                      <h3>{maintenance ? '这项维护事项应如何处理？' : '这项差异应如何记录？'}</h3>
                       <p>请结合原始资料，选择一个处理方向。</p>
                       <div className="question-options">
-                        {['先列为待确认差异', '按笔误记录，补充依据'].map((answer) => (
+                        {(maintenance
+                          ? ['保留待核对状态', '补充凭据后重新核查']
+                          : ['先列为待确认差异', '按笔误记录，补充依据']
+                        ).map((answer) => (
                           <button
                             type="button"
                             className={`button secondary ${questionAnswer === answer ? 'is-selected' : ''}`}
@@ -990,7 +1076,8 @@ export function PrototypeApp() {
                   <div className="file-table-row">
                     <span>
                       <Icon name="file" />
-                      检查记录.md<small>Agent 交付物</small>
+                      {recordFilename}
+                      <small>Agent 交付物</small>
                     </span>
                     <span>v{version}</span>
                     <span>{phase === 'approved' ? '已定稿（演示）' : '待审核'}</span>
@@ -1023,10 +1110,7 @@ export function PrototypeApp() {
                 </button>
               </div>
               <div className="source-notice">以下资料和摘录均为虚构示例，不是真实 L08 原文。</div>
-              {[
-                { name: '示例对比表.pdf', id: 'EXAMPLE-01', page: 2 },
-                { name: '示例摘要.pdf', id: 'EXAMPLE-02', page: 4 },
-              ].map((document) => (
+              {sources.map((document) => (
                 <button
                   type="button"
                   className="document-card"
@@ -1037,7 +1121,7 @@ export function PrototypeApp() {
                     <Icon name="file" size={25} />
                   </span>
                   <span>
-                    <strong>{document.name}</strong>
+                    <strong>{document.name}.pdf</strong>
                     <small>
                       {document.id} · v1 · 第 {document.page} 页 · 内部
                     </small>
@@ -1087,19 +1171,18 @@ export function PrototypeApp() {
             ) : panel === 'evidence' ? (
               <>
                 <div className="eyebrow">只读证据 · 虚构示例</div>
-                <h2>同一差异的两处来源</h2>
+                <h2>{maintenance ? '三项维护记录的来源' : '同一差异的两处来源'}</h2>
                 <p className="panel-subtitle">资料库版本固定，点击引用回到原文。</p>
-                {[
-                  { id: 'EXAMPLE-01', name: '示例对比表', page: 2, number: 'K123456' },
-                  { id: 'EXAMPLE-02', name: '示例摘要', page: 4, number: 'K123465' },
-                ].map((source) => (
+                {sources.map((source) => (
                   <section className="source-excerpt" key={source.id}>
                     <span className="eyebrow">
                       {source.id} · v1 · 第 {source.page} 页
                     </span>
                     <h3>{source.name}</h3>
                     <p>
-                      Predicate device 510(k) number: <mark>{source.number}</mark>.
+                      {source.prefix}
+                      <mark>{source.highlight}</mark>
+                      {source.suffix}
                     </p>
                     <small>虚构原文，不对应真实 L08 资料。</small>
                   </section>
@@ -1108,10 +1191,12 @@ export function PrototypeApp() {
                   <span>原页占位 · 非真实 PDF</span>
                   <div className="paper-page">
                     <strong>示例资料</strong>
-                    <p>Predicate Device</p>
+                    <p>{maintenance ? '企业注册示例记录' : 'Predicate Device'}</p>
                     <div />
                     <div />
-                    <p className="highlight-line">510(k): K123456</p>
+                    <p className="highlight-line">
+                      {maintenance ? '企业注册状态：待核对' : '510(k): K123456'}
+                    </p>
                     <div />
                     <div />
                     <small>此区域展示原页位置与高亮样式。</small>
@@ -1128,7 +1213,7 @@ export function PrototypeApp() {
             ) : panel === 'changes' ? (
               <>
                 <div className="eyebrow">工作区版本对比</div>
-                <h2>检查记录.md</h2>
+                <h2>{recordFilename}</h2>
                 <p className="panel-subtitle">
                   {version > 1 ? `第 ${version - 1} 版 → 第 ${version} 版` : '工作副本 → 第 1 版'} ·
                   虚构示例
@@ -1139,23 +1224,19 @@ export function PrototypeApp() {
                 </div>
                 <div className="diff-view">
                   <div className="diff-context">
-                    <span>1</span># 对比器械 K 号检查记录
+                    <span>1</span>
+                    {maintenance ? '# 年度维护核查记录' : '# 对比器械 K 号检查记录'}
                   </div>
                   <div className="diff-removed">
-                    <span>−</span>待核对资料写法。
+                    <span>−</span>
+                    {maintenance ? '待核对维护依据。' : '待核对资料写法。'}
                   </div>
-                  <div className="diff-added">
-                    <span>+</span>示例对比表：K123456
-                  </div>
-                  <div className="diff-added">
-                    <span>+</span>示例摘要：K123465
-                  </div>
-                  <div className="diff-added">
-                    <span>+</span>
-                    {version > 1
-                      ? '已按人工意见补充差异原因，待确认。'
-                      : '两处写法不一致，待人工确认。'}
-                  </div>
+                  {diffLines.map((line) => (
+                    <div className="diff-added" key={line}>
+                      <span>+</span>
+                      {line}
+                    </div>
+                  ))}
                 </div>
                 <p className="tiny-note">仅修改工作区检查记录，原始资料保持只读。</p>
                 <button
@@ -1172,12 +1253,7 @@ export function PrototypeApp() {
                 <h2>{maintenance ? '年度维护核查' : '核对对比器械 K 号'}</h2>
                 <p className="panel-subtitle">每一步保留来源，最终由你审核。</p>
                 <ol className="plan-list">
-                  {[
-                    '读取项目说明和相关技能',
-                    '检索、读取两份示例资料',
-                    '整理差异并执行自检',
-                    '提交审核，等待你的决定',
-                  ].map((step, index) => (
+                  {planSteps.map((step, index) => (
                     <li
                       key={step}
                       className={
@@ -1202,7 +1278,11 @@ export function PrototypeApp() {
                 </ol>
                 <div className="plan-note">
                   <strong>交付物</strong>
-                  <p>一份带来源的检查记录，以及需要人判断的事项。</p>
+                  <p>
+                    {maintenance
+                      ? '一份带来源的年度维护核查记录，以及需要人确认的三项维护事项。'
+                      : '一份带来源的检查记录，以及需要人判断的事项。'}
+                  </p>
                 </div>
               </>
             )}

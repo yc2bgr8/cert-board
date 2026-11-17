@@ -11,6 +11,15 @@ function openQueuedReview() {
   return screen.getByRole('complementary', { name: '审核详情' });
 }
 
+async function openMaintenanceReview() {
+  fireEvent.click(screen.getByRole('button', { name: 'L08 年度注册' }));
+  fireEvent.click(screen.getByRole('button', { name: '查看核查结果' }));
+  fireEvent.click(await screen.findByRole('button', { name: /查看审核卡/ }, { timeout: 3_000 }));
+  return screen.getByRole('complementary', { name: '审核详情' });
+}
+
+const registrationContent = /K\s*号|K\d{6}|对比器械|示例对比表|示例摘要|predicate\s+device|510\(k\)/i;
+
 describe('可点击界面稿', () => {
   test('检查、展开工具过程、提修改意见、审核第二版后通过', async () => {
     render(<PrototypeApp />);
@@ -58,7 +67,7 @@ describe('可点击界面稿', () => {
     ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '查看核查结果' }));
     await screen.findByRole('button', { name: /查看审核卡/ }, { timeout: 3_000 });
-    fireEvent.click(screen.getByRole('button', { name: '已读取 2 份示例资料，完成 3 步检查' }));
+    fireEvent.click(screen.getByRole('button', { name: '已读取 3 份示例资料，完成 3 步检查' }));
     expect(screen.getByText('读取项目说明与 M02 技能')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /查看审核卡/ }));
     expect(
@@ -68,6 +77,52 @@ describe('可点击界面稿', () => {
     ).toBeTruthy();
     const review = openQueuedReview();
     expect(within(review).getByRole('heading', { name: '对比器械 K 号写法' })).toBeTruthy();
+  });
+
+  test('M02展开过程核查三项维护资料，不展示K号检查步骤', async () => {
+    render(<PrototypeApp />);
+    await openMaintenanceReview();
+    const trigger = screen.getByRole('button', { name: /已读取.*份示例资料/ });
+    fireEvent.click(trigger);
+    const process = trigger.parentElement;
+    expect(process?.textContent).not.toMatch(registrationContent);
+    expect(process?.textContent).toContain('企业注册');
+    expect(process?.textContent).toMatch(/年费|年度费用/);
+    expect(process?.textContent).toContain('美国代理人');
+  });
+
+  test('M02审核依据和证据是三项维护来源，不复用注册K号证据', async () => {
+    render(<PrototypeApp />);
+    const review = await openMaintenanceReview();
+    expect(review.textContent).not.toMatch(registrationContent);
+    expect(within(review).getByRole('button', { name: /企业注册示例记录/ })).toBeTruthy();
+    expect(within(review).getByRole('button', { name: /年费付款凭据示例/ })).toBeTruthy();
+    expect(within(review).getByRole('button', { name: /美国代理人协议示例/ })).toBeTruthy();
+    fireEvent.click(within(review).getByRole('button', { name: /^\[1\]/ }));
+    const evidence = screen.getByRole('complementary', { name: '审核详情' });
+    expect(evidence.textContent).not.toMatch(registrationContent);
+    for (const name of ['企业注册示例记录', '年费付款凭据示例', '美国代理人协议示例']) {
+      expect(within(evidence).getByRole('heading', { name })).toBeTruthy();
+    }
+    for (const id of ['MAINT-EXAMPLE-01', 'MAINT-EXAMPLE-02', 'MAINT-EXAMPLE-03']) {
+      expect(evidence.textContent).toContain(id);
+    }
+  });
+
+  test('M02改动对比与资料库展示维护记录，不复用注册检查文件', async () => {
+    render(<PrototypeApp />);
+    const review = await openMaintenanceReview();
+    fireEvent.click(within(review).getByRole('button', { name: /(?:核查|检查)记录\.md/ }));
+    const changes = screen.getByRole('complementary', { name: '审核详情' });
+    expect(changes.textContent).not.toMatch(registrationContent);
+    expect(within(changes).getByRole('heading', { name: '年度维护核查记录.md' })).toBeTruthy();
+    expect(changes.textContent).toContain('企业注册');
+    expect(changes.textContent).toMatch(/年费|年度费用/);
+    expect(changes.textContent).toContain('美国代理人');
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^资料/ }), { button: 0, ctrlKey: false });
+    for (const name of ['企业注册示例记录', '年费付款凭据示例', '美国代理人协议示例']) {
+      expect(screen.getByRole('button', { name: new RegExp(name) })).toBeTruthy();
+    }
   });
 
   test('销售视图只展示合规报告和自己的示例请求', () => {
