@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   authResponseSchema,
+  agentIdentitySchema,
   browserIdentitySchema,
   loginInputSchema,
   publicUserSchema,
@@ -18,6 +19,25 @@ const projectId = '20000000-0000-4000-8000-000000000001';
 const otherProjectId = '20000000-0000-4000-8000-000000000002';
 const sessionId = '30000000-0000-4000-8000-000000000001';
 const resource = { projectId, ownerUserId: userId };
+
+it('Agent可按用户范围读取业务，但不能审批或管理安全配置', () => {
+  const browser = identity([{ role: 'RA', scopeType: 'global', scopeId: null }]);
+  const { sessionId: _session, kind: _kind, ...base } = browser;
+  const agent = agentIdentitySchema.parse({ ...base, kind: 'agent', runId: sessionId });
+  expect(authorize(agent, 'document.read', resource)).toBe(true);
+  expect(authorize(agent, 'review.decide', { ...resource, reviewKind: 'registration' })).toBe(
+    false,
+  );
+  expect(
+    authorize(
+      { ...agent, roles: [{ role: 'TECH', scopeType: 'global', scopeId: null }] },
+      'admin.manage',
+      {},
+    ),
+  ).toBe(false);
+  expect(browserIdentitySchema.safeParse(agent).success).toBe(false);
+  expect(agentIdentitySchema.safeParse({ ...agent, sessionId }).success).toBe(false);
+});
 
 function identity(roleBindings: RoleBinding[]): BrowserIdentity {
   return {

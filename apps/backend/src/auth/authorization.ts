@@ -1,7 +1,7 @@
 import {
   authorizationActionSchema,
   authorizationResourceSchema,
-  browserIdentitySchema,
+  serviceIdentitySchema,
   type AuthorizationAction,
   type AuthorizationResource,
   type Role,
@@ -39,7 +39,7 @@ function scopeMatches(binding: RoleBinding, resource: AuthorizationResource, use
 
 // 对象范围必须由服务端从已读取的业务对象构造，不能直接使用请求中的所属用户或项目字段。
 export function authorize(identity: unknown, action: unknown, resource: unknown = {}): boolean {
-  const actorResult = browserIdentitySchema.safeParse(identity);
+  const actorResult = serviceIdentitySchema.safeParse(identity);
   const actionResult = authorizationActionSchema.safeParse(action);
   const resourceResult = authorizationResourceSchema.safeParse(resource);
   if (!actorResult.success || !actionResult.success || !resourceResult.success) return false;
@@ -47,6 +47,11 @@ export function authorize(identity: unknown, action: unknown, resource: unknown 
   const actor = actorResult.data;
   const permittedAction = actionResult.data;
   const target = resourceResult.data;
+  if (
+    actor.kind === 'agent' &&
+    (permittedAction === 'review.decide' || permittedAction === 'admin.manage')
+  )
+    return false;
   if (permittedAction === 'review.decide' && target.reviewKind === undefined) return false;
   if (
     (permittedAction.startsWith('conversation.') || permittedAction.startsWith('sales.request.')) &&

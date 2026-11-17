@@ -14,7 +14,7 @@ import {
   documentSearchOptionsSchema,
   documentSearchResultSchema,
   projectIdSchema,
-  type BrowserIdentity,
+  type ServiceIdentity,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
@@ -72,7 +72,7 @@ function toVersion(row: Record<string, unknown>) {
     createdAt: iso(row.createdAt),
   });
 }
-function scopes(identity: BrowserIdentity, projectId: string) {
+function scopes(identity: ServiceIdentity, projectId: string) {
   const wholeProject = authorize(
     { ...identity, roles: identity.roles.filter((role) => role.scopeType !== 'own') },
     'document.read',
@@ -86,7 +86,7 @@ function scopes(identity: BrowserIdentity, projectId: string) {
   if (!wholeProject && !own) throw notFound();
   return [wholeProject, own, identity.userId] as const;
 }
-async function projectAccess(pool: Pool, identity: BrowserIdentity, projectId: string) {
+async function projectAccess(pool: Pool, identity: ServiceIdentity, projectId: string) {
   if (!projectIdSchema.safeParse(projectId).success) throw invalid();
   await getProject(pool, identity, projectId);
   return scopes(identity, projectId);
@@ -259,7 +259,7 @@ export async function ingestParsedDocument(pool: Pool, store: DocumentBlobStore,
 
 export async function listDocuments(
   pool: Pool,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   projectId: string,
   options: unknown = {},
 ) {
@@ -282,7 +282,7 @@ export async function listDocuments(
   });
 }
 
-export async function getDocument(pool: Pool, identity: BrowserIdentity, documentId: string) {
+export async function getDocument(pool: Pool, identity: ServiceIdentity, documentId: string) {
   if (!projectIdSchema.safeParse(documentId).success) throw invalid();
   const result = await pool.query<Record<string, unknown>>(
     `SELECT ${documentFields} FROM document d ${latestVersion} WHERE d.id=$1 AND NOT d.voided`,
@@ -308,7 +308,7 @@ export async function getDocument(pool: Pool, identity: BrowserIdentity, documen
 
 export async function listDocumentVersions(
   pool: Pool,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   documentId: string,
   options: unknown = {},
 ) {
@@ -332,7 +332,7 @@ export async function listDocumentVersions(
 
 export async function readDocumentPage(
   pool: Pool,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   documentId: string,
   version: number,
   pageNumber: number,
@@ -416,7 +416,7 @@ export async function readDocumentPage(
 
 export async function searchDocuments(
   pool: Pool,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   projectId: string,
   options: unknown,
 ) {

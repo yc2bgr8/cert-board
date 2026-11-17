@@ -584,6 +584,7 @@ export const conversation = pgTable(
   },
   (table) => [
     unique('conversation_owner_project_unique').on(table.id, table.userId, table.projectId),
+    unique('conversation_owner_unique').on(table.id, table.userId),
     foreignKey({
       name: 'conversation_goal_project_fk',
       columns: [table.goalId, table.projectId],
@@ -776,5 +777,199 @@ export const workspaceDraftFile = pgTable(
     ),
     check('workspace_draft_file_media_type_not_blank', sql`length(btrim(${table.mediaType})) > 0`),
     index('workspace_draft_file_draft_idx').on(table.draftId),
+  ],
+);
+
+export const runTriggerType = pgEnum('run_trigger_type', ['conversation', 'wakeup', 'evaluation']);
+export const runStatus = pgEnum('run_status', [
+  'queued',
+  'running',
+  'waiting',
+  'completed',
+  'failed',
+  'stopped',
+  'budget_exhausted',
+]);
+export const toolEffect = pgEnum('tool_effect', [
+  'read',
+  'reversible_write',
+  'external',
+  'irreversible',
+]);
+export const toolInvocationStatus = pgEnum('tool_invocation_status', [
+  'started',
+  'completed',
+  'denied',
+  'failed',
+]);
+export const toolInvocationOperation = pgEnum('tool_invocation_operation', ['execute', 'undo']);
+export const undoRecordStatus = pgEnum('undo_record_status', ['pending', 'available', 'undone']);
+
+export const run = pgTable(
+  'run',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    projectId: uuid('project_id'),
+    goalId: uuid('goal_id'),
+    directionVersion: integer('direction_version').notNull().default(1),
+    triggerType: runTriggerType('trigger_type').notNull().default('conversation'),
+    status: runStatus('status').notNull().default('queued'),
+    maxDataLevel: documentDataLevel('max_data_level').notNull().default('internal'),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    unique('run_conversation_user_unique').on(table.id, table.conversationId, table.userId),
+    foreignKey({
+      name: 'run_conversation_owner_fk',
+      columns: [table.conversationId, table.userId],
+      foreignColumns: [conversation.id, conversation.userId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'run_conversation_owner_project_fk',
+      columns: [table.conversationId, table.userId, table.projectId],
+      foreignColumns: [conversation.id, conversation.userId, conversation.projectId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'run_goal_project_fk',
+      columns: [table.goalId, table.projectId],
+      foreignColumns: [goal.id, goal.projectId],
+    }).onDelete('restrict'),
+    check(
+      'run_goal_requires_project',
+      sql`${table.goalId} IS NULL OR ${table.projectId} IS NOT NULL`,
+    ),
+    check('run_direction_version_positive', sql`${table.directionVersion} > 0`),
+    check('run_data_level_internal', sql`${table.maxDataLevel} IN ('internal', 'confidential')`),
+    check(
+      'run_finished_time_order',
+      sql`${table.finishedAt} IS NULL OR ${table.finishedAt} >= ${table.createdAt}`,
+    ),
+    check('run_version_positive', sql`${table.version} > 0`),
+    index('run_conversation_idx').on(table.conversationId),
+    index('run_user_status_idx').on(table.userId, table.status),
+  ],
+);
+
+export const toolInvocation = pgTable(
+  'tool_invocation',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    runId: uuid('run_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    callId: varchar('call_id', { length: 128 }).notNull(),
+    toolName: varchar('tool_name', { length: 64 }).notNull(),
+    toolVersion: varchar('tool_version', { length: 128 }).notNull(),
+    argumentsHash: varchar('arguments_hash', { length: 64 }).notNull(),
+    effect: toolEffect('effect').notNull(),
+    operation: toolInvocationOperation('operation').notNull().default('execute'),
+    status: toolInvocationStatus('status').notNull().default('started'),
+    dataLevel: documentDataLevel('data_level').notNull().default('internal'),
+    ...timestamps(),
+  },
+  (table) => [
+    unique('tool_invocation_call_unique').on(table.runId, table.callId),
+    unique('tool_invocation_owner_unique').on(table.id, table.conversationId, table.userId),
+    unique('tool_invocation_run_owner_unique').on(
+      table.id,
+      table.runId,
+      table.conversationId,
+      table.userId,
+    ),
+    foreignKey({
+      name: 'tool_invocation_run_owner_fk',
+      columns: [table.runId, table.conversationId, table.userId],
+      foreignColumns: [run.id, run.conversationId, run.userId],
+    }).onDelete('restrict'),
+    check('tool_invocation_call_not_blank', sql`length(btrim(${table.callId})) > 0`),
+    check('tool_invocation_name_not_blank', sql`length(btrim(${table.toolName})) > 0`),
+    check('tool_invocation_version_not_blank', sql`length(btrim(${table.toolVersion})) > 0`),
+    check('tool_invocation_arguments_hash_format', sql`${table.argumentsHash} ~ '^[0-9a-f]{64}$'`),
+    index('tool_invocation_conversation_idx').on(table.conversationId),
+  ],
+);
+
+// 工具正文属于受用户/对话授权的内容，不能进入 run_event 或元数据日志。
+export const conversationToolResult = pgTable(
+  'conversation_tool_result',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    invocationId: uuid('invocation_id').notNull().unique(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    contentJson: jsonb('content_json').notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    ...timestamps(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'conversation_tool_result_invocation_owner_fk',
+      columns: [table.invocationId, table.conversationId, table.userId],
+      foreignColumns: [toolInvocation.id, toolInvocation.conversationId, toolInvocation.userId],
+    }).onDelete('restrict'),
+    index('conversation_tool_result_conversation_idx').on(table.conversationId),
+  ],
+);
+
+export const undoRecord = pgTable(
+  'undo_record',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    invocationId: uuid('invocation_id').notNull().unique(),
+    runId: uuid('run_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    toolName: varchar('tool_name', { length: 64 }).notNull(),
+    toolVersion: varchar('tool_version', { length: 128 }).notNull(),
+    targetType: varchar('target_type', { length: 64 }).notNull(),
+    targetId: uuid('target_id').notNull(),
+    beforeState: jsonb('before_state').notNull(),
+    beforeVersion: varchar('before_version', { length: 128 }),
+    afterVersion: varchar('after_version', { length: 128 }),
+    status: undoRecordStatus('status').notNull().default('pending'),
+    undoneVersion: varchar('undone_version', { length: 128 }),
+    undoneAt: timestamp('undone_at', { withTimezone: true }),
+    undoneBy: uuid('undone_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    ...timestamps(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'undo_record_invocation_run_owner_fk',
+      columns: [table.invocationId, table.runId, table.conversationId, table.userId],
+      foreignColumns: [
+        toolInvocation.id,
+        toolInvocation.runId,
+        toolInvocation.conversationId,
+        toolInvocation.userId,
+      ],
+    }).onDelete('restrict'),
+    check('undo_record_tool_name_not_blank', sql`length(btrim(${table.toolName})) > 0`),
+    check('undo_record_tool_version_not_blank', sql`length(btrim(${table.toolVersion})) > 0`),
+    check('undo_record_target_type_not_blank', sql`length(btrim(${table.targetType})) > 0`),
+    check(
+      'undo_record_before_version_not_blank',
+      sql`${table.beforeVersion} IS NULL OR length(btrim(${table.beforeVersion})) > 0`,
+    ),
+    check(
+      'undo_record_after_version_not_blank',
+      sql`${table.afterVersion} IS NULL OR length(btrim(${table.afterVersion})) > 0`,
+    ),
+    check(
+      'undo_record_undone_version_not_blank',
+      sql`${table.undoneVersion} IS NULL OR length(btrim(${table.undoneVersion})) > 0`,
+    ),
+    check(
+      'undo_record_state_consistent',
+      sql`(${table.status} = 'pending' AND ${table.afterVersion} IS NULL AND ${table.undoneVersion} IS NULL AND ${table.undoneAt} IS NULL AND ${table.undoneBy} IS NULL) OR (${table.status} = 'available' AND ${table.afterVersion} IS NOT NULL AND ${table.undoneVersion} IS NULL AND ${table.undoneAt} IS NULL AND ${table.undoneBy} IS NULL) OR (${table.status} = 'undone' AND ${table.afterVersion} IS NOT NULL AND ${table.undoneVersion} IS NOT NULL AND ${table.undoneAt} IS NOT NULL AND ${table.undoneBy} IS NOT NULL)`,
+    ),
+    check(
+      'undo_record_undone_time_order',
+      sql`${table.undoneAt} IS NULL OR ${table.undoneAt} >= ${table.createdAt}`,
+    ),
+    index('undo_record_conversation_idx').on(table.conversationId),
   ],
 );

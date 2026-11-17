@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import {
-  browserIdentitySchema,
+  serviceIdentitySchema,
   expectedVersionSchema,
   goalRecordSchema,
   projectCreateSchema,
@@ -10,7 +10,7 @@ import {
   projectPatchSchema,
   projectRecordSchema,
   type AuthorizationAction,
-  type BrowserIdentity,
+  type ServiceIdentity,
 } from '@cert-board/shared';
 import { authorize } from '../auth/authorization.js';
 import { AppError } from '../api/errors.js';
@@ -44,8 +44,8 @@ const missingProject = () =>
 const forbidden = () =>
   new AppError(403, 'PROJECT_FORBIDDEN', '当前身份没有执行此项目操作的权限。');
 
-function actor(value: BrowserIdentity) {
-  const result = browserIdentitySchema.safeParse(value);
+function actor(value: ServiceIdentity) {
+  const result = serviceIdentitySchema.safeParse(value);
   if (!result.success) throw forbidden();
   return result.data;
 }
@@ -66,7 +66,7 @@ function pagination(options: Pagination) {
   return { cursor: result.data.cursor ?? null, limit: result.data.limit ?? 50 };
 }
 
-function access(identity: BrowserIdentity, action: AuthorizationAction) {
+function access(identity: ServiceIdentity, action: AuthorizationAction) {
   let global = false;
   let own = false;
   const projectIds = new Set<string>();
@@ -95,7 +95,7 @@ function accessPredicate(projectColumn: string, ownerColumn: string) {
 
 export async function listProjects(
   pool: Pool,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   options: Pagination = {},
 ) {
   const viewer = actor(identity);
@@ -113,7 +113,7 @@ export async function listProjects(
 
 async function readProject(
   database: Executor,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   id: string,
   write = false,
 ) {
@@ -134,11 +134,11 @@ async function readProject(
   return record;
 }
 
-export async function getProject(pool: Pool, identity: BrowserIdentity, id: string) {
+export async function getProject(pool: Pool, identity: ServiceIdentity, id: string) {
   return readProject(pool, actor(identity), identifier(id));
 }
 
-async function activeActor(client: PoolClient, identity: BrowserIdentity) {
+async function activeActor(client: PoolClient, identity: ServiceIdentity) {
   const result = await client.query(
     "SELECT id FROM app_user WHERE id = $1 AND status = 'active' FOR SHARE",
     [identity.userId],
@@ -179,7 +179,7 @@ function digest(value: unknown) {
 
 async function auditProject(
   client: PoolClient,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   action: string,
   id: string,
   before: unknown,
@@ -187,8 +187,15 @@ async function auditProject(
 ) {
   await client.query(
     `INSERT INTO audit_log (actor_user_id, actor_kind, action, target_type, target_id, before_hash, after_hash)
-     VALUES ($1, 'browser', $2, 'cert_project', $3, $4, $5)`,
-    [identity.userId, action, id, before === null ? null : digest(before), digest(after)],
+     VALUES ($1, $2, $3, 'cert_project', $4, $5, $6)`,
+    [
+      identity.userId,
+      identity.kind,
+      action,
+      id,
+      before === null ? null : digest(before),
+      digest(after),
+    ],
   );
 }
 
@@ -205,7 +212,7 @@ function safeWriteError(error: unknown): never {
   throw new AppError(500, 'PROJECT_WRITE_FAILED', '项目保存失败，本次修改未生效，请稍后重试。');
 }
 
-export async function createProject(pool: Pool, identity: BrowserIdentity, input: unknown) {
+export async function createProject(pool: Pool, identity: ServiceIdentity, input: unknown) {
   const owner = actor(identity);
   const parsed = projectCreateSchema.safeParse(input);
   if (!parsed.success)
@@ -256,7 +263,7 @@ export async function createProject(pool: Pool, identity: BrowserIdentity, input
 
 export async function updateProject(
   pool: Pool,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   id: string,
   expectedVersion: number,
   patch: unknown,
@@ -306,7 +313,7 @@ export async function updateProject(
 
 export async function getProjectGoals(
   pool: Pool,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   id: string,
   options: Pagination = {},
 ) {

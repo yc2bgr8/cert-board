@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr">PR</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应的需求和技术方案">对应的需求和技术方案</a><a class="level-2" href="#真实模型测试">真实模型测试</a><a class="level-2" href="#新增依赖">新增依赖</a><a class="level-2" href="#风险和需要lan决定的事">风险和需要Lan决定的事</a></nav><main><h2 id="pr">PR</h2>
+<p>PR-08 工具登记、动作级别、幂等与撤销</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>参考RV02判定语义重新实现默认拒绝策略，不移植其原始参数日志或Harness审批方法。</li><li>冻结静态发布工具目录，按角色/范围/模式/目标筛选，强行调用同样检查；不可逆/审批拒绝，external绝不调用execute。</li><li>Agent与浏览器身份分开；工具允许角色及对象范围使用同组绑定，回调权限同步收窄，审计作者不伪称浏览器人操作。</li><li>新0004前置运行身份表和幂等/私有会话回执/撤销表；业务、原值、版本和回执同事务。重复调用不重复效果、变参拒、失败回滚，撤销不覆盖后续改动。</li><li>源资料和工作区级别刷新、最高级别传播；旧缓存不能绕过升密或作废。快照规范化一次并冻结，写入必须推进版本。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>实际项目/工作区业务工具在PR-21接入，必须先适配共享tx；当前没有公开工具执行或写入HTTP入口。</li><li>external目前只返回明确的待接入结果或本地测试提案工厂，正式提案/审批队列在PR-09接入；没有实际外发。</li><li>完整Agent内核、工具说明的Agent行为回归和技能评测待PR-20/21；<code>eval:agent</code>/<code>eval</code>实际输出尚未实现，不算通过。</li><li>完整目录内容审阅发布留PR-24/42；当前静态已发布登记版本。run事件、保留策略和执行权后续补齐。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，29文件207测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，15文件115测试（registry24项、数据库guards9项）</td></tr><tr><td>审查回归</td><td>角色拼接、未使用规范化快照、写入不推进版本、回调篡改快照均先失败后修复</td></tr><tr><td><code>pnpm db:generate</code>、<code>pnpm db:migrate</code></td><td>无结构差异；日常库0004迁移通过，旧0000–0003未改</td></tr><tr><td><code>pnpm eval:agent</code>、<code>pnpm eval</code></td><td>明确尚未实现，完整验收延期，未记为通过</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>提交前执行</td></tr><tr><td>GitHub CI</td><td>开PR后执行，通过后合并</td></tr></tbody></table>
+<h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
+<ul><li>需求V0.9：2.4、NF11；技术方案4.5。前置运行绑定与正文分离见D-012。</li></ul>
+<h2 id="真实模型测试">真实模型测试</h2>
+<p>无；全晚累计0美元。只读查询官方模型目录没有推理调用。</p>
+<h2 id="新增依赖">新增依赖</h2>
+<p>backend显式声明已有zod4.6.7（MIT），没有引入新的第三方运行实现；无遥测或外部上报。</p>
+<h2 id="风险和需要lan决定的事">风险和需要Lan决定的事</h2>
+<ul><li>事务契约依赖已审查handler使用ctx.tx；不能把“有撤销字段”当成任意外部副作用可撤销。</li><li>测试失败诊断曾展开已关闭测试连接的临时取消标识，已改为数字/布尔断言避免再次展开上下文；没有把模型密钥或数据库密码写入代码/PR。</li><li>完整Agent评测与生产内容审阅尚待对应PR，不以策略单测代替行为验收。</li><li>工作区服务的测试身份由旧Browser占位改为真实Agent权限主体，保持AI作者预期；这是消除身份混用，不是放宽权限或测试结果。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

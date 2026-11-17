@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import {
-  browserIdentitySchema,
+  serviceIdentitySchema,
   projectIdSchema,
   workspacePathSchema,
   workspaceRecordSchema,
@@ -20,7 +20,7 @@ import {
   workspaceSaveResultSchema,
   workspaceRebaseSchema,
   workspaceRebaseResultSchema,
-  type BrowserIdentity,
+  type ServiceIdentity,
   type DataLevel,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
@@ -62,8 +62,8 @@ const absent = () =>
     'WORKSPACE_NOT_FOUND',
     '未找到可访问的工作区或工作副本，请从当前项目重新打开。',
   );
-function actor(identity: BrowserIdentity) {
-  const parsed = browserIdentitySchema.safeParse(identity);
+function actor(identity: ServiceIdentity) {
+  const parsed = serviceIdentitySchema.safeParse(identity);
   if (!parsed.success) throw absent();
   return parsed.data;
 }
@@ -113,7 +113,7 @@ function digest(value: unknown) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
-async function activeActor(client: PoolClient, identity: BrowserIdentity) {
+async function activeActor(client: PoolClient, identity: ServiceIdentity) {
   const result = await client.query(
     "SELECT id FROM app_user WHERE id=$1 AND status='active' FOR SHARE",
     [identity.userId],
@@ -122,7 +122,7 @@ async function activeActor(client: PoolClient, identity: BrowserIdentity) {
 }
 async function mutation<T>(
   pool: Pool,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   action: (client: PoolClient) => Promise<T>,
 ) {
   const client = await pool.connect();
@@ -147,7 +147,7 @@ async function mutation<T>(
 
 async function workspaceAccess(
   database: Executor,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   workspaceId: string,
   write = false,
   lock = false,
@@ -193,7 +193,7 @@ function requireExecution(conversation: Conversation) {
 }
 async function draftContext(
   database: Executor,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   draftId: string,
   write = false,
 ): Promise<DraftContext> {
@@ -282,7 +282,7 @@ async function effectiveFiles(database: Executor, draft: Draft) {
 }
 async function audit(
   client: PoolClient,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   action: string,
   targetType: string,
   targetId: string,
@@ -291,9 +291,10 @@ async function audit(
 ) {
   await client.query(
     `INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id,before_hash,after_hash)
-    VALUES($1,'agent',$2,$3,$4,$5,$6)`,
+    VALUES($1,$2,$3,$4,$5,$6,$7)`,
     [
       identity.userId,
+      identity.kind,
       action,
       targetType,
       targetId,
@@ -314,7 +315,7 @@ async function raiseWorkspaceLevel(client: PoolClient, workspace: Workspace, lev
 
 export async function getWorkspaceByProject(
   pool: Pool,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   projectId: string,
 ) {
   const viewer = actor(identity);
@@ -325,7 +326,7 @@ export async function getWorkspaceByProject(
   return workspaceAccess(pool, viewer, found.rows[0].id);
 }
 
-export async function createDraft(pool: Pool, identity: BrowserIdentity, conversationId: string) {
+export async function createDraft(pool: Pool, identity: ServiceIdentity, conversationId: string) {
   const viewer = actor(identity);
   const conversationKey = id(conversationId);
   return mutation(pool, viewer, async (client) => {
@@ -414,7 +415,7 @@ function fileList(files: Manifest, options: unknown, level: DataLevel) {
 }
 export async function listVersions(
   pool: Pool,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   workspaceId: string,
   options: unknown = {},
 ) {
@@ -439,7 +440,7 @@ export async function listVersions(
     nextAfterNumber: hasMore ? (items.at(-1)?.number ?? null) : null,
   });
 }
-async function versionAccess(pool: Pool, identity: BrowserIdentity, versionId: string) {
+async function versionAccess(pool: Pool, identity: ServiceIdentity, versionId: string) {
   const result = await pool.query<Record<string, unknown>>(
     `SELECT ${versionFields} FROM workspace_version v JOIN workspace w ON w.id=v.workspace_id WHERE v.id=$1 AND v.number<=(SELECT number FROM workspace_version WHERE id=w.current_version_id)`,
     [id(versionId)],
@@ -451,7 +452,7 @@ async function versionAccess(pool: Pool, identity: BrowserIdentity, versionId: s
 }
 export async function listVersionFiles(
   pool: Pool,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   versionId: string,
   options: unknown = {},
 ) {
@@ -464,7 +465,7 @@ export async function listVersionFiles(
 }
 export async function listDraftFiles(
   pool: Pool,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   draftId: string,
   options: unknown = {},
 ) {
@@ -480,7 +481,7 @@ export async function listDraftFiles(
   );
 }
 
-export async function getDraft(pool: Pool, identity: BrowserIdentity, draftId: string) {
+export async function getDraft(pool: Pool, identity: ServiceIdentity, draftId: string) {
   const context = await draftContext(pool, actor(identity), id(draftId));
   return workspaceDraftRecordSchema.parse({
     ...context.draft,
@@ -495,7 +496,7 @@ export async function getDraft(pool: Pool, identity: BrowserIdentity, draftId: s
 export async function rebaseDraft(
   pool: Pool,
   store: DocumentBlobStore,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   draftId: string,
   input: unknown,
 ) {
@@ -668,7 +669,7 @@ async function readFile(
 export async function readVersionFile(
   pool: Pool,
   store: DocumentBlobStore,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   versionId: string,
   path: string,
   options: unknown = {},
@@ -691,7 +692,7 @@ export async function readVersionFile(
 export async function readDraftFile(
   pool: Pool,
   store: DocumentBlobStore,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   draftId: string,
   path: string,
   options: unknown = {},
@@ -741,7 +742,7 @@ async function decisionAppend(store: DocumentBlobStore, before: Manifest, after:
 export async function writeDraftFile(
   pool: Pool,
   store: DocumentBlobStore,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   draftId: string,
   input: unknown,
 ) {
@@ -848,7 +849,7 @@ async function assertCurrentBase(client: PoolClient, context: DraftContext) {
 }
 async function persistVersion(
   client: PoolClient,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   context: DraftContext,
   files: Manifest,
   summary: string,
@@ -867,13 +868,14 @@ async function persistVersion(
   }));
   const inserted = await client.query<Record<string, unknown>>(
     `INSERT INTO workspace_version AS v(workspace_id,project_id,number,parent_version_id,author_user_id,author_type,summary,data_level)
-    VALUES($1,$2,$3,$4,$5,'ai',$6,$7) RETURNING ${versionFields}`,
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ${versionFields}`,
     [
       context.workspace.id,
       context.workspace.projectId,
       parent.number + 1,
       parent.id,
       identity.userId,
+      identity.kind === 'agent' ? 'ai' : 'human',
       summary,
       level,
     ],
@@ -909,7 +911,7 @@ async function persistVersion(
 export async function saveDraft(
   pool: Pool,
   store: DocumentBlobStore,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   draftId: string,
   summary: string,
 ) {
@@ -938,7 +940,7 @@ export async function saveDraft(
 export async function restoreVersion(
   pool: Pool,
   store: DocumentBlobStore,
-  identity: BrowserIdentity,
+  identity: ServiceIdentity,
   draftId: string,
   targetVersionId: string,
   summary: string,
