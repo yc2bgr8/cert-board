@@ -1,9 +1,11 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  bigint,
   check,
   index,
   integer,
+  doublePrecision,
   jsonb,
   numeric,
   pgEnum,
@@ -430,5 +432,123 @@ export const submissionSnapshot = pgTable(
     check('submission_snapshot_manifest_array', sql`jsonb_typeof(${table.fileManifest}) = 'array'`),
     check('submission_snapshot_hash_format', sql`${table.manifestSha256} ~ '^[0-9a-f]{64}$'`),
     index('submission_snapshot_project_idx').on(table.projectId),
+  ],
+);
+
+export const documentDataLevel = pgEnum('document_data_level', [
+  'public',
+  'internal',
+  'confidential',
+]);
+export const documentAuthorType = pgEnum('document_author_type', ['ai', 'human', 'external']);
+export const documentContentKind = pgEnum('document_content_kind', ['parsed_text', 'original']);
+export const documentPageMethod = pgEnum('document_page_method', ['text', 'ocr', 'docx']);
+export const documentLocatorKind = pgEnum('document_locator_kind', [
+  'physical_page',
+  'extraction_unit',
+]);
+
+export const document = pgTable(
+  'document',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => certProject.id, { onDelete: 'restrict' }),
+    sourceKey: varchar('source_key', { length: 128 }).notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    sourcePath: varchar('source_path', { length: 2048 }).notNull(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    importedBy: uuid('imported_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    voided: boolean('voided').notNull().default(false),
+    voidReason: text('void_reason'),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    unique('document_project_source_unique').on(table.projectId, table.sourceKey),
+    check('document_source_key_not_blank', sql`length(btrim(${table.sourceKey})) > 0`),
+    check('document_name_not_blank', sql`length(btrim(${table.name})) > 0`),
+    check('document_source_path_not_blank', sql`length(btrim(${table.sourcePath})) > 0`),
+    check(
+      'document_void_reason_consistent',
+      sql`(NOT ${table.voided} AND ${table.voidReason} IS NULL) OR (${table.voided} AND ${table.voidReason} IS NOT NULL AND length(btrim(${table.voidReason})) > 0)`,
+    ),
+    check('document_version_positive', sql`${table.version} > 0`),
+    index('document_project_idx').on(table.projectId),
+    index('document_owner_idx').on(table.ownerUserId),
+  ],
+);
+
+export const documentVersion = pgTable(
+  'document_version',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => document.id, { onDelete: 'restrict' }),
+    versionNo: integer('version_no').notNull(),
+    sourceSnapshot: varchar('source_snapshot', { length: 64 }).notNull(),
+    originalSha256: varchar('original_sha256', { length: 64 }),
+    contentSha256: varchar('content_sha256', { length: 64 }).notNull(),
+    byteSize: bigint('byte_size', { mode: 'number' }).notNull(),
+    mediaType: varchar('media_type', { length: 255 }).notNull(),
+    contentKind: documentContentKind('content_kind').notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    authorType: documentAuthorType('author_type').notNull(),
+    importedBy: uuid('imported_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    sourceMetadata: jsonb('source_metadata').$type<Record<string, unknown>>().notNull().default({}),
+    ...timestamps(),
+  },
+  (table) => [
+    unique('document_version_number_unique').on(table.documentId, table.versionNo),
+    unique('document_version_snapshot_unique').on(table.documentId, table.sourceSnapshot),
+    check('document_version_number_positive', sql`${table.versionNo} > 0`),
+    check('document_version_snapshot_hash_format', sql`${table.sourceSnapshot} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'document_version_original_hash_format',
+      sql`${table.originalSha256} IS NULL OR ${table.originalSha256} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check('document_version_content_hash_format', sql`${table.contentSha256} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'document_version_size_safe',
+      sql`${table.byteSize} >= 0 AND ${table.byteSize} <= 9007199254740991`,
+    ),
+    check('document_version_media_type_not_blank', sql`length(btrim(${table.mediaType})) > 0`),
+    check(
+      'document_version_source_metadata_object',
+      sql`jsonb_typeof(${table.sourceMetadata}) = 'object'`,
+    ),
+    index('document_version_document_idx').on(table.documentId),
+    index('document_version_content_idx').on(table.contentSha256),
+  ],
+);
+
+export const documentPage = pgTable(
+  'document_page',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    versionId: uuid('version_id')
+      .notNull()
+      .references(() => documentVersion.id, { onDelete: 'restrict' }),
+    pageNumber: integer('page_number').notNull(),
+    text: text('text').notNull(),
+    method: documentPageMethod('method').notNull(),
+    locatorKind: documentLocatorKind('locator_kind').notNull(),
+    ocrScore: doublePrecision('ocr_score'),
+    isPlaceholder: boolean('is_placeholder').notNull().default(false),
+    ...timestamps(),
+  },
+  (table) => [
+    unique('document_page_number_unique').on(table.versionId, table.pageNumber),
+    check('document_page_number_positive', sql`${table.pageNumber} > 0`),
+    check('document_page_text_limit', sql`length(${table.text}) <= 1000000`),
+    check(
+      'document_page_ocr_score_range',
+      sql`${table.ocrScore} IS NULL OR (${table.ocrScore} >= 0 AND ${table.ocrScore} <= 1)`,
+    ),
+    index('document_page_version_idx').on(table.versionId),
   ],
 );

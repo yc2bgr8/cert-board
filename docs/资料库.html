@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>资料库与T1开发种子（PR-06）</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong></nav><main><h1 id="资料库与t1开发种子-pr-06">资料库与T1开发种子（PR-06）</h1>
+<p>当前资料入口为开发种子，运行 <code>pnpm db:setup</code> 后L08项目具备59份来源身份、664条逐页记录。相同快照重复执行不追加版本；同一快照身份却传入不同内容时拒绝。新的快照追加新版本，旧版保留且不能覆盖。回放旧快照不会把最新版本切回旧版。</p>
+<p><code>document</code>保存项目、稳定来源编号（D001～D059）与作废状态；<code>document_version</code>保存不可变内容、级别和来源快照；<code>document_page</code>保存逐字文本、页码、解析方法、OCR信息。版本和页禁止UPDATE/DELETE/TRUNCATE，资料不可删除，后续只允许登记作废原因。名称/路径在比较和长度校验前做NFC，正文不规范化或折叠空白。</p>
+<p>哈希必须区分：</p>
+<ul><li><code>original_sha256</code>：T1清单中的原文件哈希，本次没有读取原文件重算。</li><li><code>content_sha256</code>：实际存入私有MinIO的解析JSON内容哈希，由程序计算；读取时重新校验。</li><li><code>source_snapshot</code>：本次documents.json和pages.jsonl快照指纹。</li></ul>
+<p>本次未保存原始PDF或Word。“版本1”只表示本次导入版本。原文证据展示为解析文本；Word的页号是抽取单元。D014占位页拒绝作为正文，不能声称eSTAR表单已解析。低于0.9的OCR置信度会提示核对原件；本快照两条为D005/D017第2页0.812。</p>
+<p>仅读接口：项目资料列表、资料详情、版本列表、逐页读取和项目内关键词检索。每次先校验浏览器身份及项目/资料范围；资料列表最多50、检索最多30条且摘要不超过300、正文最多12000码元，均返回续读位置。作废和占位页不作为检索证据。返回正文或摘要时包含资料/版本/页定位与资料级别；同一资料的历史最高级别向所有读取传播。</p>
+<p>主路径验证证据来自同一D035的第1和第5页：两处K号写法不同。这里只确认资料中的写法差异，不能由出现次数决定正确号码或对比器械适用性。</p>
+<p>单文件上传、原始文件和原页显示、人工作废操作尚未接入；模型工具在PR-21登记。存储事务失败可能留下无引用的私有内容对象，不能因此删除已有引用的同哈希内容，后续另做受控回收。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

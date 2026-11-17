@@ -22,7 +22,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="没做什么">没做什么</h2>
 <ul><li>延后market_authorization、credential、timer、cert_milestone、vendor、submission_item、submission_check七表及其迁移/增改查/字段验收。</li><li>已建product/model/contact的完整增改查、goal创建/修改领域接口（当前种子+读取），GS1校验和旧数据导入未做。</li><li>项目状态转换、方向、预算调整不通过普通patch开放，留PR-10/28；真实主体/型号/业务期限待确认。</li><li>snapshot工作区版本外键、清单真实性校验、审批冻结留PR-07/16。未开放浏览器项目写入口或快照写入口，后续业务写入须经登记工具。</li></ul>
 <h2 id="验收结果">验收结果</h2>
-<table><thead><tr><th>命令</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，19文件155测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，7文件42测试；新增项目/目标/种子/只读路由/隔离/版本/快照验收</td></tr><tr><td><code>pnpm db:generate</code></td><td>无结构差异</td></tr><tr><td><code>pnpm db:setup</code>连续两次</td><td>首次应用0001并建L08项目/目标；第二次无新迁移、不重复、不覆盖</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>提交前执行</td></tr><tr><td>GitHub CI</td><td>开PR后运行，通过才合并</td></tr></tbody></table>
+<table><thead><tr><th>命令</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，19文件155测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，7文件42测试；新增项目/目标/种子/只读路由/隔离/版本/快照验收</td></tr><tr><td><code>pnpm db:generate</code></td><td>无结构差异</td></tr><tr><td><code>pnpm db:setup</code>连续两次</td><td>首次应用0001并建L08项目/目标；第二次无新迁移、不重复、不覆盖</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>通过：33份HTML、索引与gitleaks无密钥</td></tr><tr><td>GitHub CI</td><td>通过，Actions44099326259；AI审查无阻断，已合并#6，9690053</td></tr></tbody></table>
 <h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
 <ul><li>需求V0.9：5.1、2.5；技术方案6、4.22；执行方案PR-05。范围裁剪与日期取舍见D-008。</li></ul>
 <h2 id="真实模型测试">真实模型测试</h2>
