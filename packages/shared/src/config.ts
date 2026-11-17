@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { workspaceConflictDetailsSchema } from './workspace-path.js';
 
 const databaseUrl = z
   .string()
@@ -100,7 +101,12 @@ export function parseBackendConfig(environment: Record<string, unknown>): Backen
 }
 
 export const apiErrorSchema = z.object({
-  error: z.object({ code: z.string(), message: z.string().max(512), requestId: z.string() }),
+  error: z.object({
+    code: z.string(),
+    message: z.string().max(512),
+    requestId: z.string(),
+    details: workspaceConflictDetailsSchema.optional(),
+  }),
 });
 
 export const healthResponseSchema = z.object({

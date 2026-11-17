@@ -6,3 +6,6 @@ export * from './auth.js';
 export * from './projects.js';
 export * from './t1-fixture.js';
 export * from './documents.js';
+export * from './workspace-path.js';
+export * from './workspace-diff.js';
+export * from './workspace.js';

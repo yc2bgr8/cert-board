@@ -38,6 +38,21 @@ describe('接口服务基础', () => {
     expect(response.statusCode).toBe(403);
     expect(response.json().error).toMatchObject({ code: 'FORBIDDEN', message: '没有访问权限。' });
   });
+  test('工作区冲突只返回有界的路径清单，不把内容写进错误', async () => {
+    const app = appFor();
+    app.get('/test-conflict', () => {
+      throw new AppError(409, 'WORKSPACE_CONFLICT', '请核对差异后重试。', {
+        changedPaths: ['交付/记录.md'],
+        truncated: false,
+      });
+    });
+    const response = await app.inject('/test-conflict');
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.details).toEqual({
+      changedPaths: ['交付/记录.md'],
+      truncated: false,
+    });
+  });
   test('健康检查实际调用两个依赖检查', async () => {
     const deps = dependencies();
     const response = await appFor(deps).inject('/health');

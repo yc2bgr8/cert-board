@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import Fastify, { LogController } from 'fastify';
 import cookie from '@fastify/cookie';
 import type pg from 'pg';
+import type { Client as MinioClient } from 'minio';
 import { apiErrorSchema, healthResponseSchema, type BackendConfig } from '@cert-board/shared';
 import { createDependencies, type HealthDependencies } from './dependencies.js';
 import { createLogger } from './logger.js';
@@ -9,9 +10,13 @@ import { AppError } from './api/errors.js';
 import { registerAuthRoutes } from './auth/routes.js';
 import { registerProjectRoutes } from './projects/routes.js';
 import { registerDocumentRoutes } from './documents/routes.js';
+import { BlobStore, type DocumentBlobStore } from './documents/blob-store.js';
+import { registerWorkspaceRoutes } from './workspace/routes.js';
 
 export interface AppDependencies extends HealthDependencies {
   database?: pg.Pool;
+  storage?: MinioClient;
+  blobStore?: DocumentBlobStore;
 }
 
 async function dependencyStatus(check: () => Promise<void>): Promise<'up' | 'down'> {
@@ -48,6 +53,15 @@ export function createApp(
     registerAuthRoutes(app, dependencies.database, config);
     registerProjectRoutes(app, dependencies.database, config);
     registerDocumentRoutes(app, dependencies.database, config);
+    registerWorkspaceRoutes(
+      app,
+      dependencies.database,
+      config,
+      dependencies.blobStore ??
+        (dependencies.storage
+          ? new BlobStore(dependencies.storage, config.MINIO_BUCKET)
+          : undefined),
+    );
   }
   app.addHook('onSend', async (_request, reply, payload) => {
     reply.header('x-content-type-options', 'nosniff');
@@ -77,6 +91,7 @@ export function createApp(
               ? '请求格式不正确，请检查输入后重试。'
               : '服务暂时不可用，请稍后重试。'),
           requestId: request.id,
+          ...(publicError?.details ? { details: publicError.details } : {}),
         },
       }),
     );

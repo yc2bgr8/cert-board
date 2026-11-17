@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>项目工作区（PR-07）</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong></nav><main><h1 id="项目工作区-pr-07">项目工作区（PR-07）</h1>
+<p>每个项目一个工作区，每次保存生成不可变版本。文件内容仍用私有内容寻址存储；版本保存路径、SHA-256、大小和资料级别，不在数据库重复保存正文。</p>
+<p>每个执行模式对话拥有自己的工作副本，只记录相对基础版本的改动。用户不能读写别人的私有副本；保存后的项目版本才按项目范围共享。数据库组合外键阻止对话、用户、项目、基础版本之间的错配。</p>
+<p>文件写入要求提供期望旧哈希（新建为null），防止同一文件的过期修改。保存时锁定工作区并核对基础版本；另一对话已保存则409，返回最多20个变动文件及截断标记，保留当前副本。</p>
+<p>冲突后显式核对最新版本与草稿版本；有重叠修改的文件还需当前与草稿哈希确认，调用方先读取并整理正文。没有force覆盖。决定记录只允许追加；若两个副本的决定历史分叉，当前版本保留原副本并要求基于最新版本新开对话整理。</p>
+<p>恢复操作产生新版本，当前指针不会倒退。决定记录保留最新内容，不恢复成旧历史。资料级别按工作区、版本、文件、草稿、对话的最高值传播，不能通过恢复旧版本或删除草稿内容降低。</p>
+<p>路径是经过NFC规范化的相对路径；拒绝上级目录、绝对路径、反斜线、控制字符及Windows设备保留名。文件读取验证哈希并严格解码UTF-8；按完整Unicode字符边界分页。文本/Markdown按行比较，保留行号和换行差异；长行/大文件会明确提示上限，非文本只比较哈希。</p>
+<p>初始L08版本包含AGENTS.md、计划.md、问题清单.md、决定记录.md、资料/引用清单.md。引用清单只指向资料库，工作区草稿不能作为事实引用来源。开发种子重复执行不覆盖已有版本；项目说明不植入预期K号答案。</p>
+<p>当前HTTP只读：按项目取工作区、列版本和文件、读取文件、查看差异。写入/保存/恢复/冲突处理为待工具登记的内部服务。冻结尚无接口，PR-16只能在人通过浏览器审核卡后执行。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

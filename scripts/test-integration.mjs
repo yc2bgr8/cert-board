@@ -26,7 +26,13 @@ for (const key of Object.keys(environment))
 for (const key of allowed) if (local[key]) environment[key] = local[key];
 const result = spawnSync(
   process.execPath,
-  ['node_modules/vitest/vitest.mjs', 'run', '--config', 'vitest.integration.config.ts'],
+  [
+    'node_modules/vitest/vitest.mjs',
+    'run',
+    '--config',
+    'vitest.integration.config.ts',
+    ...process.argv.slice(2),
+  ],
   {
     stdio: 'inherit',
     env: environment,

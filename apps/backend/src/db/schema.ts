@@ -6,6 +6,7 @@ import {
   index,
   integer,
   doublePrecision,
+  foreignKey,
   jsonb,
   numeric,
   pgEnum,
@@ -16,6 +17,7 @@ import {
   unique,
   uuid,
   varchar,
+  type PgTableExtraConfigValue,
 } from 'drizzle-orm/pg-core';
 
 export const userStatus = pgEnum('app_user_status', ['active', 'disabled']);
@@ -365,6 +367,7 @@ export const goal = pgTable(
   },
   (table) => [
     check('goal_title_not_blank', sql`length(btrim(${table.title})) > 0`),
+    unique('goal_id_project_unique').on(table.id, table.projectId),
     check('goal_acceptance_not_blank', sql`length(btrim(${table.acceptanceCriteria})) > 0`),
     check(
       'goal_budget_nonnegative_finite',
@@ -421,13 +424,19 @@ export const submissionSnapshot = pgTable(
     kind: submissionSnapshotKind('kind').notNull(),
     fileManifest: jsonb('file_manifest').$type<unknown[]>().notNull(),
     manifestSha256: varchar('manifest_sha256', { length: 64 }).notNull(),
+    workspaceVersionId: uuid('workspace_version_id'),
     createdBy: uuid('created_by')
       .notNull()
       .references(() => appUser.id, { onDelete: 'restrict' }),
     ...timestamps(),
   },
-  (table) => [
+  (table): PgTableExtraConfigValue[] => [
     unique('submission_snapshot_project_sequence_unique').on(table.projectId, table.sequence),
+    foreignKey({
+      name: 'submission_snapshot_workspace_project_fk',
+      columns: [table.projectId, table.workspaceVersionId],
+      foreignColumns: [workspaceVersion.projectId, workspaceVersion.id],
+    }).onDelete('restrict'),
     check('submission_snapshot_sequence_positive', sql`${table.sequence} > 0`),
     check('submission_snapshot_manifest_array', sql`jsonb_typeof(${table.fileManifest}) = 'array'`),
     check('submission_snapshot_hash_format', sql`${table.manifestSha256} ~ '^[0-9a-f]{64}$'`),
@@ -550,5 +559,222 @@ export const documentPage = pgTable(
       sql`${table.ocrScore} IS NULL OR (${table.ocrScore} >= 0 AND ${table.ocrScore} <= 1)`,
     ),
     index('document_page_version_idx').on(table.versionId),
+  ],
+);
+
+export const conversationMode = pgEnum('conversation_mode', ['read_only', 'execute']);
+export const conversationStatus = pgEnum('conversation_status', ['active', 'archived']);
+export const workspaceAuthorType = pgEnum('workspace_author_type', ['human', 'ai', 'system']);
+
+export const conversation = pgTable(
+  'conversation',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id').references(() => certProject.id, { onDelete: 'restrict' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    title: varchar('title', { length: 255 }).notNull(),
+    mode: conversationMode('mode').notNull().default('execute'),
+    maxDataLevel: documentDataLevel('max_data_level').notNull().default('internal'),
+    status: conversationStatus('status').notNull().default('active'),
+    goalId: uuid('goal_id'),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    unique('conversation_owner_project_unique').on(table.id, table.userId, table.projectId),
+    foreignKey({
+      name: 'conversation_goal_project_fk',
+      columns: [table.goalId, table.projectId],
+      foreignColumns: [goal.id, goal.projectId],
+    }).onDelete('restrict'),
+    check(
+      'conversation_goal_requires_project',
+      sql`${table.goalId} IS NULL OR ${table.projectId} IS NOT NULL`,
+    ),
+    check('conversation_title_not_blank', sql`length(btrim(${table.title})) > 0`),
+    check(
+      'conversation_data_level_internal',
+      sql`${table.maxDataLevel} IN ('internal', 'confidential')`,
+    ),
+    check('conversation_version_positive', sql`${table.version} > 0`),
+    index('conversation_user_project_idx').on(table.userId, table.projectId),
+  ],
+);
+
+export const workspace = pgTable(
+  'workspace',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .unique()
+      .references(() => certProject.id, { onDelete: 'restrict' }),
+    currentVersionId: uuid('current_version_id'),
+    dataLevel: documentDataLevel('data_level').notNull().default('internal'),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table): PgTableExtraConfigValue[] => [
+    unique('workspace_id_project_unique').on(table.id, table.projectId),
+    foreignKey({
+      name: 'workspace_current_version_fk',
+      columns: [table.id, table.currentVersionId],
+      foreignColumns: [workspaceVersion.workspaceId, workspaceVersion.id],
+    }).onDelete('restrict'),
+    check('workspace_data_level_internal', sql`${table.dataLevel} IN ('internal', 'confidential')`),
+    check('workspace_version_positive', sql`${table.version} > 0`),
+  ],
+);
+
+export const workspaceVersion = pgTable(
+  'workspace_version',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    workspaceId: uuid('workspace_id').notNull(),
+    projectId: uuid('project_id').notNull(),
+    number: integer('number').notNull(),
+    parentVersionId: uuid('parent_version_id'),
+    authorUserId: uuid('author_user_id').references(() => appUser.id, { onDelete: 'restrict' }),
+    authorType: workspaceAuthorType('author_type').notNull(),
+    summary: text('summary').notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    ...timestamps(),
+  },
+  (table): PgTableExtraConfigValue[] => [
+    unique('workspace_version_identity_unique').on(table.workspaceId, table.id),
+    unique('workspace_version_project_unique').on(table.projectId, table.id),
+    unique('workspace_version_number_unique').on(table.workspaceId, table.number),
+    foreignKey({
+      name: 'workspace_version_workspace_project_fk',
+      columns: [table.workspaceId, table.projectId],
+      foreignColumns: [workspace.id, workspace.projectId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'workspace_version_parent_workspace_fk',
+      columns: [table.workspaceId, table.parentVersionId],
+      foreignColumns: [table.workspaceId, table.id],
+    }).onDelete('restrict'),
+    check('workspace_version_number_positive', sql`${table.number} > 0`),
+    check(
+      'workspace_version_parent_not_self',
+      sql`${table.parentVersionId} IS NULL OR ${table.parentVersionId} <> ${table.id}`,
+    ),
+    check('workspace_version_summary_not_blank', sql`length(btrim(${table.summary})) > 0`),
+    check(
+      'workspace_version_author_present',
+      sql`${table.authorType} = 'system' OR ${table.authorUserId} IS NOT NULL`,
+    ),
+    check(
+      'workspace_version_data_level_internal',
+      sql`${table.dataLevel} IN ('internal', 'confidential')`,
+    ),
+  ],
+);
+
+export const workspaceFile = pgTable(
+  'workspace_file',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    versionId: uuid('version_id')
+      .notNull()
+      .references(() => workspaceVersion.id, { onDelete: 'restrict' }),
+    path: varchar('path', { length: 512 }).notNull(),
+    sha256: varchar('sha256', { length: 64 }).notNull(),
+    byteSize: bigint('byte_size', { mode: 'number' }).notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    mediaType: varchar('media_type', { length: 255 }).notNull(),
+    ...timestamps(),
+  },
+  (table) => [
+    unique('workspace_file_path_unique').on(table.versionId, table.path),
+    check(
+      'workspace_file_path_nfc',
+      sql`length(btrim(${table.path})) > 0 AND ${table.path} = normalize(${table.path}, NFC)`,
+    ),
+    check('workspace_file_hash_format', sql`${table.sha256} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'workspace_file_size_safe',
+      sql`${table.byteSize} >= 0 AND ${table.byteSize} <= 9007199254740991`,
+    ),
+    check('workspace_file_media_type_not_blank', sql`length(btrim(${table.mediaType})) > 0`),
+    index('workspace_file_version_idx').on(table.versionId),
+  ],
+);
+
+export const workspaceDraft = pgTable(
+  'workspace_draft',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    workspaceId: uuid('workspace_id').notNull(),
+    projectId: uuid('project_id').notNull(),
+    conversationId: uuid('conversation_id').notNull().unique(),
+    ownerUserId: uuid('owner_user_id').notNull(),
+    baseVersionId: uuid('base_version_id').notNull(),
+    dataLevel: documentDataLevel('data_level').notNull().default('internal'),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    foreignKey({
+      name: 'workspace_draft_workspace_project_fk',
+      columns: [table.workspaceId, table.projectId],
+      foreignColumns: [workspace.id, workspace.projectId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'workspace_draft_conversation_owner_project_fk',
+      columns: [table.conversationId, table.ownerUserId, table.projectId],
+      foreignColumns: [conversation.id, conversation.userId, conversation.projectId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'workspace_draft_base_version_fk',
+      columns: [table.workspaceId, table.baseVersionId],
+      foreignColumns: [workspaceVersion.workspaceId, workspaceVersion.id],
+    }).onDelete('restrict'),
+    check(
+      'workspace_draft_data_level_internal',
+      sql`${table.dataLevel} IN ('internal', 'confidential')`,
+    ),
+    check('workspace_draft_version_positive', sql`${table.version} > 0`),
+    index('workspace_draft_owner_idx').on(table.ownerUserId),
+  ],
+);
+
+export const workspaceDraftFile = pgTable(
+  'workspace_draft_file',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    draftId: uuid('draft_id')
+      .notNull()
+      .references(() => workspaceDraft.id, { onDelete: 'restrict' }),
+    path: varchar('path', { length: 512 }).notNull(),
+    sha256: varchar('sha256', { length: 64 }),
+    byteSize: bigint('byte_size', { mode: 'number' }),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    mediaType: varchar('media_type', { length: 255 }).notNull(),
+    isDeleted: boolean('is_deleted').notNull().default(false),
+    ...timestamps(),
+  },
+  (table) => [
+    unique('workspace_draft_file_path_unique').on(table.draftId, table.path),
+    check(
+      'workspace_draft_file_path_nfc',
+      sql`length(btrim(${table.path})) > 0 AND ${table.path} = normalize(${table.path}, NFC)`,
+    ),
+    check(
+      'workspace_draft_file_tombstone',
+      sql`(${table.isDeleted} AND ${table.sha256} IS NULL AND ${table.byteSize} IS NULL) OR (NOT ${table.isDeleted} AND ${table.sha256} IS NOT NULL AND ${table.byteSize} IS NOT NULL)`,
+    ),
+    check(
+      'workspace_draft_file_hash_format',
+      sql`${table.sha256} IS NULL OR ${table.sha256} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      'workspace_draft_file_size_safe',
+      sql`${table.byteSize} IS NULL OR (${table.byteSize} >= 0 AND ${table.byteSize} <= 9007199254740991)`,
+    ),
+    check('workspace_draft_file_media_type_not_blank', sql`length(btrim(${table.mediaType})) > 0`),
+    index('workspace_draft_file_draft_idx').on(table.draftId),
   ],
 );
