@@ -65,10 +65,31 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  egress:
+    build:
+      context: ./deploy/egress
+    networks: [egress]
+    ports:
+      - '127.0.0.1:28085:3128'
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    healthcheck:
+      test: ['CMD', 'squid', '-k', 'check', '-f', '/etc/squid/squid.conf']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
 networks:
   internal:
     internal: true
   ingress:
+    driver: bridge
+  egress:
     driver: bridge
 
 volumes:

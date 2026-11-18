@@ -50,11 +50,27 @@ export default [
     rules: {
       'no-eval': 'error',
       'no-new-func': 'error',
+      'no-restricted-globals': [
+        'error',
+        { name: 'fetch', message: '模型请求只能经模型网关，工具不能直接联网。' },
+        { name: 'WebSocket', message: '后台工具不能直接建立网络通道。' },
+        { name: 'EventSource', message: '后台工具不能直接建立网络通道。' },
+      ],
       'no-restricted-syntax': [
         'error',
         {
           selector: 'ImportExpression',
           message: '后台依赖必须静态声明，不能动态加载审批入口或来自数据的代码。',
+        },
+        {
+          selector:
+            'MemberExpression[property.name=/^(fetch|WebSocket|EventSource|getBuiltinModule)$/]',
+          message: '不能通过全局对象或动态内建模块绕过网关与后台隔离。',
+        },
+        {
+          selector:
+            'MemberExpression[computed=true][property.value=/^(fetch|WebSocket|EventSource|getBuiltinModule)$/]',
+          message: '不能通过计算属性绕过网关与后台隔离。',
         },
       ],
       'no-restricted-imports': [
@@ -68,6 +84,26 @@ export default [
             {
               group: ['node:child_process', 'child_process', 'node:vm', 'vm'],
               message: '后台不能执行Agent代码；代码执行必须通过隔离沙箱。',
+            },
+            {
+              group: [
+                'undici',
+                'node:http',
+                'http',
+                'node:https',
+                'https',
+                'node:net',
+                'net',
+                'node:tls',
+                'tls',
+                'node:module',
+                'module',
+                'openai',
+                '@anthropic-ai/*',
+                '@google/genai',
+                '@aws-sdk/*',
+              ],
+              message: '网络与模型SDK只能由固定边界模块使用；Agent和工具须调用模型网关或受控服务。',
             },
           ],
         },

@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:int": "node scripts/test-integration.mjs",
     "test:py": "node scripts/placeholder.mjs test:py",
-    "test:real": "node scripts/placeholder.mjs test:real",
+    "test:real": "node scripts/test-real.mjs",
     "test:l08": "node scripts/placeholder.mjs test:l08",
     "test:e2e": "node scripts/placeholder.mjs test:e2e",
     "eval": "node scripts/placeholder.mjs eval",

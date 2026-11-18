@@ -55,7 +55,12 @@ describe('本地依赖服务脚本', () => {
   it('Compose 端口只绑定回环、数据使用命名卷，初始化只建立测试库', () => {
     const compose = readFileSync(new URL('../deploy/compose.dev.yml', import.meta.url), 'utf8');
     const ports = [...compose.matchAll(/- '(127\.0\.0\.1:\d+:\d+)'/g)].map((match) => match[1]);
-    expect(ports).toEqual(['127.0.0.1:25432:5432', '127.0.0.1:29000:9000', '127.0.0.1:29001:9001']);
+    expect(ports).toEqual([
+      '127.0.0.1:25432:5432',
+      '127.0.0.1:29000:9000',
+      '127.0.0.1:29001:9001',
+      '127.0.0.1:28085:3128',
+    ]);
     expect(compose).toContain('postgres_data:/var/lib/postgresql/data');
     expect(compose).toContain(
       './deploy/postgres/001-test-database.sql:/docker-entrypoint-initdb.d/001-test-database.sql:ro',
