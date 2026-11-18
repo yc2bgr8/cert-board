@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>工具说明</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#check_run-builtin-checks-v1">check_run（builtin-checks-v1）</a></nav><main><h1 id="工具说明">工具说明</h1>
+<p>本文件记录已接入工具的模型说明。当前只有check_run条目，其余在PR-21汇总。</p>
+<h2 id="check_run-builtin-checks-v1">check_run（builtin-checks-v1）</h2>
+<p>动作级别：read；角色：RA、RB、GM；模式：read_only、execute。</p>
+<p>做什么：提交审核前核对结构化结果与资料库原文；当前执行V1原文逐字核验和V3结构检查。</p>
+<p>何时使用：已有doc_read取得的真实引用和本项目已保存工作区版本，准备检查交付时使用。</p>
+<p>何时不用：不要用它代替doc_read或法规判断；它不证明模型实际读过，不验证哪个K号正确。通过后仍须submit_for_review，审批只能由人在浏览器完成。</p>
+<p>参数：直接传skill、workspaceVersion、conclusion、claims、evidence、missing、uncertain、nextStep。引用只用documentId/version整数/page/quote；禁止草稿路径。K号是字符串且unit为null；数量/单位转换暂未支持。例子为虚构格式，必须替换成真实资料与版本。</p>
+<p>示例仅为格式，不是实际证据：</p>
+<pre><code>{
+  &quot;skill&quot;: {
+    &quot;id&quot;: &quot;R09&quot;,
+    &quot;version&quot;: &quot;0.1.0&quot;
+  },
+  &quot;workspaceVersion&quot;: &quot;10000000-0000-4000-8000-000000000002&quot;,
+  &quot;conclusion&quot;: &quot;虚构格式示例，实际结论须依据读取资料。&quot;,
+  &quot;claims&quot;: [
+    {
+      &quot;id&quot;: &quot;C1&quot;,
+      &quot;object&quot;: &quot;对比器械&quot;,
+      &quot;field&quot;: &quot;predicate_k_number&quot;,
+      &quot;value&quot;: &quot;EXAMPLE-001&quot;,
+      &quot;unit&quot;: null,
+      &quot;sources&quot;: [
+        {
+          &quot;documentId&quot;: &quot;10000000-0000-4000-8000-000000000001&quot;,
+          &quot;version&quot;: 1,
+          &quot;page&quot;: 1,
+          &quot;quote&quot;: &quot;EXAMPLE-001&quot;
+        }
+      ],
+      &quot;status&quot;: &quot;checked&quot;
+    }
+  ],
+  &quot;evidence&quot;: [
+    {
+      &quot;documentId&quot;: &quot;10000000-0000-4000-8000-000000000001&quot;,
+      &quot;version&quot;: 1,
+      &quot;page&quot;: 1,
+      &quot;quote&quot;: &quot;EXAMPLE-001&quot;
+    }
+  ],
+  &quot;missing&quot;: [],
+  &quot;uncertain&quot;: [
+    &quot;正确编号需业务人员核实。&quot;
+  ],
+  &quot;nextStep&quot;: &quot;核对原件后提交审核。&quot;
+}</code></pre>
+<p>当前检查不会证明资料事实正确或模型实际读取过。Agent与技能评测在PR-20/21接入同一内核后运行，占位命令不算通过。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
