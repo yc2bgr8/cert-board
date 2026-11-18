@@ -281,6 +281,26 @@ test('待我处理的真实review直接开卡，关闭后仍是原列表且焦�
   await waitFor(() => expect(document.activeElement).toBe(trigger));
   expect(screen.getByRole('region', { name: '待我处理事项' })).toBeTruthy();
 });
+
+test('审核打开后切到文件，Esc关闭右栏将焦点还给当前可见标签', async () => {
+  app();
+  await projectView();
+  fireEvent.click(screen.getByRole('button', { name: '打开对话：我的核对' }));
+  const trigger = await screen.findByRole('button', { name: '查看审核' });
+  trigger.focus();
+  fireEvent.click(trigger);
+  const files = within(screen.getByRole('navigation', { name: '项目内容' })).getByRole('button', {
+    name: '文件',
+  });
+  files.focus();
+  fireEvent.click(files);
+  expect(trigger.closest('[hidden]')).not.toBeNull();
+  screen.getByRole('button', { name: '关闭右栏' }).focus();
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.queryByRole('complementary', { name: '审核卡' })).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(files));
+  expect(document.activeElement?.closest('[hidden]')).toBeNull();
+});
 async function projectView() {
   fireEvent.click(await screen.findByRole('button', { name: 'L08 510(k)' }));
   await screen.findByRole('button', { name: '打开对话：我的核对' });

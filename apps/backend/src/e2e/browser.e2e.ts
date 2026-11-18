@@ -48,9 +48,11 @@ async function createConversation(
   page: Page,
   projectId: string,
   mode?: 'ask' | 'read_only' | 'full',
+  title?: string,
 ) {
   await page.getByRole('button', { name: '新对话', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '新对话', exact: true });
+  if (title) await dialog.getByRole('textbox', { name: '对话标题', exact: true }).fill(title);
   await dialog.getByRole('combobox', { name: '选择项目', exact: true }).selectOption(projectId);
   if (mode)
     await dialog.getByRole('combobox', { name: '权限模式', exact: true }).selectOption(mode);
@@ -107,6 +109,8 @@ async function main() {
     await mkdir(output, { recursive: true });
     page.setDefaultTimeout(15000);
     let pageErrors = 0;
+    let priorCspViolations = 0;
+    const priorCspDirectives = new Set<string>();
     page.on('pageerror', () => {
       pageErrors++;
     });
@@ -336,9 +340,20 @@ async function main() {
       page,
       harness,
       {
-        create: () => createConversation(page!, harness.projectId),
+        create: (title) => createConversation(page!, harness.projectId, undefined, title),
         send: (text) => send(page!, text),
         until,
+        async beforeReload() {
+          const previous = await page!.evaluate(() => {
+            const state = globalThis as typeof globalThis & {
+              __certCspViolations: number;
+              __certCspDirectives: string[];
+            };
+            return { count: state.__certCspViolations, directives: state.__certCspDirectives };
+          });
+          priorCspViolations += previous.count;
+          for (const directive of previous.directives) priorCspDirectives.add(directive);
+        },
         stage: (name) => {
           stage = name;
         },
@@ -365,6 +380,8 @@ async function main() {
         directives: [...new Set(state.__certCspDirectives)],
       };
     });
+    cspState.violations += priorCspViolations;
+    cspState.directives = [...new Set([...priorCspDirectives, ...cspState.directives])];
     const unknown = await harness.pool.query(
       "SELECT id FROM usage_ledger WHERE status IN ('reserved','unknown')",
     );
@@ -387,13 +404,7 @@ async function main() {
     );
     assert.equal(externalRequests, 0);
     assert.equal(pageErrors, 0);
-    assert.equal(
-      await page.evaluate(
-        () =>
-          (globalThis as typeof globalThis & { __certCspViolations: number }).__certCspViolations,
-      ),
-      0,
-    );
+    assert.equal(cspState.violations, 0);
     assert.equal(harness.healthy(), true);
     assert.equal(unknown.rowCount, 0);
     assert.equal(costNano, '0');
@@ -432,6 +443,8 @@ async function main() {
             'chat_not_approval',
             'browser_review_freeze',
             'revision_single_path_diff',
+            'review_current_run_completed_sse',
+            'review_completed_after_reopen',
             'width_1280',
           ],
           externalRequests,
@@ -450,6 +463,8 @@ async function main() {
             'review-file.png',
             'review-approved.png',
             'review-revision-diff.png',
+            'review-run-completed.png',
+            'review-run-reopened.png',
           ],
         },
         null,

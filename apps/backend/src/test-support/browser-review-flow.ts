@@ -13,9 +13,10 @@ import { browserReviewPath, browserRevisionText } from './browser-review-fixture
 
 type Harness = Awaited<ReturnType<typeof startBrowserHarness>>;
 type Actions = {
-  create(): Promise<string>;
+  create(title?: string): Promise<string>;
   send(text: string): Promise<{ runId: string; kind: string }>;
   until(check: () => boolean | Promise<boolean>): Promise<void>;
+  beforeReload(): Promise<void>;
   stage(name: string): void;
 };
 
@@ -26,7 +27,8 @@ export async function reviewBrowserFlow(
   output: string,
 ) {
   actions.stage('L08原句与真实审核提交');
-  await actions.create();
+  const title = 'L08审核状态验收';
+  const conversationId = await actions.create(title);
   const model = harness.plan('review');
   const first = await actions.send('检查L08申报资料中对比器械K号的写法');
   await actions.until(
@@ -205,5 +207,57 @@ export async function reviewBrowserFlow(
   assert.equal(await textDiff.locator('[data-change="removed"]').count(), 0);
   await page.screenshot({ path: path.join(output, 'review-revision-diff.png'), fullPage: true });
   assert.equal((await harness.pool.query('SELECT id FROM review_decision')).rowCount, 1);
+  actions.stage('当前待审运行通过后即时完成');
+  await page.getByRole('button', { name: '返回审核卡', exact: true }).click();
+  const approvedCurrent = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/api/reviews/${nextCard.id}/decision`,
+  );
+  await card.getByRole('button', { name: '通过', exact: true }).click();
+  const currentResponse = await approvedCurrent;
+  assert.equal(currentResponse.status(), 200);
+  assert.equal(currentResponse.request().postDataJSON().action, 'approved');
+  await card.getByText('已通过，工作区版本已冻结。', { exact: true }).waitFor();
   await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
+  const completed = page
+    .getByRole('region', { name: '项目对话', exact: true })
+    .getByRole('status')
+    .filter({ hasText: /^已完成$/ });
+  await completed.waitFor();
+  assert.equal(
+    (await harness.pool.query('SELECT status FROM run WHERE id=$1', [next.runId])).rows[0]?.status,
+    'completed',
+  );
+  assert.equal(
+    (
+      await harness.pool.query('SELECT current_run_id FROM conversation WHERE id=$1', [
+        conversationId,
+      ])
+    ).rows[0]?.current_run_id,
+    next.runId,
+  );
+  assert.equal((await harness.pool.query('SELECT id FROM review_decision')).rowCount, 2);
+  assert.equal((await harness.pool.query('SELECT id FROM submission_snapshot')).rowCount, 2);
+  await page.screenshot({ path: path.join(output, 'review-run-completed.png'), fullPage: true });
+  actions.stage('重开对话保留当前运行完成状态');
+  await actions.beforeReload();
+  await page.reload();
+  await page.getByRole('button', { name: 'L08 510(k)', exact: true }).click();
+  await page.getByRole('button', { name: `打开对话：${title}`, exact: true }).click();
+  await completed.waitFor();
+  // 历史首卡仍可打开；旧审核事件和卡片不能把当前已完成的第二轮退回等待。
+  await page.getByRole('button', { name: '查看审核', exact: true }).first().click();
+  await card.getByText('已通过，工作区版本已冻结。', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
+  await completed.waitFor();
+  assert.equal(
+    (
+      await harness.pool.query('SELECT current_run_id FROM conversation WHERE id=$1', [
+        conversationId,
+      ])
+    ).rows[0]?.current_run_id,
+    next.runId,
+  );
+  await page.screenshot({ path: path.join(output, 'review-run-reopened.png'), fullPage: true });
 }

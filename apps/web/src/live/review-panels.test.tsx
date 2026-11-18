@@ -276,7 +276,7 @@ it('文件变化进入文本对比，按行游标续读，打开文件保留版�
   fireEvent.click(screen.getByRole('button', { name: '继续读取差异' }));
   await screen.findByText('第二行', { exact: false });
   expect(diff.mock.calls.at(-1)?.[1]?.offset).toBe(1);
-  fireEvent.click(screen.getByRole('button', { name: '打开较新版本文件' }));
+  fireEvent.click(screen.getByRole('button', { name: '打开对比目标文件' }));
   expect(open).toHaveBeenCalledWith(target);
 });
 it('二进制或超限差异只显示真实限制，不能假称没有变化', async () => {
@@ -287,10 +287,13 @@ it('二进制或超限差异只显示真实限制，不能假称没有变化', a
     afterSha256: 'b'.repeat(64),
     warning: '当前只提供哈希变化，原始版面尚未接入。',
   });
-  view(
-    <DiffPanel target={{ projectId, from, to: versionId, path }} onOpenFile={() => undefined} />,
-  );
+  const open = vi.fn();
+  view(<DiffPanel target={{ projectId, from: versionId, to: from, path }} onOpenFile={open} />);
   await screen.findByText('当前只提供哈希变化，原始版面尚未接入。', { exact: false });
   expect(screen.getByRole('status').textContent).toContain('只提供哈希变化');
   expect(screen.queryByText('两个版本没有文件变化。')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '打开对比起点文件' }));
+  expect(open).toHaveBeenLastCalledWith({ projectId, versionId, path });
+  fireEvent.click(screen.getByRole('button', { name: '打开对比目标文件' }));
+  expect(open).toHaveBeenLastCalledWith({ projectId, versionId: from, path });
 });

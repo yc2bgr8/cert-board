@@ -69,6 +69,26 @@ function displayTime(value: string) {
   return Number.isNaN(instant.getTime()) ? '时间待核对' : time.format(instant);
 }
 
+function canRestoreFocus(element: HTMLElement | null): element is HTMLElement {
+  if (!element?.isConnected || element.matches(':disabled')) return false;
+  for (let ancestor: HTMLElement | null = element; ancestor; ancestor = ancestor.parentElement) {
+    if (
+      ancestor.hidden ||
+      ancestor.hasAttribute('inert') ||
+      ancestor.getAttribute('aria-hidden') === 'true'
+    )
+      return false;
+    const style = window.getComputedStyle(ancestor);
+    if (
+      style.display === 'none' ||
+      style.visibility === 'hidden' ||
+      style.visibility === 'collapse'
+    )
+      return false;
+  }
+  return true;
+}
+
 export function LiveApp() {
   const session = useSession();
   if (session.status === 'loading')
@@ -217,8 +237,16 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     setPanels([]);
     const element = panelOrigin.current;
     setTimeout(() => {
-      if (element?.isConnected) element.focus();
-      else document.querySelector<HTMLButtonElement>('.live-project-tabs button')?.focus();
+      const target = canRestoreFocus(element)
+        ? element
+        : [
+            document.querySelector<HTMLButtonElement>(
+              '.live-project-tabs button[aria-current="page"]',
+            ),
+            document.querySelector<HTMLButtonElement>('.live-inbox-link'),
+            document.querySelector<HTMLButtonElement>('.live-project-header button'),
+          ].find(canRestoreFocus);
+      target?.focus();
     }, 0);
   }, []);
   function pushPanel(label: string, content: InspectorEntry['content']) {

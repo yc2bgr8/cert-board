@@ -176,12 +176,12 @@ function DiffContent({ target, onOpenFile }: Props) {
         <div className="review-panel-actions">
           {first.beforeSha256 && (
             <button type="button" onClick={() => open(target.from, path)}>
-              打开较早版本文件
+              打开对比起点文件
             </button>
           )}
           {first.afterSha256 && (
             <button type="button" onClick={() => open(target.to, path)}>
-              打开较新版本文件
+              打开对比目标文件
             </button>
           )}
         </div>
