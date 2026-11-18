@@ -2,3 +2,4 @@ packages:
   - apps/backend
   - apps/web
   - packages/shared
+  - packages/pi-telemetry-compat

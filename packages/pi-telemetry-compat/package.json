@@ -1,0 +1,13 @@
+{
+  "name": "@earendil-works/pi-telemetry",
+  "version": "1.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi 1.3 类型兼容占位；无运行时遥测实现、记录或网络行为。",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    }
+  }
+}

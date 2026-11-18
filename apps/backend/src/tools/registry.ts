@@ -45,7 +45,9 @@ export interface ToolExecutionContext {
   readonly goalStatus: GoalStatus | null;
   readonly directionVersion: number;
   readonly maxDataLevel: DataLevel;
+  readonly signal?: AbortSignal;
 }
+export type ToolRuntimeGuard = (context: ToolExecutionContext) => Promise<void>;
 export interface ToolHandlerResult<Output = unknown> {
   data: Output;
   dataLevel: DataLevel;
@@ -240,11 +242,19 @@ async function callback<T>(operation: () => Promise<T>): Promise<T> {
 export class ToolRegistry {
   private readonly definitions = new Map<string, ToolDefinition>();
   private readonly production: boolean;
+  private readonly runtimeGuard: ToolRuntimeGuard | undefined;
+  private readonly runtimeSignal: AbortSignal | undefined;
   constructor(
     private readonly pool: Pool,
     definitions: readonly ToolDefinition[],
-    options: { environment?: 'development' | 'test' | 'production' } = {},
+    options: {
+      environment?: 'development' | 'test' | 'production';
+      runtimeGuard?: ToolRuntimeGuard;
+      signal?: AbortSignal;
+    } = {},
   ) {
+    this.runtimeGuard = options.runtimeGuard;
+    this.runtimeSignal = options.signal;
     this.production =
       (options.environment ?? process.env.NODE_ENV ?? 'production') === 'production';
     for (const definition of definitions) {
@@ -413,7 +423,21 @@ export class ToolRegistry {
       directionVersion: run.direction_version,
       maxDataLevel: highest(run.max_data_level, conversation.max_data_level, workspaceLevel),
       projectOwnerId,
+      ...(this.runtimeSignal ? { signal: this.runtimeSignal } : {}),
     });
+  }
+
+  private async assertRuntime(context: LoadedContext) {
+    if (!this.runtimeGuard) return;
+    try {
+      await this.runtimeGuard(context);
+    } catch {
+      throw fail(
+        409,
+        'TOOL_RUNTIME_INACTIVE',
+        '运行已停止、执行权已失效或校验未完成，本次工具写入已撤销；请重新核对运行状态。',
+      );
+    }
   }
 
   private async transaction<T>(
@@ -427,7 +451,9 @@ export class ToolRegistry {
         `tool-call:${reference.runId}:${reference.callId}`,
       ]);
       const context = await this.context(tx, reference);
+      await this.assertRuntime(context);
       const result = await operation(context);
+      await this.assertRuntime(context);
       await tx.query('COMMIT');
       return result;
     } catch (error) {

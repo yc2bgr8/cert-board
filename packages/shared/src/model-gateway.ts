@@ -95,12 +95,13 @@ export const assistantMessageSchema = z
     (message) => message.content !== null || Boolean(message.tool_calls?.length),
     '模型必须提供文本或工具调用。',
   );
-const chatMessageSchema = z.discriminatedUnion('role', [
+export const chatMessageSchema = z.discriminatedUnion('role', [
   z.object({ role: z.literal('system'), content: textContent }).strict(),
   z.object({ role: z.literal('user'), content: textContent }).strict(),
   z.object(assistantFields).strict(),
   z.object({ role: z.literal('tool'), content: textContent, tool_call_id: callId }).strict(),
 ]);
+export type ChatMessage = z.infer<typeof chatMessageSchema>;
 const toolDefinitionSchema = z
   .object({
     type: z.literal('function'),

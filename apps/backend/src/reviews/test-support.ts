@@ -126,7 +126,8 @@ export async function createReviewTestContext(
         return 'internal';
       },
     };
-    const registry = new ToolRegistry(base.pool, [readTool, submitForReviewTool(policy)]);
+    const definitions = [readTool, submitForReviewTool(policy)];
+    const registry = new ToolRegistry(base.pool, definitions);
     const first = { documentId, version: 1, page: 1, quote: '第一处 K123456' };
     const second = { documentId, version: 1, page: 1, quote: '第二处 K654321' };
     const submission: StructuredSubmission = {
@@ -160,6 +161,7 @@ export async function createReviewTestContext(
     return {
       ...base,
       registry,
+      definitions,
       caller,
       submission,
       policy,

@@ -582,6 +582,8 @@ export const conversation = pgTable(
     maxDataLevel: documentDataLevel('max_data_level').notNull().default('internal'),
     status: conversationStatus('status').notNull().default('active'),
     goalId: uuid('goal_id'),
+    lastMessageSeq: bigint('last_message_seq', { mode: 'number' }).notNull().default(0),
+    lastEventSeq: bigint('last_event_seq', { mode: 'number' }).notNull().default(0),
     ...timestamps(),
     version: integer('version').notNull().default(1),
   },
@@ -603,6 +605,14 @@ export const conversation = pgTable(
       sql`${table.maxDataLevel} IN ('internal', 'confidential')`,
     ),
     check('conversation_version_positive', sql`${table.version} > 0`),
+    check(
+      'conversation_message_seq_safe',
+      sql`${table.lastMessageSeq} >= 0 AND ${table.lastMessageSeq} <= 9007199254740991`,
+    ),
+    check(
+      'conversation_event_seq_safe',
+      sql`${table.lastEventSeq} >= 0 AND ${table.lastEventSeq} <= 9007199254740991`,
+    ),
     index('conversation_user_project_idx').on(table.userId, table.projectId),
   ],
 );
@@ -1619,6 +1629,94 @@ export const reviewDecision = pgTable(
     check(
       'review_decision_snapshot_required',
       sql`(${table.action} = 'approved' AND ${table.snapshotId} IS NOT NULL) OR (${table.action} = 'rejected' AND ${table.snapshotId} IS NULL)`,
+    ),
+  ],
+);
+
+export const conversationEventType = pgEnum('conversation_event_type', [
+  'user_message',
+  'assistant_message',
+  'model_started',
+  'tool_started',
+  'tool_completed',
+  'tool_failed',
+  'plan_updated',
+  'question',
+  'review_submitted',
+  'run_status',
+]);
+export const conversationMessage = pgTable(
+  'conversation_message',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    runId: uuid('run_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    requestKey: uuid('request_key').notNull(),
+    seq: bigint('seq', { mode: 'number' }).notNull(),
+    messageJson: jsonb('message_json').notNull(),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('conversation_message_request_unique').on(table.runId, table.requestKey),
+    unique('conversation_message_seq_unique').on(table.conversationId, table.seq),
+    foreignKey({
+      name: 'conversation_message_run_context_fk',
+      columns: [table.runId, table.conversationId, table.userId],
+      foreignColumns: [run.id, run.conversationId, run.userId],
+    }).onDelete('restrict'),
+    check(
+      'conversation_message_seq_safe',
+      sql`${table.seq} > 0 AND ${table.seq} <= 9007199254740991`,
+    ),
+    check(
+      'conversation_message_json_shape',
+      sql`jsonb_typeof(${table.messageJson}) = 'object' AND ${table.messageJson}->>'role' IN ('system','user','assistant','tool') AND octet_length(${table.messageJson}::text) <= 270336`,
+    ),
+    check('conversation_message_hash_format', sql`${table.contentHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'conversation_message_level_internal',
+      sql`${table.dataLevel} IN ('internal','confidential')`,
+    ),
+  ],
+);
+export const conversationEvent = pgTable(
+  'conversation_event',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    runId: uuid('run_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    requestKey: uuid('request_key').notNull(),
+    seq: bigint('seq', { mode: 'number' }).notNull(),
+    type: conversationEventType('type').notNull(),
+    payloadJson: jsonb('payload_json').notNull(),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique('conversation_event_request_unique').on(table.runId, table.requestKey),
+    unique('conversation_event_seq_unique').on(table.conversationId, table.seq),
+    foreignKey({
+      name: 'conversation_event_run_context_fk',
+      columns: [table.runId, table.conversationId, table.userId],
+      foreignColumns: [run.id, run.conversationId, run.userId],
+    }).onDelete('restrict'),
+    check(
+      'conversation_event_seq_safe',
+      sql`${table.seq} > 0 AND ${table.seq} <= 9007199254740991`,
+    ),
+    check(
+      'conversation_event_json_shape',
+      sql`jsonb_typeof(${table.payloadJson}) = 'object' AND octet_length(${table.payloadJson}::text) <= 73728`,
+    ),
+    check('conversation_event_hash_format', sql`${table.contentHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'conversation_event_level_internal',
+      sql`${table.dataLevel} IN ('internal','confidential')`,
     ),
   ],
 );
