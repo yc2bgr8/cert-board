@@ -21,3 +21,7 @@ export * from './conversations.js';
 export * from './run-control.js';
 export * from './approvals.js';
 export * from './internal-messages.js';
+export * from './workspace-tools.js';
+export * from './agent-interaction.js';
+export * from './agent-definitions.js';
+export * from './document-tools.js';

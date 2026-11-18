@@ -63,6 +63,15 @@ const digest = (value: InternalMessageInput) =>
       JSON.stringify({ contactId: value.contactId, subject: value.subject, body: value.body }),
     )
     .digest('hex');
+async function reminderDay(tx: PoolClient) {
+  return (
+    await tx.query<{ day: string; workday: boolean }>(
+      `WITH local_date AS MATERIALIZED (
+         SELECT (public.internal_reminder_now() AT TIME ZONE 'Asia/Shanghai')::date AS day
+       ) SELECT day::text, extract(isodow FROM day) BETWEEN 1 AND 5 AS workday FROM local_date`,
+    )
+  ).rows[0]!;
+}
 async function confidential(
   tx: PoolClient,
   projectId: string,
@@ -126,6 +135,12 @@ async function requestContext(ctx: ToolExecutionContext, input: unknown) {
       409,
       'INTERNAL_OUTBOUND_PAUSED',
       '此事项外发已暂停或方向已变更，请先在浏览器核对后重新提出消息。',
+    );
+  if (!(await reminderDay(ctx.tx)).workday)
+    throw new AppError(
+      409,
+      'INTERNAL_REMINDER_WEEKEND',
+      '周六、周日不催办，请在北京时间下一个工作日重新提出。',
     );
   if (
     ctx.maxDataLevel === 'confidential' ||
@@ -367,12 +382,10 @@ export async function processTestInternalMessage(pool: Pool, queueId: string, in
       await tx.query('COMMIT');
       return processResult(changed);
     };
-    const today = (
-      await tx.query<{ day: string }>(
-        "SELECT (clock_timestamp() AT TIME ZONE 'Asia/Shanghai')::date::text AS day",
-      )
-    ).rows[0]!.day;
-    if (row.business_date !== today)
+    const today = await reminderDay(tx);
+    if (!today.workday)
+      return await fail('周末暂停催办，未处理的旧消息不会补发。请在下一个工作日重新核对后提出。');
+    if (row.business_date !== today.day)
       return await fail('未处理消息已跨北京时间日期，已失效且不会补发；请核对当前事项后重新提出。');
     if (
       sender?.status !== 'active' ||
@@ -435,9 +448,13 @@ export async function processTestInternalMessage(pool: Pool, queueId: string, in
           : '本地测试模拟失败，未向真实对象发送消息。';
     const changed = (
       await tx.query<QueueRow>(
-        `WITH processing_clock AS MATERIALIZED (SELECT clock_timestamp() AS at)
+        `WITH processing_clock AS MATERIALIZED (
+           SELECT clock_timestamp() AS at, (public.internal_reminder_now() AT TIME ZONE 'Asia/Shanghai')::date AS day
+         )
          UPDATE internal_outbound_message q SET status=$1,attempts=1,last_reason=$2,receipt_id=$3,processed_at=t.at,version=version+1,updated_at=t.at
-         FROM processing_clock t WHERE q.id=$4 AND q.business_date=(t.at AT TIME ZONE 'Asia/Shanghai')::date RETURNING q.*`,
+         FROM processing_clock t
+         WHERE q.id=$4 AND q.business_date=t.day AND extract(isodow FROM t.day) BETWEEN 1 AND 5
+         RETURNING q.*`,
         [status, reason, status === 'done' ? randomUUID() : null, queueId],
       )
     ).rows[0]!;

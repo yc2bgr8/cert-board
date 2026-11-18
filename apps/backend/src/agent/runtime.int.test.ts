@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { type ModelGatewayConfig } from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
+import { setTestReminderClock } from '../test-support/internal-reminder-clock.js';
 import { createReviewTestContext } from '../reviews/test-support.js';
 import { seedDevelopmentWorkspace } from '../workspace/seed.js';
 import { seedDevelopmentBudgetPolicy } from '../budget/service.js';
@@ -13,6 +14,8 @@ import type { ToolDefinition } from '../tools/registry.js';
 import { executeAgentRun } from './runtime.js';
 import * as leaseService from '../runs/lease.js';
 import { queueInternalMessageTool } from '../tools/queue-internal-message.js';
+import { agentInteractionTools } from '../tools/agent-interaction.js';
+import { prepareContinuationForDispatch } from '../approvals/continuation.js';
 
 class MemoryStore implements DocumentBlobStore {
   private values = new Map<string, Buffer>();
@@ -411,6 +414,7 @@ async function queued(
   context: Awaited<ReturnType<typeof createIntegrationContext>>,
   mode: 'ask' | 'read_only',
   conversationId?: string,
+  text = '请完成这次合成任务，严格按工具回执汇报。',
 ) {
   const userId = context.userId('MEMBER_A');
   const convo =
@@ -431,10 +435,77 @@ async function queued(
     runId,
     userId,
     requestKey: randomUUID(),
-    message: { role: 'user', content: '请完成这次合成任务，严格按工具回执汇报。' },
+    message: { role: 'user', content: text },
   });
   return { runId, conversationId: convo, userId };
 }
+
+test('计划事件显示进度，提问暂停同一内核并接收对话中的后续回答', async () => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const first = await queued(context, 'ask');
+  let calls = 0;
+  const question = { question: '补充说明里说的是哪份资料？', options: ['资料甲', '资料乙'] };
+  const plan = {
+    steps: [{ title: '核对资料来源', status: 'running' }],
+    progress: '已阅读项目说明，下一步确认资料来源。',
+  };
+  const gateway = new ModelGateway(
+    context.pool,
+    config,
+    {
+      kind: 'fixture',
+      async send(_model, request) {
+        calls++;
+        if (calls === 1) return call('plan_update', plan);
+        if (calls === 2) return call('ask_user', question);
+        const latest = request.messages.at(-1);
+        if (latest?.role !== 'user' || latest.content !== '资料甲') throw new Error('回答未被投递');
+        return result({ role: 'assistant', content: '已收到回答。下一步核对资料甲。' });
+      },
+    },
+    { environment: 'test' },
+  );
+  const dependencies = {
+    pool: context.pool,
+    store,
+    gateway,
+    models: config,
+    definitions: agentInteractionTools(),
+  };
+  const waiting = await executeAgentRun(dependencies, first.runId);
+  expect(waiting.status).toBe('waiting');
+  expect(waiting.questionId).toBeDefined();
+  expect(calls).toBe(2);
+  const events = await context.pool.query(
+    'SELECT type,payload_json FROM conversation_event WHERE run_id=$1 ORDER BY seq',
+    [first.runId],
+  );
+  expect(events.rows.filter((row) => row.type === 'plan_updated')).toMatchObject([
+    { payload_json: plan },
+  ]);
+  expect(events.rows.filter((row) => row.type === 'question')).toMatchObject([
+    { payload_json: { questionId: waiting.questionId, ...question } },
+  ]);
+  for (const event of events.rows.filter((row) => row.type === 'tool_completed')) {
+    expect(event.payload_json).toHaveProperty('summary');
+    expect(event.payload_json).not.toHaveProperty('data');
+  }
+  const answer = await queued(context, 'ask', first.conversationId, '资料甲');
+  const resumed = await executeAgentRun(dependencies, answer.runId);
+  expect(calls).toBe(3);
+  expect(resumed.reasonCode).toBe('REVIEW_NOT_SUBMITTED');
+  const messages = await context.pool.query(
+    'SELECT message_json FROM conversation_message WHERE run_id=$1',
+    [answer.runId],
+  );
+  expect(messages.rows).toContainEqual({
+    message_json: { role: 'assistant', content: '已收到回答。下一步核对资料甲。' },
+  });
+});
 
 test('同一真实Pi内核领取租约、调用登记工具、持久化连续过程并只读结束', async () => {
   const context = await createIntegrationContext();
@@ -543,130 +614,178 @@ test('模型文字声称已提交不能伪造审核成功', async () => {
   ).toBe(0);
 });
 
-test('ask过程批准经真实登记工具和同一内核持久暂停，允许一次不提前执行或追加模型', async () => {
-  const context = await createIntegrationContext();
-  close = () => context.close();
-  const store = new MemoryStore();
-  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
-  await seedDevelopmentBudgetPolicy(context.pool, 'test');
-  const target = await queued(context, 'ask');
-  const contactId = (
-    await context.pool.query<{ id: string }>(
-      "INSERT INTO contact(project_id,name,address,source,internal_user_id) VALUES($1,'王敏','local-test-colleague','可信合成身份',$2) RETURNING id",
-      [context.projectId, context.userId('MEMBER_B')],
-    )
-  ).rows[0]!.id;
-  let models = 0,
-    lateReads = 0;
-  const late: ToolDefinition = {
-    metadata: {
-      name: 'late_read',
-      version: 'fixture-v1',
-      publication: 'published',
-      effect: 'read',
-      modes: ['read_only', 'ask', 'full'],
-      approvalInAsk: false,
-      outputDataLevel: 'internal',
-      authorizationAction: 'project.read',
-      description: {
-        purpose: '记录后续读取。',
-        whenToUse: '本地测试。',
-        avoid: '不写业务。',
-        parameters: '无。',
-        example: {},
+test.each(['allow_once', 'reject'] as const)(
+  'ask经%s的浏览器决定继续原运行，使用真实回执并保留原消息',
+  async (action) => {
+    const context = await createIntegrationContext();
+    close = () => context.close();
+    await setTestReminderClock(context.pool);
+    const store = new MemoryStore();
+    await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+    await seedDevelopmentBudgetPolicy(context.pool, 'test');
+    const target = await queued(context, 'ask');
+    const contactId = (
+      await context.pool.query<{ id: string }>(
+        "INSERT INTO contact(project_id,name,address,source,internal_user_id) VALUES($1,'王敏','local-test-colleague','可信合成身份',$2) RETURNING id",
+        [context.projectId, context.userId('MEMBER_B')],
+      )
+    ).rows[0]!.id;
+    let models = 0,
+      lateReads = 0;
+    const late: ToolDefinition = {
+      metadata: {
+        name: 'late_read',
+        version: 'fixture-v1',
+        publication: 'published',
+        effect: 'read',
+        modes: ['read_only', 'ask', 'full'],
+        approvalInAsk: false,
+        outputDataLevel: 'internal',
+        authorizationAction: 'project.read',
+        description: {
+          purpose: '记录后续读取。',
+          whenToUse: '本地测试。',
+          avoid: '不写业务。',
+          parameters: '无。',
+          example: {},
+        },
       },
-    },
-    inputSchema: z.object({}).strict(),
-    outputSchema: z.object({ ok: z.literal(true) }),
-    async execute() {
-      lateReads++;
-      return { data: { ok: true }, dataLevel: 'internal' };
-    },
-  };
-  const gateway = new ModelGateway(
-    context.pool,
-    config,
-    {
-      kind: 'fixture',
-      async send() {
-        models++;
-        return result(
-          {
-            role: 'assistant',
-            content: null,
-            tool_calls: [
-              {
-                id: 'approval-call',
-                type: 'function',
-                function: {
-                  name: 'queue_internal_message',
-                  arguments: JSON.stringify({
-                    contactId,
-                    subject: '核对资料',
-                    body: '请核对合成资料，不真实发送。',
-                  }),
+      inputSchema: z.object({}).strict(),
+      outputSchema: z.object({ ok: z.literal(true) }),
+      async execute() {
+        lateReads++;
+        return { data: { ok: true }, dataLevel: 'internal' };
+      },
+    };
+    const gateway = new ModelGateway(
+      context.pool,
+      config,
+      {
+        kind: 'fixture',
+        async send(_model, request) {
+          models++;
+          if (models === 2) {
+            const response = request.messages.filter((message) => message.role === 'tool').at(-2);
+            expect(response?.role).toBe('tool');
+            if (response?.role !== 'tool') throw new Error('原调用回执缺失');
+            expect(JSON.parse(response.content)).toMatchObject(
+              action === 'allow_once'
+                ? { status: 'queued', sent: false }
+                : { executed: false, rejected: true, reason: '请先核对联系人登记' },
+            );
+            return result({ role: 'assistant', content: '已收到原工具的结果。' });
+          }
+          return result(
+            {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'approval-call',
+                  type: 'function',
+                  function: {
+                    name: 'queue_internal_message',
+                    arguments: JSON.stringify({
+                      contactId,
+                      subject: '核对资料',
+                      body: '请核对合成资料，不真实发送。',
+                    }),
+                  },
                 },
-              },
-              {
-                id: 'late-call',
-                type: 'function',
-                function: { name: 'late_read', arguments: '{}' },
-              },
-            ],
-          },
-          'tool_calls',
-        );
+                {
+                  id: 'late-call',
+                  type: 'function',
+                  function: { name: 'late_read', arguments: '{}' },
+                },
+              ],
+            },
+            'tool_calls',
+          );
+        },
       },
-    },
-    { environment: 'test' },
-  );
-  const done = await executeAgentRun(
-    {
+      { environment: 'test' },
+    );
+    const dependencies = {
       pool: context.pool,
       store,
       gateway,
       models: config,
       definitions: [queueInternalMessageTool(), late],
-    },
-    target.runId,
-  );
-  expect(done.status).toBe('waiting');
-  expect(Boolean(done.approvalId)).toBe(true);
-  expect(models).toBe(1);
-  expect(lateReads).toBe(0);
-  expect(
-    (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
-      .n,
-  ).toBe(0);
-  const auth = await context.login('MEMBER_A');
-  const view = await context.app.inject({
-    method: 'GET',
-    url: `/api/approvals/${done.approvalId}`,
-    headers: auth.headers,
-  });
-  expect(view.statusCode).toBe(200);
-  const decision = await context.app.inject({
-    method: 'POST',
-    url: `/api/approvals/${done.approvalId}`,
-    headers: auth.headers,
-    payload: {
-      action: 'allow_once',
-      requestKey: randomUUID(),
-      expectedVersion: view.json().version,
-      expectedContentHash: view.json().contentHash,
-    },
-  });
-  expect(decision.statusCode).toBe(200);
-  expect(decision.json().executed).toBe(false);
-  expect(
-    (await context.pool.query('SELECT status FROM run WHERE id=$1', [target.runId])).rows[0].status,
-  ).toBe('waiting');
-  expect(
-    (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
-      .n,
-  ).toBe(0);
-  expect(models).toBe(1);
-});
+    };
+    const done = await executeAgentRun(dependencies, target.runId);
+    expect(done.status).toBe('waiting');
+    expect(Boolean(done.approvalId)).toBe(true);
+    expect(models).toBe(1);
+    expect(lateReads).toBe(0);
+    expect(
+      (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
+        .n,
+    ).toBe(0);
+    const auth = await context.login('MEMBER_A');
+    const view = await context.app.inject({
+      method: 'GET',
+      url: `/api/approvals/${done.approvalId}`,
+      headers: auth.headers,
+    });
+    expect(view.statusCode).toBe(200);
+    const decision = await context.app.inject({
+      method: 'POST',
+      url: `/api/approvals/${done.approvalId}`,
+      headers: auth.headers,
+      payload: {
+        action,
+        ...(action === 'reject' ? { reason: '请先核对联系人登记' } : {}),
+        requestKey: randomUUID(),
+        expectedVersion: view.json().version,
+        expectedContentHash: view.json().contentHash,
+      },
+    });
+    expect(decision.statusCode).toBe(200);
+    expect(decision.json().executed).toBe(false);
+    expect(
+      (await context.pool.query('SELECT status FROM run WHERE id=$1', [target.runId])).rows[0]
+        .status,
+    ).toBe('waiting');
+    expect(
+      (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
+        .n,
+    ).toBe(0);
+    expect(models).toBe(1);
+    const ticketId = String(decision.json().continuationId);
+    const savedHistory = (
+      await context.pool.query<{ id: string; message_json: unknown }>(
+        'SELECT id,message_json FROM conversation_message WHERE run_id=$1 ORDER BY seq',
+        [target.runId],
+      )
+    ).rows;
+    expect((await prepareContinuationForDispatch(context.pool, ticketId))?.state).toBe('queued');
+    const resumed = await executeAgentRun(dependencies, target.runId, { ticketId });
+    expect(resumed).toMatchObject({
+      status: 'stopped',
+      reasonCode: 'REVIEW_NOT_SUBMITTED',
+      usage: { steps: 2 },
+    });
+    expect(models).toBe(2);
+    expect(lateReads).toBe(0);
+    expect(
+      (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
+        .n,
+    ).toBe(action === 'allow_once' ? 1 : 0);
+    expect(
+      (await context.pool.query('SELECT state FROM run_continuation WHERE id=$1', [ticketId]))
+        .rows[0].state,
+    ).toBe('completed');
+    const after = (
+      await context.pool.query(
+        'SELECT id,message_json FROM conversation_message WHERE id=ANY($1::uuid[]) ORDER BY seq',
+        [savedHistory.map((message) => message.id)],
+      )
+    ).rows;
+    expect(after).toEqual(savedHistory);
+    expect((await executeAgentRun(dependencies, target.runId, { ticketId })).skipped).toBe(true);
+    expect(models).toBe(2);
+  },
+);
 
 test('同一内核提交带过程判断的审核卡并暂停，其他成员可通过高风险结果', async () => {
   const context = await createReviewTestContext({ autoRead: false, risk: 'high' });

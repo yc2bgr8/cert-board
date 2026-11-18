@@ -1645,6 +1645,8 @@ export const conversationEventType = pgEnum('conversation_event_type', [
   'question',
   'review_submitted',
   'run_status',
+  'approval_requested',
+  'approval_resolved',
 ]);
 export const conversationMessage = pgTable(
   'conversation_message',
@@ -1919,5 +1921,68 @@ export const internalOutboundMessage = pgTable(
       sql`length(btrim(${table.subject}))>0 AND length(btrim(${table.body}))>0 AND length(${table.body})<=8000`,
     ),
     check('internal_message_level_internal', sql`${table.dataLevel}='internal'`),
+  ],
+);
+
+export const runContinuationState = pgEnum('run_continuation_state', [
+  'pending',
+  'queued',
+  'claimed',
+  'tool_recorded',
+  'model_started',
+  'completed',
+  'blocked',
+]);
+export const runContinuation = pgTable(
+  'run_continuation',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    approvalId: uuid('approval_id')
+      .notNull()
+      .unique()
+      .references(() => toolApproval.id, { onDelete: 'restrict' }),
+    decisionId: uuid('decision_id')
+      .notNull()
+      .unique()
+      .references(() => toolApprovalDecision.id, { onDelete: 'restrict' }),
+    invocationId: uuid('invocation_id').notNull().unique(),
+    runId: uuid('run_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    state: runContinuationState('state').notNull().default('pending'),
+    claimedGeneration: bigint('claimed_generation', { mode: 'number' }),
+    reasonCode: varchar('reason_code', { length: 80 }),
+    toolRecordedAt: timestamp('tool_recorded_at', { withTimezone: true }),
+    modelStartedAt: timestamp('model_started_at', { withTimezone: true }),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    foreignKey({
+      name: 'run_continuation_invocation_owner_fk',
+      columns: [table.invocationId, table.runId, table.conversationId, table.userId],
+      foreignColumns: [
+        toolInvocation.id,
+        toolInvocation.runId,
+        toolInvocation.conversationId,
+        toolInvocation.userId,
+      ],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'run_continuation_run_owner_fk',
+      columns: [table.runId, table.conversationId, table.userId],
+      foreignColumns: [run.id, run.conversationId, run.userId],
+    }).onDelete('restrict'),
+    check('run_continuation_version_positive', sql`${table.version}>0`),
+    check(
+      'run_continuation_generation_safe',
+      sql`${table.claimedGeneration} IS NULL OR (${table.claimedGeneration}>0 AND ${table.claimedGeneration}<=9007199254740991)`,
+    ),
+    check(
+      'run_continuation_reason_code',
+      sql`${table.reasonCode} IS NULL OR ${table.reasonCode} ~ '^[A-Z][A-Z0-9_]{1,79}$'`,
+    ),
+    index('run_continuation_run_state_idx').on(table.runId, table.state),
   ],
 );

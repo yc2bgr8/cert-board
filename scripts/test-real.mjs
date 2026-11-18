@@ -13,9 +13,10 @@ try {
       [
         '--import',
         'tsx',
-        process.argv.includes('--agent')
+        process.argv.includes('--agent') || process.argv.includes('--l08')
           ? 'apps/backend/src/agent/real-smoke.ts'
           : 'apps/backend/src/modelgw/real-smoke.ts',
+        ...(process.argv.includes('--l08') ? ['--l08'] : []),
       ],
       {
         cwd: new URL('..', import.meta.url),

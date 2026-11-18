@@ -106,6 +106,7 @@ export const toolApprovalDecisionResultSchema = z
     version: z.number().int().positive().safe(),
     replayed: z.boolean(),
     executed: z.literal(false),
+    continuationId: id.nullable(),
   })
   .strict();
 export const toolApprovalPendingResultSchema = z
@@ -113,5 +114,51 @@ export const toolApprovalPendingResultSchema = z
     approvalId: id,
     status: toolApprovalStatusSchema,
     message: text(500),
+  })
+  .strict();
+
+export const continuationStateSchema = z.enum([
+  'pending',
+  'queued',
+  'claimed',
+  'tool_recorded',
+  'model_started',
+  'completed',
+  'blocked',
+]);
+export const continuationTicketSchema = z
+  .object({
+    id,
+    approvalId: id,
+    decisionId: id,
+    invocationId: id,
+    runId: id,
+    conversationId: id,
+    userId: id,
+    callId: z.string().min(1).max(128),
+    toolName: toolNameSchema,
+    toolVersion: text(128),
+    state: continuationStateSchema,
+    claimedGeneration: z.number().int().positive().safe().nullable(),
+  })
+  .strict();
+export type ContinuationTicket = z.infer<typeof continuationTicketSchema>;
+export const continuationLeaseSchema = z
+  .object({
+    ticketId: id,
+    runId: id,
+    userId: id,
+    ownerId: id,
+    generation: z.number().int().positive().safe(),
+  })
+  .strict();
+export type ContinuationLease = z.infer<typeof continuationLeaseSchema>;
+export const approvalResolutionSchema = z
+  .object({
+    approvalId: id,
+    executed: z.literal(false),
+    rejected: z.boolean(),
+    reason: text(2000),
+    code: z.enum(['APPROVAL_REJECTED', 'APPROVED_CALL_STALE']),
   })
   .strict();

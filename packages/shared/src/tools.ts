@@ -88,7 +88,13 @@ export const toolExecutionResultSchema = z
   );
 export const toolStoredPayloadSchema = z
   .object({
-    status: z.enum(['completed', 'pending_proposal', 'pending_approval']),
+    status: z.enum([
+      'completed',
+      'pending_proposal',
+      'pending_approval',
+      'approval_rejected',
+      'approval_stale',
+    ]),
     result: toolExecutionResultSchema,
   })
   .strict();

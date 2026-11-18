@@ -18,7 +18,7 @@ export function queueInternalMessageTool(): ToolDefinition {
   return {
     metadata: {
       name: 'queue_internal_message',
-      version: 'builtin-internal-v1',
+      version: 'builtin-internal-v2',
       publication: 'published',
       effect: 'reversible_write',
       modes: ['ask', 'full'],
@@ -28,7 +28,7 @@ export function queueInternalMessageTool(): ToolDefinition {
       description: {
         purpose: '为已登记并绑定身份的内部同事排入本地测试消息；不直接发送，不支持真实渠道。',
         whenToUse:
-          '资料请求或催办对象为本项目已绑定的开发成员；请求批准模式先等浏览器批准，完全允许模式直接排队。',
+          '北京时间周一至周五，对本项目已绑定的开发成员提出内部资料请求或催办。同一事项对同一人最多一次。请求批准模式先等浏览器批准，完全允许模式直接排队。',
         avoid:
           '公司外部对象必须用propose_external逐条审核；未知联系人不要猜地址；最终工作结果用submit_for_review。',
         parameters:

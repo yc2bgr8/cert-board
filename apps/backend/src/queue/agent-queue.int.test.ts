@@ -92,6 +92,26 @@ test('真实pg-boss建队列、同run只入队一次，消费不保存handler正
   expect(calls).toBe(1);
 });
 
+test('继续投递用票据编号去重，原运行初始投递仍可保留', async () => {
+  const source = await queue();
+  const run = await queued();
+  const ticketId = randomUUID();
+  const calls: Array<{ runId: string; ticketId?: string }> = [];
+  expect(await enqueueAgentRun(source, run.runId)).toBe(run.runId);
+  expect(await enqueueAgentRun(source, run.runId, ticketId)).toBe(ticketId);
+  expect(await enqueueAgentRun(source, run.runId, ticketId)).toBeNull();
+  await consumeAgentRuns(
+    source,
+    async (runId, _signal, ticket) => {
+      calls.push({ runId, ...(ticket ? { ticketId: ticket } : {}) });
+    },
+    () => false,
+  );
+  expect((await finalJob(run.runId)).data).toEqual({ runId: run.runId });
+  expect((await finalJob(ticketId)).data).toEqual({ runId: run.runId, ticketId });
+  expect(calls).toEqual([{ runId: run.runId }, { runId: run.runId, ticketId }]);
+});
+
 test('队列错误只保存固定信息，未开始run落failed且不重放', async () => {
   const source = await queue();
   const run = await queued();

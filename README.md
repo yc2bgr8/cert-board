@@ -29,7 +29,7 @@ pnpm dev:api
 
 `pnpm budget:status` 显示北京时间月度和整晚批次的已计费用、未结算预占和停止原因，不输出请求内容。当前开发默认单次1美元、月度9美元、整晚10美元；种子不覆盖已有政策。用量未知时保留预占并停止后续调用，不能把未结算金额当作零费用。
 
-`pnpm test:real` 经本机代理运行一次合成文本的Flash工具调用验证，费用计入日常持久账本，不另建可重置额度的测试库。模型由`deploy/models.yaml`配置，密钥仅引用环境变量；缺少key时跳过。当前支持非流式文本和工具调用；完整Agent会话仍在后续接入。开发代理与Fake-IP临时映射见[代理说明](deploy/egress/README.md)。
+`pnpm test:real` 经本机代理验证合成文本的模型调用，`pnpm test:real --agent` 验证合成多轮内核工具调用，`pnpm test:real --l08` 使用日常开发项目已经导入的 L08 解析资料验证检索、原文读取、保存草稿及送审。三种验收均计入日常持久账本。模型从 `deploy/models.yaml` 读取，密钥只取 `.env.local`，缺少密钥时跳过。开发代理与 Fake-IP 临时映射见[代理说明](deploy/egress/README.md)。
 
 真实模型请求原文默认不持久化。`pnpm requests:purge` 每批最多清理100条到期的私有请求内容，同时留下不含正文的审计；非零保留目前只允许隔离测试库中的合成记录。
 

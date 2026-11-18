@@ -15,7 +15,7 @@ import { authorize } from '../auth/authorization.js';
 import { currentServiceIdentity } from '../auth/member.js';
 import { AppError } from '../api/errors.js';
 
-type Executor = Pool | PoolClient;
+type Executor = Pick<Pool, 'query'>;
 type Pagination = { cursor?: string; limit?: number };
 const projectFields = `p.id, p.code, p.name, p.project_type AS "projectType", p.market, p.pathway,
   p.model_id AS "modelId", p.owner_user_id AS "ownerUserId", p.reviewer_user_id AS "reviewerUserId",
@@ -107,7 +107,7 @@ async function readProject(
   return record;
 }
 
-export async function getProject(pool: Pool, identity: ServiceIdentity, id: string) {
+export async function getProject(pool: Executor, identity: ServiceIdentity, id: string) {
   return readProject(pool, await currentServiceIdentity(pool, identity), identifier(id));
 }
 

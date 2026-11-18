@@ -12,6 +12,8 @@ import {
   undoCaptureSchema,
   documentDataLevelSchema,
   toolApprovalPreviewSchema,
+  approvalResolutionSchema,
+  conversationEventSchema,
   type AgentIdentity,
   type ToolCallContext,
   type ToolMetadata,
@@ -27,6 +29,7 @@ import {
   createToolApproval,
   hasConversationToolGrant,
   replayToolApproval,
+  approvalContentHash,
 } from '../approvals/service.js';
 
 type VersionInput = string | number;
@@ -105,7 +108,8 @@ export type ToolResultEnvelope = {
   dataLevel: DataLevel;
   undoId: string | null;
   replayed: boolean;
-  status: 'completed' | 'pending_proposal' | 'pending_approval';
+  status:
+    'completed' | 'pending_proposal' | 'pending_approval' | 'approval_rejected' | 'approval_stale';
 };
 type StoredPayload = ReturnType<typeof toolStoredPayloadSchema.parse>;
 type LoadedContext = ToolExecutionContext & { projectOwnerId: string | null };
@@ -143,6 +147,34 @@ type UndoRow = {
   after_version: string | null;
   status: string;
   undone_version: string | null;
+};
+type ApprovedCall = {
+  id: string;
+  invocation_id: string;
+  run_id: string;
+  conversation_id: string;
+  user_id: string;
+  project_id: string;
+  goal_id: string;
+  tool_name: string;
+  tool_version: string;
+  arguments_hash: string;
+  content_hash: string;
+  direction_version: number;
+  data_level: DataLevel;
+  arguments_json: unknown;
+  preview_json: unknown;
+  target_versions_json: unknown;
+  status: string;
+  version: number;
+  decision_id: string;
+  decision_action: 'allow_once' | 'allow_conversation' | 'reject';
+  decision_hash: string;
+  source_version: number;
+  rejection_reason: string | null;
+  ticket_state: string;
+  claimed_generation: string | null;
+  invocation_status: string;
 };
 class ToolBoundaryError extends AppError {}
 const fail = (status: number, code: string, message: string) =>
@@ -221,6 +253,8 @@ async function callback<T>(operation: () => Promise<T>): Promise<T> {
     return await operation();
   } catch (error) {
     if (error instanceof ToolBoundaryError) throw error;
+    if (error instanceof AppError && error.code === 'INTERNAL_REMINDER_WEEKEND')
+      throw fail(422, 'TOOL_DATA_REJECTED', '周六、周日不催办，请在北京时间下一个工作日重新提出。');
     if (error instanceof AppError && error.statusCode === 409)
       throw fail(
         409,
@@ -574,7 +608,7 @@ export class ToolRegistry {
         status: 'pending_approval',
       };
     }
-    if (invocation.status !== 'completed')
+    if (!['completed', 'denied'].includes(invocation.status))
       throw fail(
         409,
         'TOOL_CALL_INCOMPLETE',
@@ -592,14 +626,16 @@ export class ToolRegistry {
         '原调用回执已清理或无法读取，请核对目标现状后发起新调用，不能直接重做旧编号。',
       );
     const payload = parsed.data;
+    if (
+      invocation.status === 'denied' &&
+      !['approval_rejected', 'approval_stale'].includes(payload.status)
+    )
+      throw fail(409, 'TOOL_RESULT_EXPIRED', '原调用拒绝回执不完整，不能重新执行，请核对记录。');
     let currentLevel: DataLevel =
       definition.metadata.outputDataLevel === 'dynamic'
         ? 'internal'
         : definition.metadata.outputDataLevel;
-    if (
-      definition.metadata.outputDataLevel === 'dynamic' &&
-      payload.status !== 'pending_proposal'
-    ) {
+    if (definition.metadata.outputDataLevel === 'dynamic' && payload.status === 'completed') {
       if (!definition.refreshDataLevel)
         throw fail(
           500,
@@ -670,10 +706,7 @@ export class ToolRegistry {
     sourceData?: unknown,
   ): Promise<ToolResultEnvelope> {
     let refreshed: DataLevel = 'internal';
-    if (
-      definition.metadata.outputDataLevel === 'dynamic' &&
-      payload.status !== 'pending_proposal'
-    ) {
+    if (definition.metadata.outputDataLevel === 'dynamic' && payload.status === 'completed') {
       const level = await callback(() =>
         definition.refreshDataLevel!(
           ctx,
@@ -703,8 +736,12 @@ export class ToolRegistry {
       [invocationId, ctx.conversationId, ctx.actor.userId, content, level],
     );
     await ctx.tx.query(
-      "UPDATE tool_invocation SET status='completed',data_level=$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2",
-      [level, invocationId],
+      'UPDATE tool_invocation SET status=$3::tool_invocation_status,data_level=$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2',
+      [
+        level,
+        invocationId,
+        ['approval_rejected', 'approval_stale'].includes(payload.status) ? 'denied' : 'completed',
+      ],
     );
     await ctx.tx.query(
       "INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id) VALUES($1,'agent',$2,'tool_invocation',$3)",
@@ -718,6 +755,433 @@ export class ToolRegistry {
       replayed: false,
       status: content.status,
     };
+  }
+
+  private async approvalResolution(
+    ctx: LoadedContext,
+    source: ApprovedCall,
+    dataLevel: DataLevel,
+    status: 'approval_rejected' | 'approval_stale',
+    reason: string,
+  ): Promise<ToolResultEnvelope> {
+    const data = approvalResolutionSchema.parse({
+      approvalId: source.id,
+      executed: false,
+      rejected: status === 'approval_rejected',
+      reason,
+      code: status === 'approval_rejected' ? 'APPROVAL_REJECTED' : 'APPROVED_CALL_STALE',
+    });
+    const payload = toolStoredPayloadSchema.parse({ status, result: { data, dataLevel } });
+    await this.propagate(ctx, dataLevel);
+    await ctx.tx.query(
+      'INSERT INTO conversation_tool_result(invocation_id,conversation_id,user_id,content_json,data_level) VALUES($1,$2,$3,$4,$5)',
+      [source.invocation_id, ctx.conversationId, ctx.actor.userId, payload, dataLevel],
+    );
+    await ctx.tx.query(
+      "UPDATE tool_invocation SET status='denied',data_level=$2,updated_at=clock_timestamp() WHERE id=$1",
+      [source.invocation_id, dataLevel],
+    );
+    await ctx.tx.query(
+      "INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id) VALUES($1,'agent',$2,'tool_invocation',$3)",
+      [
+        ctx.actor.userId,
+        status === 'approval_rejected'
+          ? 'tool.approval_rejected_result'
+          : 'tool.approval_stale_result',
+        source.invocation_id,
+      ],
+    );
+    return {
+      invocationId: source.invocation_id,
+      data,
+      dataLevel,
+      undoId: null,
+      replayed: false,
+      status,
+    };
+  }
+
+  private async recordContinuationResult(
+    ctx: LoadedContext,
+    ticketId: string,
+    source: ApprovedCall,
+    result: ToolResultEnvelope,
+  ) {
+    const event = conversationEventSchema.parse({
+      type: 'approval_resolved',
+      payload: {
+        approvalId: source.id,
+        decisionId: source.decision_id,
+        invocationId: source.invocation_id,
+        executed: result.status === 'completed',
+        status: result.status,
+        result: z.json().parse(result.data),
+      },
+    });
+    const counter = (
+      await ctx.tx.query<{ last_event_seq: string }>(
+        'SELECT last_event_seq FROM conversation WHERE id=$1',
+        [ctx.conversationId],
+      )
+    ).rows[0]!;
+    const seq = Number(counter.last_event_seq) + 1;
+    if (!Number.isSafeInteger(seq))
+      throw fail(409, 'CONVERSATION_SEQUENCE_LIMIT', '对话记录已达上限，请交维护人员核对。');
+    const eventId = (
+      await ctx.tx.query<{ id: string }>(
+        `INSERT INTO conversation_event(run_id,conversation_id,user_id,request_key,seq,content_hash,data_level,type,payload_json)
+       VALUES($1,$2,$3,$4,$5,$6,$7,'approval_resolved',$8) RETURNING id`,
+        [
+          ctx.runId,
+          ctx.conversationId,
+          ctx.actor.userId,
+          ticketId,
+          seq,
+          approvalContentHash(event),
+          result.dataLevel,
+          JSON.stringify(event.payload),
+        ],
+      )
+    ).rows[0]!.id;
+    await ctx.tx.query('SELECT pg_notify($1,$2)', [
+      'cert_board_conversation_events',
+      JSON.stringify({ conversationId: ctx.conversationId, eventId, seq }),
+    ]);
+    await ctx.tx.query(
+      `UPDATE run_continuation SET state='tool_recorded',tool_recorded_at=clock_timestamp(),version=version+1,updated_at=clock_timestamp() WHERE id=$1`,
+      [ticketId],
+    );
+  }
+
+  async resumeApproval(reference: unknown, ticketId: string): Promise<ToolResultEnvelope> {
+    const parsed = toolCallContextSchema.safeParse(reference);
+    if (!parsed.success || !z.string().uuid().safeParse(ticketId).success)
+      throw fail(400, 'CONTINUATION_INPUT_INVALID', '继续请求必须使用原运行与原工具调用编号。');
+    if (!this.runtimeGuard)
+      throw fail(
+        403,
+        'CONTINUATION_RUNTIME_REQUIRED',
+        '批准调用只能由持有真实执行权的Agent内核继续。',
+      );
+    return this.transaction(parsed.data, async (ctx) => {
+      const source = (
+        await ctx.tx.query<ApprovedCall>(
+          `SELECT a.*,d.id AS decision_id,d.action AS decision_action,d.content_hash AS decision_hash,d.source_version,d.reason AS rejection_reason,
+         t.state AS ticket_state,t.claimed_generation,i.status AS invocation_status
+         FROM run_continuation t JOIN tool_approval a ON a.id=t.approval_id
+         JOIN tool_approval_decision d ON d.id=t.decision_id AND d.approval_id=a.id
+         JOIN tool_invocation i ON i.id=t.invocation_id
+         JOIN run r ON r.id=t.run_id
+         WHERE t.id=$1 AND t.run_id=$2 AND t.user_id=$3 AND t.conversation_id=$4 AND i.call_id=$5
+           AND t.claimed_generation=r.lease_generation
+         FOR UPDATE OF t,a,i`,
+          [ticketId, ctx.runId, ctx.actor.userId, ctx.conversationId, ctx.callId],
+        )
+      ).rows[0];
+      if (!source || !['claimed', 'tool_recorded'].includes(source.ticket_state))
+        throw fail(
+          409,
+          'CONTINUATION_UNAVAILABLE',
+          '继续票据不属于当前执行代次或已进入模型阶段，不能重做工具。',
+        );
+      if (
+        source.project_id !== ctx.projectId ||
+        source.goal_id !== ctx.goalId ||
+        source.run_id !== ctx.runId ||
+        source.conversation_id !== ctx.conversationId ||
+        source.user_id !== ctx.actor.userId ||
+        source.direction_version !== ctx.directionVersion ||
+        source.content_hash !== source.decision_hash ||
+        source.version !== source.source_version + 1 ||
+        (source.decision_action === 'reject'
+          ? source.status !== 'rejected'
+          : source.status !== 'approved')
+      )
+        throw fail(409, 'CONTINUATION_SOURCE_MISMATCH', '原批准决定与运行内容不一致，不能继续。');
+      const originalHash = approvalContentHash({
+        invocationId: source.invocation_id,
+        runId: source.run_id,
+        conversationId: source.conversation_id,
+        userId: source.user_id,
+        projectId: source.project_id,
+        goalId: source.goal_id,
+        toolName: source.tool_name,
+        toolVersion: source.tool_version,
+        argumentsHash: source.arguments_hash,
+        preview: source.preview_json,
+        targetVersions: source.target_versions_json,
+        directionVersion: source.direction_version,
+        dataLevel: source.data_level,
+      });
+      const argumentsHash = approvalContentHash({
+        operation: 'execute',
+        name: source.tool_name,
+        version: source.tool_version,
+        args: source.arguments_json,
+      });
+      if (originalHash !== source.content_hash || argumentsHash !== source.arguments_hash)
+        throw fail(409, 'CONTINUATION_CONTENT_MISMATCH', '原批准参数或内容摘要不一致，不能执行。');
+      if (source.ticket_state === 'tool_recorded') {
+        const saved = (
+          await ctx.tx.query<{
+            content_json: unknown;
+            data_level: DataLevel;
+            undo_id: string | null;
+          }>(
+            `SELECT p.content_json,p.data_level,u.id AS undo_id FROM conversation_tool_result p LEFT JOIN undo_record u ON u.invocation_id=p.invocation_id
+           WHERE p.invocation_id=$1 AND p.conversation_id=$2 AND p.user_id=$3`,
+            [source.invocation_id, ctx.conversationId, ctx.actor.userId],
+          )
+        ).rows[0];
+        if (!saved || !['completed', 'denied'].includes(source.invocation_status))
+          throw fail(409, 'CONTINUATION_RECEIPT_MISSING', '原调用回执不完整，不能重新执行。');
+        const payload = toolStoredPayloadSchema.parse(saved.content_json);
+        const dataLevel = highest(
+          ctx.maxDataLevel,
+          source.data_level,
+          saved.data_level,
+          payload.result.dataLevel,
+        );
+        await this.propagate(ctx, dataLevel);
+        return {
+          invocationId: source.invocation_id,
+          data: payload.result.data,
+          dataLevel,
+          undoId: saved.undo_id,
+          replayed: true,
+          status: payload.status,
+        };
+      }
+      if (source.invocation_status !== 'pending_approval')
+        throw fail(409, 'CONTINUATION_CALL_STATE', '原调用已经改变，不能再次执行。');
+      let result: ToolResultEnvelope;
+      let level = highest(ctx.maxDataLevel, source.data_level);
+      if (source.decision_action === 'reject') {
+        result = await this.approvalResolution(
+          ctx,
+          source,
+          level,
+          'approval_rejected',
+          source.rejection_reason ?? '发起人拒绝了这次操作，请调整做法后再提出。',
+        );
+      } else {
+        const definition = this.definitions.get(source.tool_name);
+        let reason: string | undefined;
+        let input: { data: unknown } | undefined;
+        if (
+          !definition ||
+          definition.metadata.version !== source.tool_version ||
+          definition.metadata.effect !== 'reversible_write' ||
+          !definition.metadata.approvalInAsk ||
+          !definition.prepareApproval
+        )
+          reason = '已批准的工具版本或契约已变化，请重新核对后提出新调用。';
+        if (definition && !reason) {
+          const policy = await this.decision(definition, ctx);
+          if (policy.decision === 'deny' || policy.decision === 'propose') reason = policy.message;
+          const checked = definition.inputSchema.safeParse(source.arguments_json);
+          if (!checked.success)
+            reason = '原参数不再符合已批准的工具契约，请重新读取资料后提出新调用。';
+          else input = { data: checked.data };
+        }
+        if (definition && input && !reason) {
+          try {
+            const preview = toolApprovalPreviewSchema.parse(
+              await callback(() => definition.prepareApproval!(ctx, input!.data)),
+            );
+            const { targetVersions, dataLevel, ...display } = preview;
+            level = highest(
+              level,
+              dataLevel,
+              definition.metadata.outputDataLevel === 'dynamic'
+                ? 'internal'
+                : definition.metadata.outputDataLevel,
+            );
+            const currentHash = approvalContentHash({
+              invocationId: source.invocation_id,
+              runId: source.run_id,
+              conversationId: source.conversation_id,
+              userId: source.user_id,
+              projectId: source.project_id,
+              goalId: source.goal_id,
+              toolName: source.tool_name,
+              toolVersion: source.tool_version,
+              argumentsHash: source.arguments_hash,
+              preview: display,
+              targetVersions,
+              directionVersion: source.direction_version,
+              dataLevel: level,
+            });
+            if (currentHash !== source.content_hash)
+              reason =
+                '批准后目标版本、原材料、收件人或数据级别已变化，未执行，请重新读取并提出新调用。';
+          } catch (error) {
+            if (!(error instanceof ToolBoundaryError) || error.statusCode >= 500) throw error;
+            reason = error.message;
+          }
+        }
+        if (reason || !definition || !input) {
+          result = await this.approvalResolution(
+            ctx,
+            source,
+            level,
+            'approval_stale',
+            reason ?? '原批准调用已失效，未执行，请重新提出。',
+          );
+        } else {
+          await ctx.tx.query('SAVEPOINT approved_tool_effect');
+          try {
+            await ctx.tx.query(
+              "UPDATE tool_invocation SET status='started',updated_at=clock_timestamp() WHERE id=$1",
+              [source.invocation_id],
+            );
+            result = await this.perform(ctx, definition, input.data, source.invocation_id, 'allow');
+            level = highest(level, result.dataLevel);
+            if (level !== source.data_level)
+              throw fail(
+                409,
+                'APPROVAL_LEVEL_CHANGED',
+                '执行时发现资料级别变化，已撤回本次写入，请重新核对。',
+              );
+            await ctx.tx.query('RELEASE SAVEPOINT approved_tool_effect');
+          } catch (error) {
+            await ctx.tx.query('ROLLBACK TO SAVEPOINT approved_tool_effect');
+            await ctx.tx.query('RELEASE SAVEPOINT approved_tool_effect');
+            if (!(error instanceof ToolBoundaryError) || error.statusCode >= 500) throw error;
+            result = await this.approvalResolution(
+              ctx,
+              source,
+              level,
+              'approval_stale',
+              error.message,
+            );
+          }
+        }
+      }
+      await this.recordContinuationResult(ctx, ticketId, source, result);
+      return result;
+    });
+  }
+
+  private async perform(
+    ctx: LoadedContext,
+    definition: ToolDefinition,
+    input: unknown,
+    invocationId: string,
+    decision: 'allow' | 'propose',
+  ): Promise<ToolResultEnvelope> {
+    let undoId: string | null = null,
+      before: UndoCapture | undefined;
+    if (definition.metadata.effect === 'reversible_write') {
+      const spec = definition.undo;
+      if (!spec) throw fail(403, 'TOOL_UNDO_REQUIRED', '写入工具缺少撤销方式，已拒绝执行。');
+      const rawCapture = await callback(() => spec.capture(ctx, input));
+      const normalizedState = spec.beforeSchema.safeParse(rawCapture?.beforeState);
+      if (!normalizedState.success)
+        throw fail(
+          500,
+          'TOOL_UNDO_CAPTURE_INVALID',
+          '工具无法提供受控的业务原值，本次写入未执行。',
+        );
+      const captured = undoCaptureSchema.safeParse({
+        ...rawCapture,
+        beforeState: normalizedState.data,
+      });
+      if (!captured.success)
+        throw fail(
+          500,
+          'TOOL_UNDO_CAPTURE_INVALID',
+          '工具无法提供受控的业务原值和版本，本次写入未执行。',
+        );
+      before = frozen(captured.data);
+      const actual = versionToken(await callback(() => spec.currentVersion(ctx, before!)));
+      if (actual !== before.beforeVersion)
+        throw fail(409, 'TOOL_TARGET_CONFLICT', '目标版本已变化，请重新读取业务记录后重试。');
+      const undo = await ctx.tx.query<{ id: string }>(
+        `INSERT INTO undo_record(invocation_id,run_id,conversation_id,user_id,tool_name,tool_version,target_type,target_id,before_state,before_version,status)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending') RETURNING id`,
+        [
+          invocationId,
+          ctx.runId,
+          ctx.conversationId,
+          ctx.actor.userId,
+          definition.metadata.name,
+          definition.metadata.version,
+          before.targetType,
+          before.targetId,
+          before.beforeState,
+          before.beforeVersion,
+        ],
+      );
+      undoId = undo.rows[0]!.id;
+    }
+    let result: ReturnType<typeof toolExecutionResultSchema.parse>;
+    const status = decision === 'propose' ? 'pending_proposal' : 'completed';
+    if (decision === 'propose' && !definition.propose) {
+      result = {
+        data: {
+          proposed: false,
+          pending: true,
+          message:
+            '此动作只能生成提案；提案服务尚未接入，未建立真实提案，也未对外发送。请交负责人处理。',
+        },
+        dataLevel: ctx.maxDataLevel,
+      };
+    } else {
+      const returned = await callback(() =>
+        decision === 'propose'
+          ? definition.propose!(ctx, input)
+          : definition.execute!(ctx, input, before),
+      );
+      const resultParsed = toolExecutionResultSchema.safeParse(returned);
+      if (!resultParsed.success)
+        throw fail(
+          500,
+          'TOOL_OUTPUT_INVALID',
+          '工具结果不符合结构或长度上限，本次业务写入已撤销；请使用有界输出和分页。',
+        );
+      const output = definition.outputSchema.safeParse(resultParsed.data.data);
+      if (!output.success)
+        throw fail(
+          500,
+          'TOOL_OUTPUT_INVALID',
+          '工具输出不符合已发布模式，本次业务写入已撤销，请维护人员检查实现。',
+        );
+      const normalized = toolExecutionResultSchema.safeParse({
+        ...resultParsed.data,
+        data: output.data,
+      });
+      if (!normalized.success)
+        throw fail(500, 'TOOL_OUTPUT_INVALID', '工具输出转换后无效，本次业务写入已撤销。');
+      result = normalized.data;
+    }
+    if (undoId && before && definition.undo) {
+      const actual = versionToken(
+        await callback(() => definition.undo!.currentVersion(ctx, before!)),
+      );
+      if (
+        !result.afterVersion ||
+        actual !== result.afterVersion ||
+        result.afterVersion === before.beforeVersion
+      )
+        throw fail(
+          500,
+          'TOOL_WRITE_VERSION_INVALID',
+          '写入后版本未推进或与实际业务版本不一致，本次业务写入已撤销。',
+        );
+      await ctx.tx.query(
+        "UPDATE undo_record SET after_version=$1,status='available',updated_at=CURRENT_TIMESTAMP WHERE id=$2",
+        [result.afterVersion, undoId],
+      );
+    }
+    return this.complete(
+      ctx,
+      invocationId,
+      definition,
+      toolStoredPayloadSchema.parse({ status, result }),
+      undoId,
+      'tool.executed',
+    );
   }
 
   async execute(reference: unknown, name: string, args: unknown): Promise<ToolResultEnvelope> {
@@ -786,117 +1250,12 @@ export class ToolRegistry {
           status: 'pending_approval',
         };
       }
-      let undoId: string | null = null,
-        before: UndoCapture | undefined;
-      if (definition.metadata.effect === 'reversible_write') {
-        const spec = definition.undo;
-        if (!spec) throw fail(403, 'TOOL_UNDO_REQUIRED', '写入工具缺少撤销方式，已拒绝执行。');
-        const rawCapture = await callback(() => spec.capture(ctx, input.data));
-        const normalizedState = spec.beforeSchema.safeParse(rawCapture?.beforeState);
-        if (!normalizedState.success)
-          throw fail(
-            500,
-            'TOOL_UNDO_CAPTURE_INVALID',
-            '工具无法提供受控的业务原值，本次写入未执行。',
-          );
-        const captured = undoCaptureSchema.safeParse({
-          ...rawCapture,
-          beforeState: normalizedState.data,
-        });
-        if (!captured.success)
-          throw fail(
-            500,
-            'TOOL_UNDO_CAPTURE_INVALID',
-            '工具无法提供受控的业务原值和版本，本次写入未执行。',
-          );
-        before = frozen(captured.data);
-        const actual = versionToken(await callback(() => spec.currentVersion(ctx, before!)));
-        if (actual !== before.beforeVersion)
-          throw fail(409, 'TOOL_TARGET_CONFLICT', '目标版本已变化，请重新读取业务记录后重试。');
-        const undo = await ctx.tx.query<{ id: string }>(
-          `INSERT INTO undo_record(invocation_id,run_id,conversation_id,user_id,tool_name,tool_version,target_type,target_id,before_state,before_version,status)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending') RETURNING id`,
-          [
-            invocationId,
-            ctx.runId,
-            ctx.conversationId,
-            ctx.actor.userId,
-            definition.metadata.name,
-            definition.metadata.version,
-            before.targetType,
-            before.targetId,
-            before.beforeState,
-            before.beforeVersion,
-          ],
-        );
-        undoId = undo.rows[0]!.id;
-      }
-      let result: ReturnType<typeof toolExecutionResultSchema.parse>;
-      const status = decision.decision === 'propose' ? 'pending_proposal' : 'completed';
-      if (decision.decision === 'propose' && !definition.propose) {
-        result = {
-          data: {
-            proposed: false,
-            pending: true,
-            message:
-              '此动作只能生成提案；提案服务尚未接入，未建立真实提案，也未对外发送。请交负责人处理。',
-          },
-          dataLevel: ctx.maxDataLevel,
-        };
-      } else {
-        const returned = await callback(() =>
-          decision.decision === 'propose'
-            ? definition.propose!(ctx, input.data)
-            : definition.execute!(ctx, input.data, before),
-        );
-        const resultParsed = toolExecutionResultSchema.safeParse(returned);
-        if (!resultParsed.success)
-          throw fail(
-            500,
-            'TOOL_OUTPUT_INVALID',
-            '工具结果不符合结构或长度上限，本次业务写入已撤销；请使用有界输出和分页。',
-          );
-        const output = definition.outputSchema.safeParse(resultParsed.data.data);
-        if (!output.success)
-          throw fail(
-            500,
-            'TOOL_OUTPUT_INVALID',
-            '工具输出不符合已发布模式，本次业务写入已撤销，请维护人员检查实现。',
-          );
-        const normalized = toolExecutionResultSchema.safeParse({
-          ...resultParsed.data,
-          data: output.data,
-        });
-        if (!normalized.success)
-          throw fail(500, 'TOOL_OUTPUT_INVALID', '工具输出转换后无效，本次业务写入已撤销。');
-        result = normalized.data;
-      }
-      if (undoId && before && definition.undo) {
-        const actual = versionToken(
-          await callback(() => definition.undo!.currentVersion(ctx, before!)),
-        );
-        if (
-          !result.afterVersion ||
-          actual !== result.afterVersion ||
-          result.afterVersion === before.beforeVersion
-        )
-          throw fail(
-            500,
-            'TOOL_WRITE_VERSION_INVALID',
-            '写入后版本未推进或与实际业务版本不一致，本次业务写入已撤销。',
-          );
-        await ctx.tx.query(
-          "UPDATE undo_record SET after_version=$1,status='available',updated_at=CURRENT_TIMESTAMP WHERE id=$2",
-          [result.afterVersion, undoId],
-        );
-      }
-      return this.complete(
+      return this.perform(
         ctx,
-        invocationId,
         definition,
-        toolStoredPayloadSchema.parse({ status, result }),
-        undoId,
-        'tool.executed',
+        input.data,
+        invocationId,
+        decision.decision === 'propose' ? 'propose' : 'allow',
       );
     });
   }

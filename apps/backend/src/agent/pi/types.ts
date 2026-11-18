@@ -2,6 +2,7 @@ import type { ChatRequest, GatewayResponse, RuntimeModelConfig } from '@cert-boa
 
 export type KernelMessage = ChatRequest['messages'][number];
 export type KernelUsage = { steps: number; totalTokens: number; costNano: string };
+export type KernelTerminal = 'review' | 'proposal' | 'approval' | 'question';
 export type KernelTool = {
   name: string;
   description: string;
@@ -11,7 +12,7 @@ export type KernelTool = {
     context: { callId: string; signal: AbortSignal },
   ): Promise<{
     data: unknown;
-    terminal?: 'review' | 'proposal' | 'approval';
+    terminal?: KernelTerminal;
   }>;
 };
 export type KernelEvent =
@@ -19,11 +20,12 @@ export type KernelEvent =
   | { type: 'message'; message: KernelMessage }
   | { type: 'tool_started'; callId: string; name: string }
   | { type: 'tool_completed'; callId: string; name: string; data: unknown; isError: boolean }
-  | { type: 'waiting'; reason: 'review' | 'proposal' | 'approval' };
+  | { type: 'waiting'; reason: KernelTerminal };
 export type AgentKernelOptions = {
   systemPrompt: string;
   history: KernelMessage[];
   messages: KernelMessage[];
+  continuation?: { initialUsage: KernelUsage };
   model: RuntimeModelConfig;
   tools: KernelTool[];
   complete(
@@ -36,7 +38,13 @@ export type AgentKernelOptions = {
 };
 export type AgentKernelResult = {
   status:
-    'completed' | 'waiting_review' | 'waiting_proposal' | 'waiting_approval' | 'stopped' | 'failed';
+    | 'completed'
+    | 'waiting_review'
+    | 'waiting_proposal'
+    | 'waiting_approval'
+    | 'waiting_question'
+    | 'stopped'
+    | 'failed';
   reasonCode?: string;
   messages: KernelMessage[];
   usage: KernelUsage;

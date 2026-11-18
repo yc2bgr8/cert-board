@@ -49,6 +49,24 @@ test('缺读回执时提供固定可修复提示，不透传原始业务异常',
     }
     expect((failure as Error).message.includes('doc_read')).toBe(true);
     expect((failure as Error).message.includes('PRIVATE_ORIGINAL_BODY')).toBe(false);
+    const weekend = new ToolRegistry(
+      context.pool,
+      [
+        {
+          ...probe,
+          async execute() {
+            throw new AppError(422, 'INTERNAL_REMINDER_WEEKEND', 'PRIVATE_WEEKEND_BODY');
+          },
+        },
+      ],
+      { environment: 'test' },
+    );
+    await expect(
+      weekend.execute({ ...context.caller, callId: randomUUID() }, 'hint_probe', {}),
+    ).rejects.toMatchObject({
+      code: 'TOOL_DATA_REJECTED',
+      message: '周六、周日不催办，请在北京时间下一个工作日重新提出。',
+    });
   } finally {
     await context.close();
   }

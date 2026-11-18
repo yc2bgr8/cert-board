@@ -22,6 +22,7 @@ import { requireBrowserIdentity } from '../auth/session.js';
 import { authorize } from '../auth/authorization.js';
 import { AppError } from './errors.js';
 import { approvalContentHash } from '../approvals/service.js';
+import { scheduleToolContinuation } from '../approvals/continuation.js';
 
 type ApprovalRow = {
   id: string;
@@ -265,6 +266,7 @@ export function registerApprovalRoutes<Logger extends FastifyBaseLogger>(
           version: row.version,
           replayed: true,
           executed: false,
+          continuationId: await scheduleToolContinuation(tx, id, previous.id),
         });
       }
       if (
@@ -328,6 +330,7 @@ export function registerApprovalRoutes<Logger extends FastifyBaseLogger>(
         version: row.version + 1,
         replayed: false,
         executed: false,
+        continuationId: await scheduleToolContinuation(tx, id, decision.id),
       });
     });
   });

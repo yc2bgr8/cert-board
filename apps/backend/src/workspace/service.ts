@@ -20,6 +20,10 @@ import {
   workspaceSaveResultSchema,
   workspaceRebaseSchema,
   workspaceRebaseResultSchema,
+  workspaceUndoOverlaySchema,
+  workspaceUndoSnapshotSchema,
+  workspaceToolUndoStateSchema,
+  type WorkspaceToolUndoState,
   type ServiceIdentity,
   type DataLevel,
 } from '@cert-board/shared';
@@ -121,10 +125,14 @@ async function activeActor(client: PoolClient, identity: ServiceIdentity) {
   if (!result.rowCount) throw absent();
 }
 async function mutation<T>(
-  pool: Pool,
+  pool: Executor,
   identity: ServiceIdentity,
   action: (client: PoolClient) => Promise<T>,
 ) {
+  if ('release' in pool) {
+    await activeActor(pool, identity);
+    return action(pool);
+  }
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -314,7 +322,7 @@ async function raiseWorkspaceLevel(client: PoolClient, workspace: Workspace, lev
 }
 
 export async function getWorkspaceByProject(
-  pool: Pool,
+  pool: Executor,
   identity: ServiceIdentity,
   projectId: string,
 ) {
@@ -326,7 +334,11 @@ export async function getWorkspaceByProject(
   return workspaceAccess(pool, viewer, found.rows[0].id);
 }
 
-export async function createDraft(pool: Pool, identity: ServiceIdentity, conversationId: string) {
+export async function createDraft(
+  pool: Executor,
+  identity: ServiceIdentity,
+  conversationId: string,
+) {
   const viewer = actor(identity);
   const conversationKey = id(conversationId);
   return mutation(pool, viewer, async (client) => {
@@ -414,7 +426,7 @@ function fileList(files: Manifest, options: unknown, level: DataLevel) {
   });
 }
 export async function listVersions(
-  pool: Pool,
+  pool: Executor,
   identity: ServiceIdentity,
   workspaceId: string,
   options: unknown = {},
@@ -440,7 +452,7 @@ export async function listVersions(
     nextAfterNumber: hasMore ? (items.at(-1)?.number ?? null) : null,
   });
 }
-async function versionAccess(pool: Pool, identity: ServiceIdentity, versionId: string) {
+async function versionAccess(pool: Executor, identity: ServiceIdentity, versionId: string) {
   const result = await pool.query<Record<string, unknown>>(
     `SELECT ${versionFields} FROM workspace_version v JOIN workspace w ON w.id=v.workspace_id WHERE v.id=$1 AND v.number<=(SELECT number FROM workspace_version WHERE id=w.current_version_id)`,
     [id(versionId)],
@@ -451,7 +463,7 @@ async function versionAccess(pool: Pool, identity: ServiceIdentity, versionId: s
   return { workspace, version };
 }
 export async function listVersionFiles(
-  pool: Pool,
+  pool: Executor,
   identity: ServiceIdentity,
   versionId: string,
   options: unknown = {},
@@ -464,7 +476,7 @@ export async function listVersionFiles(
   );
 }
 export async function listDraftFiles(
-  pool: Pool,
+  pool: Executor,
   identity: ServiceIdentity,
   draftId: string,
   options: unknown = {},
@@ -481,7 +493,7 @@ export async function listDraftFiles(
   );
 }
 
-export async function getDraft(pool: Pool, identity: ServiceIdentity, draftId: string) {
+export async function getDraft(pool: Executor, identity: ServiceIdentity, draftId: string) {
   const context = await draftContext(pool, actor(identity), id(draftId));
   return workspaceDraftRecordSchema.parse({
     ...context.draft,
@@ -494,7 +506,7 @@ export async function getDraft(pool: Pool, identity: ServiceIdentity, draftId: s
 }
 
 export async function rebaseDraft(
-  pool: Pool,
+  pool: Executor,
   store: DocumentBlobStore,
   identity: ServiceIdentity,
   draftId: string,
@@ -667,7 +679,7 @@ async function readFile(
   });
 }
 export async function readVersionFile(
-  pool: Pool,
+  pool: Executor,
   store: DocumentBlobStore,
   identity: ServiceIdentity,
   versionId: string,
@@ -690,7 +702,7 @@ export async function readVersionFile(
   );
 }
 export async function readDraftFile(
-  pool: Pool,
+  pool: Executor,
   store: DocumentBlobStore,
   identity: ServiceIdentity,
   draftId: string,
@@ -740,7 +752,7 @@ async function decisionAppend(store: DocumentBlobStore, before: Manifest, after:
     );
 }
 export async function writeDraftFile(
-  pool: Pool,
+  pool: Executor,
   store: DocumentBlobStore,
   identity: ServiceIdentity,
   draftId: string,
@@ -909,7 +921,7 @@ async function persistVersion(
   return workspaceSaveResultSchema.parse({ version, draft });
 }
 export async function saveDraft(
-  pool: Pool,
+  pool: Executor,
   store: DocumentBlobStore,
   identity: ServiceIdentity,
   draftId: string,
@@ -938,7 +950,7 @@ export async function saveDraft(
   });
 }
 export async function restoreVersion(
-  pool: Pool,
+  pool: Executor,
   store: DocumentBlobStore,
   identity: ServiceIdentity,
   draftId: string,
@@ -981,4 +993,317 @@ export async function restoreVersion(
       'workspace.restored',
     );
   });
+}
+
+export async function resolveWorkspaceToolContext(
+  client: PoolClient,
+  identity: ServiceIdentity,
+  projectId: string,
+  conversationId: string,
+  view: 'draft' | 'current' = 'draft',
+  write = false,
+) {
+  const viewer = actor(identity);
+  await activeActor(client, viewer);
+  const located = (
+    await client.query<{ workspace_id: string }>(
+      `SELECT w.id AS workspace_id FROM conversation c JOIN workspace w ON w.project_id=c.project_id
+     WHERE c.id=$1 AND c.user_id=$2 AND c.project_id=$3 AND c.status='active'`,
+      [id(conversationId), viewer.userId, id(projectId)],
+    )
+  ).rows[0];
+  if (!located) throw absent();
+  const workspace = await workspaceAccess(client, viewer, located.workspace_id, write, write);
+  const conversation = (
+    await client.query<Conversation>(
+      `SELECT id,project_id,user_id,permission_mode,status,max_data_level FROM conversation
+     WHERE id=$1 AND user_id=$2${write ? ' FOR UPDATE' : ''}`,
+      [conversationId, viewer.userId],
+    )
+  ).rows[0];
+  if (!conversation || conversation.project_id !== workspace.projectId) throw absent();
+  if (write) requireExecution(conversation);
+  const found = (
+    await client.query<Record<string, unknown>>(
+      `SELECT ${draftFields} FROM workspace_draft d WHERE d.conversation_id=$1 AND d.owner_user_id=$2${write ? ' FOR UPDATE OF d' : ''}`,
+      [conversationId, viewer.userId],
+    )
+  ).rows[0];
+  const draft = found ? toDraft(found) : null;
+  if (draft && (draft.workspaceId !== workspace.id || draft.projectId !== projectId))
+    throw absent();
+  if (write && !draft)
+    throw new AppError(
+      409,
+      'WORKSPACE_DRAFT_REQUIRED',
+      '当前对话尚未准备工作副本，请重新打开对话后再写入；不能指定其他对话的副本。',
+    );
+  const actualView = view === 'draft' && draft ? 'draft' : 'current';
+  const files =
+    actualView === 'draft' && draft
+      ? await effectiveFiles(client, draft)
+      : await manifest(client, workspace.currentVersionId);
+  const level = highest(
+    workspace.dataLevel,
+    conversation.max_data_level,
+    draft?.dataLevel,
+    ...[...files.values()].map((file) => file.dataLevel),
+  );
+  const stateToken = digest({
+    workspaceId: workspace.id,
+    workspaceVersion: workspace.version,
+    currentVersionId: workspace.currentVersionId,
+    draftId: draft?.id ?? null,
+    draftVersion: draft?.version ?? null,
+    baseVersionId: draft?.baseVersionId ?? null,
+    level,
+    files: sorted(files),
+    view: actualView,
+  });
+  return {
+    workspace,
+    draft,
+    conversation,
+    files,
+    view: actualView,
+    versionId: actualView === 'draft' && draft ? draft.baseVersionId : workspace.currentVersionId,
+    dataLevel: level,
+    stateToken,
+  };
+}
+
+async function overlaySnapshot(client: PoolClient, draftId: string) {
+  const result = await client.query<Record<string, unknown>>(
+    `SELECT ${fileFields},is_deleted AS "isDeleted" FROM workspace_draft_file WHERE draft_id=$1 ORDER BY path COLLATE "C" LIMIT 10001`,
+    [draftId],
+  );
+  if (result.rows.length > maxFiles)
+    throw new AppError(413, 'WORKSPACE_FILE_LIMIT', '工作副本改动超过上限，不能捕获撤销快照。');
+  return result.rows.map((row) =>
+    workspaceUndoOverlaySchema.parse({
+      ...row,
+      byteSize: row.byteSize === null ? null : Number(row.byteSize),
+    }),
+  );
+}
+
+export async function workspaceVersionToken(
+  client: PoolClient,
+  identity: ServiceIdentity,
+  draftId: string,
+) {
+  const context = await draftContext(client, actor(identity), id(draftId), true);
+  return digest({
+    workspaceId: context.workspace.id,
+    currentVersionId: context.workspace.currentVersionId,
+    workspaceVersion: context.workspace.version,
+    workspaceLevel: context.workspace.dataLevel,
+    draftId: context.draft.id,
+    draftVersion: context.draft.version,
+    baseVersionId: context.draft.baseVersionId,
+    draftLevel: context.draft.dataLevel,
+    overlay: await overlaySnapshot(client, draftId),
+  });
+}
+
+async function verifiedContent(store: DocumentBlobStore, file: FileRecord) {
+  const bytes = await store.get(file.sha256);
+  if (
+    bytes.byteLength !== file.byteSize ||
+    createHash('sha256').update(bytes).digest('hex') !== file.sha256
+  )
+    throw new AppError(
+      500,
+      'WORKSPACE_CONTENT_MISMATCH',
+      '文件内容与哈希记录不一致，已拒绝使用，请联系维护人员。',
+    );
+  return bytes;
+}
+export async function readWorkspaceToolText(store: DocumentBlobStore, file: FileRecord) {
+  return decodeUtf8Text(await verifiedContent(store, file));
+}
+
+export async function captureWorkspaceUndo(
+  client: PoolClient,
+  store: DocumentBlobStore,
+  identity: ServiceIdentity,
+  draftId: string,
+  publishes: boolean,
+) {
+  const context = await draftContext(client, actor(identity), id(draftId), true);
+  const snapshot = workspaceUndoSnapshotSchema.parse({
+    workspaceId: context.workspace.id,
+    projectId: context.workspace.projectId,
+    conversationId: context.conversation.id,
+    ownerUserId: identity.userId,
+    draftId,
+    publicVersionId: context.workspace.currentVersionId,
+    baseVersionId: context.draft.baseVersionId,
+    overlay: await overlaySnapshot(client, draftId),
+  });
+  const bytes = Buffer.from(JSON.stringify(snapshot), 'utf8');
+  const stored = await store.put(bytes);
+  if (
+    stored.sha256 !== createHash('sha256').update(bytes).digest('hex') ||
+    stored.byteSize !== bytes.byteLength
+  )
+    throw new AppError(500, 'WORKSPACE_CONTENT_MISMATCH', '撤销快照保存校验失败，本次修改未开始。');
+  return workspaceToolUndoStateSchema.parse({
+    snapshotSha256: stored.sha256,
+    byteSize: stored.byteSize,
+    publishes,
+  });
+}
+
+export async function advanceDraftConfirmation(
+  client: PoolClient,
+  identity: ServiceIdentity,
+  draftId: string,
+) {
+  const viewer = actor(identity);
+  const context = await draftContext(client, viewer, id(draftId), true);
+  const changed = await client.query<Record<string, unknown>>(
+    `UPDATE workspace_draft d SET version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING ${draftFields}`,
+    [draftId],
+  );
+  const draft = toDraft(changed.rows[0]!);
+  await audit(
+    client,
+    viewer,
+    'workspace.rebase_confirmed',
+    'workspace_draft',
+    draftId,
+    { version: context.draft.version },
+    { version: draft.version },
+  );
+  return { draft };
+}
+
+export async function restoreWorkspaceUndo(
+  client: PoolClient,
+  store: DocumentBlobStore,
+  identity: ServiceIdentity,
+  draftId: string,
+  input: WorkspaceToolUndoState,
+) {
+  const viewer = actor(identity);
+  const state = workspaceToolUndoStateSchema.parse(input);
+  const bytes = await store.get(state.snapshotSha256);
+  if (
+    bytes.byteLength !== state.byteSize ||
+    createHash('sha256').update(bytes).digest('hex') !== state.snapshotSha256
+  )
+    throw new AppError(
+      500,
+      'WORKSPACE_UNDO_SNAPSHOT_INVALID',
+      '撤销快照校验失败，当前工作区未改变。',
+    );
+  let raw: unknown;
+  try {
+    raw = JSON.parse(decodeUtf8Text(bytes));
+  } catch {
+    throw new AppError(
+      500,
+      'WORKSPACE_UNDO_SNAPSHOT_INVALID',
+      '撤销快照不能读取，当前工作区未改变。',
+    );
+  }
+  const parsed = workspaceUndoSnapshotSchema.safeParse(raw);
+  if (!parsed.success)
+    throw new AppError(
+      500,
+      'WORKSPACE_UNDO_SNAPSHOT_INVALID',
+      '撤销快照格式无效，当前工作区未改变。',
+    );
+  const snapshot = parsed.data;
+  const context = await draftContext(client, viewer, id(draftId), true);
+  if (
+    snapshot.draftId !== draftId ||
+    snapshot.workspaceId !== context.workspace.id ||
+    snapshot.projectId !== context.workspace.projectId ||
+    snapshot.conversationId !== context.conversation.id ||
+    snapshot.ownerUserId !== viewer.userId
+  )
+    throw absent();
+  for (const versionId of [snapshot.baseVersionId, snapshot.publicVersionId]) {
+    const accessible = await versionAccess(client, viewer, versionId);
+    if (accessible.workspace.id !== context.workspace.id) throw absent();
+  }
+  const currentFiles = await effectiveFiles(client, context.draft);
+  const latestDecision = currentFiles.get(decisionPath);
+  let baseVersionId = snapshot.baseVersionId;
+  let base = await manifest(client, baseVersionId);
+  if (state.publishes) {
+    await assertCurrentBase(client, context);
+    const restored = await manifest(client, snapshot.publicVersionId);
+    if (latestDecision) restored.set(decisionPath, latestDecision);
+    await decisionAppend(store, currentFiles, restored);
+    const saved = await persistVersion(
+      client,
+      viewer,
+      context,
+      restored,
+      '撤销工作区操作，保留最新决定历史',
+      'workspace.compensated',
+    );
+    baseVersionId = saved.version.id;
+    base = restored;
+  }
+  const rows = new Map(snapshot.overlay.map((row) => [row.path, row]));
+  if (
+    latestDecision &&
+    (rows.get(decisionPath)?.sha256 ?? base.get(decisionPath)?.sha256) !== latestDecision.sha256
+  )
+    rows.set(decisionPath, { ...latestDecision, isDeleted: false });
+  const effective = new Map(base);
+  for (const row of rows.values()) {
+    if (row.isDeleted) effective.delete(row.path);
+    else {
+      const { isDeleted: _deleted, ...file } = row;
+      effective.set(row.path, workspaceFileRecordSchema.parse(file));
+    }
+  }
+  if (effective.size > maxFiles || rows.size > maxFiles)
+    throw new AppError(
+      413,
+      'WORKSPACE_FILE_LIMIT',
+      '撤销后的文件清单超过10000项，当前工作区未改变，请先核对差异。',
+    );
+  await decisionAppend(store, currentFiles, effective);
+  const level = highest(
+    context.workspace.dataLevel,
+    context.draft.dataLevel,
+    context.conversation.max_data_level,
+    ...[...effective.values()].map((file) => file.dataLevel),
+  );
+  for (const file of effective.values()) await verifiedContent(store, file);
+  await client.query('DELETE FROM workspace_draft_file WHERE draft_id=$1', [draftId]);
+  if (rows.size)
+    await client.query(
+      `INSERT INTO workspace_draft_file(draft_id,path,sha256,byte_size,data_level,media_type,is_deleted)
+     SELECT $1,r.path,r.sha256,r."byteSize",r."dataLevel"::document_data_level,r."mediaType",r."isDeleted"
+     FROM jsonb_to_recordset($2::jsonb) AS r(path text,sha256 text,"byteSize" bigint,"dataLevel" text,"mediaType" text,"isDeleted" boolean)`,
+      [
+        draftId,
+        JSON.stringify(
+          [...rows.values()].map((row) => ({ ...row, dataLevel: highest(row.dataLevel, level) })),
+        ),
+      ],
+    );
+  await client.query(
+    'UPDATE workspace_draft SET base_version_id=$1,data_level=GREATEST(data_level,$2::document_data_level),version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$3',
+    [baseVersionId, level, draftId],
+  );
+  const latestWorkspace = await workspaceAccess(client, viewer, context.workspace.id, true, true);
+  await raiseWorkspaceLevel(client, latestWorkspace, highest(latestWorkspace.dataLevel, level));
+  await audit(
+    client,
+    viewer,
+    'workspace.operation_undone',
+    'workspace_draft',
+    draftId,
+    { draftVersion: context.draft.version, baseVersionId: context.draft.baseVersionId },
+    { snapshotSha256: state.snapshotSha256, baseVersionId },
+  );
+  return { afterVersion: await workspaceVersionToken(client, viewer, draftId) };
 }
