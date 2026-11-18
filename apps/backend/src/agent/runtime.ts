@@ -445,12 +445,16 @@ export async function executeAgentRun(
           event: { type: 'tool_started' },
         });
       } else if (event.type === 'tool_completed') {
+        const approval = toolApprovalPendingResultSchema.safeParse(event.data);
         await emit({
           type: event.isError ? 'tool_failed' : 'tool_completed',
           payload: {
             callId: event.callId,
             name: event.name,
             summary: toolSummary(event.name, event.data, event.isError),
+            ...(!event.isError && approval.success && approval.data.status === 'pending'
+              ? { awaitingApproval: true }
+              : {}),
           },
         });
         if (!event.isError && event.name === 'plan_update')

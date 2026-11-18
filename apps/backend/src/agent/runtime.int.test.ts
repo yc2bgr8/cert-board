@@ -867,6 +867,12 @@ test.each(['allow_once', 'reject'] as const)(
     const done = await executeAgentRun(dependencies, target.runId);
     expect(done.status).toBe('waiting');
     expect(Boolean(done.approvalId)).toBe(true);
+    const waitingTool = await context.pool.query(
+      `SELECT payload_json FROM conversation_event WHERE run_id=$1 AND type='tool_completed'
+       AND payload_json->>'name'='queue_internal_message'`,
+      [target.runId],
+    );
+    expect(waitingTool.rows).toMatchObject([{ payload_json: { awaitingApproval: true } }]);
     expect(models).toBe(1);
     expect(lateReads).toBe(0);
     expect(

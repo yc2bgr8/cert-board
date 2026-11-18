@@ -6,6 +6,7 @@ import {
   conversationPublicListSchema,
   conversationPublicHistorySchema,
   conversationPublicEventSchema,
+  toolApprovalPendingResultSchema,
   memberNotificationSnapshotSchema,
   type BackendConfig,
   type BrowserIdentity,
@@ -183,10 +184,18 @@ export function projectConversationEvent(row: {
       const name =
         typeof p.name === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(p.name) ? p.name : undefined;
       const label = toolLabel(name ?? '');
+      const historical = toolApprovalPendingResultSchema.safeParse(p.data);
+      const awaitingApproval =
+        type === 'tool_completed' &&
+        (p.awaitingApproval === true ||
+          (historical.success && historical.data.status === 'pending'));
       payload = {
         ...optional('name', name),
         ...optional('callId', call(p.callId)),
-        summary: `${label}${type === 'tool_failed' ? '未完成' : type === 'tool_completed' ? '已完成' : ''}`,
+        ...(awaitingApproval ? { awaitingApproval: true } : {}),
+        summary: awaitingApproval
+          ? '等待发起人在浏览器批准后继续'
+          : `${label}${type === 'tool_failed' ? '未完成' : type === 'tool_completed' ? '已完成' : ''}`,
       };
       break;
     }

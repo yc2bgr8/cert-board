@@ -31,6 +31,39 @@ describe('公开对话过程投影', () => {
     });
     expect(JSON.stringify(result)).not.toMatch(/旧资料正文|原参数|旧摘要|收件人|待批准正文/);
   });
+  it('等待过程批准的当前标志和完整旧回执都不能显示工具已完成', () => {
+    for (const payload of [
+      { name: 'queue_internal_message', awaitingApproval: true, summary: '不可直接透传的摘要' },
+      {
+        name: 'queue_internal_message',
+        data: { approvalId: randomUUID(), status: 'pending', message: '不可直接透传的批准正文' },
+      },
+    ]) {
+      const result = projectConversationEvent({ ...row, type: 'tool_completed', payload });
+      expect(result.payload).toEqual({
+        name: 'queue_internal_message',
+        awaitingApproval: true,
+        summary: '等待发起人在浏览器批准后继续',
+      });
+      expect(JSON.stringify(result)).not.toMatch(/不可直接透传|已完成|approvalId/);
+    }
+  });
+  it('不从任意摘要或无效历史data推断等待批准，不输出原data', () => {
+    const result = projectConversationEvent({
+      ...row,
+      type: 'tool_completed',
+      payload: {
+        name: 'queue_internal_message',
+        summary: '等待发起人在浏览器批准后继续',
+        data: { approvalId: '非UUID', status: 'pending', message: '不能透露' },
+      },
+    });
+    expect(result.payload).toEqual({
+      name: 'queue_internal_message',
+      summary: '登记内部测试消息已完成',
+    });
+    expect(JSON.stringify(result)).not.toContain('不能透露');
+  });
   it('所有既有及新增事件有闭合白名单，无效字段不会进入SSE', () => {
     for (const type of [
       'user_message',

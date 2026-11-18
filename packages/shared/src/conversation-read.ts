@@ -91,6 +91,7 @@ const tool = z
       .regex(/^[a-z][a-z0-9_]*$/)
       .optional(),
     callId: callId.optional(),
+    awaitingApproval: z.literal(true).optional(),
     summary: text(400),
   })
   .strict();
