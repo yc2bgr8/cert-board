@@ -17,11 +17,11 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
 </style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#启动与账号">启动与账号</a><a class="level-2" href="#需要lan处理与后续">需要Lan处理与后续</a></nav><main><h1 id="晨报-阶段记录-继续开发中">晨报（阶段记录，继续开发中）</h1>
 <p>截至2026-11-18下午：夜间额度中断发生在PR-12，原定07:00可用目标未实现。Lan发出“继续”后，08:50恢复开发；本文件会随最终可用版本更新，不能据此认定主路径已完成。</p>
-<ul><li>已合并PR-00～12、PR-14、PR-16；PR-20正在收口，真实Flash已通过同一Pi内核多轮登记工具验证。</li><li>主路径尚未完成：目前浏览器仍是界面稿，实时对话和实际审核卡界面接入未完成。</li><li>L08资料已导入：59份资料、664条逐页解析文本；工作区、授权、提案审批、预算和执行记录基础已具备。</li><li>累计真实模型费用：6次调用，0.000599248美元，未结算预占0。继续开发仍使用原整晚预算，不重置10美元上限；用<code>pnpm budget:status</code>核对最新值。</li></ul>
+<ul><li>已合并PR-00～12、PR-14、PR-16、PR-20；正在同步PR-C1，真实Flash已通过同一Pi内核多轮登记工具验证。</li><li>主路径尚未完成：目前浏览器仍是界面稿，实时对话和实际审核卡界面接入未完成。</li><li>L08资料已导入：59份资料、664条逐页解析文本；工作区、授权、提案审批、预算和执行记录基础已具备。</li><li>累计真实模型费用：6次调用，0.000599248美元，未结算预占0。继续开发仍使用原整晚预算，不重置10美元上限；用<code>pnpm budget:status</code>核对最新值。</li></ul>
 <h2 id="启动与账号">启动与账号</h2>
 <p>当前基础环境命令：<code>pnpm dev:up</code>、<code>pnpm db:setup</code>，另开终端运行<code>pnpm dev:api</code>和<code>pnpm dev:web</code>。地址为http://127.0.0.1:28080；当前显示界面稿。实际Agent入口与最终完整启动命令会在完成时更新。</p>
 <p>开发账号有ra、rb、gm、sales、tech。ra密码在<code>.env.local</code>的<code>DEV_RA_PASSWORD</code>中，其他账号对应<code>DEV_RB_PASSWORD</code>等变量；本报告不记录密码。</p>
 <h2 id="需要lan处理与后续">需要Lan处理与后续</h2>
-<p>最新顺序已按2026-11-18变更单改为：PR-20（原范围收口）→PR-C1（变更及AGENTS同步）→PR-C2（新静态界面稿）→PR-C3（部门成员与三权限模式）→PR-C4（八部分审核）→PR-21→PR-25→PR-26→PR-27。单Agent定义已写，依安排在PR-21改为注册/维护两份。PR-C2合并后会在开发进度记录截图及打开方法。</p>
-<p>截至本次变更，PR-00～12、PR-14、PR-16已合并，PR-20正在联调；原界面与旧角色/高风险判断机制将按上述后续PR迁移，尚不能当作已完成新要求。</p>
+<p>最新顺序已按<a href="变更单/需求变更单_2026-11-18.html">2026-11-18变更单</a>改为：PR-C1（变更及AGENTS同步）→PR-C2（新静态界面稿）→PR-C3（部门成员与三权限模式）→PR-C4（八部分审核）→PR-21→PR-25→PR-26→PR-27。PR-20已按原范围合并；单Agent定义已写，依安排在PR-21改为注册/维护两份。PR-C2合并后会在开发进度记录截图及打开方法。</p>
+<p>PR-C1只同步已确认约定；原界面与旧角色/高风险判断机制将按上述后续PR迁移，尚不能当作已完成新要求。</p>
 <ul><li>界面稿、技能与规则草稿仍待Lan及注册人员确认。</li><li>GitHub私有仓库分支保护受当前账号套餐限制；开发期间按本地检查、CI及AI复审自合并执行。</li><li>顶级模型真实比选仍待预算，今晚/本次续作只使用指定Flash。</li><li>本机Fake-IP导致代理DNS需临时映射，见<a href="../deploy/egress/README.html">代理说明</a>，后续需刷新或由IT处理。</li><li>完整进度见<a href="开发进度.html">开发进度</a>，取舍见<a href="决定记录.html">决定记录</a>，所有未完成验收项见<a href="待办.html">待办</a>。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
