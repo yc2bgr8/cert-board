@@ -16,40 +16,75 @@ export async function seedDevelopmentProject(pool: pg.Pool, environment: Record<
   try {
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock(20261117, 5)');
-    const existing = await client.query<{ id: string; development_seed_key: string | null }>(
-      'SELECT id, development_seed_key FROM cert_project WHERE id=$1 OR development_seed_key=$2 FOR UPDATE',
+    const existing = await client.query<{
+      id: string;
+      development_seed_key: string | null;
+      owner_user_id: string;
+    }>(
+      'SELECT id, development_seed_key,owner_user_id FROM cert_project WHERE id=$1 OR development_seed_key=$2 FOR UPDATE',
       [developmentProjectId, seedKey],
     );
     if (existing.rowCount) {
       const project = existing.rows[0];
-      const goal = await client.query('SELECT id FROM goal WHERE id=$1 AND project_id=$2', [
-        developmentGoalId,
-        developmentProjectId,
-      ]);
+      const goal = await client.query(
+        'SELECT id,owner_user_id FROM goal WHERE id=$1 AND project_id=$2 FOR UPDATE',
+        [developmentGoalId, developmentProjectId],
+      );
       if (
         existing.rowCount !== 1 ||
         project?.id !== developmentProjectId ||
         project.development_seed_key !== seedKey ||
         goal.rowCount !== 1
       ) {
-        throw new DevelopmentSeedError('开发项目种子存在编号冲突或不完整记录，请人工核对；未覆盖已有数据。');
+        throw new DevelopmentSeedError(
+          '开发项目种子存在编号冲突或不完整记录，请人工核对；未覆盖已有数据。',
+        );
+      }
+      const legacy = await client.query<{ id: string }>(
+        "SELECT id FROM app_user WHERE is_development=true AND username IN ('ra','rb','gm','sales','tech')",
+      );
+      const legacyIds = new Set(legacy.rows.map((row) => row.id));
+      if (legacyIds.has(project.owner_user_id) || legacyIds.has(goal.rows[0].owner_user_id)) {
+        const replacement = (
+          await client.query<{ id: string }>(
+            "SELECT id FROM app_user WHERE username='zhangsan' AND is_development=true AND status='active' FOR SHARE",
+          )
+        ).rows[0];
+        if (!replacement)
+          throw new DevelopmentSeedError('缺少有效的张三开发账号，未改动旧负责人。');
+        for (const item of [
+          { table: 'cert_project', id: developmentProjectId, owner: project.owner_user_id },
+          { table: 'goal', id: developmentGoalId, owner: goal.rows[0].owner_user_id as string },
+        ]) {
+          if (!legacyIds.has(item.owner)) continue;
+          await client.query(
+            `UPDATE ${item.table} SET owner_user_id=$1,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$2`,
+            [replacement.id, item.id],
+          );
+          await client.query(
+            "INSERT INTO audit_log(actor_kind,action,target_type,target_id,before_hash,after_hash) VALUES('system','development.owner_migrated',$1,$2,$3,$4)",
+            [
+              item.table,
+              item.id,
+              digest({ ownerUserId: item.owner }),
+              digest({ ownerUserId: replacement.id }),
+            ],
+          );
+        }
       }
       await client.query('COMMIT');
       return { projectId: developmentProjectId, goalId: developmentGoalId, created: false };
     }
-    const members = await client.query<{ id: string; username: string }>(
-      `SELECT DISTINCT u.id,u.username FROM app_user u JOIN role_binding r ON r.user_id=u.id
-       WHERE u.is_development=true AND u.status='active' AND r.scope_type='global'
-       AND ((u.username='ra' AND r.role='RA') OR (u.username='rb' AND r.role='RB'))`,
-    );
-    const owner = members.rows.find((user) => user.username === 'ra');
-    const reviewer = members.rows.find((user) => user.username === 'rb');
-    if (!owner || !reviewer)
-      throw new DevelopmentSeedError('缺少有效的RA/RB开发账号及授权，请先初始化并核对账号。');
+    const owner = (
+      await client.query<{ id: string }>(
+        "SELECT id FROM app_user WHERE username='zhangsan' AND is_development=true AND status='active' FOR SHARE",
+      )
+    ).rows[0];
+    if (!owner) throw new DevelopmentSeedError('缺少有效的张三开发账号，请先初始化并核对账号。');
     const project = await client.query(
       `INSERT INTO cert_project(id,development_seed_key,name,project_type,market,pathway,owner_user_id,reviewer_user_id,next_action)
-       VALUES ($1,$2,'L08 510(k)','registration','US','510(k)',$3,$4,'核对资料中对比器械K号的写法，结论待人工确认。') RETURNING *`,
-      [developmentProjectId, seedKey, owner.id, reviewer.id],
+       VALUES ($1,$2,'L08 510(k)','registration','US','510(k)',$3,NULL,'核对资料中对比器械K号的写法，结论待人工确认。') RETURNING *`,
+      [developmentProjectId, seedKey, owner.id],
     );
     const goal = await client.query(
       `INSERT INTO goal(id,project_id,owner_user_id,title,acceptance_criteria)

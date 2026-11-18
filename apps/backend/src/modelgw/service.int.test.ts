@@ -291,7 +291,7 @@ test('运行和对话归属不能伪造，模型和用途只能从已启用配�
     environment: 'test',
   });
   await expect(
-    gateway.complete(request, { ...caller, userId: context.userId('RB') }),
+    gateway.complete(request, { ...caller, userId: context.userId('MEMBER_B') }),
   ).rejects.toMatchObject({ code: 'MODEL_CONTEXT_FORBIDDEN' });
   await expect(
     gateway.complete(request, { ...caller, conversationId: randomUUID() }),

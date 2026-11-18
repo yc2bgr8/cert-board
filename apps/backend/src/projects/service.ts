@@ -9,10 +9,10 @@ import {
   projectListOptionsSchema,
   projectPatchSchema,
   projectRecordSchema,
-  type AuthorizationAction,
   type ServiceIdentity,
 } from '@cert-board/shared';
 import { authorize } from '../auth/authorization.js';
+import { currentServiceIdentity } from '../auth/member.js';
 import { AppError } from '../api/errors.js';
 
 type Executor = Pool | PoolClient;
@@ -66,45 +66,18 @@ function pagination(options: Pagination) {
   return { cursor: result.data.cursor ?? null, limit: result.data.limit ?? 50 };
 }
 
-function access(identity: ServiceIdentity, action: AuthorizationAction) {
-  let global = false;
-  let own = false;
-  const projectIds = new Set<string>();
-  for (const binding of identity.roles) {
-    const sampleProject = binding.scopeId ?? '00000000-0000-4000-8000-000000000001';
-    if (
-      !authorize({ ...identity, roles: [binding] }, action, {
-        projectId: sampleProject,
-        ownerUserId: identity.userId,
-      })
-    )
-      continue;
-    if (binding.scopeType === 'global') global = true;
-    else if (binding.scopeType === 'own') own = true;
-    else if (binding.scopeId) projectIds.add(binding.scopeId);
-  }
-  if (!global && !own && projectIds.size === 0) throw forbidden();
-  return [global, [...projectIds], own, identity.userId] as const;
-}
-
-// 列名仅由下方固定调用点提供；所有身份、范围、游标和正文值均走SQL参数。
-function accessPredicate(projectColumn: string, ownerColumn: string) {
-  return `($1::boolean OR ${projectColumn} = ANY($2::uuid[]) OR ($3::boolean AND ${ownerColumn} = $4::uuid))
-    AND EXISTS (SELECT 1 FROM app_user viewer WHERE viewer.id = $4::uuid AND viewer.status = 'active')`;
-}
-
 export async function listProjects(
   pool: Pool,
   identity: ServiceIdentity,
   options: Pagination = {},
 ) {
-  const viewer = actor(identity);
+  const viewer = await currentServiceIdentity(pool, identity);
   const page = pagination(options);
   const result = await pool.query<Record<string, unknown>>(
     `SELECT ${projectFields} FROM cert_project p
-     WHERE ${accessPredicate('p.id', 'p.owner_user_id')} AND ($5::uuid IS NULL OR p.id > $5::uuid)
-     ORDER BY p.id ASC LIMIT $6`,
-    [...access(viewer, 'project.read'), page.cursor, page.limit + 1],
+     WHERE EXISTS(SELECT 1 FROM app_user viewer WHERE viewer.id=$1 AND viewer.status='active')
+     AND ($2::uuid IS NULL OR p.id > $2::uuid) ORDER BY p.id ASC LIMIT $3`,
+    [viewer.userId, page.cursor, page.limit + 1],
   );
   const hasMore = result.rows.length > page.limit;
   const items = result.rows.slice(0, page.limit).map(projectRecord);
@@ -118,9 +91,9 @@ async function readProject(
   write = false,
 ) {
   const result = await database.query<Record<string, unknown>>(
-    `SELECT ${projectFields} FROM cert_project p WHERE ${accessPredicate('p.id', 'p.owner_user_id')}
-     AND p.id = $5::uuid${write ? ' FOR UPDATE OF p' : ''}`,
-    [...access(identity, write ? 'project.write' : 'project.read'), id],
+    `SELECT ${projectFields} FROM cert_project p WHERE EXISTS(SELECT 1 FROM app_user viewer WHERE viewer.id=$1 AND viewer.status='active')
+     AND p.id = $2::uuid${write ? ' FOR UPDATE OF p' : ''}`,
+    [identity.userId, id],
   );
   if (!result.rows[0]) throw missingProject();
   const record = projectRecord(result.rows[0]);
@@ -135,7 +108,7 @@ async function readProject(
 }
 
 export async function getProject(pool: Pool, identity: ServiceIdentity, id: string) {
-  return readProject(pool, actor(identity), identifier(id));
+  return readProject(pool, await currentServiceIdentity(pool, identity), identifier(id));
 }
 
 async function activeActor(client: PoolClient, identity: ServiceIdentity) {
@@ -146,31 +119,14 @@ async function activeActor(client: PoolClient, identity: ServiceIdentity) {
   if (!result.rowCount) throw forbidden();
 }
 
-async function reviewerAllowed(
-  client: PoolClient,
-  reviewerId: string,
-  ownerId: string,
-  projectId: string,
-) {
-  if (reviewerId === ownerId)
-    throw new AppError(
-      400,
-      'REVIEWER_INVALID',
-      '复核人必须是另一名有本项目审核权限的有效注册人员。',
-    );
+async function reviewerAllowed(client: PoolClient, reviewerId: string | null) {
+  if (reviewerId === null) return;
   const result = await client.query(
-    `SELECT u.id FROM app_user u WHERE u.id = $1 AND u.status = 'active' AND EXISTS (
-       SELECT 1 FROM role_binding r WHERE r.user_id = u.id AND r.role IN ('RA', 'RB')
-         AND (r.scope_type = 'global' OR (r.scope_type = 'project' AND r.scope_id = $2))
-     ) FOR SHARE OF u`,
-    [reviewerId, projectId],
+    "SELECT id FROM app_user WHERE id=$1 AND status='active' FOR SHARE",
+    [reviewerId],
   );
   if (!result.rowCount)
-    throw new AppError(
-      400,
-      'REVIEWER_INVALID',
-      '复核人必须是另一名有本项目审核权限的有效注册人员。',
-    );
+    throw new AppError(400, 'REVIEWER_INVALID', '所选复核人不是有效部门成员，请重新选择或留空。');
 }
 
 function digest(value: unknown) {
@@ -225,7 +181,7 @@ export async function createProject(pool: Pool, identity: ServiceIdentity, input
   try {
     await client.query('BEGIN');
     await activeActor(client, owner);
-    await reviewerAllowed(client, data.reviewerUserId, owner.userId, id);
+    await reviewerAllowed(client, data.reviewerUserId ?? null);
     const result = await client.query<Record<string, unknown>>(
       `INSERT INTO cert_project AS p
        (id, name, project_type, market, pathway, model_id, owner_user_id, reviewer_user_id,
@@ -317,14 +273,14 @@ export async function getProjectGoals(
   id: string,
   options: Pagination = {},
 ) {
-  const viewer = actor(identity);
+  const viewer = await currentServiceIdentity(pool, identity);
   const projectId = identifier(id);
   await readProject(pool, viewer, projectId);
   const page = pagination(options);
   const result = await pool.query<Record<string, unknown>>(
-    `SELECT ${goalFields} FROM goal g WHERE ${accessPredicate('g.project_id', 'g.owner_user_id')}
-     AND g.project_id = $5 AND ($6::uuid IS NULL OR g.id > $6::uuid) ORDER BY g.id ASC LIMIT $7`,
-    [...access(viewer, 'record.read'), projectId, page.cursor, page.limit + 1],
+    `SELECT ${goalFields} FROM goal g WHERE g.project_id = $1
+     AND ($2::uuid IS NULL OR g.id > $2::uuid) ORDER BY g.id ASC LIMIT $3`,
+    [projectId, page.cursor, page.limit + 1],
   );
   const hasMore = result.rows.length > page.limit;
   const items = result.rows.slice(0, page.limit).map((row) =>

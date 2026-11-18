@@ -10,6 +10,7 @@ import {
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
+import { currentServiceIdentity } from '../auth/member.js';
 import { lockOwnedRun } from './lock.js';
 
 const columns = `e.id,e.run_id AS "runId",e.seq,e.type,e.invocation_id AS "invocationId",e.request_id AS "requestId",e.content_hash AS "contentHash",e.data_level AS "dataLevel",e.reason_code AS "reasonCode",e.input_tokens AS "inputTokens",e.output_tokens AS "outputTokens",e.total_tokens AS "totalTokens",e.cost_nano AS "costNano",e.duration_ms AS "durationMs",e.created_at AS "createdAt"`;
@@ -25,7 +26,7 @@ function dto(row: Record<string, unknown>) {
   });
 }
 const missing = () =>
-  new AppError(404, 'RUN_EVENTS_NOT_FOUND', '未找到可访问的运行事件，请从自己的项目对话重新打开。');
+  new AppError(404, 'RUN_EVENTS_NOT_FOUND', '未找到可访问的运行事件，请从项目对话重新打开。');
 
 export async function appendRunEvent(pool: Pool, input: unknown) {
   const parsed = appendRunEventSchema.safeParse(input);
@@ -125,23 +126,24 @@ export async function listRunEvents(
       'RUN_EVENT_QUERY_INVALID',
       '运行编号或分页位置无效，请使用返回的续读序号。',
     );
+  const viewer = await currentServiceIdentity(pool, actor.data);
   const source = await pool.query<{
     user_id: string;
     project_id: string | null;
     project_owner: string | null;
   }>(
-    `SELECT r.user_id,r.project_id,p.owner_user_id AS project_owner FROM run r JOIN app_user u ON u.id=r.user_id LEFT JOIN cert_project p ON p.id=r.project_id WHERE r.id=$1 AND r.user_id=$2 AND u.status='active'`,
-    [runId, actor.data.userId],
+    `SELECT r.user_id,r.project_id,p.owner_user_id AS project_owner FROM run r LEFT JOIN cert_project p ON p.id=r.project_id WHERE r.id=$1`,
+    [runId],
   );
   const run = source.rows[0];
   if (
     !run ||
-    !authorize(actor.data, 'conversation.read', {
+    !authorize(viewer, 'conversation.read', {
       projectId: run.project_id,
       ownerUserId: run.user_id,
     }) ||
     (run.project_id &&
-      !authorize(actor.data, 'project.read', {
+      !authorize(viewer, 'project.read', {
         projectId: run.project_id,
         ownerUserId: run.project_owner,
       }))

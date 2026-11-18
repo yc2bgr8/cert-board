@@ -38,9 +38,10 @@ async function loadContext(db: Database, input: Context): Promise<LoadedContext>
     username: string;
     display_name: string;
     is_development: boolean;
+    is_management: boolean;
     data_level: DataLevel;
   }>(
-    `SELECT r.project_id,p.owner_user_id,u.username,u.display_name,u.is_development,
+    `SELECT r.project_id,p.owner_user_id,u.username,u.display_name,u.is_development,u.is_management,
       GREATEST(r.max_data_level,c.max_data_level,COALESCE(w.data_level,'internal'::document_data_level),
         COALESCE(wd.data_level,'internal'::document_data_level)) AS data_level
      FROM run r JOIN conversation c ON c.id=r.conversation_id JOIN app_user u ON u.id=r.user_id
@@ -53,10 +54,6 @@ async function loadContext(db: Database, input: Context): Promise<LoadedContext>
   );
   const row = result.rows[0];
   if (!row || (process.env.NODE_ENV === 'production' && row.is_development)) throw unavailable();
-  const roles = await db.query(
-    `SELECT role,scope_type AS "scopeType",scope_id AS "scopeId" FROM role_binding WHERE user_id=$1 AND role IN ('RA','RB','GM')`,
-    [reference.userId],
-  );
   const parsedActor = agentIdentitySchema.safeParse({
     kind: 'agent',
     runId: reference.runId,
@@ -64,7 +61,7 @@ async function loadContext(db: Database, input: Context): Promise<LoadedContext>
     username: row.username,
     displayName: row.display_name,
     isDevelopment: row.is_development,
-    roles: roles.rows,
+    isManagement: row.is_management,
   });
   if (!parsedActor.success) throw unavailable();
   const actor = parsedActor.data;

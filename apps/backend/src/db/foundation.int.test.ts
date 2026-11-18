@@ -28,7 +28,7 @@ test('全新数据库迁移成功，重复执行不改变结构和历史', async
   expect(result.rows.map((row) => row.table_name)).toEqual(
     expect.arrayContaining([
       'app_user',
-      'role_binding',
+      'legacy_role_binding',
       'web_session',
       'audit_log',
       'legal_entity',

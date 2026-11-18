@@ -35,11 +35,18 @@ export function decideTool(
     return deny('TOOL_NOT_PUBLISHED', '工具版本尚未发布，不能使用；请选用已发布版本。');
   if (spec.effect === 'irreversible')
     return deny('TOOL_IRREVERSIBLE', '不可逆动作不能由Agent执行；请由人在浏览器中完成相应操作。');
-  if (/^(?:approve(?:_|$)|review_decision$|proposal_decision$|workspace_freeze$)/.test(spec.name))
+  if (
+    /^(?:approve(?:_|$)|approval_decision$|review_decision$|proposal_decision$|workspace_freeze$)/.test(
+      spec.name,
+    )
+  )
     return deny('TOOL_BROWSER_ONLY', '审批和冻结不能登记为模型工具，请在浏览器审核卡操作。');
-  if (!spec.roles.some((role) => ctx.roles.includes(role)) || !ctx.resourceAllowed)
+  if (!ctx.resourceAllowed)
     return deny('TOOL_FORBIDDEN', '当前身份或对象范围不允许使用此工具，请联系有权限的负责人。');
-  if (!spec.modes.includes(ctx.mode) || (ctx.mode === 'read_only' && spec.effect !== 'read'))
+  if (
+    !spec.modes.includes(ctx.permissionMode) ||
+    (ctx.permissionMode === 'read_only' && spec.effect !== 'read')
+  )
     return deny('TOOL_READ_ONLY', '当前会话不允许此动作；只读检查不能写入或生成外发提案。');
   if (spec.effect === 'reversible_write' && !ctx.hasUndo)
     return deny(
@@ -53,6 +60,12 @@ export function decideTool(
       decision: 'propose',
       code: 'TOOL_PROPOSAL_ONLY',
       message: '此动作只生成待审核提案，必须由人在浏览器批准，不会直接对外执行。',
+    };
+  if (ctx.permissionMode === 'ask' && spec.approvalInAsk && !ctx.approvalGranted)
+    return {
+      decision: 'require_approval',
+      code: 'TOOL_APPROVAL_REQUIRED',
+      message: '此操作需要发起对话的人在浏览器批准。本轮将暂停，批准前不会执行。',
     };
   return { decision: 'allow', code: 'TOOL_ALLOWED', message: '动作级别与当前权限检查通过。' };
 }

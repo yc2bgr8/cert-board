@@ -45,6 +45,20 @@ test('后台也不能通过动态模块加载绕过审批和宿主机执行隔�
   }
 });
 
+test('过程批准API同样不能由Agent、工具或worker导入', async () => {
+  const lint = new ESLint();
+  for (const file of ['agent/approval-probe.ts', 'tools/approval-probe.ts', 'worker.ts']) {
+    const results = await lint.lintText("import '../api/approval-routes.js';", {
+      filePath: path.join(process.cwd(), 'apps/backend/src', file),
+    });
+    expect(
+      results.some((result) =>
+        result.messages.some((message) => message.ruleId === 'no-restricted-imports'),
+      ),
+    ).toBe(true);
+  }
+});
+
 test('Agent与工具不能绕过模型网关直接建立网络请求', async () => {
   const lint = new ESLint();
   for (const code of [

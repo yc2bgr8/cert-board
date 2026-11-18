@@ -124,7 +124,12 @@ export default [
         {
           patterns: [
             {
-              group: ['**/api/proposal-routes*', '**/api/review-routes*', '**/auth/session*'],
+              group: [
+                '**/api/proposal-routes*',
+                '**/api/review-routes*',
+                '**/api/approval-routes*',
+                '**/auth/session*',
+              ],
               message: '审批与浏览器会话只供接口层使用，不能给Agent或后台提供审批调用路径。',
             },
             {

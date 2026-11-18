@@ -38,7 +38,7 @@ type Conversation = {
   id: string;
   project_id: string | null;
   user_id: string;
-  mode: string;
+  permission_mode: string;
   status: string;
   max_data_level: DataLevel;
 };
@@ -182,9 +182,9 @@ function requireExecution(conversation: Conversation) {
     throw new AppError(
       403,
       'WORKSPACE_CONVERSATION_INACTIVE',
-      '会话已归档，不能继续写入；请在项目中新建执行模式对话。',
+      '会话已归档，不能继续写入；请在项目中新建对话。',
     );
-  if (conversation.mode !== 'execute')
+  if (!['ask', 'full'].includes(conversation.permission_mode))
     throw new AppError(
       403,
       'WORKSPACE_READ_ONLY',
@@ -210,7 +210,7 @@ async function draftContext(
     write,
   );
   const conversations = await database.query<Conversation>(
-    `SELECT c.id,c.project_id,c.user_id,c.mode,c.status,c.max_data_level FROM conversation c
+    `SELECT c.id,c.project_id,c.user_id,c.permission_mode,c.status,c.max_data_level FROM conversation c
      JOIN workspace_draft d ON d.conversation_id=c.id WHERE d.id=$1 AND c.user_id=$2${write ? ' FOR UPDATE OF c' : ''}`,
     [draftId, identity.userId],
   );
@@ -343,7 +343,7 @@ export async function createDraft(pool: Pool, identity: ServiceIdentity, convers
       true,
     );
     const conversations = await client.query<Conversation>(
-      'SELECT id,project_id,user_id,mode,status,max_data_level FROM conversation WHERE id=$1 AND user_id=$2 FOR UPDATE',
+      'SELECT id,project_id,user_id,permission_mode,status,max_data_level FROM conversation WHERE id=$1 AND user_id=$2 FOR UPDATE',
       [conversationKey, viewer.userId],
     );
     const conversation = conversations.rows[0];

@@ -18,8 +18,8 @@ const metadata: ToolMetadata = {
   version: 'builtin-checks-v1',
   publication: 'published',
   effect: 'read',
-  roles: ['RA', 'RB', 'GM'],
-  modes: ['read_only', 'execute'],
+  modes: ['read_only', 'ask', 'full'],
+  approvalInAsk: false,
   outputDataLevel: 'dynamic',
   authorizationAction: 'project.read',
   description: {

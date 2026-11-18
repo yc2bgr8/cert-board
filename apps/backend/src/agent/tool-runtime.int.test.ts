@@ -34,8 +34,8 @@ function readTool(
       version: '1',
       publication: 'published',
       effect: 'read',
-      roles: ['RA'],
-      modes: ['execute', 'read_only'],
+      approvalInAsk: false,
+      modes: ['ask', 'read_only'],
       outputDataLevel: 'internal',
       authorizationAction: 'project.read',
       description: {
@@ -133,7 +133,7 @@ test('handler执行期间执行权到期，提交前检查回滚全部调用记�
 test('停止接口真实认证且只控制自己的run，重复停止不重复审计', async () => {
   const run = await context.run();
   const auth = await context.login();
-  const other = await context.login('RB');
+  const other = await context.login('MEMBER_B');
   for (const headers of [
     { 'sec-fetch-site': 'same-origin' },
     { cookie: auth.cookie, origin: context.config.WEB_ORIGIN, 'sec-fetch-site': 'same-origin' },
@@ -189,7 +189,7 @@ test('工具持写锁时停止通知仍在1秒内到达，abort使业务与undo�
       name: 'runtime_write',
       effect: 'reversible_write',
       authorizationAction: 'project.write',
-      modes: ['execute'],
+      modes: ['ask'],
     },
     async execute(ctx, _input, before) {
       await ctx.tx.query(

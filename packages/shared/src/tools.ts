@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { authorizationActionSchema, roleSchema } from './auth.js';
-import { conversationModeSchema } from './workspace.js';
+import { authorizationActionSchema } from './auth.js';
+import { permissionModeSchema } from './workspace.js';
 import { documentDataLevelSchema } from './documents.js';
 import { goalStatusSchema } from './projects.js';
 
@@ -23,8 +23,8 @@ export const toolMetadataSchema = z
     version: z.string().min(1).max(128),
     publication: z.enum(['draft', 'published']),
     effect: toolEffectSchema,
-    roles: z.array(roleSchema).min(1).max(5),
-    modes: z.array(conversationModeSchema).min(1).max(2),
+    modes: z.array(permissionModeSchema).min(1).max(3),
+    approvalInAsk: z.boolean(),
     outputDataLevel: z.enum(['public', 'internal', 'confidential', 'dynamic']),
     authorizationAction: authorizationActionSchema,
     description: toolDescriptionSchema,
@@ -33,8 +33,8 @@ export const toolMetadataSchema = z
 export type ToolMetadata = z.infer<typeof toolMetadataSchema>;
 export const toolPolicyContextSchema = z
   .object({
-    roles: z.array(roleSchema).max(5),
-    mode: conversationModeSchema,
+    permissionMode: permissionModeSchema,
+    approvalGranted: z.boolean(),
     goalStatus: goalStatusSchema.nullable(),
     hasUndo: z.boolean(),
     resourceAllowed: z.boolean(),
@@ -87,11 +87,14 @@ export const toolExecutionResultSchema = z
     '工具结果过长，请使用分页继续读取。',
   );
 export const toolStoredPayloadSchema = z
-  .object({ status: z.enum(['completed', 'pending_proposal']), result: toolExecutionResultSchema })
+  .object({
+    status: z.enum(['completed', 'pending_proposal', 'pending_approval']),
+    result: toolExecutionResultSchema,
+  })
   .strict();
 export const toolPolicyDecisionSchema = z
   .object({
-    decision: z.enum(['allow', 'deny', 'propose']),
+    decision: z.enum(['allow', 'deny', 'propose', 'require_approval']),
     code: z.string().max(80),
     message: z.string().max(512),
   })

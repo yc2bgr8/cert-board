@@ -27,7 +27,7 @@ beforeAll(async () => {
   await seedDevelopmentAccounts(database.pool, {
     NODE_ENV: 'test',
     ...Object.fromEntries(
-      ['RA', 'RB', 'GM', 'SALES', 'TECH'].map((role) => [`DEV_${role}_PASSWORD`, password]),
+      ['ZHANGSAN', 'WANGMIN', 'ADMIN'].map((role) => [`DEV_${role}_PASSWORD`, password]),
     ),
   });
   await seedDevelopmentProject(database.pool, { NODE_ENV: 'test' });
@@ -45,7 +45,7 @@ beforeAll(async () => {
     method: 'POST',
     url: '/api/auth/login',
     headers: { origin: config.WEB_ORIGIN, 'sec-fetch-site': 'same-origin' },
-    payload: { username: 'ra', password },
+    payload: { username: 'zhangsan', password },
   });
   expect(login.statusCode).toBe(200);
   headers = {

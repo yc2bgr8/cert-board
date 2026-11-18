@@ -12,6 +12,7 @@ import type { DocumentBlobStore } from '../documents/blob-store.js';
 import type { ToolDefinition } from '../tools/registry.js';
 import { executeAgentRun } from './runtime.js';
 import * as leaseService from '../runs/lease.js';
+import { queueInternalMessageTool } from '../tools/queue-internal-message.js';
 
 class MemoryStore implements DocumentBlobStore {
   private values = new Map<string, Buffer>();
@@ -112,20 +113,13 @@ test('收尾时租约已到期的旧执行者不能写入完成状态或发出�
   expect(terminalEvents.rows[0]!.count).toBe(0);
 });
 
-test('模型派发前重新核对角色，已撤权运行不能把缓存上下文送往网关', async () => {
+test('模型派发前重新核对成员状态，已撤权运行不能把缓存上下文送往网关', async () => {
   const context = await createIntegrationContext();
   close = () => context.close();
   const store = new MemoryStore();
   await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
   await seedDevelopmentBudgetPolicy(context.pool, 'test');
   const target = await queued(context, 'read_only');
-  await context.pool
-    .query(`CREATE FUNCTION revoke_before_model_dispatch() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-    IF NEW.type='model_started' THEN DELETE FROM role_binding WHERE user_id=(SELECT user_id FROM run WHERE id=NEW.run_id); END IF;
-    RETURN NEW; END; $$`);
-  await context.pool.query(
-    'CREATE TRIGGER revoke_before_model_dispatch BEFORE INSERT ON run_event FOR EACH ROW EXECUTE FUNCTION revoke_before_model_dispatch()',
-  );
   let calls = 0;
   const gateway = new ModelGateway(
     context.pool,
@@ -139,13 +133,34 @@ test('模型派发前重新核对角色，已撤权运行不能把缓存上下�
     },
     { environment: 'test' },
   );
+  const originalComplete = gateway.complete.bind(gateway);
+  let gatewayRejection: string | undefined;
+  vi.spyOn(gateway, 'complete').mockImplementation(async (...args) => {
+    await context.pool.query(
+      "UPDATE app_user SET status='disabled',version=version+1 WHERE id=$1",
+      [target.userId],
+    );
+    try {
+      return await originalComplete(...args);
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error)
+        gatewayRejection = String(error.code);
+      throw error;
+    }
+  });
   const done = await executeAgentRun(
     { pool: context.pool, store, gateway, models: config, definitions: [] },
     target.runId,
   );
   expect(calls).toBe(0);
   expect(done.status).toBe('failed');
-  expect(done.reasonCode).toBe('BUDGET_SCOPE_FORBIDDEN');
+  expect(gatewayRejection).toBe('MODEL_RUN_INACTIVE');
+  // 账号停用后，内核的错误消息也不能再追加为该用户的会话内容。
+  expect(done.reasonCode).toBe('KERNEL_EVENT_PERSIST_FAILED');
+  expect(
+    (await context.pool.query('SELECT status FROM app_user WHERE id=$1', [target.userId])).rows[0]
+      .status,
+  ).toBe('disabled');
   expect(
     Number(
       (
@@ -281,7 +296,7 @@ test('审核卡提交已持久化但执行事件失败，仍保留reviewId并等
       [context.caller.runId],
     )
   ).rows[0]!.conversation_id;
-  const target = await queued(context, 'execute', conversationId);
+  const target = await queued(context, 'ask', conversationId);
   await context.pool
     .query(`CREATE FUNCTION fail_review_completion_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
     IF NEW.type='tool_completed' AND EXISTS(SELECT 1 FROM tool_invocation WHERE id=NEW.invocation_id AND tool_name='submit_for_review') THEN
@@ -394,15 +409,15 @@ test('退出运行必须等待已经开始的续租完成，不留下后台续�
 });
 async function queued(
   context: Awaited<ReturnType<typeof createIntegrationContext>>,
-  mode: 'execute' | 'read_only',
+  mode: 'ask' | 'read_only',
   conversationId?: string,
 ) {
-  const userId = context.userId('RA');
+  const userId = context.userId('MEMBER_A');
   const convo =
     conversationId ??
     (
       await context.pool.query<{ id: string }>(
-        'INSERT INTO conversation(project_id,user_id,goal_id,title,mode) VALUES($1,$2,$3,$4,$5) RETURNING id',
+        'INSERT INTO conversation(project_id,user_id,goal_id,title,permission_mode) VALUES($1,$2,$3,$4,$5) RETURNING id',
         [context.projectId, userId, context.goalId, '同一内核合成验证', mode],
       )
     ).rows[0]!.id;
@@ -436,8 +451,8 @@ test('同一真实Pi内核领取租约、调用登记工具、持久化连续过
       version: 'fixture-v1',
       publication: 'published',
       effect: 'read',
-      roles: ['RA'],
-      modes: ['read_only', 'execute'],
+      approvalInAsk: false,
+      modes: ['read_only', 'ask'],
       outputDataLevel: 'internal',
       authorizationAction: 'project.read',
       description: {
@@ -505,7 +520,7 @@ test('模型文字声称已提交不能伪造审核成功', async () => {
   const store = new MemoryStore();
   await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
   await seedDevelopmentBudgetPolicy(context.pool, 'test');
-  const target = await queued(context, 'execute');
+  const target = await queued(context, 'ask');
   const gateway = new ModelGateway(
     context.pool,
     config,
@@ -526,6 +541,131 @@ test('模型文字声称已提交不能伪造审核成功', async () => {
   expect(
     (await context.pool.query('SELECT COUNT(*)::int AS count FROM review_card')).rows[0].count,
   ).toBe(0);
+});
+
+test('ask过程批准经真实登记工具和同一内核持久暂停，允许一次不提前执行或追加模型', async () => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const target = await queued(context, 'ask');
+  const contactId = (
+    await context.pool.query<{ id: string }>(
+      "INSERT INTO contact(project_id,name,address,source,internal_user_id) VALUES($1,'王敏','local-test-colleague','可信合成身份',$2) RETURNING id",
+      [context.projectId, context.userId('MEMBER_B')],
+    )
+  ).rows[0]!.id;
+  let models = 0,
+    lateReads = 0;
+  const late: ToolDefinition = {
+    metadata: {
+      name: 'late_read',
+      version: 'fixture-v1',
+      publication: 'published',
+      effect: 'read',
+      modes: ['read_only', 'ask', 'full'],
+      approvalInAsk: false,
+      outputDataLevel: 'internal',
+      authorizationAction: 'project.read',
+      description: {
+        purpose: '记录后续读取。',
+        whenToUse: '本地测试。',
+        avoid: '不写业务。',
+        parameters: '无。',
+        example: {},
+      },
+    },
+    inputSchema: z.object({}).strict(),
+    outputSchema: z.object({ ok: z.literal(true) }),
+    async execute() {
+      lateReads++;
+      return { data: { ok: true }, dataLevel: 'internal' };
+    },
+  };
+  const gateway = new ModelGateway(
+    context.pool,
+    config,
+    {
+      kind: 'fixture',
+      async send() {
+        models++;
+        return result(
+          {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: 'approval-call',
+                type: 'function',
+                function: {
+                  name: 'queue_internal_message',
+                  arguments: JSON.stringify({
+                    contactId,
+                    subject: '核对资料',
+                    body: '请核对合成资料，不真实发送。',
+                  }),
+                },
+              },
+              {
+                id: 'late-call',
+                type: 'function',
+                function: { name: 'late_read', arguments: '{}' },
+              },
+            ],
+          },
+          'tool_calls',
+        );
+      },
+    },
+    { environment: 'test' },
+  );
+  const done = await executeAgentRun(
+    {
+      pool: context.pool,
+      store,
+      gateway,
+      models: config,
+      definitions: [queueInternalMessageTool(), late],
+    },
+    target.runId,
+  );
+  expect(done.status).toBe('waiting');
+  expect(Boolean(done.approvalId)).toBe(true);
+  expect(models).toBe(1);
+  expect(lateReads).toBe(0);
+  expect(
+    (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
+      .n,
+  ).toBe(0);
+  const auth = await context.login('MEMBER_A');
+  const view = await context.app.inject({
+    method: 'GET',
+    url: `/api/approvals/${done.approvalId}`,
+    headers: auth.headers,
+  });
+  expect(view.statusCode).toBe(200);
+  const decision = await context.app.inject({
+    method: 'POST',
+    url: `/api/approvals/${done.approvalId}`,
+    headers: auth.headers,
+    payload: {
+      action: 'allow_once',
+      requestKey: randomUUID(),
+      expectedVersion: view.json().version,
+      expectedContentHash: view.json().contentHash,
+    },
+  });
+  expect(decision.statusCode).toBe(200);
+  expect(decision.json().executed).toBe(false);
+  expect(
+    (await context.pool.query('SELECT status FROM run WHERE id=$1', [target.runId])).rows[0].status,
+  ).toBe('waiting');
+  expect(
+    (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
+      .n,
+  ).toBe(0);
+  expect(models).toBe(1);
 });
 
 test('真实内核读取后提交真实审核卡并暂停，人工浏览器请求可以批准', async () => {
@@ -559,7 +699,7 @@ test('真实内核读取后提交真实审核卡并暂停，人工浏览器请�
       [context.caller.runId],
     )
   ).rows[0]!.conversation_id;
-  const target = await queued(context, 'execute', convo);
+  const target = await queued(context, 'ask', convo);
   let count = 0;
   const gateway = new ModelGateway(
     context.pool,
@@ -587,7 +727,7 @@ test('真实内核读取后提交真实审核卡并暂停，人工浏览器请�
       done.reviewId,
     ])
   ).rows[0];
-  const auth = await context.login('RA');
+  const auth = await context.login('MEMBER_A');
   const approved = await context.app.inject({
     method: 'POST',
     url: `/api/reviews/${done.reviewId}/decision`,

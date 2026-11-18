@@ -6,7 +6,7 @@ import {
   type StructuredSubmission,
   type ToolCallContext,
 } from '@cert-board/shared';
-import { createIntegrationContext } from '../test-support/context.js';
+import { createIntegrationContext, type MemberKey } from '../test-support/context.js';
 import { ToolRegistry, type ToolDefinition } from '../tools/registry.js';
 import { submitForReviewTool } from '../tools/submit-for-review.js';
 import { loadReviewPolicy } from './policy.js';
@@ -19,7 +19,7 @@ export async function createReviewTestContext(
     autoRead?: boolean;
     readToolName?: string;
     readText?: string;
-    documentOwnerRole?: 'RA' | 'RB';
+    documentOwner?: MemberKey;
   } = {},
 ) {
   const base = await createIntegrationContext();
@@ -49,7 +49,7 @@ export async function createReviewTestContext(
     const documentId = (
       await base.pool.query<{ id: string }>(
         "INSERT INTO document(project_id,source_key,name,source_path,owner_user_id) VALUES($1,'REVIEW-FIXTURE','虚构审核资料','fixture.txt',$2) RETURNING id",
-        [base.projectId, base.userId(options.documentOwnerRole ?? 'RA')],
+        [base.projectId, base.userId(options.documentOwner ?? 'MEMBER_A')],
       )
     ).rows[0]!.id;
     const versionId = (
@@ -70,8 +70,8 @@ export async function createReviewTestContext(
         version: 'test-doc-read-v1',
         publication: 'published',
         effect: 'read',
-        roles: ['RA', 'RB'],
-        modes: ['read_only', 'execute'],
+        modes: ['read_only', 'ask', 'full'],
+        approvalInAsk: false,
         outputDataLevel: 'dynamic',
         authorizationAction: 'document.read',
         description: {

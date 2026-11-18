@@ -224,18 +224,17 @@ test('模型不能自报风险或更换未登记技能版本', async () => {
   expect(await cardCount()).toBe(0);
 });
 
-test('submit的注册角色范围不能借GM全局绑定扩大资料权限，重放同样拒绝', async () => {
+test('普通成员可引用同事资料，禁用后新提交与历史重放均拒绝', async () => {
   context = await createReviewTestContext();
   const call = { ...context.caller, callId: randomUUID() };
   await context.submit(undefined, call);
-  await context.pool.query('DELETE FROM role_binding WHERE user_id=$1', [context.caller.userId]);
-  await context.pool.query(
-    "INSERT INTO role_binding(user_id,role,scope_type) VALUES($1,'RA','own'),($1,'GM','global')",
-    [context.caller.userId],
-  );
   await context.pool.query('UPDATE document SET owner_user_id=$1 WHERE id=$2', [
-    context.userId('RB'),
+    context.userId('MEMBER_B'),
     context.documentId,
+  ]);
+  expect((await context.submit(undefined, call)).replayed).toBe(true);
+  await context.pool.query("UPDATE app_user SET status='disabled' WHERE id=$1", [
+    context.caller.userId,
   ]);
   await expect(context.submit()).rejects.toMatchObject({ statusCode: 403 });
   await expect(context.submit(undefined, call)).rejects.toMatchObject({ statusCode: 403 });

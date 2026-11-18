@@ -151,6 +151,33 @@ test('同批工具严格串行，每个回调完成后才开始下一个', async
   expect(sequence).toEqual(['first-start', 'first-end', 'second']);
 });
 
+test('过程批准立即暂停，同批后续工具及下一次模型均不得继续', async () => {
+  const source = scripted([reply(toolCall('record_update'), toolCall('late_write')), reply()]);
+  let lateWrites = 0;
+  const events: KernelEvent[] = [];
+  const result = await runAgentKernel({
+    ...options(source.complete, [
+      tool('record_update', async () => ({
+        data: { approvalId: randomUUID(), status: 'pending' },
+        terminal: 'approval',
+      })),
+      tool('late_write', async () => {
+        lateWrites++;
+        return { data: { ok: true } };
+      }),
+    ]),
+    onEvent: (event) => {
+      events.push(event);
+    },
+  });
+  expect(result.status).toBe('waiting_approval');
+  expect(source.requests).toHaveLength(1);
+  expect(lateWrites).toBe(0);
+  expect(events.filter((event) => event.type === 'waiting')).toEqual([
+    { type: 'waiting', reason: 'approval' },
+  ]);
+});
+
 test('模式错误给安全中文回执，模型可修复参数再调用', async () => {
   const source = scripted([
     reply(toolCall('read_number', '{"value":"PRIVATE_ARGUMENT"}')),

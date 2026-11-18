@@ -1,9 +1,9 @@
 # cert-board
 
-AI原生器械认证板块，形态是器械认证版的Claude Code：人在自建的网页界面中进入项目，和器械认证Agent对话；Agent在项目工作区里直接干活，把交付物和改动交给人审核；人在对话中提修改意见，或在审核卡上批准。
+AI原生器械认证板块，形态是器械认证版的Claude Code：人在自建的网页界面中进入项目，和注册Agent或维护Agent对话；Agent在项目工作区里直接干活，把交付物和改动交给人审核；人在对话中提修改意见，或在审核卡上批准。
 
 - 开发约定：`AGENTS.md`
-- 文档：`docs/`（需求文档V0.9、总体方案v0.4、技术方案v0.3、执行方案v0.3）
+- 文档：`docs/`（优先读已确认的[2026-11-18变更单](docs/变更单/需求变更单_2026-11-18.md)，再读需求/技术/执行方案）
 - 技能：`skills/`（每项能力一个目录）
 - 测试资料：`fixtures/`（L08派生资料为「内部」级别；L08原始文件不在仓库中）
 
@@ -20,7 +20,7 @@ pnpm dev:api
 ```
 
 另一个终端运行 `pnpm dev:worker`。后端健康检查：`http://127.0.0.1:28081/health`。
-`pnpm dev:web` 启动界面稿：`http://127.0.0.1:28080`。也可 `pnpm build` 后 `pnpm preview` 查看严格CSP下的构建。当前界面稿只有虚构示例交互，尚未接入登录和真实业务，页面有明确标识。
+`pnpm dev:web` 启动界面稿：`http://127.0.0.1:28080`。也可 `pnpm build` 后 `pnpm preview` 查看严格CSP下的构建。当前界面稿只有虚构交互，尚未接入登录和真实业务；开发说明在设置中，截图与操作步骤见[界面稿评审](docs/界面稿评审.md)。
 
 `pnpm lint`、`pnpm typecheck`、`pnpm test` 运行基础检查；依赖服务启动后运行 `pnpm test:int`。
 `pnpm dev:down` 仅停止 cert-board 项目并保留命名卷。已有项目的服务不受影响。
@@ -33,6 +33,8 @@ pnpm dev:api
 
 真实模型请求原文默认不持久化。`pnpm requests:purge` 每批最多清理100条到期的私有请求内容，同时留下不含正文的审计；非零保留目前只允许隔离测试库中的合成记录。
 
-开发账号为 `ra`、`rb`、`gm`、`sales`、`tech`；密码分别读取 `.env.local` 的 `DEV_RA_PASSWORD` 等对应变量。种子只在 development/test 环境执行；生产环境禁止开发账号种子和登录。登录接口已实现，真实登录页在 PR-26 接入。
+开发账号为 `zhangsan`（张三）、`wangmin`（王敏）、`admin`（李晨）；三者业务权限相同，只有admin额外具有系统管理权限。密码分别在`.env.local`的`DEV_ZHANGSAN_PASSWORD`、`DEV_WANGMIN_PASSWORD`、`DEV_ADMIN_PASSWORD`，不写入文档。先运行env:init补新变量，再db:setup迁移/种子；旧角色开发账号停用，但历史用户和审计保留。重复种子不恢复人工撤销的管理权限、禁用或密码。种子只在development/test执行，生产禁止开发账号种子和登录。真实登录页在PR-26接入。
+
+对话权限为只读、请求批准、完全允许，默认请求批准。C3批准接口只记录浏览器决定，精确执行和续跑在PR-21接入；审批/批准不是模型工具。内部消息目前仅本地测试队列，不发给真实对象，真实渠道和非登录员工身份目录后续接入。
 
 数据库结构改动先改 Drizzle schema，再运行 `pnpm db:generate` 并审阅生成的 SQL；`pnpm db:migrate` 执行迁移。已应用/已合并的迁移不可修改，必须另建迁移。执行器会校验历史文件哈希，重复运行不会重复执行。

@@ -12,8 +12,8 @@ const metadata: ToolMetadata = {
   version: 'builtin-proposal-v1',
   publication: 'published',
   effect: 'external',
-  roles: ['RA', 'RB'],
-  modes: ['execute'],
+  modes: ['ask', 'full'],
+  approvalInAsk: false,
   outputDataLevel: 'internal',
   authorizationAction: 'record.write',
   description: {

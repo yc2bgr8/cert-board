@@ -7,8 +7,8 @@ const metadata: ToolMetadata = {
   version: 'test-v1',
   publication: 'published',
   effect: 'reversible_write',
-  roles: ['RA', 'RB'],
-  modes: ['read_only', 'execute'],
+  modes: ['read_only', 'ask', 'full'],
+  approvalInAsk: false,
   outputDataLevel: 'internal',
   authorizationAction: 'record.write',
   description: {
@@ -20,8 +20,8 @@ const metadata: ToolMetadata = {
   },
 };
 const context: ToolPolicyContext = {
-  roles: ['RA'],
-  mode: 'execute',
+  permissionMode: 'ask',
+  approvalGranted: false,
   goalStatus: 'active',
   hasUndo: true,
   resourceAllowed: true,
@@ -31,9 +31,8 @@ test.each([
   ['未知工具', metadata, context, false, 'TOOL_UNREGISTERED'],
   ['缺少级别', { ...metadata, effect: undefined }, context, true, 'TOOL_EFFECT_UNDECLARED'],
   ['不可逆', { ...metadata, effect: 'irreversible' }, context, true, 'TOOL_IRREVERSIBLE'],
-  ['只读强行写', metadata, { ...context, mode: 'read_only' }, true, 'TOOL_READ_ONLY'],
+  ['只读强行写', metadata, { ...context, permissionMode: 'read_only' }, true, 'TOOL_READ_ONLY'],
   ['没有undo', metadata, { ...context, hasUndo: false }, true, 'TOOL_UNDO_REQUIRED'],
-  ['角色不符', metadata, { ...context, roles: ['SALES'] }, true, 'TOOL_FORBIDDEN'],
   ['跨范围', metadata, { ...context, resourceAllowed: false }, true, 'TOOL_FORBIDDEN'],
   ['未发布', { ...metadata, publication: 'draft' }, context, true, 'TOOL_NOT_PUBLISHED'],
   [
@@ -68,7 +67,7 @@ test.each([
 test('外部动作仅提案，只读模式仍拒绝', () => {
   const tool = { ...metadata, effect: 'external' };
   expect(decideTool(tool, context).decision).toBe('propose');
-  expect(decideTool(tool, { ...context, mode: 'read_only' }).decision).toBe('deny');
+  expect(decideTool(tool, { ...context, permissionMode: 'read_only' }).decision).toBe('deny');
 });
 test('给模型的说明包含适用范围、替代操作、参数和示例', () => {
   const text = toolDescription(metadata);

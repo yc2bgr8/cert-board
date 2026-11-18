@@ -22,7 +22,7 @@ function makeApp(settings = config) {
 }
 const browserHeaders = () => ({ origin: config.WEB_ORIGIN, 'sec-fetch-site': 'same-origin' });
 async function login(
-  username = 'ra',
+  username = 'zhangsan',
   password = passwordFor(username),
   target = app,
   origin = config.WEB_ORIGIN,
@@ -34,7 +34,7 @@ async function login(
     payload: { username, password },
   });
 }
-async function loggedIn(username = 'ra') {
+async function loggedIn(username = 'zhangsan') {
   const response = await login(username);
   expect(response.statusCode).toBe(200);
   const header = response.headers['set-cookie'];
@@ -55,11 +55,9 @@ beforeAll(async () => {
   await migrateDatabase(database.pool);
   await seedDevelopmentAccounts(database.pool, {
     NODE_ENV: 'test',
-    DEV_RA_PASSWORD: passwordFor('ra'),
-    DEV_RB_PASSWORD: passwordFor('rb'),
-    DEV_GM_PASSWORD: passwordFor('gm'),
-    DEV_SALES_PASSWORD: passwordFor('sales'),
-    DEV_TECH_PASSWORD: passwordFor('tech'),
+    DEV_ZHANGSAN_PASSWORD: passwordFor('zhangsan'),
+    DEV_WANGMIN_PASSWORD: passwordFor('wangmin'),
+    DEV_ADMIN_PASSWORD: passwordFor('admin'),
   });
   const normalHash = await argon2.hash(passwordFor('normal'), { type: argon2.argon2id });
   await database.pool.query(
@@ -78,23 +76,21 @@ afterAll(async () => {
   if (database) await database.dispose();
 });
 
-test.each(['ra', 'rb', 'gm', 'sales', 'tech'])(
-  '角色%s能够登录并读取自己的身份',
-  async (username) => {
-    const session = await loggedIn(username);
-    expect(authResponseSchema.safeParse(session.response.json()).success).toBe(true);
-    expect(session.response.json().user.username).toBe(username);
-    expect(session.response.json().user.roles[0]?.role).toBe(username.toUpperCase());
-    const response = await app.inject({
-      url: '/api/auth/me',
-      headers: { cookie: session.cookie, 'sec-fetch-site': 'same-origin' },
-    });
-    expect(response.statusCode).toBe(200);
-    expect(response.json().user.id).toBe(session.userId);
-    expect(response.json().csrfToken === session.csrf).toBe(true);
-    expect(response.headers['cache-control']).toBe('no-store');
-  },
-);
+test.each(['zhangsan', 'wangmin', 'admin'])('成员%s能够登录并读取自己的身份', async (username) => {
+  const session = await loggedIn(username);
+  expect(authResponseSchema.safeParse(session.response.json()).success).toBe(true);
+  expect(session.response.json().user.username).toBe(username);
+  expect(session.response.json().user.isManagement).toBe(username === 'admin');
+  expect(session.response.json().user.roles).toBeUndefined();
+  const response = await app.inject({
+    url: '/api/auth/me',
+    headers: { cookie: session.cookie, 'sec-fetch-site': 'same-origin' },
+  });
+  expect(response.statusCode).toBe(200);
+  expect(response.json().user.id).toBe(session.userId);
+  expect(response.json().csrfToken === session.csrf).toBe(true);
+  expect(response.headers['cache-control']).toBe('no-store');
+});
 
 test('会话Cookie具有保护属性，数据库只存令牌摘要，注销写审计并使会话失效', async () => {
   const session = await loggedIn();
@@ -138,7 +134,7 @@ test('会话Cookie具有保护属性，数据库只存令牌摘要，注销写�
 
 test('缺少、错误或另一会话的CSRF令牌不能注销', async () => {
   const first = await loggedIn();
-  const second = await loggedIn('rb');
+  const second = await loggedIn('wangmin');
   for (const csrf of [undefined, 'invalid', second.csrf]) {
     const headers: Record<string, string> = { ...browserHeaders(), cookie: first.cookie };
     if (csrf !== undefined) headers['x-csrf-token'] = csrf;
@@ -163,7 +159,7 @@ test('登录拒绝缺失Origin、跨Origin、跨站来源及非JSON请求', asyn
       method: 'POST',
       url: '/api/auth/login',
       headers,
-      payload: { username: 'ra', password: passwordFor('ra') },
+      payload: { username: 'zhangsan', password: passwordFor('zhangsan') },
     });
     expect(response.statusCode).toBe(403);
   }
@@ -205,7 +201,7 @@ test('只有Cookie或CSRF、伪造后台调用和跨站写入均被拒绝', asyn
 
 test('未知用户名和错误密码返回相同消息，不泄露密码或哈希', async () => {
   const wrongPassword = passwordFor('wrong');
-  const first = await login('ra', wrongPassword);
+  const first = await login('zhangsan', wrongPassword);
   const second = await login('unknown', wrongPassword);
   expect(first.statusCode).toBe(401);
   expect(second.statusCode).toBe(401);
@@ -216,7 +212,7 @@ test('未知用户名和错误密码返回相同消息，不泄露密码或哈�
 
 test('并发失败尝试最多接受五次验证，后续正确密码也受限速约束', async () => {
   const failures = await Promise.all(
-    Array.from({ length: 8 }, () => login('ra', passwordFor('wrong'))),
+    Array.from({ length: 8 }, () => login('zhangsan', passwordFor('wrong'))),
   );
   expect(failures.filter((response) => response.statusCode === 401)).toHaveLength(5);
   expect(failures.filter((response) => response.statusCode === 429)).toHaveLength(3);
@@ -275,25 +271,26 @@ test('过期与人工禁用账号的现有会话都失效', async () => {
   }
 });
 
-test('requireBrowserIdentity读取当前角色，撤销角色立即反映到后续请求', async () => {
+test('requireBrowserIdentity读取当前管理权限，撤销立即反映到后续请求', async () => {
   app.post('/api/test/identity', async (request) =>
     requireBrowserIdentity(request, database.pool, config, { write: true }),
   );
-  const session = await loggedIn('rb');
+  const session = await loggedIn('admin');
   const headers = { ...browserHeaders(), cookie: session.cookie, 'x-csrf-token': session.csrf };
   const initial = await app.inject({ method: 'POST', url: '/api/test/identity', headers });
   expect(initial.json().kind).toBe('browser');
-  expect(initial.json().roles).toHaveLength(1);
+  expect(initial.json().isManagement).toBe(true);
   try {
-    await database.pool.query('DELETE FROM role_binding WHERE user_id = $1', [session.userId]);
+    await database.pool.query('UPDATE app_user SET is_management=false WHERE id=$1', [
+      session.userId,
+    ]);
     const updated = await app.inject({ method: 'POST', url: '/api/test/identity', headers });
     expect(updated.statusCode).toBe(200);
-    expect(updated.json().roles).toHaveLength(0);
+    expect(updated.json().isManagement).toBe(false);
   } finally {
-    await database.pool.query(
-      "INSERT INTO role_binding (user_id, role, scope_type) VALUES ($1, 'RB', 'global')",
-      [session.userId],
-    );
+    await database.pool.query('UPDATE app_user SET is_management=true WHERE id=$1', [
+      session.userId,
+    ]);
   }
 });
 
@@ -307,7 +304,8 @@ test('生产环境拒绝开发账号与其会话，正常账号Cookie要求Secur
   const production = makeApp(productionConfig);
   try {
     expect(
-      (await login('ra', passwordFor('ra'), production, productionConfig.WEB_ORIGIN)).statusCode,
+      (await login('zhangsan', passwordFor('zhangsan'), production, productionConfig.WEB_ORIGIN))
+        .statusCode,
     ).toBe(401);
     const existing = await production.inject({
       url: '/api/auth/me',
@@ -337,7 +335,7 @@ test('同一浏览器重新登录会轮换会话，旧Cookie不再有效', async
       ...browserHeaders(),
       cookie: first.cookie,
     },
-    payload: { username: 'ra', password: passwordFor('ra') },
+    payload: { username: 'zhangsan', password: passwordFor('zhangsan') },
   });
   expect(next.statusCode).toBe(200);
   const old = await app.inject({

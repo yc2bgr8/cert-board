@@ -22,7 +22,7 @@ test('固定开发workspace编号被其他项目占用时拒绝，不误认或�
     await seedDevelopmentAccounts(database.pool, {
       NODE_ENV: 'test',
       ...Object.fromEntries(
-        ['RA', 'RB', 'GM', 'SALES', 'TECH'].map((role) => [
+        ['ZHANGSAN', 'WANGMIN', 'ADMIN'].map((role) => [
           `DEV_${role}_PASSWORD`,
           ['seed', 'owner', role, 'fixture'].join('-'),
         ]),
@@ -30,10 +30,10 @@ test('固定开发workspace编号被其他项目占用时拒绝，不误认或�
     });
     await seedDevelopmentProject(database.pool, { NODE_ENV: 'test' });
     const users = await database.pool.query<{ id: string; username: string }>(
-      "SELECT id,username FROM app_user WHERE username IN ('ra','rb')",
+      "SELECT id,username FROM app_user WHERE username IN ('zhangsan','wangmin')",
     );
-    const owner = users.rows.find((row) => row.username === 'ra')!.id,
-      reviewer = users.rows.find((row) => row.username === 'rb')!.id;
+    const owner = users.rows.find((row) => row.username === 'zhangsan')!.id,
+      reviewer = users.rows.find((row) => row.username === 'wangmin')!.id;
     const other = await database.pool.query<{ id: string }>(
       "INSERT INTO cert_project(name,market,pathway,owner_user_id,reviewer_user_id) VALUES ('另一个项目','US','测试路径',$1,$2) RETURNING id",
       [owner, reviewer],

@@ -21,8 +21,8 @@ const metadata: ToolMetadata = {
   version: 'builtin-review-v1',
   publication: 'published',
   effect: 'reversible_write',
-  roles: ['RA', 'RB'],
-  modes: ['execute'],
+  modes: ['ask', 'full'],
+  approvalInAsk: false,
   outputDataLevel: 'dynamic',
   authorizationAction: 'workspace.write',
   description: {

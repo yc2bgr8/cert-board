@@ -11,7 +11,7 @@ let input: StructuredSubmission;
 let documentId: string;
 beforeAll(async () => {
   context = await createIntegrationContext();
-  const { conversationId: _conversation, ...run } = await context.run('RA', 'read_only');
+  const { conversationId: _conversation, ...run } = await context.run('MEMBER_A', 'read_only');
   caller = run;
   const workspace = (
     await context.pool.query<{ id: string }>(

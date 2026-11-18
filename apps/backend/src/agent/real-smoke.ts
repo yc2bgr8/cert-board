@@ -53,7 +53,7 @@ async function main() {
       throw new AppError(409, 'REAL_TEST_PRICE_CHANGED', '请核对模型价格后重试。');
     const userId = (
       await pool.query<{ id: string }>(
-        "SELECT id FROM app_user WHERE username='ra' AND is_development=true AND status='active'",
+        "SELECT id FROM app_user WHERE username='zhangsan' AND is_development=true AND status='active'",
       )
     ).rows[0]?.id;
     if (!userId) throw new Error('REAL_TEST_ACCOUNT_MISSING');
@@ -69,7 +69,7 @@ async function main() {
       if (!goal) throw new Error('REAL_TEST_GOAL_INACTIVE');
       conversationId = (
         await tx.query<{ id: string }>(
-          "INSERT INTO conversation(project_id,user_id,goal_id,title,mode) VALUES($1,$2,$3,'Pi内核真实多轮验证（合成文本）','read_only') RETURNING id",
+          "INSERT INTO conversation(project_id,user_id,goal_id,title,permission_mode) VALUES($1,$2,$3,'Pi内核真实多轮验证（合成文本）','read_only') RETURNING id",
           [developmentProjectId, userId, developmentGoalId],
         )
       ).rows[0]!.id;
@@ -94,8 +94,8 @@ async function main() {
         version: 'smoke-v1',
         publication: 'published',
         effect: 'read',
-        roles: ['RA'],
-        modes: ['read_only', 'execute'],
+        approvalInAsk: false,
+        modes: ['read_only', 'ask'],
         outputDataLevel: 'internal',
         authorizationAction: 'project.read',
         description: {

@@ -65,11 +65,7 @@ export function registerProposalRoutes<Logger extends FastifyBaseLogger>(
       );
       if (!locked.rowCount) throw new AppError(401, 'LOGIN_REQUIRED', '登录已失效，请重新登录。');
       const checked = await requireBrowserIdentity(request, tx, config, { write });
-      const roles = await tx.query(
-        'SELECT role,scope_type AS "scopeType",scope_id AS "scopeId" FROM role_binding WHERE user_id=$1 FOR SHARE',
-        [checked.userId],
-      );
-      const identity = browserIdentitySchema.parse({ ...checked, roles: roles.rows });
+      const identity = browserIdentitySchema.parse(checked);
       const result = await operation(tx, identity);
       await tx.query('COMMIT');
       return result;
@@ -94,13 +90,9 @@ export function registerProposalRoutes<Logger extends FastifyBaseLogger>(
       'SELECT owner_user_id FROM cert_project WHERE id=$1',
       [proposal.projectId],
     );
-    const reviewer = {
-      ...identity,
-      roles: identity.roles.filter((binding) => binding.role === 'RA' || binding.role === 'RB'),
-    };
     if (
       !project.rows[0] ||
-      !authorize(reviewer, 'review.decide', {
+      !authorize(identity, 'review.decide', {
         projectId: proposal.projectId,
         ownerUserId: project.rows[0].owner_user_id,
         reviewKind: 'registration',
@@ -296,13 +288,8 @@ export function registerProposalRoutes<Logger extends FastifyBaseLogger>(
         );
       const target = await goal(tx, goalId),
         input = parsed.data;
-      const owner = {
-        ...identity,
-        roles: identity.roles.filter((binding) => binding.role === 'RA' || binding.role === 'RB'),
-      };
       if (
-        identity.userId !== target.owner_user_id ||
-        !authorize(owner, 'record.write', {
+        !authorize(identity, 'record.write', {
           projectId: target.project_id,
           ownerUserId: target.owner_user_id,
         })
@@ -310,7 +297,7 @@ export function registerProposalRoutes<Logger extends FastifyBaseLogger>(
         throw new AppError(
           403,
           'OUTBOUND_CONTROL_FORBIDDEN',
-          '仅有相应注册权限的目标负责人可以暂停或恢复外发。',
+          '当前成员不能处理此事项的外发，请刷新身份后重试。',
         );
       if (target.outbound_paused === input.paused)
         return goalOutboundControlResultSchema.parse({
@@ -330,6 +317,10 @@ export function registerProposalRoutes<Logger extends FastifyBaseLogger>(
         throw new AppError(409, 'OUTBOUND_GOAL_INACTIVE', '目标当前不是活动状态，不能恢复外发。');
       let resetIds: string[] = [];
       if (!input.paused) {
+        await tx.query(
+          "UPDATE internal_outbound_message SET status='cancelled',last_reason='外发恢复后旧内部消息不自动发送，请重新确认当前内容后发起。',version=version+1,updated_at=CURRENT_TIMESTAMP WHERE goal_id=$1 AND status='queued' AND attempts=0",
+          [goalId],
+        );
         const proposals = await tx.query<{ id: string }>(
           "SELECT p.id FROM proposal p WHERE p.goal_id=$1 AND p.status='approved' AND EXISTS(SELECT 1 FROM outbound_message q WHERE q.proposal_id=p.id AND q.status='queued' AND q.attempts=0) ORDER BY p.id FOR UPDATE",
           [goalId],
