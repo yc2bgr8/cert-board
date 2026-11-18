@@ -60,7 +60,7 @@ async function main() {
         '模型目录价格与当前配置不一致，请核对配置后再运行真实测试。',
       );
     const accounts = await pool.query<{ id: string }>(
-      "SELECT id FROM app_user WHERE username='ra' AND is_development=true AND status='active'",
+      "SELECT id FROM app_user WHERE username='zhangsan' AND is_development=true AND status='active'",
     );
     const userId = accounts.rows[0]?.id;
     if (!userId)
@@ -75,7 +75,7 @@ async function main() {
       if (!target.rows[0])
         throw new AppError(409, 'REAL_TEST_GOAL_INACTIVE', '开发目标尚未处于可测试状态。');
       const conversation = await tx.query<{ id: string }>(
-        "INSERT INTO conversation(project_id,user_id,goal_id,title,mode) VALUES($1,$2,$3,'模型网关连通性验证（合成文本）','read_only') RETURNING id",
+        "INSERT INTO conversation(project_id,user_id,goal_id,title,permission_mode) VALUES($1,$2,$3,'模型网关连通性验证（合成文本）','read_only') RETURNING id",
         [developmentProjectId, userId, developmentGoalId],
       );
       conversationId = conversation.rows[0]!.id;

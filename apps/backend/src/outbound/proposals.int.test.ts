@@ -20,8 +20,8 @@ import * as approvalModule from '../api/proposal-routes.js';
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let config: BackendConfig;
 let app: ReturnType<typeof createApp>;
-let ra: BrowserIdentity;
-let rbId: string;
+let memberA: BrowserIdentity;
+let memberBId: string;
 let projectId: string;
 let goalId: string;
 let contactId: string;
@@ -29,9 +29,9 @@ let conversationId: string;
 let runId: string;
 let registry: ToolRegistry;
 let caseNumber = 0;
-const password = (role: string) => ['proposal', 'integration', role, 'example'].join('-');
+const password = (username: string) => ['proposal', 'integration', username, 'example'].join('-');
 type Browser = { cookie: string; csrf: string };
-async function login(username = 'rb'): Promise<Browser> {
+async function login(username = 'wangmin'): Promise<Browser> {
   const response = await app.inject({
     method: 'POST',
     url: '/api/auth/login',
@@ -52,11 +52,15 @@ function headers(browser: Browser) {
   };
 }
 async function proposal(callId = 'proposal') {
-  const result = await registry.execute({ runId, userId: ra.userId, callId }, 'propose_external', {
-    contactId,
-    subject: '虚构测试提案',
-    body: 'PRIVATE_LOCAL_PROPOSAL_BODY\n仅验证本地队列，不发送给任何外部对象。',
-  });
+  const result = await registry.execute(
+    { runId, userId: memberA.userId, callId },
+    'propose_external',
+    {
+      contactId,
+      subject: '虚构测试提案',
+      body: 'PRIVATE_LOCAL_PROPOSAL_BODY\n仅验证本地队列，不发送给任何外部对象。',
+    },
+  );
   return { ...proposalToolResultSchema.parse(result.data), invocationId: result.invocationId };
 }
 async function approve(id: string, browser: Browser, version = 1, requestKey = randomUUID()) {
@@ -94,42 +98,40 @@ beforeAll(async () => {
   await migrateDatabase(database.pool);
   await seedDevelopmentAccounts(database.pool, {
     NODE_ENV: 'test',
-    DEV_RA_PASSWORD: password('ra'),
-    DEV_RB_PASSWORD: password('rb'),
-    DEV_GM_PASSWORD: password('gm'),
-    DEV_SALES_PASSWORD: password('sales'),
-    DEV_TECH_PASSWORD: password('tech'),
+    DEV_ZHANGSAN_PASSWORD: password('zhangsan'),
+    DEV_WANGMIN_PASSWORD: password('wangmin'),
+    DEV_ADMIN_PASSWORD: password('admin'),
   });
   const users = await database.pool.query(
-    "SELECT id,username,display_name FROM app_user WHERE username IN ('ra','rb')",
+    "SELECT id,username,display_name,is_management FROM app_user WHERE username IN ('zhangsan','wangmin')",
   );
-  const user = users.rows.find((row) => row.username === 'ra');
-  rbId = users.rows.find((row) => row.username === 'rb').id;
-  ra = browserIdentitySchema.parse({
+  const user = users.rows.find((row) => row.username === 'zhangsan');
+  memberBId = users.rows.find((row) => row.username === 'wangmin').id;
+  memberA = browserIdentitySchema.parse({
     kind: 'browser',
     userId: user.id,
     sessionId: randomUUID(),
-    username: 'ra',
+    username: user.username,
     displayName: user.display_name,
     isDevelopment: true,
-    roles: [{ role: 'RA', scopeType: 'global', scopeId: null }],
+    isManagement: user.is_management,
   });
   config = parseBackendConfig({ ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent' });
 });
 beforeEach(async () => {
   projectId = (
-    await createProject(database.pool, ra, {
+    await createProject(database.pool, memberA, {
       name: `提案审批测试${++caseNumber}`,
       projectType: 'registration',
       market: 'US',
       pathway: '510(k)',
-      reviewerUserId: rbId,
+      reviewerUserId: memberBId,
     })
   ).id;
   goalId = (
     await database.pool.query<{ id: string }>(
       "INSERT INTO goal(project_id,owner_user_id,title,acceptance_criteria) VALUES($1,$2,'提案测试目标','验证审批与本地队列') RETURNING id",
-      [projectId, ra.userId],
+      [projectId, memberA.userId],
     )
   ).rows[0]!.id;
   contactId = (
@@ -141,13 +143,13 @@ beforeEach(async () => {
   conversationId = (
     await database.pool.query<{ id: string }>(
       "INSERT INTO conversation(project_id,user_id,goal_id,title) VALUES($1,$2,$3,'提案测试对话') RETURNING id",
-      [projectId, ra.userId, goalId],
+      [projectId, memberA.userId, goalId],
     )
   ).rows[0]!.id;
   runId = (
     await database.pool.query<{ id: string }>(
       "INSERT INTO run(conversation_id,user_id,project_id,goal_id,direction_version,status) VALUES($1,$2,$3,$4,1,'running') RETURNING id",
-      [conversationId, ra.userId, projectId, goalId],
+      [conversationId, memberA.userId, projectId, goalId],
     )
   ).rows[0]!.id;
   registry = new ToolRegistry(database.pool, [proposeExternalTool()]);
@@ -207,7 +209,7 @@ test('没有浏览器会话、CSRF或正确来源时拒绝，Agent声明不构�
     method: 'POST',
     url,
     headers: { origin: config.WEB_ORIGIN, 'sec-fetch-site': 'same-origin' },
-    payload: { ...body, actor: { kind: 'browser', userId: ra.userId } },
+    payload: { ...body, actor: { kind: 'browser', userId: memberA.userId } },
   });
   expect(anonymous.statusCode).toBe(401);
   const fakeAgent = await app.inject({
@@ -335,12 +337,11 @@ test('同一版本的并发批准只接受一次，不重复生成队列', async
   ).toBe(1);
 });
 
-test('暂停不发送，恢复取消旧队列并要求新的版本批准', async () => {
+test('非负责人部门成员可暂停且不发送，恢复取消旧队列并要求新的版本批准', async () => {
   const created = await proposal(),
-    reviewer = await login(),
-    owner = await login('ra');
+    reviewer = await login();
   const first = await approve(created.proposalId, reviewer);
-  const paused = await control(owner, true, 1);
+  const paused = await control(reviewer, true, 1);
   expect(paused.statusCode).toBe(200);
   expect((await processTestOutbound(database.pool, first.queueId)).status).toBe('queued');
   expect(
@@ -350,7 +351,7 @@ test('暂停不发送，恢复取消旧队列并要求新的版本批准', async
       ])
     ).rows[0].attempts,
   ).toBe(0);
-  const resumed = await control(owner, false, paused.json().version);
+  const resumed = await control(reviewer, false, paused.json().version);
   expect(resumed.statusCode).toBe(200);
   expect(resumed.json().resetProposalIds).toEqual([created.proposalId]);
   const state = await app.inject({
@@ -366,21 +367,23 @@ test('暂停不发送，恢复取消旧队列并要求新的版本批准', async
   const fresh = await approve(created.proposalId, reviewer, 3);
   expect(fresh.queueId === first.queueId).toBe(false);
   expect(fresh.version).toBe(4);
-  const repeatedResume = await control(owner, false, paused.json().version);
+  const repeatedResume = await control(reviewer, false, paused.json().version);
   expect(repeatedResume.statusCode).toBe(200);
   expect(repeatedResume.json().resetProposalIds).toEqual([]);
   expect((await processTestOutbound(database.pool, fresh.queueId)).status).toBe('done');
 });
 
-test('只有有注册权限的目标负责人可以暂停恢复，GM不能审批注册外发', async () => {
+test('部门成员同权处理外发，管理权限不构成额外业务角色', async () => {
   const created = await proposal(),
     reviewer = await login(),
-    manager = await login('gm');
-  expect((await control(reviewer, true, 1)).statusCode).toBe(403);
+    manager = await login('admin');
+  const paused = await control(reviewer, true, 1);
+  expect(paused.statusCode).toBe(200);
+  expect((await control(manager, false, paused.json().version)).statusCode).toBe(200);
   expect(
     (await app.inject({ url: `/api/proposals/${created.proposalId}`, headers: headers(manager) }))
       .statusCode,
-  ).toBe(404);
+  ).toBe(200);
   expect(
     (
       await app.inject({
@@ -390,7 +393,15 @@ test('只有有注册权限的目标负责人可以暂停恢复，GM不能审批
         payload: { expectedVersion: 1, action: 'approved', requestKey: randomUUID() },
       })
     ).statusCode,
-  ).toBe(404);
+  ).toBe(200);
+  expect(
+    (
+      await database.pool.query(
+        'SELECT u.username FROM decision d JOIN app_user u ON u.id=d.actor_user_id WHERE d.proposal_id=$1',
+        [created.proposalId],
+      )
+    ).rows[0].username,
+  ).toBe('admin');
 });
 
 test.each(['inactive', 'address', 'name', 'version'])(

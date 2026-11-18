@@ -11,16 +11,23 @@ import {
   toolVersionTokenSchema,
   undoCaptureSchema,
   documentDataLevelSchema,
+  toolApprovalPreviewSchema,
   type AgentIdentity,
   type ToolCallContext,
   type ToolMetadata,
   type UndoCapture,
   type DataLevel,
-  type Role,
+  type PermissionMode,
+  type ToolApprovalPreview,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
 import { decideTool, toolDescription } from './policy.js';
+import {
+  createToolApproval,
+  hasConversationToolGrant,
+  replayToolApproval,
+} from '../approvals/service.js';
 
 type VersionInput = string | number;
 type GoalStatus =
@@ -41,7 +48,7 @@ export interface ToolExecutionContext {
   readonly conversationId: string;
   readonly projectId: string | null;
   readonly goalId: string | null;
-  readonly mode: 'read_only' | 'execute';
+  readonly permissionMode: PermissionMode;
   readonly goalStatus: GoalStatus | null;
   readonly directionVersion: number;
   readonly maxDataLevel: DataLevel;
@@ -87,6 +94,8 @@ export interface ToolDefinition<Input = unknown, Output = unknown> {
     before?: UndoCapture,
   ): Promise<ToolHandlerResult<Output>>;
   propose?(ctx: ToolExecutionContext, input: Input): Promise<ToolHandlerResult<Output>>;
+  // 由已登记工具生成可信预览，只读实际目标，不执行业务动作或写撤销记录。
+  prepareApproval?(ctx: ToolExecutionContext, input: Input): Promise<ToolApprovalPreview>;
   refreshDataLevel?(ctx: ToolExecutionContext, cachedData: Output): Promise<DataLevel>;
   undo?: ToolUndoSpec<Input>;
 }
@@ -96,7 +105,7 @@ export type ToolResultEnvelope = {
   dataLevel: DataLevel;
   undoId: string | null;
   replayed: boolean;
-  status: 'completed' | 'pending_proposal';
+  status: 'completed' | 'pending_proposal' | 'pending_approval';
 };
 type StoredPayload = ReturnType<typeof toolStoredPayloadSchema.parse>;
 type LoadedContext = ToolExecutionContext & { projectOwnerId: string | null };
@@ -290,6 +299,16 @@ export class ToolRegistry {
         typeof definition.execute !== 'function'
       )
         throw fail(500, 'TOOL_HANDLER_REQUIRED', '工具缺少已发布执行实现，请维护人员补全登记。');
+      if (
+        metadata.effect === 'reversible_write' &&
+        metadata.approvalInAsk &&
+        typeof definition.prepareApproval !== 'function'
+      )
+        throw fail(
+          500,
+          'TOOL_APPROVAL_PREVIEW_REQUIRED',
+          '需要批准的工具必须提供可信操作预览，请维护人员补全登记。',
+        );
       this.definitions.set(
         metadata.name,
         Object.freeze({
@@ -314,8 +333,9 @@ export class ToolRegistry {
       username: string;
       display_name: string;
       is_development: boolean;
+      is_management: boolean;
     }>(
-      "SELECT id,username,display_name,is_development FROM app_user WHERE id=$1 AND status='active' FOR SHARE",
+      "SELECT id,username,display_name,is_development,is_management FROM app_user WHERE id=$1 AND status='active' FOR SHARE",
       [reference.userId],
     );
     const user = users.rows[0];
@@ -350,11 +370,11 @@ export class ToolRegistry {
       user_id: string;
       project_id: string | null;
       goal_id: string | null;
-      mode: 'read_only' | 'execute';
+      permission_mode: PermissionMode;
       status: string;
       max_data_level: DataLevel;
     }>(
-      'SELECT id,user_id,project_id,goal_id,mode,status,max_data_level FROM conversation WHERE id=$1 FOR UPDATE',
+      'SELECT id,user_id,project_id,goal_id,permission_mode,status,max_data_level FROM conversation WHERE id=$1 FOR UPDATE',
       [initial.conversation_id],
     );
     const conversation = conversations.rows[0];
@@ -385,10 +405,6 @@ export class ToolRegistry {
         'TOOL_DIRECTION_STALE',
         '目标方向已经更新，请停止旧运行并按最新方向重新开始。',
       );
-    const roles = await tx.query(
-      'SELECT role,scope_type AS "scopeType",scope_id AS "scopeId" FROM role_binding WHERE user_id=$1 FOR SHARE',
-      [user.id],
-    );
     const actor = frozen(
       agentIdentitySchema.parse({
         kind: 'agent',
@@ -397,7 +413,7 @@ export class ToolRegistry {
         username: user.username,
         displayName: user.display_name,
         isDevelopment: user.is_development,
-        roles: roles.rows,
+        isManagement: user.is_management,
       }),
     );
     let projectOwnerId: string | null = null;
@@ -418,7 +434,7 @@ export class ToolRegistry {
       conversationId: conversation.id,
       projectId: run.project_id,
       goalId: run.goal_id,
-      mode: conversation.mode,
+      permissionMode: conversation.permission_mode,
       goalStatus,
       directionVersion: run.direction_version,
       maxDataLevel: highest(run.max_data_level, conversation.max_data_level, workspaceLevel),
@@ -469,20 +485,16 @@ export class ToolRegistry {
     }
   }
   private scopedContext(definition: ToolDefinition, ctx: LoadedContext): LoadedContext {
-    const actor = frozen({
-      ...ctx.actor,
-      roles: ctx.actor.roles.filter((binding) => definition.metadata.roles.includes(binding.role)),
-    });
-    return Object.freeze({ ...ctx, actor });
+    void definition;
+    return ctx;
   }
-  private decision(definition: ToolDefinition, context: LoadedContext) {
+  private async decision(definition: ToolDefinition, context: LoadedContext) {
     const ctx = this.scopedContext(definition, context);
-    const roles = [...new Set(ctx.actor.roles.map((binding) => binding.role))] as Role[];
     const action = definition.metadata.authorizationAction;
-    const personal = action.startsWith('conversation.') || action.startsWith('sales.request.');
+    const personal = action.startsWith('conversation.');
     return decideTool(definition.metadata, {
-      roles,
-      mode: ctx.mode,
+      permissionMode: ctx.permissionMode,
+      approvalGranted: await hasConversationToolGrant(ctx, definition.metadata),
       goalStatus: ctx.goalStatus,
       hasUndo: availableUndo(definition),
       resourceAllowed: authorize(ctx.actor, definition.metadata.authorizationAction, {
@@ -491,28 +503,30 @@ export class ToolRegistry {
       }),
     });
   }
-  private allowed(definition: ToolDefinition, ctx: LoadedContext) {
-    const decision = this.decision(definition, ctx);
+  private async allowed(definition: ToolDefinition, ctx: LoadedContext) {
+    const decision = await this.decision(definition, ctx);
     if (decision.decision === 'deny') throw fail(403, decision.code, decision.message);
     return decision;
   }
   async catalog(reference: unknown) {
     const parsed = toolCatalogContextSchema.safeParse(reference);
     if (!parsed.success) throw fail(400, 'TOOL_CONTEXT_INVALID', '运行身份无效，请重新打开对话。');
-    return this.transaction({ ...parsed.data, callId: 'catalog' }, async (ctx) =>
-      [...this.definitions.values()]
-        .filter((definition) => this.decision(definition, ctx).decision !== 'deny')
-        .map((definition) => ({
-          name: definition.metadata.name,
-          version: definition.metadata.version,
-          effect: definition.metadata.effect,
-          description: toolDescription(definition.metadata),
-          parameters: z.toJSONSchema(definition.inputSchema, {
-            io: 'input',
-            unrepresentable: 'any',
-          }),
-        })),
-    );
+    return this.transaction({ ...parsed.data, callId: 'catalog' }, async (ctx) => {
+      const permitted: ToolDefinition[] = [];
+      for (const definition of this.definitions.values()) {
+        if ((await this.decision(definition, ctx)).decision !== 'deny') permitted.push(definition);
+      }
+      return permitted.map((definition) => ({
+        name: definition.metadata.name,
+        version: definition.metadata.version,
+        effect: definition.metadata.effect,
+        description: toolDescription(definition.metadata),
+        parameters: z.toJSONSchema(definition.inputSchema, {
+          io: 'input',
+          unrepresentable: 'any',
+        }),
+      }));
+    });
   }
 
   private async propagate(ctx: LoadedContext, level: DataLevel, invocationId?: string) {
@@ -549,6 +563,17 @@ export class ToolRegistry {
         'TOOL_IDEMPOTENCY_CONFLICT',
         '同一调用编号对应的工具版本或参数发生变化，请为新的调用使用新的编号。',
       );
+    if (invocation.status === 'pending_approval') {
+      const pending = await replayToolApproval(ctx, invocation.id);
+      await this.propagate(ctx, pending.dataLevel, invocation.id);
+      return {
+        invocationId: invocation.id,
+        ...pending,
+        undoId: null,
+        replayed: true,
+        status: 'pending_approval',
+      };
+    }
     if (invocation.status !== 'completed')
       throw fail(
         409,
@@ -726,7 +751,7 @@ export class ToolRegistry {
     );
     return this.transaction(parsed.data, async (context) => {
       const ctx = this.scopedContext(definition, context);
-      const decision = this.allowed(definition, ctx);
+      const decision = await this.allowed(definition, ctx);
       const found = await ctx.tx.query<InvocationRow>(
         'SELECT id,tool_name,tool_version,arguments_hash,operation,status,data_level FROM tool_invocation WHERE run_id=$1 AND call_id=$2',
         [ctx.runId, ctx.callId],
@@ -734,6 +759,33 @@ export class ToolRegistry {
       if (found.rows[0])
         return this.replay(ctx, definition, found.rows[0], argumentsHash, 'execute');
       const invocationId = await this.startInvocation(ctx, definition, argumentsHash, 'execute');
+      if (decision.decision === 'require_approval') {
+        if (!definition.prepareApproval)
+          throw fail(
+            500,
+            'TOOL_APPROVAL_PREVIEW_REQUIRED',
+            '工具缺少可信批准预览，未执行本次操作。',
+          );
+        const preview = toolApprovalPreviewSchema.parse(
+          await callback(() => definition.prepareApproval!(ctx, input.data)),
+        );
+        const pending = await createToolApproval(
+          ctx,
+          definition.metadata,
+          invocationId,
+          argumentsHash,
+          json.data,
+          preview,
+        );
+        await this.propagate(ctx, pending.dataLevel);
+        return {
+          invocationId,
+          ...pending,
+          undoId: null,
+          replayed: false,
+          status: 'pending_approval',
+        };
+      }
       let undoId: string | null = null,
         before: UndoCapture | undefined;
       if (definition.metadata.effect === 'reversible_write') {
@@ -780,9 +832,8 @@ export class ToolRegistry {
         undoId = undo.rows[0]!.id;
       }
       let result: ReturnType<typeof toolExecutionResultSchema.parse>;
-      let status: 'completed' | 'pending_proposal' = 'completed';
+      const status = decision.decision === 'propose' ? 'pending_proposal' : 'completed';
       if (decision.decision === 'propose' && !definition.propose) {
-        status = 'pending_proposal';
         result = {
           data: {
             proposed: false,
@@ -872,7 +923,13 @@ export class ToolRegistry {
           '原工具的已发布撤销版本不可用，请联系维护人员核对，不能使用新版本猜测恢复。',
         );
       const ctx = this.scopedContext(definition, context);
-      this.allowed(definition, ctx);
+      const policy = await this.allowed(definition, ctx);
+      if (policy.decision === 'require_approval')
+        throw fail(
+          403,
+          'TOOL_UNDO_APPROVAL_REQUIRED',
+          '撤销同样属于业务写入。当前版本不恢复待批准撤销，请先由发起人在浏览器确认权限后处理。',
+        );
       if (definition.metadata.effect !== 'reversible_write')
         throw fail(403, 'TOOL_UNDO_FORBIDDEN', '此工具不属于可撤销写入，不能执行补偿。');
       const argumentsHash = hash(JSON.stringify({ operation: 'undo', undoId }));

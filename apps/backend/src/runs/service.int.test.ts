@@ -13,10 +13,10 @@ const actor = () =>
     kind: 'agent',
     runId: run.runId,
     userId: run.userId,
-    username: 'ra',
+    username: 'zhangsan',
     displayName: '注册人员A（开发）',
     isDevelopment: true,
-    roles: [{ role: 'RA', scopeType: 'global', scopeId: null }],
+    isManagement: false,
   });
 beforeAll(async () => {
   context = await createIntegrationContext();
@@ -75,7 +75,7 @@ test('枚举和编号字段不能承载自由文本，拒绝后序号不推进',
   ).toBe(0);
 });
 
-test('并发事件序号单调唯一，私有列表支持断点续读', async () => {
+test('并发事件序号单调唯一，部门共享读取支持断点续读但不能代他人追加', async () => {
   const events = await Promise.all(
     Array.from({ length: 8 }, () =>
       appendRunEvent(context.pool, {
@@ -103,17 +103,15 @@ test('并发事件序号单调唯一，私有列表支持断点续读', async ()
   expect(next.hasMore).toBe(false);
   const other = {
     ...actor(),
-    userId: context.userId('RB'),
-    username: 'rb',
-    roles: [{ role: 'RB' as const, scopeType: 'global' as const, scopeId: null }],
+    userId: context.userId('MEMBER_B'),
+    username: 'wangmin',
+    isManagement: false,
   };
-  await expect(listRunEvents(context.pool, other, run.runId)).rejects.toMatchObject({
-    statusCode: 404,
-  });
+  expect((await listRunEvents(context.pool, other, run.runId)).items).toHaveLength(8);
   await expect(
     appendRunEvent(context.pool, {
       runId: run.runId,
-      userId: context.userId('RB'),
+      userId: context.userId('MEMBER_B'),
       event: { type: 'run_completed' },
     }),
   ).rejects.toMatchObject({ statusCode: 403 });
@@ -293,7 +291,7 @@ test('释放不重置代次，停止运行不能再领取，跨用户执行权�
   await expect(
     claimRunLease(context.pool, {
       runId: run.runId,
-      userId: context.userId('RB'),
+      userId: context.userId('MEMBER_B'),
       ownerId: randomUUID(),
     }),
   ).rejects.toMatchObject({ statusCode: 403 });

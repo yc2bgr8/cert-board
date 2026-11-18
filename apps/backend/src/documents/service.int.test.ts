@@ -23,6 +23,7 @@ const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let blobs: Awaited<ReturnType<typeof createTestBlobStore>>;
 let ra: BrowserIdentity;
+let memberB: BrowserIdentity;
 let projectId: string;
 let otherProjectId: string;
 function source(sourceKey: string, text: string): DocumentImport {
@@ -60,26 +61,25 @@ beforeAll(async () => {
   const password = (role: string) => ['document', 'integration', role, 'example'].join('-');
   await seedDevelopmentAccounts(database.pool, {
     NODE_ENV: 'test',
-    DEV_RA_PASSWORD: password('ra'),
-    DEV_RB_PASSWORD: password('rb'),
-    DEV_GM_PASSWORD: password('gm'),
-    DEV_SALES_PASSWORD: password('sales'),
-    DEV_TECH_PASSWORD: password('tech'),
+    DEV_ZHANGSAN_PASSWORD: password('zhangsan'),
+    DEV_WANGMIN_PASSWORD: password('wangmin'),
+    DEV_ADMIN_PASSWORD: password('admin'),
   });
   const users = await database.pool.query(
-    "SELECT id,username,display_name FROM app_user WHERE username IN ('ra','rb') ORDER BY username",
+    "SELECT id,username,display_name FROM app_user WHERE username IN ('zhangsan','wangmin') ORDER BY username",
   );
-  const user = users.rows.find((row) => row.username === 'ra');
-  const reviewer = users.rows.find((row) => row.username === 'rb');
+  const user = users.rows.find((row) => row.username === 'zhangsan');
+  const reviewer = users.rows.find((row) => row.username === 'wangmin');
   ra = browserIdentitySchema.parse({
     kind: 'browser',
     userId: user.id,
-    username: 'ra',
+    username: 'zhangsan',
     displayName: user.display_name,
     isDevelopment: true,
     sessionId: randomUUID(),
-    roles: [{ role: 'RA', scopeType: 'global', scopeId: null }],
+    isManagement: false,
   });
+  memberB = { ...ra, userId: reviewer.id, username: 'wangmin', sessionId: randomUUID() };
   const input = {
     projectType: 'registration',
     market: 'US',
@@ -339,23 +339,29 @@ test('资料列表与检索有续读，结果只给有界摘要和定位，不�
   expect(more.items.some((item) => list.items.some((prior) => prior.id === item.id))).toBe(false);
 });
 
-test('跨项目资料不可见，作废后不能读取、检索或重复导入恢复', async () => {
+test('成员可共享资料，检索仍按项目隔离，作废后不能读取或重新导入恢复', async () => {
   const input = source('VOID-01', 'VOID_UNIQUE 原文');
   const document = await ingestParsedDocument(database.pool, blobs.store, input);
-  const scoped: BrowserIdentity = {
-    ...ra,
-    roles: [{ role: 'RA', scopeType: 'project', scopeId: otherProjectId }],
-  };
-  await expect(getDocument(database.pool, scoped, document.documentId)).rejects.toMatchObject({
-    statusCode: 404,
-    code: 'DOCUMENT_NOT_FOUND',
-  });
-  await expect(
-    readDocumentPage(database.pool, scoped, document.documentId, 1, 1),
-  ).rejects.toMatchObject({ statusCode: 404 });
-  await expect(
-    searchDocuments(database.pool, scoped, projectId, { query: 'VOID_UNIQUE' }),
-  ).rejects.toMatchObject({ statusCode: 404 });
+  expect((await getDocument(database.pool, memberB, document.documentId)).id).toBe(
+    document.documentId,
+  );
+  expect(
+    (await readDocumentPage(database.pool, memberB, document.documentId, 1, 1)).text,
+  ).toContain('VOID_UNIQUE');
+  expect(
+    (await searchDocuments(database.pool, memberB, otherProjectId, { query: 'VOID_UNIQUE' })).items,
+  ).toHaveLength(0);
+  await database.pool.query("UPDATE app_user SET status='disabled' WHERE id=$1", [memberB.userId]);
+  try {
+    await expect(getDocument(database.pool, memberB, document.documentId)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    await expect(
+      searchDocuments(database.pool, memberB, projectId, { query: 'VOID_UNIQUE' }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  } finally {
+    await database.pool.query("UPDATE app_user SET status='active' WHERE id=$1", [memberB.userId]);
+  }
   await database.pool.query(
     "UPDATE document SET voided=true,void_reason='测试作废',version=version+1 WHERE id=$1",
     [document.documentId],

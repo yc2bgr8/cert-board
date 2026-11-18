@@ -157,10 +157,12 @@ async function runContext(
     username: string;
     display_name: string;
     is_development: boolean;
+    is_management: boolean;
     status: string;
-  }>('SELECT id,username,display_name,is_development,status FROM app_user WHERE id=$1 FOR SHARE', [
-    reference.userId,
-  ]);
+  }>(
+    'SELECT id,username,display_name,is_development,is_management,status FROM app_user WHERE id=$1 FOR SHARE',
+    [reference.userId],
+  );
   const user = users.rows[0];
   if (!user) throw fail(403, 'BUDGET_RUN_FORBIDDEN', '计量用户不存在。');
   let goalBudgetNano = 0n;
@@ -220,10 +222,6 @@ async function runContext(
         'BUDGET_GOAL_INACTIVE',
         '模型调用需要当前方向的活动目标，请负责人确认后重新运行。',
       );
-    const roles = await tx.query(
-      'SELECT role,scope_type AS "scopeType",scope_id AS "scopeId" FROM role_binding WHERE user_id=$1 FOR SHARE',
-      [user.id],
-    );
     const actor = agentIdentitySchema.parse({
       kind: 'agent',
       runId: run.id,
@@ -231,7 +229,7 @@ async function runContext(
       username: user.username,
       displayName: user.display_name,
       isDevelopment: user.is_development,
-      roles: roles.rows,
+      isManagement: user.is_management,
     });
     const projects = await tx.query<{ owner_user_id: string }>(
       'SELECT owner_user_id FROM cert_project WHERE id=$1 FOR SHARE',

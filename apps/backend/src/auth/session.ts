@@ -45,7 +45,7 @@ type SessionRow = {
   is_development: boolean;
   csrf_token_hash: string;
   expires_at: Date;
-  roles: unknown;
+  is_management: boolean;
 };
 
 export async function readBrowserSession(
@@ -61,14 +61,11 @@ export async function readBrowserSession(
   }
   const result = await pool.query<SessionRow>(
     `SELECT s.id AS session_id, u.id AS user_id, u.username, u.display_name,
-       u.is_development, s.csrf_token_hash, s.expires_at,
-       COALESCE(jsonb_agg(jsonb_build_object('role', r.role, 'scopeType', r.scope_type,
-         'scopeId', r.scope_id)) FILTER (WHERE r.id IS NOT NULL), '[]'::jsonb) AS roles
+       u.is_development,u.is_management,s.csrf_token_hash,s.expires_at
      FROM web_session s JOIN app_user u ON u.id = s.user_id
-     LEFT JOIN role_binding r ON r.user_id = u.id
      WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP
        AND u.status = 'active' AND ($2::boolean = false OR u.is_development = false)
-     GROUP BY s.id, u.id`,
+     `,
     [tokenHash(token), config.NODE_ENV === 'production'],
   );
   const session = result.rows[0];
@@ -80,7 +77,7 @@ export async function readBrowserSession(
     username: session.username,
     displayName: session.display_name,
     isDevelopment: session.is_development,
-    roles: session.roles,
+    isManagement: session.is_management,
   });
   const csrfToken = csrfForSession(token);
   if (options.write) {
@@ -115,6 +112,7 @@ type LoginUser = {
   password_hash: string;
   status: string;
   is_development: boolean;
+  is_management: boolean;
 };
 
 export async function loginSession(
@@ -124,7 +122,7 @@ export async function loginSession(
   previousToken?: string,
 ) {
   const found = await pool.query<LoginUser>(
-    'SELECT id, username, display_name, password_hash, status, is_development FROM app_user WHERE username = $1',
+    'SELECT id, username, display_name, password_hash, status, is_development, is_management FROM app_user WHERE username = $1',
     [input.username],
   );
   const user = found.rows[0];
@@ -157,7 +155,7 @@ export async function loginSession(
   try {
     await client.query('BEGIN');
     const current = await client.query<LoginUser>(
-      'SELECT id, username, display_name, password_hash, status, is_development FROM app_user WHERE id = $1 FOR SHARE',
+      'SELECT id, username, display_name, password_hash, status, is_development, is_management FROM app_user WHERE id = $1 FOR SHARE',
       [user.id],
     );
     const lockedUser = current.rows[0];
@@ -181,16 +179,12 @@ export async function loginSession(
     );
     const session = inserted.rows[0];
     if (!session) throw new Error('会话建立失败');
-    const roles = await client.query(
-      'SELECT role, scope_type AS "scopeType", scope_id AS "scopeId" FROM role_binding WHERE user_id = $1 ORDER BY role, scope_type',
-      [user.id],
-    );
     const response = authResponseSchema.parse({
       user: {
         id: user.id,
         username: lockedUser.username,
         displayName: lockedUser.display_name,
-        roles: roles.rows,
+        isManagement: lockedUser.is_management,
       },
       csrfToken,
       expiresAt: session.expires_at.toISOString(),

@@ -15,15 +15,15 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;backgrou
 img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
 @media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
-</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#check_run-builtin-checks-v1">check_run（builtin-checks-v1）</a><a class="level-2" href="#submit_for_review-builtin-review-v1">submit_for_review（builtin-review-v1）</a></nav><main><h1 id="工具说明">工具说明</h1>
-<p>本文件记录当前检查和审核提交工具的完整模型说明，其他工具在PR-21汇总。</p>
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#check_run-builtin-checks-v1">check_run（builtin-checks-v1）</a><a class="level-2" href="#submit_for_review-builtin-review-v1">submit_for_review（builtin-review-v1）</a><a class="level-2" href="#propose_external-builtin-proposal-v1">propose_external（builtin-proposal-v1）</a><a class="level-2" href="#queue_internal_message-builtin-internal-v1">queue_internal_message（builtin-internal-v1）</a></nav><main><h1 id="工具说明">工具说明</h1>
+<p>以下为当前登记工具的完整模型说明。其他通用/业务工具在PR-21接入。所有部门成员业务权限相同；过程批准只由对话发起人在浏览器处理。approvalInAsk=false不免除外部提案逐条审批或最终审核。</p>
 <h2 id="check_run-builtin-checks-v1">check_run（builtin-checks-v1）</h2>
-<p>动作级别：read；角色：RA、RB、GM；模式：read_only、execute。</p>
+<p>动作级别：read；模式：read_only、ask、full；请求批准模式先问：否。</p>
 <p>做什么：提交审核前核对结构化结果与资料库原文；当前执行V1原文逐字核验和V3结构检查。</p>
 <p>何时使用：已有doc_read取得的真实引用和本项目已保存工作区版本，准备检查交付时使用。</p>
 <p>何时不用：不要用它代替doc_read或法规判断；它不证明模型实际读过，不验证哪个K号正确。通过后仍须submit_for_review，审批只能由人在浏览器完成。</p>
 <p>参数：直接传skill、workspaceVersion、conclusion、claims、evidence、missing、uncertain、nextStep。引用只用documentId/version整数/page/quote；禁止草稿路径。K号是字符串且unit为null；数量/单位转换暂未支持。例子为虚构格式，必须替换成真实资料与版本。</p>
-<p>示例仅为格式，不是实际证据：</p>
+<p>格式示例（不是真实业务数据）：</p>
 <pre><code>{
   &quot;skill&quot;: {
     &quot;id&quot;: &quot;R09&quot;,
@@ -64,12 +64,12 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
   &quot;nextStep&quot;: &quot;核对原件后提交审核。&quot;
 }</code></pre>
 <h2 id="submit_for_review-builtin-review-v1">submit_for_review（builtin-review-v1）</h2>
-<p>动作级别：reversible_write；角色：RA、RB；模式：execute。</p>
+<p>动作级别：reversible_write；模式：ask、full；请求批准模式先问：否。</p>
 <p>做什么：把已保存的核查报告和结构化证据提交给人审核；仅建立待审核卡，不会批准或冻结版本。</p>
 <p>何时使用：已按技能读取实际资料、完成报告、保存最新工作区版本并用check_run通过关键检查后使用。</p>
 <p>何时不用：不能当作审批工具；对话中的同意不算批准。资料未读完整请先doc_read，保存冲突先合并；程序不判断正确K号或法规立场。</p>
 <p>参数：直接传结构化结果的skill/workspaceVersion/conclusion/claims/evidence/missing/uncertain/nextStep。引语须完整出现在本对话成功doc_read回执；最少证据数和风险由服务端技能策略确定。例子为虚构格式，请替换成真实定位。</p>
-<p>示例仅为格式，不是实际证据：</p>
+<p>格式示例（不是真实业务数据）：</p>
 <pre><code>{
   &quot;skill&quot;: {
     &quot;id&quot;: &quot;R09&quot;,
@@ -115,5 +115,29 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
   ],
   &quot;nextStep&quot;: &quot;请核对原件后在审核卡作出决定。&quot;
 }</code></pre>
-<p>提交失败只返回固定安全指引：缺读回执先doc_read，关键检查失败先check_run，证据不足补不同完整引文。审批不在模型目录中。</p>
-<p>当前原文匹配不证明事实正确；提交另核验实际读取回执。Agent与技能评测在PR-20/21接入同一内核后运行，占位命令不算通过。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
+<h2 id="propose_external-builtin-proposal-v1">propose_external（builtin-proposal-v1）</h2>
+<p>动作级别：external；模式：ask、full；请求批准模式先问：否。</p>
+<p>做什么：为明确的外部动作建立待人工审核提案；开发环境仅支持本地测试渠道，绝不直接发送。</p>
+<p>何时使用：用户明确要求准备对外内容，且已有本项目登记的测试联系人时使用。</p>
+<p>何时不用：核查结果交人工审核请用submit_for_review；没有登记联系人不要猜编号；审批只能在浏览器审核卡操作。</p>
+<p>参数：contactId是本项目有效登记联系人编号；subject是单行主题；body是待审核正文，不支持附件。</p>
+<p>格式示例（不是真实业务数据）：</p>
+<pre><code>{
+  &quot;contactId&quot;: &quot;00000000-0000-4000-8000-000000000001&quot;,
+  &quot;subject&quot;: &quot;资料核对（虚构示例）&quot;,
+  &quot;body&quot;: &quot;请协助核对资料。此编号仅为格式示例，实际须使用登记联系人。&quot;
+}</code></pre>
+<h2 id="queue_internal_message-builtin-internal-v1">queue_internal_message（builtin-internal-v1）</h2>
+<p>动作级别：reversible_write；模式：ask、full；请求批准模式先问：是。</p>
+<p>做什么：为已登记并绑定身份的内部同事排入本地测试消息；不直接发送，不支持真实渠道。</p>
+<p>何时使用：资料请求或催办对象为本项目已绑定的开发成员；请求批准模式先等浏览器批准，完全允许模式直接排队。</p>
+<p>何时不用：公司外部对象必须用propose_external逐条审核；未知联系人不要猜地址；最终工作结果用submit_for_review。</p>
+<p>参数：contactId使用登记联系人编号，subject是单行主题，body是拟发送正文；不得传地址、身份绑定或批准字段。</p>
+<p>格式示例（不是真实业务数据）：</p>
+<pre><code>{
+  &quot;contactId&quot;: &quot;00000000-0000-4000-8000-000000000001&quot;,
+  &quot;subject&quot;: &quot;核对资料&quot;,
+  &quot;body&quot;: &quot;请核对资料。此联系人编号仅为格式示例，必须换成实际登记编号。&quot;
+}</code></pre>
+<p>检查不证明事实或法规正确；提交审核另验实际读取回执。内部测试队列当前仅接受已绑定的活动开发成员，发送前复核状态/版本/级别/日期；没有任何真实发送函数。</p>
+<p>同一Pi内核的剧本回归已接入eval:agent；完整技能业务评测仍在PR-21/29继续，不能把占位eval当作通过。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

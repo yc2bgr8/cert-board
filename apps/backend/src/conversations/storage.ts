@@ -12,16 +12,16 @@ import {
   conversationEventNotificationSchema,
   projectIdSchema,
   serviceIdentitySchema,
-  roleBindingSchema,
   type ServiceIdentity,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
+import { currentServiceIdentity } from '../auth/member.js';
 
 type Kind = 'message' | 'event';
 export const CONVERSATION_EVENT_CHANNEL = 'cert_board_conversation_events';
 const denied = () =>
-  new AppError(404, 'CONVERSATION_NOT_FOUND', '未找到可访问的对话，请从自己的项目重新打开。');
+  new AppError(404, 'CONVERSATION_NOT_FOUND', '未找到可访问的对话，请从项目重新打开。');
 const invalid = () =>
   new AppError(
     400,
@@ -191,26 +191,11 @@ async function list(
   const tx = await pool.connect();
   try {
     await tx.query('BEGIN');
-    if (
-      !(
-        await tx.query("SELECT id FROM app_user WHERE id=$1 AND status='active' FOR SHARE", [
-          actor.data.userId,
-        ])
-      ).rowCount
-    )
-      throw denied();
-    const bindings = await tx.query(
-      'SELECT role,scope_type AS "scopeType",scope_id AS "scopeId" FROM role_binding WHERE user_id=$1',
-      [actor.data.userId],
-    );
-    const currentActor = {
-      ...actor.data,
-      roles: bindings.rows.map((row) => roleBindingSchema.parse(row)),
-    };
+    const currentActor = await currentServiceIdentity(tx, actor.data, { lock: true });
     const conversation = (
       await tx.query<{ user_id: string; project_id: string | null; max_data_level: string }>(
-        'SELECT user_id,project_id,max_data_level FROM conversation WHERE id=$1 AND user_id=$2 FOR SHARE',
-        [conversationId, currentActor.userId],
+        'SELECT user_id,project_id,max_data_level FROM conversation WHERE id=$1 FOR SHARE',
+        [conversationId],
       )
     ).rows[0];
     if (

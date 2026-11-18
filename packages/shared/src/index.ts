@@ -19,3 +19,5 @@ export * from './checks.js';
 export * from './reviews.js';
 export * from './conversations.js';
 export * from './run-control.js';
+export * from './approvals.js';
+export * from './internal-messages.js';

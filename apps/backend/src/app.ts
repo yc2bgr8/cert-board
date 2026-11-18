@@ -15,6 +15,7 @@ import { registerWorkspaceRoutes } from './workspace/routes.js';
 import { registerProposalRoutes } from './api/proposal-routes.js';
 import { registerReviewRoutes } from './api/review-routes.js';
 import { registerRunControlRoutes } from './api/run-control-routes.js';
+import { registerApprovalRoutes } from './api/approval-routes.js';
 
 export interface AppDependencies extends HealthDependencies {
   database?: pg.Pool;
@@ -59,6 +60,7 @@ export function createApp(
     registerProposalRoutes(app, dependencies.database, config);
     registerReviewRoutes(app, dependencies.database, config);
     registerRunControlRoutes(app, dependencies.database, config);
+    registerApprovalRoutes(app, dependencies.database, config);
     registerWorkspaceRoutes(
       app,
       dependencies.database,

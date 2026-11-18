@@ -49,8 +49,8 @@ function metadata(name: string, effect: ToolMetadata['effect'] = 'read'): ToolMe
     version: '1.0.0',
     publication: 'published',
     effect,
-    roles: ['RA'],
-    modes: ['read_only', 'execute'],
+    approvalInAsk: false,
+    modes: ['read_only', 'ask', 'full'],
     outputDataLevel: 'internal',
     authorizationAction: effect === 'read' ? 'project.read' : 'project.write',
     description: {
@@ -173,25 +173,23 @@ beforeAll(async () => {
   const password = (role: string) => ['registry', 'integration', role, 'example'].join('-');
   await seedDevelopmentAccounts(database.pool, {
     NODE_ENV: 'test',
-    DEV_RA_PASSWORD: password('ra'),
-    DEV_RB_PASSWORD: password('rb'),
-    DEV_GM_PASSWORD: password('gm'),
-    DEV_SALES_PASSWORD: password('sales'),
-    DEV_TECH_PASSWORD: password('tech'),
+    DEV_ZHANGSAN_PASSWORD: password('zhangsan'),
+    DEV_WANGMIN_PASSWORD: password('wangmin'),
+    DEV_ADMIN_PASSWORD: password('admin'),
   });
   const users = await database.pool.query(
-    "SELECT id,username,display_name FROM app_user WHERE username IN ('ra','rb')",
+    "SELECT id,username,display_name FROM app_user WHERE username IN ('zhangsan','wangmin')",
   );
-  const user = users.rows.find((row) => row.username === 'ra');
-  rbId = users.rows.find((row) => row.username === 'rb').id;
+  const user = users.rows.find((row) => row.username === 'zhangsan');
+  rbId = users.rows.find((row) => row.username === 'wangmin').id;
   ra = browserIdentitySchema.parse({
     kind: 'browser',
     userId: user.id,
-    username: 'ra',
+    username: 'zhangsan',
     displayName: user.display_name,
     isDevelopment: true,
     sessionId: randomUUID(),
-    roles: [{ role: 'RA', scopeType: 'global', scopeId: null }],
+    isManagement: false,
   });
   await database.pool.query(
     'CREATE TABLE registry_test_proposal(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),conversation_id uuid NOT NULL,payload jsonb NOT NULL)',
@@ -215,7 +213,7 @@ beforeEach(async () => {
   ).rows[0]!.id;
   conversationId = (
     await database.pool.query<{ id: string }>(
-      "INSERT INTO conversation(project_id,user_id,goal_id,title,mode) VALUES($1,$2,$3,'执行器测试对话','execute') RETURNING id",
+      "INSERT INTO conversation(project_id,user_id,goal_id,title,permission_mode) VALUES($1,$2,$3,'执行器测试对话','ask') RETURNING id",
       [projectId, ra.userId, goalId],
     )
   ).rows[0]!.id;
@@ -400,7 +398,6 @@ test('自己的对话即使位于他人负责项目，也按真实会话owner授
     metadata: {
       ...metadata('owned_conversation'),
       authorizationAction: 'conversation.read',
-      roles: ['RB'],
     },
     inputSchema: z.object({}).strict(),
     outputSchema: z.object({ ownerId: z.uuid(), kind: z.literal('agent') }).strict(),
@@ -473,7 +470,7 @@ test.each(['read_only', 'paused', 'human_controlled', 'cancelled'])(
     const tool = writer();
     const registry = new ToolRegistry(database.pool, [reader(), tool.definition]);
     if (state === 'read_only')
-      await database.pool.query("UPDATE conversation SET mode='read_only' WHERE id=$1", [
+      await database.pool.query("UPDATE conversation SET permission_mode='read_only' WHERE id=$1", [
         conversationId,
       ]);
     else await database.pool.query('UPDATE goal SET status=$1 WHERE id=$2', [state, goalId]);
@@ -488,7 +485,7 @@ test.each(['read_only', 'paused', 'human_controlled', 'cancelled'])(
   },
 );
 
-test('目标方向变化、停止运行、跨用户和角色撤销都会拒绝调用', async () => {
+test('目标方向变化、停止运行、跨用户和账号停用都会拒绝调用', async () => {
   const registry = new ToolRegistry(database.pool, [reader(), writer().definition]);
   await expect(
     registry.execute({ runId, userId: rbId, callId: 'wrong_owner' }, 'read_note', {}),
@@ -509,16 +506,15 @@ test('目标方向变化、停止运行、跨用户和角色撤销都会拒绝�
   });
   runId = await newRun();
   try {
-    await database.pool.query('DELETE FROM role_binding WHERE user_id=$1', [ra.userId]);
-    expect(await registry.catalog({ runId, userId: ra.userId })).toEqual([]);
+    await database.pool.query("UPDATE app_user SET status='disabled' WHERE id=$1", [ra.userId]);
+    await expect(registry.catalog({ runId, userId: ra.userId })).rejects.toMatchObject({
+      code: 'TOOL_USER_INACTIVE',
+    });
     await expect(
       registry.execute(ref('revoked'), 'write_note', { value: '禁止', expectedVersion: 1 }),
     ).rejects.toMatchObject({ statusCode: 403 });
   } finally {
-    await database.pool.query(
-      "INSERT INTO role_binding(user_id,role,scope_type) VALUES($1,'RA','global')",
-      [ra.userId],
-    );
+    await database.pool.query("UPDATE app_user SET status='active' WHERE id=$1", [ra.userId]);
   }
 });
 
@@ -553,8 +549,13 @@ test('外部动作从不调用execute，未接提案时明确待提案，接fact
   const ready = { ...pending, metadata: metadata('external_ready', 'external'), propose };
   const registryReady = new ToolRegistry(database.pool, [ready]);
   const args = { content: '仅本地测试渠道' };
-  await registryReady.execute(ref('proposal_ready'), 'external_ready', args);
-  await registryReady.execute(ref('proposal_ready'), 'external_ready', args);
+  expect((await registryReady.execute(ref('proposal_ready'), 'external_ready', args)).status).toBe(
+    'pending_proposal',
+  );
+  expect(await registryReady.execute(ref('proposal_ready'), 'external_ready', args)).toMatchObject({
+    status: 'pending_proposal',
+    replayed: true,
+  });
   expect(propose.mock.calls.length).toBe(1);
   expect(execute.mock.calls.length).toBe(0);
   expect(
@@ -621,23 +622,22 @@ test('后续人工改动、其他会话、只读或撤权不能撤销原记录',
       done.undoId!,
     ),
   ).rejects.toMatchObject({ code: 'TOOL_UNDO_FORBIDDEN' });
-  await database.pool.query("UPDATE conversation SET mode='read_only' WHERE id=$1", [
+  await database.pool.query("UPDATE conversation SET permission_mode='read_only' WHERE id=$1", [
     conversationId,
   ]);
   await expect(registry.undo(ref('readonly_undo'), done.undoId!)).rejects.toMatchObject({
     statusCode: 403,
   });
-  await database.pool.query("UPDATE conversation SET mode='execute' WHERE id=$1", [conversationId]);
+  await database.pool.query("UPDATE conversation SET permission_mode='ask' WHERE id=$1", [
+    conversationId,
+  ]);
   try {
-    await database.pool.query('DELETE FROM role_binding WHERE user_id=$1', [ra.userId]);
+    await database.pool.query("UPDATE app_user SET status='disabled' WHERE id=$1", [ra.userId]);
     await expect(registry.undo(ref('revoked_undo'), done.undoId!)).rejects.toMatchObject({
       statusCode: 403,
     });
   } finally {
-    await database.pool.query(
-      "INSERT INTO role_binding(user_id,role,scope_type) VALUES($1,'RA','global')",
-      [ra.userId],
-    );
+    await database.pool.query("UPDATE app_user SET status='active' WHERE id=$1", [ra.userId]);
   }
   expect(tool.apply.mock.calls.length).toBe(0);
   expect(await project()).toEqual({ next_action: '后续人工修改', version: 3 });
@@ -731,7 +731,7 @@ test('已发布metadata被克隆冻结，调用方后续修改不改变目录', 
   const registry = new ToolRegistry(database.pool, [definition]);
   definition.metadata.publication = 'draft';
   definition.metadata.description.purpose = '不应替换已发布说明';
-  definition.metadata.roles.splice(0, 1, 'TECH');
+  definition.metadata.modes.splice(0, 3, 'full');
   const catalog = await registry.catalog({ runId, userId: ra.userId });
   expect(catalog).toHaveLength(1);
   expect(catalog[0]!.description.includes('不应替换')).toBe(false);
@@ -768,79 +768,50 @@ test('动态写入工具的undo与重放用原业务回执定位来源，不把u
   expect(refreshDataLevel.mock.calls.length).toBe(4);
 });
 
-async function mixedRoleContext() {
-  const first = await createProject(database.pool, ra, {
-    name: 'RA受限项目',
-    projectType: 'registration',
-    market: 'US',
-    pathway: '510(k)',
-    reviewerUserId: rbId,
-  });
-  const firstGoal = (
+test('不同部门成员在自己的对话中拥有相同业务工具权限', async () => {
+  const conversation = (
     await database.pool.query<{ id: string }>(
-      "INSERT INTO goal(project_id,owner_user_id,title,acceptance_criteria) VALUES($1,$2,'受限项目目标','验证角色与范围不可组合') RETURNING id",
-      [first.id, ra.userId],
+      "INSERT INTO conversation(project_id,user_id,goal_id,title,permission_mode) VALUES($1,$2,$3,'同等成员工具权限','ask') RETURNING id",
+      [projectId, rbId, goalId],
     )
   ).rows[0]!.id;
-  const firstConversation = (
-    await database.pool.query<{ id: string }>(
-      "INSERT INTO conversation(project_id,user_id,goal_id,title) VALUES($1,$2,$3,'受限角色会话') RETURNING id",
-      [first.id, ra.userId, firstGoal],
-    )
-  ).rows[0]!.id;
-  const firstRun = await newRun(firstConversation);
-  await database.pool.query('DELETE FROM role_binding WHERE user_id=$1', [ra.userId]);
-  await database.pool.query(
-    "INSERT INTO role_binding(user_id,role,scope_type,scope_id) VALUES($1,'RA','project',$2),($1,'RB','global',NULL)",
-    [ra.userId, first.id],
-  );
-  return {
-    projectId: first.id,
-    runId: firstRun,
-    async restore() {
-      await database.pool.query('DELETE FROM role_binding WHERE user_id=$1', [ra.userId]);
-      await database.pool.query(
-        "INSERT INTO role_binding(user_id,role,scope_type) VALUES($1,'RA','global')",
-        [ra.userId],
-      );
+  const ownRun = await newRun(conversation, rbId);
+  const tool = writer();
+  const registry = new ToolRegistry(database.pool, [tool.definition]);
+  expect(
+    (await registry.catalog({ runId: ownRun, userId: rbId })).map((item) => item.name),
+  ).toEqual(['write_note']);
+  await registry.execute(
+    { runId: ownRun, userId: rbId, callId: 'same_business_permission' },
+    'write_note',
+    {
+      value: '部门成员共同处理',
+      expectedVersion: 1,
     },
-  };
-}
-
-test('工具只允许的角色绑定必须同时满足scope，不能借其他角色的全局范围', async () => {
-  const tool = writer({ name: 'ra_only_write' });
-  tool.definition.metadata.authorizationAction = 'record.write';
-  const mixed = await mixedRoleContext();
-  try {
-    const registry = new ToolRegistry(database.pool, [tool.definition]);
-    expect((await registry.catalog({ runId, userId: ra.userId })).map((item) => item.name)).toEqual(
-      [],
-    );
-    await expect(
-      registry.execute(ref('mixed_roles'), 'ra_only_write', {
-        value: '不应写项目B',
-        expectedVersion: 1,
-      }),
-    ).rejects.toMatchObject({ statusCode: 403 });
-    expect(tool.execute.mock.calls.length).toBe(0);
-    expect(await project()).toEqual({ next_action: null, version: 1 });
-  } finally {
-    await mixed.restore();
-  }
+  );
+  expect(await project()).toEqual({ next_action: '部门成员共同处理', version: 2 });
+  expect(tool.execute).toHaveBeenCalledTimes(1);
 });
 
-test('execute、capture、apply、refresh回调只收到工具允许的同组角色绑定', async () => {
+test('execute、capture、apply、refresh保持真实Agent身份，即使本人有管理权限也不能审批或管理', async () => {
   const tool = writer({ name: 'filtered_callbacks' });
   const originalUndo = tool.definition.undo!;
-  const seen: { stage: string; roles: string[]; canWriteOtherProject: boolean }[] = [];
+  const seen: {
+    stage: string;
+    kind: string;
+    management: boolean;
+    canApprove: boolean;
+    canManage: boolean;
+    frozen: boolean;
+  }[] = [];
   const inspect = (ctx: ToolExecutionContext, stage: string) =>
     seen.push({
       stage,
-      roles: ctx.actor.roles.map((binding) => binding.role),
-      canWriteOtherProject: authorize(ctx.actor, 'record.write', {
-        projectId,
-        ownerUserId: ra.userId,
-      }),
+      kind: ctx.actor.kind,
+      management: ctx.actor.isManagement,
+      canApprove: authorize(ctx.actor, 'approval.decide', { projectId, ownerUserId: ra.userId }),
+      canManage: authorize(ctx.actor, 'admin.manage'),
+      frozen: Object.isFrozen(ctx.actor),
     });
   const definition: ToolDefinition<Input, Output> = {
     ...tool.definition,
@@ -873,10 +844,10 @@ test('execute、capture、apply、refresh回调只收到工具允许的同组角
       },
     },
   };
-  const mixed = await mixedRoleContext();
+  await database.pool.query('UPDATE app_user SET is_management=true WHERE id=$1', [ra.userId]);
   try {
     const registry = new ToolRegistry(database.pool, [definition]);
-    const caller = { runId: mixed.runId, userId: ra.userId, callId: 'allowed_project_a' };
+    const caller = ref('member_callbacks');
     const result = await registry.execute(caller, 'filtered_callbacks', {
       value: '合法范围内修改',
       expectedVersion: 1,
@@ -886,11 +857,16 @@ test('execute、capture、apply、refresh回调只收到工具允许的同组角
       expect(seen.some((item) => item.stage === stage)).toBe(true);
     expect(
       seen.every(
-        (item) => item.roles.length === 1 && item.roles[0] === 'RA' && !item.canWriteOtherProject,
+        (item) =>
+          item.kind === 'agent' &&
+          item.management &&
+          !item.canApprove &&
+          !item.canManage &&
+          item.frozen,
       ),
     ).toBe(true);
   } finally {
-    await mixed.restore();
+    await database.pool.query('UPDATE app_user SET is_management=false WHERE id=$1', [ra.userId]);
   }
 });
 

@@ -11,26 +11,39 @@ afterAll(async () => {
   if (fixture) await fixture.close();
 });
 
-test('真实登记工具仅建同项目本地测试提案，幂等不重复、不建立执行回执', async () => {
-  const contact = await fixture.pool.query<{ id: string }>(
-    "INSERT INTO contact(project_id,name,address,source) VALUES($1,'虚构测试联系人','local-test-recipient','集成测试') RETURNING id",
-    [fixture.projectId],
-  );
-  const { conversationId: _conversation, ...run } = await fixture.run();
-  const registry = new ToolRegistry(fixture.pool, [proposeExternalTool()], { environment: 'test' });
-  const input = {
-    contactId: contact.rows[0]!.id,
-    subject: '测试提案',
-    body: '仅本地记录，不向外发送。',
-  };
-  const first = await registry.execute(run, 'propose_external', input);
-  expect(first.data).toMatchObject({ status: 'proposed', channel: 'local_test', sent: false });
-  expect((await registry.execute(run, 'propose_external', input)).replayed).toBe(true);
-  const rows = await fixture.pool.query(
-    'SELECT (SELECT count(*)::int FROM proposal) AS proposals,(SELECT count(*)::int FROM decision) AS decisions,(SELECT count(*)::int FROM outbound_message) AS queues',
-  );
-  expect(rows.rows).toEqual([{ proposals: 1, decisions: 0, queues: 0 }]);
-});
+test.each(['ask', 'full'] as const)(
+  '%s真实登记工具始终返回待提案且回放一致，不建立外发队列',
+  async (permissionMode) => {
+    const contact = await fixture.pool.query<{ id: string }>(
+      "INSERT INTO contact(project_id,name,address,source) VALUES($1,'虚构测试联系人',$2,'集成测试') RETURNING id",
+      [fixture.projectId, `local-test-recipient-${permissionMode}`],
+    );
+    const { conversationId, ...run } = await fixture.run('MEMBER_A', permissionMode);
+    const registry = new ToolRegistry(fixture.pool, [proposeExternalTool()], {
+      environment: 'test',
+    });
+    const input = {
+      contactId: contact.rows[0]!.id,
+      subject: '测试提案',
+      body: '仅本地记录，不向外发送。',
+    };
+    const first = await registry.execute(run, 'propose_external', input);
+    expect(first.status).toBe('pending_proposal');
+    expect(first.data).toMatchObject({ status: 'proposed', channel: 'local_test', sent: false });
+    expect(await registry.execute(run, 'propose_external', input)).toMatchObject({
+      invocationId: first.invocationId,
+      status: 'pending_proposal',
+      replayed: true,
+    });
+    const rows = await fixture.pool.query(
+      `SELECT (SELECT count(*)::int FROM proposal WHERE conversation_id=$1) AS proposals,
+     (SELECT count(*)::int FROM decision d JOIN proposal p ON p.id=d.proposal_id WHERE p.conversation_id=$1) AS decisions,
+     (SELECT count(*)::int FROM outbound_message o JOIN proposal p ON p.id=o.proposal_id WHERE p.conversation_id=$1) AS queues`,
+      [conversationId],
+    );
+    expect(rows.rows).toEqual([{ proposals: 1, decisions: 0, queues: 0 }]);
+  },
+);
 
 test('不登记的联系人或附件字段不能进入外发提案', async () => {
   const { conversationId: _conversation, ...run } = await fixture.run();

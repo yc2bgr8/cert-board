@@ -73,7 +73,7 @@ export function registerAuthRoutes<Logger extends FastifyBaseLogger>(
         id: session.identity.userId,
         username: session.identity.username,
         displayName: session.identity.displayName,
-        roles: session.identity.roles,
+        isManagement: session.identity.isManagement,
       },
       csrfToken: session.csrfToken,
       expiresAt: session.expiresAt,

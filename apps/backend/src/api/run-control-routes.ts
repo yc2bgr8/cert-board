@@ -53,11 +53,7 @@ export function registerRunControlRoutes<Logger extends FastifyBaseLogger>(
       if (session.rowCount !== 1)
         throw new AppError(401, 'LOGIN_REQUIRED', '登录已失效，请重新登录。');
       const checked = await requireBrowserIdentity(request, tx, config, { write: true });
-      const roles = await tx.query(
-        'SELECT role,scope_type AS "scopeType",scope_id AS "scopeId" FROM role_binding WHERE user_id=$1 FOR SHARE',
-        [checked.userId],
-      );
-      const actor = browserIdentitySchema.parse({ ...checked, roles: roles.rows });
+      const actor = browserIdentitySchema.parse(checked);
       result = await stopOwnedRun(tx, actor, runId);
       await tx.query('COMMIT');
     } catch (error) {

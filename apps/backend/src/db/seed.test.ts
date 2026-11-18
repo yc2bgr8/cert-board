@@ -5,11 +5,9 @@ import { seedDevelopmentAccounts } from './seed.js';
 
 const configuration = {
   NODE_ENV: 'test',
-  DEV_RA_PASSWORD: 'ra-unit-test-123456789',
-  DEV_RB_PASSWORD: 'rb-unit-test-123456789',
-  DEV_GM_PASSWORD: 'gm-unit-test-123456789',
-  DEV_SALES_PASSWORD: 'sales-unit-test-123456789',
-  DEV_TECH_PASSWORD: 'tech-unit-test-123456789',
+  DEV_ZHANGSAN_PASSWORD: 'ra-unit-test-123456789',
+  DEV_WANGMIN_PASSWORD: 'rb-unit-test-123456789',
+  DEV_ADMIN_PASSWORD: 'tech-unit-test-123456789',
 };
 
 describe('开发账号种子边界', () => {
@@ -25,9 +23,9 @@ describe('开发账号种子边界', () => {
   test('缺少环境声明或密码、短密码及全空白密码均拒绝', () => {
     for (const change of [
       { NODE_ENV: undefined },
-      { DEV_RA_PASSWORD: undefined },
-      { DEV_RA_PASSWORD: 'short' },
-      { DEV_RA_PASSWORD: ' '.repeat(32) },
+      { DEV_ZHANGSAN_PASSWORD: undefined },
+      { DEV_ZHANGSAN_PASSWORD: 'short' },
+      { DEV_ZHANGSAN_PASSWORD: ' '.repeat(32) },
     ])
       expect(() => parseSeedEnvironment({ ...configuration, ...change })).toThrow(
         SeedConfigurationError,
@@ -37,11 +35,11 @@ describe('开发账号种子边界', () => {
   test('配置错误只含变量名，不包含输入密码', () => {
     const password = 'short-secret';
     try {
-      parseSeedEnvironment({ ...configuration, DEV_RA_PASSWORD: password });
+      parseSeedEnvironment({ ...configuration, DEV_ZHANGSAN_PASSWORD: password });
       throw new Error('应拒绝弱密码');
     } catch (error) {
       expect(error).toBeInstanceOf(SeedConfigurationError);
-      expect((error as Error).message).toContain('DEV_RA_PASSWORD');
+      expect((error as Error).message).toContain('DEV_ZHANGSAN_PASSWORD');
       expect((error as Error).message).not.toContain(password);
     }
   });

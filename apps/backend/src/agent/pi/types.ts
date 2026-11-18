@@ -11,7 +11,7 @@ export type KernelTool = {
     context: { callId: string; signal: AbortSignal },
   ): Promise<{
     data: unknown;
-    terminal?: 'review' | 'proposal';
+    terminal?: 'review' | 'proposal' | 'approval';
   }>;
 };
 export type KernelEvent =
@@ -19,7 +19,7 @@ export type KernelEvent =
   | { type: 'message'; message: KernelMessage }
   | { type: 'tool_started'; callId: string; name: string }
   | { type: 'tool_completed'; callId: string; name: string; data: unknown; isError: boolean }
-  | { type: 'waiting'; reason: 'review' | 'proposal' };
+  | { type: 'waiting'; reason: 'review' | 'proposal' | 'approval' };
 export type AgentKernelOptions = {
   systemPrompt: string;
   history: KernelMessage[];
@@ -35,7 +35,8 @@ export type AgentKernelOptions = {
   onTurn?(usage: KernelUsage): Promise<void> | void;
 };
 export type AgentKernelResult = {
-  status: 'completed' | 'waiting_review' | 'waiting_proposal' | 'stopped' | 'failed';
+  status:
+    'completed' | 'waiting_review' | 'waiting_proposal' | 'waiting_approval' | 'stopped' | 'failed';
   reasonCode?: string;
   messages: KernelMessage[];
   usage: KernelUsage;

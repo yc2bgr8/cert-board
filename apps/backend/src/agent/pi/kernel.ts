@@ -48,7 +48,7 @@ export async function runAgentKernel(options: AgentKernelOptions): Promise<Agent
       .reduce((total, entry) => total + BigInt(entry.costNano), 0n)
       .toString(),
   });
-  let terminal: 'review' | 'proposal' | undefined;
+  let terminal: 'review' | 'proposal' | 'approval' | undefined;
   let fatal: string | undefined;
   let notifiedWaiting = false;
   let lastMeteredStep = 0;
@@ -340,7 +340,9 @@ export async function runAgentKernel(options: AgentKernelOptions): Promise<Agent
         ? 'waiting_review'
         : terminal === 'proposal'
           ? 'waiting_proposal'
-          : 'completed',
+          : terminal === 'approval'
+            ? 'waiting_approval'
+            : 'completed',
     messages: outputs,
     usage: usage(),
   };

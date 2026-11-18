@@ -89,19 +89,7 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
       );
       if (!session.rowCount) throw new AppError(401, 'LOGIN_REQUIRED', '登录已失效，请重新登录。');
       const checked = await requireBrowserIdentity(request, tx, config, { write });
-      const roles = await tx.query(
-        'SELECT role,scope_type AS "scopeType",scope_id AS "scopeId" FROM role_binding WHERE user_id=$1 FOR SHARE',
-        [checked.userId],
-      );
-      const permittedRoles = roles.rows.filter(
-        (binding) => binding.role === 'RA' || binding.role === 'RB',
-      );
-      if (!permittedRoles.length)
-        throw new AppError(403, 'REVIEW_ROLE_REQUIRED', '此审核卡需要注册审核权限。');
-      const actor = browserIdentitySchema.parse({
-        ...checked,
-        roles: permittedRoles,
-      });
+      const actor = browserIdentitySchema.parse(checked);
       const result = await operation(tx, actor);
       await tx.query('COMMIT');
       return result;

@@ -72,24 +72,9 @@ function toVersion(row: Record<string, unknown>) {
     createdAt: iso(row.createdAt),
   });
 }
-function scopes(identity: ServiceIdentity, projectId: string) {
-  const wholeProject = authorize(
-    { ...identity, roles: identity.roles.filter((role) => role.scopeType !== 'own') },
-    'document.read',
-    { projectId, ownerUserId: identity.userId },
-  );
-  const own = authorize(
-    { ...identity, roles: identity.roles.filter((role) => role.scopeType === 'own') },
-    'document.read',
-    { projectId, ownerUserId: identity.userId },
-  );
-  if (!wholeProject && !own) throw notFound();
-  return [wholeProject, own, identity.userId] as const;
-}
 async function projectAccess(pool: Pool, identity: ServiceIdentity, projectId: string) {
   if (!projectIdSchema.safeParse(projectId).success) throw invalid();
   await getProject(pool, identity, projectId);
-  return scopes(identity, projectId);
 }
 
 export async function ingestParsedDocument(pool: Pool, store: DocumentBlobStore, input: unknown) {
@@ -263,15 +248,14 @@ export async function listDocuments(
   projectId: string,
   options: unknown = {},
 ) {
-  const access = await projectAccess(pool, identity, projectId);
+  await projectAccess(pool, identity, projectId);
   const parsed = documentListOptionsSchema.safeParse(options);
   if (!parsed.success) throw invalid();
   const page = parsed.data;
   const result = await pool.query<Record<string, unknown>>(
     `SELECT ${documentFields} FROM document d ${latestVersion} WHERE d.project_id=$1 AND NOT d.voided
-     AND ($2::boolean OR ($3::boolean AND d.owner_user_id=$4)) AND ($5::uuid IS NULL OR d.id>$5::uuid)
-     ORDER BY d.id LIMIT $6`,
-    [projectId, ...access, page.cursor ?? null, page.limit + 1],
+     AND ($2::uuid IS NULL OR d.id>$2::uuid) ORDER BY d.id LIMIT $3`,
+    [projectId, page.cursor ?? null, page.limit + 1],
   );
   const hasMore = result.rows.length > page.limit;
   const items = result.rows.slice(0, page.limit).map(toDocument);
@@ -420,7 +404,7 @@ export async function searchDocuments(
   projectId: string,
   options: unknown,
 ) {
-  const access = await projectAccess(pool, identity, projectId);
+  await projectAccess(pool, identity, projectId);
   const parsed = documentSearchOptionsSchema.safeParse(options);
   if (!parsed.success || parsed.data.offset > maximumInteger) throw invalid();
   const page = parsed.data;
@@ -430,10 +414,9 @@ export async function searchDocuments(
       p.text AS "pageText"
      FROM document d ${latestVersion} JOIN document_version v ON v.document_id=d.id AND v.version_no=current.version_no
      JOIN document_page p ON p.version_id=v.id WHERE d.project_id=$1 AND NOT d.voided AND NOT p.is_placeholder
-      AND ($2::boolean OR ($3::boolean AND d.owner_user_id=$4))
-      AND (strpos(lower(p.text),lower($5))>0 OR strpos(lower(d.name),lower($5))>0 OR strpos(lower(d.source_key),lower($5))>0)
-     ORDER BY d.id,p.page_number LIMIT $6 OFFSET $7`,
-    [projectId, ...access, page.query, page.limit + 1, page.offset],
+      AND (strpos(lower(p.text),lower($2))>0 OR strpos(lower(d.name),lower($2))>0 OR strpos(lower(d.source_key),lower($2))>0)
+     ORDER BY d.id,p.page_number LIMIT $3 OFFSET $4`,
+    [projectId, page.query, page.limit + 1, page.offset],
   );
   const hasMore = result.rows.length > page.limit;
   // 当前镜像的中文长文本SQL摘要出现UTF8错误；改由程序截取，SQL仍先授权、筛选并限条数。

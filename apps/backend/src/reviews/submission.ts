@@ -45,7 +45,7 @@ async function requireSourceAccess(
   )
     throw error(
       'REVIEW_SOURCE_UNAVAILABLE',
-      '本工具当前角色范围无法读取全部引用资料，请重新核对项目权限与有效来源。',
+      '当前成员无法读取全部引用资料，请重新核对项目与有效来源。',
       403,
     );
 }
@@ -137,8 +137,17 @@ export async function submitReview(
   if (!parsed.success)
     throw error('REVIEW_INPUT_INVALID', '结构化交付格式无效，请先用check_run修正后再提交。');
   const submission = parsed.data;
-  if (!ctx.projectId || !ctx.goalId || ctx.goalStatus !== 'active' || ctx.mode !== 'execute')
-    throw error('REVIEW_CONTEXT_INVALID', '请在本人活动目标的执行对话中提交审核。', 403);
+  if (
+    !ctx.projectId ||
+    !ctx.goalId ||
+    ctx.goalStatus !== 'active' ||
+    ctx.permissionMode === 'read_only'
+  )
+    throw error(
+      'REVIEW_CONTEXT_INVALID',
+      '请在本人活动目标的请求批准或完全允许对话中提交审核。',
+      403,
+    );
   if (submission.skill.id !== policy.skill.id || submission.skill.version !== policy.skill.version)
     throw error(
       'REVIEW_SKILL_UNAVAILABLE',

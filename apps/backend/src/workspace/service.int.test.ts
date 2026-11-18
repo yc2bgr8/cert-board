@@ -33,10 +33,10 @@ let sequence = 0;
 const initialDecisions = '# 决定记录\n';
 const initialReport = '初始检查记录\n';
 
-async function conversation(identity: AgentIdentity, mode = 'execute', project = projectId) {
+async function conversation(identity: AgentIdentity, permission_mode = 'ask', project = projectId) {
   const result = await database.pool.query<{ id: string }>(
-    'INSERT INTO conversation(project_id,user_id,title,mode) VALUES($1,$2,$3,$4) RETURNING id',
-    [project, identity.userId, '独立工作区测试对话', mode],
+    'INSERT INTO conversation(project_id,user_id,title,permission_mode) VALUES($1,$2,$3,$4) RETURNING id',
+    [project, identity.userId, '独立工作区测试对话', permission_mode],
   );
   return result.rows[0]!.id;
 }
@@ -53,14 +53,12 @@ beforeAll(async () => {
   const password = (role: string) => ['workspace', 'integration', role, 'example'].join('-');
   await seedDevelopmentAccounts(database.pool, {
     NODE_ENV: 'test',
-    DEV_RA_PASSWORD: password('ra'),
-    DEV_RB_PASSWORD: password('rb'),
-    DEV_GM_PASSWORD: password('gm'),
-    DEV_SALES_PASSWORD: password('sales'),
-    DEV_TECH_PASSWORD: password('tech'),
+    DEV_ZHANGSAN_PASSWORD: password('zhangsan'),
+    DEV_WANGMIN_PASSWORD: password('wangmin'),
+    DEV_ADMIN_PASSWORD: password('admin'),
   });
   const users = await database.pool.query(
-    "SELECT id,username,display_name FROM app_user WHERE username IN ('ra','rb')",
+    "SELECT id,username,display_name FROM app_user WHERE username IN ('zhangsan','wangmin')",
   );
   const identity = (username: string) => {
     const user = users.rows.find((entry) => entry.username === username);
@@ -71,11 +69,11 @@ beforeAll(async () => {
       displayName: user.display_name,
       isDevelopment: true,
       runId: randomUUID(),
-      roles: [{ role: username.toUpperCase(), scopeType: 'global', scopeId: null }],
+      isManagement: false,
     });
   };
-  ra = identity('ra');
-  rb = identity('rb');
+  ra = identity('zhangsan');
+  rb = identity('wangmin');
   blobs = await createTestBlobStore();
 });
 beforeEach(async () => {
@@ -552,7 +550,7 @@ test('分叉的决定记录不自动合并，显式确认也不能丢当前历�
   ).toBe(firstText + '乙的未保存决定\n');
 });
 
-test('其他用户不能读取或写入私有副本，项目权限与数据库组合外键均隔离', async () => {
+test('其他成员不能读写私有副本，已发布版本共享且跨项目组合外键仍隔离', async () => {
   const own = await draft();
   await expect(read(own.id, 'AGENTS.md', rb)).rejects.toMatchObject({ statusCode: 404 });
   await expect(listDraftFiles(database.pool, rb, own.id)).rejects.toMatchObject({
@@ -571,14 +569,16 @@ test('其他用户不能读取或写入私有副本，项目权限与数据库�
       expectedSha256: null,
     }),
   ).rejects.toMatchObject({ statusCode: 404 });
-  const restricted: AgentIdentity = {
-    ...ra,
-    roles: [{ role: 'RA', scopeType: 'project', scopeId: randomUUID() }],
-  };
-  await expect(read(own.id, 'AGENTS.md', restricted)).rejects.toMatchObject({ statusCode: 404 });
-  await expect(
-    readVersionFile(database.pool, blobs.store, restricted, initialVersionId, 'AGENTS.md'),
-  ).rejects.toMatchObject({ statusCode: 404 });
+  expect((await read(own.id, 'AGENTS.md', ra)).text).toBe('# 项目说明\n');
+  expect(
+    (await readVersionFile(database.pool, blobs.store, rb, initialVersionId, 'AGENTS.md')).text,
+  ).toBe('# 项目说明\n');
+  await database.pool.query("UPDATE app_user SET status='disabled' WHERE id=$1", [ra.userId]);
+  try {
+    await expect(read(own.id, 'AGENTS.md', ra)).rejects.toMatchObject({ statusCode: 404 });
+  } finally {
+    await database.pool.query("UPDATE app_user SET status='active' WHERE id=$1", [ra.userId]);
+  }
   const other = (
     await createProject(database.pool, ra, {
       name: '跨项目对话测试',
@@ -588,7 +588,7 @@ test('其他用户不能读取或写入私有副本，项目权限与数据库�
       reviewerUserId: rb.userId,
     })
   ).id;
-  const otherConversation = await conversation(ra, 'execute', other);
+  const otherConversation = await conversation(ra, 'ask', other);
   await expect(
     database.pool.query(
       'INSERT INTO workspace_draft(workspace_id,project_id,conversation_id,owner_user_id,base_version_id) VALUES($1,$2,$3,$4,$5)',
@@ -608,11 +608,23 @@ test('其他用户不能读取或写入私有副本，项目权限与数据库�
 });
 
 test('只读或归档会话强行创建、写入、保存和恢复均被拒绝', async () => {
+  expect((await createDraft(database.pool, ra, await conversation(ra, 'full'))).ownerUserId).toBe(
+    ra.userId,
+  );
   await expect(
     createDraft(database.pool, ra, await conversation(ra, 'read_only')),
   ).rejects.toMatchObject({ statusCode: 403, code: 'WORKSPACE_READ_ONLY' });
   const current = await draft();
-  await database.pool.query("UPDATE conversation SET mode='read_only' WHERE id=$1", [
+  await database.pool.query("UPDATE conversation SET permission_mode='full' WHERE id=$1", [
+    current.conversationId,
+  ]);
+  const permitted = await writeDraftFile(database.pool, blobs.store, ra, current.id, {
+    path: '草稿/完全允许.md',
+    content: '完整模式可写本人的工作副本',
+    expectedSha256: null,
+  });
+  expect(permitted.file.path).toBe('草稿/完全允许.md');
+  await database.pool.query("UPDATE conversation SET permission_mode='read_only' WHERE id=$1", [
     current.conversationId,
   ]);
   expect((await read(current.id, 'AGENTS.md')).text).toBe('# 项目说明\n');
@@ -636,7 +648,7 @@ test('只读或归档会话强行创建、写入、保存和恢复均被拒绝',
     }),
   ).rejects.toMatchObject({ statusCode: 403, code: 'WORKSPACE_READ_ONLY' });
   await database.pool.query(
-    "UPDATE conversation SET mode='execute',status='archived' WHERE id=$1",
+    "UPDATE conversation SET permission_mode='ask',status='archived' WHERE id=$1",
     [current.conversationId],
   );
   await expect(

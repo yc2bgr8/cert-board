@@ -4,39 +4,22 @@ import { parseSeedEnvironment } from '@cert-board/shared';
 
 const accounts = [
   {
-    username: 'ra',
-    role: 'RA',
-    displayName: '注册人员A（开发）',
-    passwordField: 'DEV_RA_PASSWORD',
-    scope: 'global',
+    username: 'zhangsan',
+    displayName: '张三',
+    passwordField: 'DEV_ZHANGSAN_PASSWORD',
+    isManagement: false,
   },
   {
-    username: 'rb',
-    role: 'RB',
-    displayName: '注册人员B（开发）',
-    passwordField: 'DEV_RB_PASSWORD',
-    scope: 'global',
+    username: 'wangmin',
+    displayName: '王敏',
+    passwordField: 'DEV_WANGMIN_PASSWORD',
+    isManagement: false,
   },
   {
-    username: 'gm',
-    role: 'GM',
-    displayName: '管理人员（开发）',
-    passwordField: 'DEV_GM_PASSWORD',
-    scope: 'global',
-  },
-  {
-    username: 'sales',
-    role: 'SALES',
-    displayName: '销售人员（开发）',
-    passwordField: 'DEV_SALES_PASSWORD',
-    scope: 'own',
-  },
-  {
-    username: 'tech',
-    role: 'TECH',
-    displayName: '技术维护（开发）',
-    passwordField: 'DEV_TECH_PASSWORD',
-    scope: 'global',
+    username: 'admin',
+    displayName: '李晨',
+    passwordField: 'DEV_ADMIN_PASSWORD',
+    isManagement: true,
   },
 ] as const;
 
@@ -67,6 +50,21 @@ export async function seedDevelopmentAccounts(pool: Pool, environment: Record<st
         );
     }
 
+    const retired = await client.query<{ id: string }>(
+      `UPDATE app_user SET status='disabled',is_management=false,version=version+1,updated_at=CURRENT_TIMESTAMP
+       WHERE is_development=true AND username=ANY($1::text[]) AND (status<>'disabled' OR is_management=true) RETURNING id`,
+      [['ra', 'rb', 'gm', 'sales', 'tech']],
+    );
+    for (const row of retired.rows) {
+      await client.query(
+        'UPDATE web_session SET revoked_at=COALESCE(revoked_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE user_id=$1',
+        [row.id],
+      );
+      await client.query(
+        "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system','user.development_retired','app_user',$1)",
+        [row.id],
+      );
+    }
     const created: string[] = [];
     const unchanged: string[] = [];
     for (const account of accounts) {
@@ -81,19 +79,15 @@ export async function seedDevelopmentAccounts(pool: Pool, environment: Record<st
         parallelism: 1,
       });
       const result = await client.query<{ id: string }>(
-        `INSERT INTO app_user (username, password_hash, display_name, is_development)
-         VALUES ($1, $2, $3, true) ON CONFLICT (username) DO NOTHING RETURNING id`,
-        [account.username, passwordHash, account.displayName],
+        `INSERT INTO app_user (username, password_hash, display_name, is_development, is_management)
+         VALUES ($1, $2, $3, true, $4) ON CONFLICT (username) DO NOTHING RETURNING id`,
+        [account.username, passwordHash, account.displayName, account.isManagement],
       );
       const id = result.rows[0]?.id;
       if (!id)
         throw new DevelopmentSeedError(
           `账号 ${account.username} 在初始化期间被创建；请核对账号归属后重试。`,
         );
-      await client.query(
-        'INSERT INTO role_binding (user_id, role, scope_type) VALUES ($1, $2, $3)',
-        [id, account.role, account.scope],
-      );
       await client.query(
         `INSERT INTO audit_log (actor_kind, action, target_type, target_id)
          VALUES ('system', 'user.seeded', 'app_user', $1)`,

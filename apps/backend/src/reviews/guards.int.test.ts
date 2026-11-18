@@ -17,20 +17,28 @@ async function setup(risk: 'standard' | 'high' = 'standard') {
       'SELECT id,content_hash FROM review_card',
     )
   ).rows[0]!;
-  await value.login('RA');
-  await value.login('RB');
+  await value.login('MEMBER_A');
+  await value.login('MEMBER_B');
   const sessions = await value.pool.query<{ id: string; user_id: string }>(
     'SELECT id,user_id FROM web_session',
   );
-  const session = (role: 'RA' | 'RB') =>
+  const session = (role: 'MEMBER_A' | 'MEMBER_B') =>
     sessions.rows.find((row) => row.user_id === value.userId(role))!.id;
-  const judgment = (role: 'RA' | 'RB' = 'RA', hash = card.content_hash, sourceVersion = 1) =>
+  const judgment = (
+    role: 'MEMBER_A' | 'MEMBER_B' = 'MEMBER_A',
+    hash = card.content_hash,
+    sourceVersion = 1,
+  ) =>
     value.pool.query(
       `INSERT INTO review_judgment(card_id,actor_user_id,session_id,request_key,
       source_version,content_hash,statement) VALUES($1,$2,$3,$4,$5,$6,'我已独立核对虚构资料。')`,
       [card.id, value.userId(role), session(role), randomUUID(), sourceVersion, hash],
     );
-  const reject = (role: 'RA' | 'RB' = 'RA', hash = card.content_hash, sourceVersion = 1) =>
+  const reject = (
+    role: 'MEMBER_A' | 'MEMBER_B' = 'MEMBER_A',
+    hash = card.content_hash,
+    sourceVersion = 1,
+  ) =>
     value.pool.query(
       `INSERT INTO review_decision(card_id,actor_user_id,session_id,request_key,
       source_version,content_hash,action,reason) VALUES($1,$2,$3,$4,$5,$6,'rejected','请核对原件。')`,
@@ -67,15 +75,19 @@ describe('审核数据的数据库保护', () => {
   });
   it('判断绑定当前内容、版本和有效会话，不能借用另一人的判断', async () => {
     const c = await setup('high');
-    await expect(c.judgment('RA', '0'.repeat(64))).rejects.toMatchObject({ code: '23514' });
-    await expect(c.judgment('RA', c.card.content_hash, 2)).rejects.toMatchObject({ code: '23514' });
+    await expect(c.judgment('MEMBER_A', '0'.repeat(64))).rejects.toMatchObject({ code: '23514' });
+    await expect(c.judgment('MEMBER_A', c.card.content_hash, 2)).rejects.toMatchObject({
+      code: '23514',
+    });
     await expect(c.reject()).rejects.toMatchObject({ code: '42501' });
-    await c.judgment('RB');
-    await expect(c.reject('RA')).rejects.toMatchObject({ code: '42501' });
-    await c.judgment('RA');
-    await c.reject('RA');
-    await c.pool.query('UPDATE web_session SET revoked_at=now() WHERE id=$1', [c.session('RB')]);
-    await expect(c.reject('RB')).rejects.toMatchObject({ code: '42501' });
+    await c.judgment('MEMBER_B');
+    await expect(c.reject('MEMBER_A')).rejects.toMatchObject({ code: '42501' });
+    await c.judgment('MEMBER_A');
+    await c.reject('MEMBER_A');
+    await c.pool.query('UPDATE web_session SET revoked_at=now() WHERE id=$1', [
+      c.session('MEMBER_B'),
+    ]);
+    await expect(c.reject('MEMBER_B')).rejects.toMatchObject({ code: '42501' });
   });
   it('判断和决定拒绝更新、删除及整表清空，语义SQL读角色没有读取权限', async () => {
     const c = await setup('high');
@@ -103,7 +115,7 @@ describe('审核数据的数据库保护', () => {
         `INSERT INTO submission_snapshot
       (project_id,sequence,kind,file_manifest,manifest_sha256,created_by,workspace_version_id)
       VALUES($1,1,'approved_review','[]',repeat('0',64),$2,$3) RETURNING id`,
-        [c.projectId, c.userId('RB'), c.workspaceVersion],
+        [c.projectId, c.userId('MEMBER_B'), c.workspaceVersion],
       )
     ).rows[0]!.id;
     await expect(
@@ -111,14 +123,28 @@ describe('审核数据的数据库保护', () => {
         `INSERT INTO review_decision(card_id,actor_user_id,session_id,
       request_key,source_version,content_hash,action,snapshot_id)
       VALUES($1,$2,$3,$4,1,$5,'approved',$6)`,
-        [c.card.id, c.userId('RA'), c.session('RA'), randomUUID(), c.card.content_hash, snapshot],
+        [
+          c.card.id,
+          c.userId('MEMBER_A'),
+          c.session('MEMBER_A'),
+          randomUUID(),
+          c.card.content_hash,
+          snapshot,
+        ],
       ),
     ).rejects.toMatchObject({ code: '23514' });
     await c.pool.query(
       `INSERT INTO review_decision(card_id,actor_user_id,session_id,
       request_key,source_version,content_hash,action,snapshot_id)
       VALUES($1,$2,$3,$4,1,$5,'approved',$6)`,
-      [c.card.id, c.userId('RB'), c.session('RB'), randomUUID(), c.card.content_hash, snapshot],
+      [
+        c.card.id,
+        c.userId('MEMBER_B'),
+        c.session('MEMBER_B'),
+        randomUUID(),
+        c.card.content_hash,
+        snapshot,
+      ],
     );
   });
   it('审核卡即使尚未有人工决定也不能被删除或清空', async () => {

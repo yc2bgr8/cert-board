@@ -15,7 +15,7 @@ beforeAll(async () => {
   await seedDevelopmentAccounts(database.pool, {
     NODE_ENV: 'test',
     ...Object.fromEntries(
-      ['RA', 'RB', 'GM', 'SALES', 'TECH'].map((role) => [`DEV_${role}_PASSWORD`, password]),
+      ['ZHANGSAN', 'WANGMIN', 'ADMIN'].map((role) => [`DEV_${role}_PASSWORD`, password]),
     ),
   });
   await seedDevelopmentProject(database.pool, { NODE_ENV: 'test' });
@@ -46,7 +46,7 @@ async function session(username: string) {
 }
 
 test('登录后可读取L08项目与目标，并保留未知业务期限', async () => {
-  const headers = await session('ra');
+  const headers = await session('zhangsan');
   const result = await app.inject({ url: '/api/projects', headers });
   expect(result.statusCode).toBe(200);
   expect(result.headers['cache-control']).toBe('no-store');
@@ -59,20 +59,20 @@ test('登录后可读取L08项目与目标，并保留未知业务期限', async
   expect((await app.inject({ url: '/api/projects?limit=999', headers })).statusCode).toBe(400);
 });
 
-test('销售不能读取注册项目，未登录不能读取，未开放浏览器项目写入口', async () => {
+test('任一活动成员能读取项目，未登录拒绝且仍未开放浏览器业务写入口', async () => {
   expect(
     (await app.inject({ url: '/api/projects', headers: { 'sec-fetch-site': 'same-origin' } }))
       .statusCode,
   ).toBe(401);
   expect(
-    (await app.inject({ url: '/api/projects', headers: await session('sales') })).statusCode,
-  ).toBe(403);
+    (await app.inject({ url: '/api/projects', headers: await session('wangmin') })).statusCode,
+  ).toBe(200);
   expect(
     (
       await app.inject({
         method: 'POST',
         url: '/api/projects',
-        headers: await session('ra'),
+        headers: await session('zhangsan'),
         payload: { name: '非法旁路' },
       })
     ).statusCode,

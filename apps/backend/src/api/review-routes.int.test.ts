@@ -26,7 +26,7 @@ const decision = (
 
 test('审批只接收带Cookie、CSRF和正确来源的浏览器请求', async () => {
   const review = await card();
-  const auth = await context.login('RA');
+  const auth = await context.login('MEMBER_A');
   const payload = decision(review);
   expect(
     (
@@ -85,7 +85,7 @@ test('审批只接收带Cookie、CSRF和正确来源的浏览器请求', async (
 
 test('浏览器会话请求批准只冻结一次，重试幂等，快照与判断只追加', async () => {
   const review = await card(),
-    auth = await context.login('RA'),
+    auth = await context.login('MEMBER_A'),
     payload = decision(review);
   const response = await context.app.inject({
     method: 'POST',
@@ -118,7 +118,7 @@ test('浏览器会话请求批准只冻结一次，重试幂等，快照与判�
   expect(snapshot).toMatchObject({
     kind: 'approved_review',
     workspace_version_id: review.workspaceVersion,
-    created_by: context.userId('RA'),
+    created_by: context.userId('MEMBER_A'),
   });
   await expect(
     context.pool.query("UPDATE submission_snapshot SET kind='submission'"),
@@ -147,8 +147,8 @@ test('高风险全部AI内容在本人判断前隐藏，别人的判断不能借
   await context.close();
   context = await createReviewTestContext({ risk: 'high' });
   const review = await card(),
-    auth = await context.login('RA'),
-    other = await context.login('RB');
+    auth = await context.login('MEMBER_A'),
+    other = await context.login('MEMBER_B');
   const read = await context.app.inject({
     method: 'GET',
     url: `/api/reviews/${review.reviewId}`,
@@ -244,7 +244,7 @@ test('高风险全部AI内容在本人判断前隐藏，别人的判断不能借
 
 test('退回必须说明原因，原因可回读且不会创建冻结快照', async () => {
   const review = await card(),
-    auth = await context.login('RA');
+    auth = await context.login('MEMBER_A');
   const payload = decision(review, 'rejected');
   const { reason: _reason, ...without } = payload;
   expect(
@@ -289,7 +289,7 @@ test('退回必须说明原因，原因可回读且不会创建冻结快照', as
 
 test('卡片或工作区旧版本不能批准，目标停止也拒绝', async () => {
   const review = await card(),
-    auth = await context.login('RA');
+    auth = await context.login('MEMBER_A');
   expect(
     (
       await context.app.inject({
@@ -325,20 +325,22 @@ test('卡片或工作区旧版本不能批准，目标停止也拒绝', async ()
   ).toBe(409);
 });
 
-test('会话撤销和角色变化实时生效，管理角色不能冒用注册审核', async () => {
+test('任何部门成员均可查看审核，禁用和会话撤销实时阻断浏览器决定', async () => {
   const review = await card(),
-    auth = await context.login('RA'),
-    manager = await context.login('GM');
+    auth = await context.login('MEMBER_A'),
+    colleague = await context.login('MEMBER_B');
   expect(
     (
       await context.app.inject({
         method: 'GET',
         url: `/api/reviews/${review.reviewId}`,
-        headers: manager.headers,
+        headers: colleague.headers,
       })
     ).statusCode,
-  ).toBe(403);
-  await context.pool.query('DELETE FROM role_binding WHERE user_id=$1', [context.userId('RA')]);
+  ).toBe(200);
+  await context.pool.query("UPDATE app_user SET status='disabled' WHERE id=$1", [
+    context.userId('MEMBER_A'),
+  ]);
   expect(
     (
       await context.app.inject({
@@ -348,10 +350,10 @@ test('会话撤销和角色变化实时生效，管理角色不能冒用注册�
         payload: decision(review),
       })
     ).statusCode,
-  ).toBe(403);
-  const other = await context.login('RB');
+  ).toBe(401);
+  const other = await context.login('MEMBER_B');
   await context.pool.query('UPDATE web_session SET revoked_at=CURRENT_TIMESTAMP WHERE user_id=$1', [
-    context.userId('RB'),
+    context.userId('MEMBER_B'),
   ]);
   expect(
     (
@@ -367,7 +369,7 @@ test('会话撤销和角色变化实时生效，管理角色不能冒用注册�
 
 test('引用资料作废后不能读取AI正文或作新决定', async () => {
   const review = await card(),
-    auth = await context.login('RA');
+    auth = await context.login('MEMBER_A');
   await context.pool.query(
     "UPDATE document SET voided=true,void_reason='测试作废',version=version+1 WHERE id=$1",
     [context.documentId],
@@ -397,23 +399,18 @@ test('引用资料作废后不能读取AI正文或作新决定', async () => {
   ).toBe(0);
 });
 
-test('注册own权限不能借管理global角色读取引用或批准', async () => {
+test('其他普通部门成员可读取同事提供的依据并完成最终审核', async () => {
   await context.close();
-  context = await createReviewTestContext({ documentOwnerRole: 'RB' });
+  context = await createReviewTestContext({ documentOwner: 'MEMBER_B' });
   const review = await card(),
-    auth = await context.login('RA');
-  await context.pool.query('DELETE FROM role_binding WHERE user_id=$1', [context.userId('RA')]);
-  await context.pool.query(
-    "INSERT INTO role_binding(user_id,role,scope_type) VALUES($1,'RA','own'),($1,'GM','global')",
-    [context.userId('RA')],
-  );
+    auth = await context.login('MEMBER_B');
   const read = await context.app.inject({
     method: 'GET',
     url: `/api/reviews/${review.reviewId}`,
     headers: auth.headers,
   });
-  expect(read.statusCode).toBe(403);
-  expect(read.body.includes('K123456')).toBe(false);
+  expect(read.statusCode).toBe(200);
+  expect(read.body.includes('K123456')).toBe(true);
   expect(
     (
       await context.app.inject({
@@ -423,16 +420,23 @@ test('注册own权限不能借管理global角色读取引用或批准', async ()
         payload: decision(review),
       })
     ).statusCode,
-  ).toBe(403);
+  ).toBe(200);
   expect(
     (await context.pool.query('SELECT COUNT(*)::int AS count FROM submission_snapshot')).rows[0]
       .count,
-  ).toBe(0);
+  ).toBe(1);
+  expect(
+    (
+      await context.pool.query('SELECT actor_user_id FROM review_decision WHERE card_id=$1', [
+        review.reviewId,
+      ])
+    ).rows[0].actor_user_id,
+  ).toBe(context.userId('MEMBER_B'));
 });
 
 test('并发决定只生效一次，决定写入失败时快照也回滚', async () => {
   const review = await card(),
-    auth = await context.login('RA');
+    auth = await context.login('MEMBER_A');
   await context.pool
     .query(`CREATE FUNCTION reject_test_review_decision() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'PRIVATE_TEST_FAILURE'; END $$;
     CREATE TRIGGER reject_test_review BEFORE INSERT ON review_decision FOR EACH ROW EXECUTE FUNCTION reject_test_review_decision();`);
@@ -468,7 +472,7 @@ test('并发决定只生效一次，决定写入失败时快照也回滚', async
 
 test('新稿不能批准旧卡，下一次提交的差异以真实已批准版本为基线', async () => {
   const first = await card(),
-    auth = await context.login('RA');
+    auth = await context.login('MEMBER_A');
   expect(
     (
       await context.app.inject({

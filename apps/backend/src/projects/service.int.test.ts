@@ -15,21 +15,16 @@ import {
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let ra: BrowserIdentity;
 let rb: BrowserIdentity;
-let gm: BrowserIdentity;
+let admin: BrowserIdentity;
 let own: BrowserIdentity;
-let sales: BrowserIdentity;
 const examplePassword = (role: string) => ['project', 'integration', role, 'example'].join('-');
 
 async function identity(username: string) {
   const user = await database.pool.query(
-    'SELECT id, username, display_name, is_development FROM app_user WHERE username = $1',
+    'SELECT id, username, display_name, is_development, is_management FROM app_user WHERE username = $1',
     [username],
   );
   const record = user.rows[0];
-  const bindings = await database.pool.query(
-    'SELECT role, scope_type AS "scopeType", scope_id AS "scopeId" FROM role_binding WHERE user_id = $1',
-    [record.id],
-  );
   return browserIdentitySchema.parse({
     kind: 'browser',
     userId: record.id,
@@ -37,7 +32,7 @@ async function identity(username: string) {
     username: record.username,
     displayName: record.display_name,
     isDevelopment: record.is_development,
-    roles: bindings.rows,
+    isManagement: record.is_management,
   });
 }
 const input = (name: string) => ({
@@ -53,24 +48,18 @@ beforeAll(async () => {
   await migrateDatabase(database.pool);
   await seedDevelopmentAccounts(database.pool, {
     NODE_ENV: 'test',
-    DEV_RA_PASSWORD: examplePassword('ra'),
-    DEV_RB_PASSWORD: examplePassword('rb'),
-    DEV_GM_PASSWORD: examplePassword('gm'),
-    DEV_SALES_PASSWORD: examplePassword('sales'),
-    DEV_TECH_PASSWORD: examplePassword('tech'),
+    DEV_ZHANGSAN_PASSWORD: examplePassword('zhangsan'),
+    DEV_WANGMIN_PASSWORD: examplePassword('wangmin'),
+    DEV_ADMIN_PASSWORD: examplePassword('admin'),
   });
   await database.pool.query(
-    "INSERT INTO app_user (username, password_hash, display_name, is_development) SELECT 'ownra', password_hash, '本人范围注册人员', true FROM app_user WHERE username = 'ra'",
+    "INSERT INTO app_user (username, password_hash, display_name, is_development) SELECT 'ownra', password_hash, '另一部门成员', true FROM app_user WHERE username = 'zhangsan'",
   );
-  await database.pool.query(
-    "INSERT INTO role_binding (user_id, role, scope_type) SELECT id, 'RA', 'own' FROM app_user WHERE username = 'ownra'",
-  );
-  [ra, rb, gm, own, sales] = await Promise.all([
-    identity('ra'),
-    identity('rb'),
-    identity('gm'),
+  [ra, rb, admin, own] = await Promise.all([
+    identity('zhangsan'),
+    identity('wangmin'),
+    identity('admin'),
     identity('ownra'),
-    identity('sales'),
   ]);
 });
 afterAll(async () => {
@@ -123,58 +112,56 @@ test('同版本的并发修改只有一次成功，另一次返回409且不写�
   expect(audits.rowCount).toBe(1);
 });
 
-test('本人范围和项目范围不能读取或修改其他项目，角色不能拼接扩大范围', async () => {
+test('活动部门成员共享项目读取与修改，负责人不形成独占范围', async () => {
   const mine = await createProject(database.pool, own, input('本人可访问的项目'));
   const other = await createProject(database.pool, ra, input('其他用户的项目'));
   expect((await getProject(database.pool, own, mine.id)).id).toBe(mine.id);
-  await expect(getProject(database.pool, own, other.id)).rejects.toMatchObject({ statusCode: 404 });
-  await expect(
-    updateProject(database.pool, own, other.id, 1, { name: '越权修改' }),
-  ).rejects.toMatchObject({ statusCode: 404 });
-  const scoped = {
-    ...ra,
-    roles: [{ role: 'RA' as const, scopeType: 'project' as const, scopeId: mine.id }],
-  };
-  expect((await getProject(database.pool, scoped, mine.id)).id).toBe(mine.id);
-  await expect(getProject(database.pool, scoped, other.id)).rejects.toMatchObject({
-    statusCode: 404,
-  });
-  await expect(createProject(database.pool, scoped, input('越权新项目'))).rejects.toMatchObject({
-    statusCode: 403,
-  });
-  const combined = {
-    ...own,
-    roles: [...own.roles, { role: 'TECH' as const, scopeType: 'global' as const, scopeId: null }],
-  };
-  const result = await listProjects(database.pool, combined);
-  expect(result.items.every((item) => item.ownerUserId === own.userId)).toBe(true);
-  expect(result.items.some((item) => item.id === other.id)).toBe(false);
+  expect((await getProject(database.pool, own, other.id)).id).toBe(other.id);
+  expect(
+    (await updateProject(database.pool, own, other.id, 1, { name: '同事协作修改' })).version,
+  ).toBe(2);
+  const result = await listProjects(database.pool, rb);
+  expect(result.items.some((item) => item.id === mine.id)).toBe(true);
+  expect(result.items.some((item) => item.id === other.id)).toBe(true);
 });
 
-test('GM只能读取，销售不能访问项目服务', async () => {
-  const project = await createProject(database.pool, ra, input('只读授权测试'));
-  expect((await getProject(database.pool, gm, project.id)).id).toBe(project.id);
-  await expect(createProject(database.pool, gm, input('GM新建'))).rejects.toMatchObject({
-    statusCode: 403,
-  });
-  await expect(
-    updateProject(database.pool, gm, project.id, 1, { name: 'GM修改' }),
-  ).rejects.toMatchObject({ statusCode: 403 });
-  await expect(listProjects(database.pool, sales)).rejects.toMatchObject({ statusCode: 403 });
-  await expect(getProject(database.pool, sales, project.id)).rejects.toMatchObject({
-    statusCode: 403,
-  });
+test('管理标记不限制普通业务，禁用成员的旧身份不能继续读写', async () => {
+  const project = await createProject(database.pool, admin, input('管理成员业务测试'));
+  expect(
+    (await updateProject(database.pool, rb, project.id, 1, { name: '普通成员修改' })).version,
+  ).toBe(2);
+  await database.pool.query("UPDATE app_user SET status='disabled' WHERE id=$1", [own.userId]);
+  try {
+    await expect(listProjects(database.pool, own)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(getProject(database.pool, own, project.id)).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    await expect(createProject(database.pool, own, input('禁用成员新建'))).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    await expect(
+      updateProject(database.pool, own, project.id, 2, { name: '禁用成员修改' }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  } finally {
+    await database.pool.query("UPDATE app_user SET status='active' WHERE id=$1", [own.userId]);
+  }
 });
 
-test('创建时不能篡改负责人，复核人必须不同且有对应注册权限', async () => {
+test('创建时不能篡改负责人，复核人可空或本人但必须是有效成员', async () => {
   await expect(
     createProject(database.pool, ra, { ...input('伪造负责人'), ownerUserId: rb.userId }),
   ).rejects.toMatchObject({ statusCode: 400 });
-  for (const reviewerUserId of [ra.userId, gm.userId, sales.userId, own.userId, randomUUID()]) {
-    await expect(
-      createProject(database.pool, ra, { ...input('无效复核人'), reviewerUserId }),
-    ).rejects.toMatchObject({ statusCode: 400 });
-  }
+  expect(
+    (await createProject(database.pool, ra, { ...input('自行审核'), reviewerUserId: ra.userId }))
+      .reviewerUserId,
+  ).toBe(ra.userId);
+  expect(
+    (await createProject(database.pool, ra, { ...input('无需指定复核人'), reviewerUserId: null }))
+      .reviewerUserId,
+  ).toBeNull();
+  await expect(
+    createProject(database.pool, ra, { ...input('无效复核人'), reviewerUserId: randomUUID() }),
+  ).rejects.toMatchObject({ statusCode: 400 });
   try {
     await database.pool.query("UPDATE app_user SET status = 'disabled' WHERE id = $1", [rb.userId]);
     await expect(createProject(database.pool, ra, input('禁用复核人'))).rejects.toMatchObject({
@@ -204,7 +191,7 @@ test('项目更新仅接受三个字段，不接受状态、预算、负责人�
   expect((await getProject(database.pool, ra, project.id)).version).toBe(1);
 });
 
-test('列表只对授权结果分页，续读不会重复或包含其他人的项目', async () => {
+test('共享项目列表分页不重复，成员能续读所有项目', async () => {
   const existingCount = (await listProjects(database.pool, own)).items.length;
   await createProject(database.pool, own, input('分页项目甲'));
   await createProject(database.pool, own, input('分页项目乙'));
@@ -219,7 +206,6 @@ test('列表只对授权结果分页，续读不会重复或包含其他人的�
     );
     expect(page.items.length <= 2).toBe(true);
     for (const item of page.items) {
-      expect(item.ownerUserId).toBe(own.userId);
       expect(seen.has(item.id)).toBe(false);
       seen.add(item.id);
     }
@@ -236,7 +222,7 @@ test('列表只对授权结果分页，续读不会重复或包含其他人的�
   });
 });
 
-test('目标按项目和负责人范围过滤并支持续读，预算NaN被数据库拒绝', async () => {
+test('目标仍按项目过滤但不按负责人隐藏，分页与预算数值保护保持', async () => {
   const project = await createProject(database.pool, own, input('目标范围测试'));
   for (const [title, ownerId] of [
     ['本人目标甲', own.userId],
@@ -250,7 +236,6 @@ test('目标按项目和负责人范围过滤并支持续读，预算NaN被数�
   }
   const first = await getProjectGoals(database.pool, own, project.id, { limit: 1 });
   expect(first.items).toHaveLength(1);
-  expect(first.items[0]?.ownerUserId).toBe(own.userId);
   expect(first.items[0]?.budgetUsd).toBe(10);
   expect(first.hasMore).toBe(true);
   const next = await getProjectGoals(database.pool, own, project.id, {
@@ -259,8 +244,13 @@ test('目标按项目和负责人范围过滤并支持续读，预算NaN被数�
   });
   expect(next.items).toHaveLength(1);
   expect(next.items[0]?.id === first.items[0]?.id).toBe(false);
-  expect(next.hasMore).toBe(false);
-  expect((await getProjectGoals(database.pool, gm, project.id)).items).toHaveLength(3);
+  expect(next.hasMore).toBe(true);
+  const third = await getProjectGoals(database.pool, own, project.id, {
+    limit: 1,
+    cursor: next.nextCursor ?? '',
+  });
+  expect(third.hasMore).toBe(false);
+  expect((await getProjectGoals(database.pool, admin, project.id)).items).toHaveLength(3);
   await expect(
     database.pool.query(
       "INSERT INTO goal (project_id, owner_user_id, title, acceptance_criteria, budget_usd) VALUES ($1,$2,'无效预算','示例条件','NaN')",

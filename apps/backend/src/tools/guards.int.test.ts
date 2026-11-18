@@ -150,15 +150,15 @@ describe('工具执行数据库安全边界', () => {
     await denied('UPDATE run SET direction_version=direction_version+1 WHERE id=$1', [fixture.run]);
     await denied('UPDATE run SET trigger_type=$2 WHERE id=$1', [fixture.run, 'wakeup']);
     await denied('UPDATE conversation SET goal_id=NULL WHERE id=$1', [fixture.conversation]);
-    await client.query('UPDATE conversation SET mode=$2 WHERE id=$1', [
+    await client.query('UPDATE conversation SET permission_mode=$2 WHERE id=$1', [
       fixture.conversation,
       'read_only',
     ]);
-    const result = await client.query<{ mode: string }>(
-      'SELECT mode FROM conversation WHERE id=$1',
+    const result = await client.query<{ permission_mode: string }>(
+      'SELECT permission_mode FROM conversation WHERE id=$1',
       [fixture.conversation],
     );
-    expect(result.rows[0]?.mode).toBe('read_only');
+    expect(result.rows[0]?.permission_mode).toBe('read_only');
   });
 
   it('运行级别只能升高，新运行不能低于对话最高级别', async () => {

@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { Notification } from 'pg';
-import type { AgentIdentity, Role } from '@cert-board/shared';
-import { createIntegrationContext } from '../test-support/context.js';
+import type { AgentIdentity } from '@cert-board/shared';
+import { createIntegrationContext, type MemberKey } from '../test-support/context.js';
 import {
   appendConversationMessage,
   appendConversationEvent,
@@ -20,14 +20,14 @@ async function setup() {
   const c = await createIntegrationContext();
   context = c;
   const run = await c.run();
-  const identity = (role: Role = 'RA'): AgentIdentity => ({
+  const identity = (role: MemberKey = 'MEMBER_A'): AgentIdentity => ({
     kind: 'agent',
     runId: run.runId,
     userId: c.userId(role),
     username: role.toLowerCase(),
     displayName: '合成用户',
     isDevelopment: true,
-    roles: [{ role, scopeType: 'global', scopeId: null }],
+    isManagement: false,
   });
   const input = {
     runId: run.runId,
@@ -90,20 +90,20 @@ it('消息和过程序号独立，界面正文不进入白名单执行事件，�
     (await listConversationEvents(c.pool, c.identity(), c.run.conversationId)).items[0]?.event,
   ).toEqual(input.event);
   expect((await c.pool.query('SELECT id FROM run_event')).rowCount).toBe(0);
-  await c.pool.query('DELETE FROM role_binding WHERE user_id=$1', [c.run.userId]);
+  await c.pool.query("UPDATE app_user SET status='disabled' WHERE id=$1", [c.run.userId]);
   await expect(
     listConversationMessages(c.pool, c.identity(), c.run.conversationId),
-  ).rejects.toMatchObject({ statusCode: 404 });
+  ).rejects.toMatchObject({ statusCode: 403 });
 });
-it('跨用户和错误运行绑定被拒，最高数据级别传给历史读取', async () => {
+it('跨用户写入和错误运行绑定被拒，部门成员共享历史并继承最高数据级别', async () => {
   const c = await setup();
   await appendConversationMessage(c.pool, c.input);
   await expect(
-    appendConversationMessage(c.pool, { ...c.input, userId: c.userId('RB') }),
+    appendConversationMessage(c.pool, { ...c.input, userId: c.userId('MEMBER_B') }),
   ).rejects.toMatchObject({ statusCode: 404 });
-  await expect(
-    listConversationMessages(c.pool, c.identity('RB'), c.run.conversationId),
-  ).rejects.toMatchObject({ statusCode: 404 });
+  expect(
+    (await listConversationMessages(c.pool, c.identity('MEMBER_B'), c.run.conversationId)).items,
+  ).toHaveLength(1);
   await c.pool.query("UPDATE conversation SET max_data_level='confidential' WHERE id=$1", [
     c.run.conversationId,
   ]);
@@ -150,7 +150,7 @@ it('数据库连续序号、归属、只追加及reader拒读保护不依赖调�
   await expect(
     c.pool.query(insert, [c.run.runId, c.run.conversationId, c.run.userId, randomUUID(), 3]),
   ).rejects.toMatchObject({ code: '23514' });
-  const other = await c.createRun('RB');
+  const other = await c.createRun('MEMBER_B');
   await expect(
     c.pool.query(insert, [other.runId, c.run.conversationId, c.run.userId, randomUUID(), 2]),
   ).rejects.toMatchObject({ code: '42501' });

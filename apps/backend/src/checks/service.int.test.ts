@@ -97,7 +97,7 @@ async function anotherProject() {
   return (
     await context.pool.query<{ id: string }>(
       `INSERT INTO cert_project(name,project_type,market,pathway,owner_user_id,reviewer_user_id) VALUES('隔离项目','registration','US','510k',$1,$2) RETURNING id`,
-      [caller.userId, context.userId('RB')],
+      [caller.userId, context.userId('MEMBER_B')],
     )
   ).rows[0]!.id;
 }
@@ -224,36 +224,27 @@ test('即使用户全局有权限也不允许引用其他项目的资料', async
   expect(report.checks[0]!.issues[0]?.code).toBe('source_unavailable');
 });
 
-test('运行用户不可冒用，撤权或禁用后旧检查上下文拒绝', async () => {
+test('运行用户不可冒用，禁用或结束后旧检查上下文拒绝', async () => {
   const data = submission(await addSource());
   await expect(
-    checkSubmission(context.pool, { ...caller, userId: context.userId('RB') }, data),
+    checkSubmission(context.pool, { ...caller, userId: context.userId('MEMBER_B') }, data),
   ).rejects.toMatchObject({ code: 'CHECK_CONTEXT_UNAVAILABLE' });
-  await context.pool.query('DELETE FROM role_binding WHERE user_id=$1', [caller.userId]);
+  await context.pool.query("UPDATE app_user SET status='disabled' WHERE id=$1", [caller.userId]);
   await expect(checkSubmission(context.pool, caller, data)).rejects.toMatchObject({
     code: 'CHECK_CONTEXT_UNAVAILABLE',
   });
-  await context.pool.query(
-    "INSERT INTO role_binding(user_id,role,scope_type) VALUES($1,'RA','global')",
-    [caller.userId],
-  );
-  await context.pool.query("UPDATE app_user SET status='disabled' WHERE id=$1", [caller.userId]);
+  await context.pool.query("UPDATE app_user SET status='active' WHERE id=$1", [caller.userId]);
+  await context.pool.query("UPDATE run SET status='completed' WHERE id=$1", [caller.runId]);
   await expect(checkSubmission(context.pool, caller, data)).rejects.toMatchObject({
     code: 'CHECK_CONTEXT_UNAVAILABLE',
   });
 });
 
-test('own资料范围不能借项目所有权读取别人的资料正文', async () => {
-  const ref = await addSource({ ownerUserId: context.userId('RB') });
-  await context.pool.query('DELETE FROM role_binding WHERE user_id=$1', [caller.userId]);
-  await context.pool.query(
-    "INSERT INTO role_binding(user_id,role,scope_type) VALUES($1,'RA','own')",
-    [caller.userId],
-  );
+test('活动成员可核对本项目其他成员提供的资料，资料负责人不再限制读取', async () => {
+  const ref = await addSource({ ownerUserId: context.userId('MEMBER_B') });
   const report = await checkSubmission(context.pool, caller, submission(ref));
-  expect(report.passed).toBe(false);
-  expect(report.citations).toHaveLength(0);
-  expect(report.checks[0]!.issues[0]?.code).toBe('source_unavailable');
+  expect(report.passed).toBe(true);
+  expect(report.citations[0]?.documentId).toBe(ref.documentId);
 });
 
 test('引用旧页也继承所有历史版本最高级别，重放刷新不降级且拒已作废来源', async () => {

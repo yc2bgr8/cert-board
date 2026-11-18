@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  date,
   bigint,
   check,
   index,
@@ -15,14 +16,15 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
   varchar,
   type PgTableExtraConfigValue,
 } from 'drizzle-orm/pg-core';
 
 export const userStatus = pgEnum('app_user_status', ['active', 'disabled']);
-export const userRole = pgEnum('app_role', ['RA', 'RB', 'GM', 'SALES', 'TECH']);
-export const scopeType = pgEnum('role_scope_type', ['global', 'project', 'own']);
+export const legacyUserRole = pgEnum('app_role', ['RA', 'RB', 'GM', 'SALES', 'TECH']);
+export const legacyScopeType = pgEnum('role_scope_type', ['global', 'project', 'own']);
 export const auditActorKind = pgEnum('audit_actor_kind', ['browser', 'agent', 'system']);
 export const legalEntityType = pgEnum('legal_entity_type', [
   'company',
@@ -53,6 +55,7 @@ export const appUser = pgTable(
     displayName: varchar('display_name', { length: 120 }).notNull(),
     status: userStatus('status').notNull().default('active'),
     isDevelopment: boolean('is_development').notNull().default(false),
+    isManagement: boolean('is_management').notNull().default(false),
     ...timestamps(),
     version: integer('version').notNull().default(1),
   },
@@ -64,15 +67,15 @@ export const appUser = pgTable(
   ],
 );
 
-export const roleBinding = pgTable(
-  'role_binding',
+export const legacyRoleBinding = pgTable(
+  'legacy_role_binding',
   {
     id: uuid('id').defaultRandom().primaryKey(),
     userId: uuid('user_id')
       .notNull()
       .references(() => appUser.id, { onDelete: 'restrict' }),
-    role: userRole('role').notNull(),
-    scopeType: scopeType('scope_type').notNull(),
+    role: legacyUserRole('role').notNull(),
+    scopeType: legacyScopeType('scope_type').notNull(),
     scopeId: uuid('scope_id'),
     ...timestamps(),
     version: integer('version').notNull().default(1),
@@ -302,9 +305,7 @@ export const certProject = pgTable(
     ownerUserId: uuid('owner_user_id')
       .notNull()
       .references(() => appUser.id, { onDelete: 'restrict' }),
-    reviewerUserId: uuid('reviewer_user_id')
-      .notNull()
-      .references(() => appUser.id, { onDelete: 'restrict' }),
+    reviewerUserId: uuid('reviewer_user_id').references(() => appUser.id, { onDelete: 'restrict' }),
     applicantEntityId: uuid('applicant_entity_id').references(() => legalEntity.id, {
       onDelete: 'restrict',
     }),
@@ -331,10 +332,6 @@ export const certProject = pgTable(
     check('cert_project_name_not_blank', sql`length(btrim(${table.name})) > 0`),
     check('cert_project_pathway_not_blank', sql`length(btrim(${table.pathway})) > 0`),
     check('cert_project_timezone_not_blank', sql`length(btrim(${table.jurisdictionTz})) > 0`),
-    check(
-      'cert_project_owner_reviewer_distinct',
-      sql`${table.ownerUserId} <> ${table.reviewerUserId}`,
-    ),
     check(
       'cert_project_submission_dates_order',
       sql`${table.submittedAt} IS NULL OR ${table.acceptedAt} IS NULL OR ${table.acceptedAt} >= ${table.submittedAt}`,
@@ -393,6 +390,7 @@ export const contact = pgTable(
     channel: contactChannel('channel').notNull().default('local_test'),
     address: varchar('address', { length: 255 }).notNull(),
     active: boolean('active').notNull().default(true),
+    internalUserId: uuid('internal_user_id').references(() => appUser.id, { onDelete: 'restrict' }),
     source: text('source').notNull(),
     createdBy: uuid('created_by').references(() => appUser.id, { onDelete: 'restrict' }),
     ...timestamps(),
@@ -565,7 +563,8 @@ export const documentPage = pgTable(
   ],
 );
 
-export const conversationMode = pgEnum('conversation_mode', ['read_only', 'execute']);
+export const permissionMode = pgEnum('permission_mode', ['read_only', 'ask', 'full']);
+export const agentCode = pgEnum('agent_code', ['registration', 'maintenance']);
 export const conversationStatus = pgEnum('conversation_status', ['active', 'archived']);
 export const workspaceAuthorType = pgEnum('workspace_author_type', ['human', 'ai', 'system']);
 
@@ -578,7 +577,8 @@ export const conversation = pgTable(
       .notNull()
       .references(() => appUser.id, { onDelete: 'restrict' }),
     title: varchar('title', { length: 255 }).notNull(),
-    mode: conversationMode('mode').notNull().default('execute'),
+    permissionMode: permissionMode('permission_mode').notNull().default('ask'),
+    agentCode: agentCode('agent_code').notNull().default('registration'),
     maxDataLevel: documentDataLevel('max_data_level').notNull().default('internal'),
     status: conversationStatus('status').notNull().default('active'),
     goalId: uuid('goal_id'),
@@ -814,6 +814,7 @@ export const toolInvocationStatus = pgEnum('tool_invocation_status', [
   'completed',
   'denied',
   'failed',
+  'pending_approval',
 ]);
 export const toolInvocationOperation = pgEnum('tool_invocation_operation', ['execute', 'undo']);
 export const undoRecordStatus = pgEnum('undo_record_status', ['pending', 'available', 'undone']);
@@ -1718,5 +1719,205 @@ export const conversationEvent = pgTable(
       'conversation_event_level_internal',
       sql`${table.dataLevel} IN ('internal','confidential')`,
     ),
+  ],
+);
+
+export const toolApprovalStatus = pgEnum('tool_approval_status', [
+  'pending',
+  'approved',
+  'rejected',
+  'cancelled',
+]);
+export const toolApprovalAction = pgEnum('tool_approval_action', [
+  'allow_once',
+  'allow_conversation',
+  'reject',
+]);
+export const toolApproval = pgTable(
+  'tool_approval',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    invocationId: uuid('invocation_id').notNull().unique(),
+    runId: uuid('run_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    projectId: uuid('project_id').notNull(),
+    goalId: uuid('goal_id').notNull(),
+    toolName: varchar('tool_name', { length: 64 }).notNull(),
+    toolVersion: varchar('tool_version', { length: 128 }).notNull(),
+    argumentsHash: varchar('arguments_hash', { length: 64 }).notNull(),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    directionVersion: integer('direction_version').notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    status: toolApprovalStatus('status').notNull().default('pending'),
+    argumentsJson: jsonb('arguments_json').notNull(),
+    previewJson: jsonb('preview_json').notNull(),
+    targetVersionsJson: jsonb('target_versions_json').notNull(),
+    version: integer('version').notNull().default(1),
+    ...timestamps(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: 'tool_approval_invocation_context_fk',
+      columns: [table.invocationId, table.runId, table.conversationId, table.userId],
+      foreignColumns: [
+        toolInvocation.id,
+        toolInvocation.runId,
+        toolInvocation.conversationId,
+        toolInvocation.userId,
+      ],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'tool_approval_run_context_fk',
+      columns: [table.runId, table.conversationId, table.userId, table.projectId, table.goalId],
+      foreignColumns: [run.id, run.conversationId, run.userId, run.projectId, run.goalId],
+    }).onDelete('restrict'),
+    check(
+      'tool_approval_versions_positive',
+      sql`${table.version}>0 AND ${table.directionVersion}>0`,
+    ),
+    check(
+      'tool_approval_hash_format',
+      sql`${table.argumentsHash} ~ '^[0-9a-f]{64}$' AND ${table.contentHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check('tool_approval_level_internal', sql`${table.dataLevel} IN ('internal','confidential')`),
+    check(
+      'tool_approval_payload_bound',
+      sql`jsonb_typeof(${table.previewJson})='object' AND jsonb_typeof(${table.targetVersionsJson})='array' AND octet_length(${table.argumentsJson}::text)<=73728 AND octet_length(${table.previewJson}::text)<=73728 AND octet_length(${table.targetVersionsJson}::text)<=73728`,
+    ),
+    index('tool_approval_conversation_status_idx').on(table.conversationId, table.status),
+  ],
+);
+export const toolApprovalDecision = pgTable(
+  'tool_approval_decision',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    approvalId: uuid('approval_id')
+      .notNull()
+      .unique()
+      .references(() => toolApproval.id, { onDelete: 'restrict' }),
+    actorUserId: uuid('actor_user_id').notNull(),
+    sessionId: uuid('session_id').notNull(),
+    requestKey: uuid('request_key').notNull(),
+    sourceVersion: integer('source_version').notNull(),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    action: toolApprovalAction('action').notNull(),
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('tool_approval_decision_request_unique').on(table.actorUserId, table.requestKey),
+    foreignKey({
+      name: 'tool_approval_decision_session_fk',
+      columns: [table.sessionId, table.actorUserId],
+      foreignColumns: [webSession.id, webSession.userId],
+    }).onDelete('restrict'),
+    check('tool_approval_decision_version_positive', sql`${table.sourceVersion}>0`),
+    check('tool_approval_decision_hash_format', sql`${table.contentHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'tool_approval_decision_reason_bound',
+      sql`${table.reason} IS NULL OR length(${table.reason})<=4000`,
+    ),
+  ],
+);
+export const conversationToolGrant = pgTable(
+  'conversation_tool_grant',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    toolName: varchar('tool_name', { length: 64 }).notNull(),
+    toolVersion: varchar('tool_version', { length: 128 }).notNull(),
+    sourceDecisionId: uuid('source_decision_id')
+      .notNull()
+      .references(() => toolApprovalDecision.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (table) => [
+    unique('conversation_tool_grant_scope_unique').on(
+      table.conversationId,
+      table.userId,
+      table.toolName,
+      table.toolVersion,
+    ),
+    foreignKey({
+      name: 'conversation_tool_grant_owner_fk',
+      columns: [table.conversationId, table.userId],
+      foreignColumns: [conversation.id, conversation.userId],
+    }).onDelete('restrict'),
+  ],
+);
+export const internalOutboundMessage = pgTable(
+  'internal_outbound_message',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    invocationId: uuid('invocation_id').notNull().unique(),
+    runId: uuid('run_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    projectId: uuid('project_id').notNull(),
+    goalId: uuid('goal_id').notNull(),
+    directionVersion: integer('direction_version').notNull(),
+    contactId: uuid('contact_id').notNull(),
+    recipientUserId: uuid('recipient_user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    recipientVersion: integer('recipient_version').notNull(),
+    recipientUserVersion: integer('recipient_user_version').notNull(),
+    recipientName: varchar('recipient_name', { length: 120 }).notNull(),
+    recipientAddress: varchar('recipient_address', { length: 255 }).notNull(),
+    channel: contactChannel('channel').notNull().default('local_test'),
+    subject: varchar('subject', { length: 200 }).notNull(),
+    body: text('body').notNull(),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    businessDate: date('business_date')
+      .notNull()
+      .default(sql`(clock_timestamp() AT TIME ZONE 'Asia/Shanghai')::date`),
+    status: outboundMessageStatus('status').notNull().default('queued'),
+    attempts: integer('attempts').notNull().default(0),
+    lastReason: varchar('last_reason', { length: 500 }),
+    receiptId: uuid('receipt_id'),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+    ...timestamps(),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    foreignKey({
+      name: 'internal_message_invocation_context_fk',
+      columns: [table.invocationId, table.runId, table.conversationId, table.userId],
+      foreignColumns: [
+        toolInvocation.id,
+        toolInvocation.runId,
+        toolInvocation.conversationId,
+        toolInvocation.userId,
+      ],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'internal_message_run_context_fk',
+      columns: [table.runId, table.conversationId, table.userId, table.projectId, table.goalId],
+      foreignColumns: [run.id, run.conversationId, run.userId, run.projectId, run.goalId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'internal_message_contact_project_fk',
+      columns: [table.contactId, table.projectId],
+      foreignColumns: [contact.id, contact.projectId],
+    }).onDelete('restrict'),
+    uniqueIndex('internal_message_daily_recipient_unique')
+      .on(table.goalId, table.recipientUserId, table.businessDate)
+      .where(sql`${table.status}<>'cancelled'`),
+    check(
+      'internal_message_versions_positive',
+      sql`${table.version}>0 AND ${table.directionVersion}>0 AND ${table.recipientVersion}>0 AND ${table.recipientUserVersion}>0`,
+    ),
+    check('internal_message_attempts_nonnegative', sql`${table.attempts}>=0`),
+    check('internal_message_hash_format', sql`${table.contentHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'internal_message_body_bound',
+      sql`length(btrim(${table.subject}))>0 AND length(btrim(${table.body}))>0 AND length(${table.body})<=8000`,
+    ),
+    check('internal_message_level_internal', sql`${table.dataLevel}='internal'`),
   ],
 );

@@ -8,11 +8,9 @@ const developmentPasswordSchema = z
 
 export const seedEnvironmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test']),
-  DEV_RA_PASSWORD: developmentPasswordSchema,
-  DEV_RB_PASSWORD: developmentPasswordSchema,
-  DEV_GM_PASSWORD: developmentPasswordSchema,
-  DEV_SALES_PASSWORD: developmentPasswordSchema,
-  DEV_TECH_PASSWORD: developmentPasswordSchema,
+  DEV_ZHANGSAN_PASSWORD: developmentPasswordSchema,
+  DEV_WANGMIN_PASSWORD: developmentPasswordSchema,
+  DEV_ADMIN_PASSWORD: developmentPasswordSchema,
 });
 
 export class SeedConfigurationError extends Error {

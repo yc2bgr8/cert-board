@@ -34,7 +34,7 @@ beforeAll(async () => {
   await seedDevelopmentAccounts(database.pool, {
     NODE_ENV: 'test',
     ...Object.fromEntries(
-      ['RA', 'RB', 'GM', 'SALES', 'TECH'].map((role) => [`DEV_${role}_PASSWORD`, password]),
+      ['ZHANGSAN', 'WANGMIN', 'ADMIN'].map((role) => [`DEV_${role}_PASSWORD`, password]),
     ),
   });
   await seedDevelopmentProject(database.pool, { NODE_ENV: 'test' });
@@ -53,7 +53,7 @@ beforeAll(async () => {
     method: 'POST',
     url: '/api/auth/login',
     headers: { origin: config.WEB_ORIGIN, 'sec-fetch-site': 'same-origin' },
-    payload: { username: 'ra', password },
+    payload: { username: 'zhangsan', password },
   });
   expect(login.statusCode).toBe(200);
   const user = login.json().user;
@@ -68,7 +68,7 @@ beforeAll(async () => {
     displayName: user.displayName,
     isDevelopment: true,
     sessionId: randomUUID(),
-    roles: user.roles,
+    isManagement: false,
   };
 });
 afterAll(async () => {
@@ -120,7 +120,7 @@ test('按版本只读对比新增交付文件，重复种子不覆盖人工后�
     )
   ).rows[0]!.current_version_id;
   const conversation = await database.pool.query<{ id: string }>(
-    "INSERT INTO conversation(project_id,user_id,goal_id,title,mode) VALUES ($1,$2,$3,'工作区接口验收','execute') RETURNING id",
+    "INSERT INTO conversation(project_id,user_id,goal_id,title,permission_mode) VALUES ($1,$2,$3,'工作区接口验收','ask') RETURNING id",
     [developmentProjectId, identity.userId, developmentGoalId],
   );
   const draft = await createDraft(database.pool, identity, conversation.rows[0]!.id);
