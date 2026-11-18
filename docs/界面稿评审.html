@@ -25,7 +25,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <ol><li>注册项目：在L08 510(k)对话中发送K号写法检查，看到计划与进度；在关键判断批准卡上允许后，打开八部分审核并通过。</li><li>维护事项：进入L08 年度注册，选择完全允许后核查；对话展示更新提醒和给内部同事催办的本地演示回执，再提交审核。</li><li>待我处理：可以保留注册对话的批准请求，再运行维护核查，列表分别提供批准请求与待审核结果入口。</li></ol>
 <p>审核动作在本PR中只是浏览器状态演示。真实身份、权限模式、批准恢复、最终审核及冻结分别由C3/C4/21/25/26/27接入并验收。</p>
 <h2 id="打开方法">打开方法</h2>
-<p>开发方式：在仓库执行 <code>pnpm dev:web</code>，打开 <code>http://127.0.0.1:28080</code>。构建验收方式：<code>pnpm build</code> 后运行 <code>pnpm preview</code>，使用相同地址；两者不能同时占用28080。</p>
+<p>在仓库执行 <code>pnpm dev:web</code>，或执行 <code>pnpm build</code> 后运行 <code>pnpm preview</code>。两者共用 28080 端口。从 PR-26 起，打开 <code>http://127.0.0.1:28080/?prototype=1</code> 查看 C2 静态稿。</p>
 <p>本PR静态界面不需要登录。正式开发账号及密码变量以最终晨报为准，此处不能视作登录功能已经接入。</p>
 <h2 id="开发验收记录">开发验收记录</h2>
 <table><thead><tr><th>项目</th><th>状态</th></tr></thead><tbody><tr><td>注册ask、维护full、待我处理三条组件路径</td><td>组件与两尺寸原生浏览器通过；审核按钮可完成本地演示批准</td></tr><tr><td>模式、停止、插话、键盘、IME与状态隔离</td><td>组件回归通过；浏览器另验Ctrl+K、Esc、焦点和1023断点</td></tr><tr><td>安全Markdown与严格本站CSP</td><td>原4项安全测试保留；弹窗样式注入已消除，最终浏览器0外部请求/0API/0控制台错误</td></tr><tr><td>1440×900、1280×800截图及A.8自查</td><td>各5张，实际视觉复核通过；A.8逐条结果见PR-C2说明</td></tr><tr><td>注册人员确认</td><td>待确认，按授权继续</td></tr></tbody></table>

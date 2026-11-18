@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr-26-界面外框与对话">PR-26 界面外框与对话</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#与界面稿的差异">与界面稿的差异</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应方案和依赖">对应方案和依赖</a></nav><main><h2 id="pr-26-界面外框与对话">PR-26 界面外框与对话</h2>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>登录后从项目栏查看 L08 510(k)、目标与历史。部门对话可以查看，发起人可以发送、插话、回答、停止和切换三种权限。</li><li>对话按真实事件更新。工具过程默认折叠，计划、耗时和状态位于输入框上方。保存工作区改动和提交审核时在对话中显示状态。</li><li>过程批准显示变更字段、原值与新值，或消息收件人和全文。允许、本对话中都允许、拒绝分别提交原批准请求。预览版本过期后先刷新，等待人再次确认。</li><li>登录凭据随浏览器同源请求提交。外部链接带提示，原始 HTML 和外部图片过滤。本机浏览器验收使用独立测试库、真实 API 与 Pi 工作进程，用户、模型和内部队列使用测试渠道。</li><li>Zod 在浏览器加载共享模式前启用 <code>jitless</code>。生产构建继续使用原有严格 CSP。</li></ul>
+<h2 id="与界面稿的差异">与界面稿的差异</h2>
+<ul><li>正式入口先登录，<code>?prototype=1</code> 仍可查看 C2 静态稿。项目、对话与待处理事项来自后端。只有实际存在的维护项目会出现在维护列表。</li><li>项目内 Agent 由项目类型确定，未关联项目时可选。对话模式仍默认请求批准。对非发起人显示共享对话历史，写入控制仅发起人可见。</li><li>工具、计划、进度、问题和批准以数据库事件及接口回执显示。静态稿的附件、文件、资料和右侧最终审核入口等待对应接口接入。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>上游字词级流式输出随模型网关接入。当前正文和过程按服务端增量事件更新。</li><li>消息反馈及 <code>message_feedback</code> 写入、附件选择及上传、独立运行详情待后续。工作区改动目前显示保存状态，版本对比和证据页在 PR-27。</li><li>项目外对话可保存，自动立项和工作区创建随后续业务工具接入。</li><li>真实 Flash 的浏览器送审继续等用量核对。使用同一 Pi 内核和隔离库开展浏览器验收。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，368 项单元</td></tr><tr><td><code>pnpm eval:agent</code>、对话 HTTP/SSE 集成</td><td>通过，30 项剧本、8 项实际 HTTP/SSE</td></tr><tr><td><code>pnpm test:int</code></td><td>全量通过，46 个文件、380 项</td></tr><tr><td><code>pnpm build</code>、<code>pnpm test:e2e</code></td><td>通过。登录、L08 资料检索与原文读取、两步可展开计划、工具过程、插话、权限切换、断流后停止、三种过程批准、共享对话只读</td></tr><tr><td>浏览器安全</td><td>外部请求、页面错误、CSP 违规和隔离库未决用量均为 0。模型 HTML、脚本和外部图片未渲染</td></tr><tr><td>截图</td><td><code>.local/e2e/</code> 下的 <code>conversation-read.png</code>、<code>plan-active.png</code>、<code>approval-pending.png</code>、<code>conversation-shared.png</code>，以及 <code>result.json</code>。共享页在 1280×800 无横向溢出</td></tr></tbody></table>
+<h2 id="对应方案和依赖">对应方案和依赖</h2>
+<ul><li>执行方案 v0.4 PR-26，需求 V1.0 第 3.1、3.5 节及技术方案 v0.4 第 3.1、3.2、3.6 节。</li><li>新增测试依赖 <code>playwright-core@1.65.1</code>，Apache-2.0。只启动已安装的 Chrome 或 Edge，自动下载与遥测均未接入。验收浏览器拦截非本站请求。正式页面继续仅访问本站 API。</li><li>浏览器显式引用项目已使用的 <code>zod@4.6.7</code>（MIT）和仓库内共享模式，用于解析返回值和校验命令。Zod 校验在进程内执行。</li><li>真实模型调用 0 次，新增费用 0 美元。原账本的未知预占继续保留。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

@@ -19,10 +19,12 @@ pnpm db:setup
 pnpm dev:api
 ```
 
-另一个终端运行 `pnpm dev:worker`。后端健康检查：`http://127.0.0.1:28081/health`。
-`pnpm dev:web` 启动界面稿：`http://127.0.0.1:28080`。也可 `pnpm build` 后 `pnpm preview` 查看严格CSP下的构建。当前界面稿只有虚构交互，尚未接入登录和真实业务；开发说明在设置中，截图与操作步骤见[界面稿评审](docs/界面稿评审.md)。
+另开终端分别运行 `pnpm dev:worker` 和 `pnpm dev:web`，打开 [本地工作台](http://127.0.0.1:28080)。后端可单独检查。[健康检查](http://127.0.0.1:28081/health)
+
+运行 `pnpm build` 后也可以用 `pnpm preview` 启动严格 CSP 的构建。C2 静态稿从 [界面稿入口](http://127.0.0.1:28080/?prototype=1) 打开。截图和操作步骤见[界面稿评审](docs/界面稿评审.md)。
 
 `pnpm lint`、`pnpm typecheck`、`pnpm test` 运行基础检查；依赖服务启动后运行 `pnpm test:int`。
+本机装有 Chrome 或 Edge 时，运行 `pnpm build` 和 `pnpm test:e2e` 验收浏览器。测试使用 28080 端口、独立测试数据库和剧本模型，开始前需释放该端口。
 `pnpm dev:down` 仅停止 cert-board 项目并保留命名卷。已有项目的服务不受影响。
 
 密码与密钥只在 `.env.local`，初始化不会覆盖已有值；不要输出完整配置或将它加入提交。
@@ -33,7 +35,7 @@ pnpm dev:api
 
 真实模型请求原文默认不持久化。`pnpm requests:purge` 每批最多清理100条到期的私有请求内容，同时留下不含正文的审计；非零保留目前只允许隔离测试库中的合成记录。
 
-开发账号为 `zhangsan`（张三）、`wangmin`（王敏）、`admin`（李晨）；三者业务权限相同，只有admin额外具有系统管理权限。密码分别在`.env.local`的`DEV_ZHANGSAN_PASSWORD`、`DEV_WANGMIN_PASSWORD`、`DEV_ADMIN_PASSWORD`，不写入文档。先运行env:init补新变量，再db:setup迁移/种子；旧角色开发账号停用，但历史用户和审计保留。重复种子不恢复人工撤销的管理权限、禁用或密码。种子只在development/test执行，生产禁止开发账号种子和登录。真实登录页在PR-26接入。
+开发账号为 `zhangsan`（张三）、`wangmin`（王敏）、`admin`（李晨）。三者业务权限相同，只有 `admin` 额外具有系统管理权限。密码分别在 `.env.local` 的 `DEV_ZHANGSAN_PASSWORD`、`DEV_WANGMIN_PASSWORD`、`DEV_ADMIN_PASSWORD`。先运行 `pnpm env:init`，再运行 `pnpm db:setup` 完成迁移和种子。旧账号停用，历史用户和审计保留。重复运行种子会保留已经修改的管理权限、登录状态和密码。种子仅用于 development 和 test。
 
 对话权限为只读、请求批准、完全允许，默认请求批准。C3批准接口只记录浏览器决定，精确执行和续跑在PR-21接入；审批/批准不是模型工具。内部消息目前仅本地测试队列，不发给真实对象，真实渠道和非登录员工身份目录后续接入。
 
