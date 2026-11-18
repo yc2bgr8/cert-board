@@ -119,6 +119,38 @@ describe('公开对话过程投影', () => {
       }).payload,
     ).not.toHaveProperty('pendingSteeringCount');
   });
+  it('预算停机只显示允许的解释，不透上游错误或用量', () => {
+    const blocked = projectConversationEvent({
+      ...row,
+      type: 'run_status',
+      payload: {
+        status: 'budget_exhausted',
+        reasonCode: 'BUDGET_BLOCKED',
+        message: '私有错误正文',
+        usage: { private: true },
+      },
+    });
+    expect(blocked.payload).toEqual({
+      status: 'budget_exhausted',
+      summary: '用量或账本状态需要核对。本轮已停止派发模型请求。',
+    });
+    const unknown = projectConversationEvent({
+      ...row,
+      type: 'run_status',
+      payload: { status: 'failed', reasonCode: '私有错误正文' },
+    });
+    expect(unknown.payload).toEqual({ status: 'failed', summary: '运行状态已更新。' });
+    expect(
+      projectConversationEvent({
+        ...row,
+        type: 'run_status',
+        payload: { status: 'stopped', reasonCode: 'REVIEW_NOT_SUBMITTED' },
+      }).payload,
+    ).toEqual({
+      status: 'stopped',
+      summary: '本轮结束时未提交审核。请核对已保存的改动和未完成事项。',
+    });
+  });
 });
 it('Last-Event-ID只接受无歧义的安全十进制非负整数', () => {
   expect(parseEventCursor(undefined)).toBe(0);

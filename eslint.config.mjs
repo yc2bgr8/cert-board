@@ -169,6 +169,7 @@ export default [
       '**/*.test.ts',
       '**/test-support.ts',
       '**/test-support/**',
+      'apps/backend/src/e2e/browser.e2e.ts',
       'apps/backend/src/agent/tool-runtime.ts',
     ],
     plugins: { 'cert-runtime': runtimeBoundaryPlugin },

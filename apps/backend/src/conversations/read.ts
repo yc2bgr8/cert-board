@@ -157,6 +157,23 @@ const uuid = (value: unknown) =>
 const call = (value: unknown) =>
   typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,128}$/.test(value) ? value : undefined;
 const optional = (name: string, value: unknown) => (value === undefined ? {} : { [name]: value });
+function publicRunSummary(status: unknown, reason: unknown) {
+  if (
+    reason === 'BUDGET_BLOCKED' ||
+    reason === 'MODEL_METERING_BLOCKED' ||
+    reason === 'MODEL_USAGE_INCOMPLETE'
+  )
+    return '用量或账本状态需要核对。本轮已停止派发模型请求。';
+  if (status === 'budget_exhausted') {
+    if (reason === 'BUDGET_LIMIT_REACHED') return '本轮达到预算限制，请核对已完成事项和预算。';
+    return '预算或用量计量限制已停止本轮，请先核对用量后继续。';
+  }
+  if (status === 'failed' && reason === 'MODEL_UPSTREAM_FAILED')
+    return '上游模型请求失败，已保留计量记录。请核对用量和本轮工具记录。';
+  if (status === 'stopped' && reason === 'REVIEW_NOT_SUBMITTED')
+    return '本轮结束时未提交审核。请核对已保存的改动和未完成事项。';
+  return '运行状态已更新。';
+}
 export function projectConversationEvent(row: {
   id: string;
   conversationId: string;
@@ -266,7 +283,7 @@ export function projectConversationEvent(row: {
             ? p.pendingSteeringCount
             : undefined,
         ),
-        summary: '运行状态已更新。',
+        summary: publicRunSummary(p.status, p.reasonCode),
       };
       break;
     case 'model_started':
