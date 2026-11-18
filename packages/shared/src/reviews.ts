@@ -76,10 +76,27 @@ export const reviewDecisionInputSchema = z
     '退回审核必须说明原因。',
   );
 export type ReviewDecisionInput = z.infer<typeof reviewDecisionInputSchema>;
-export const reviewJudgmentInputSchema = z
-  .object({ expectedVersion: version, requestKey: id, statement })
-  .strict();
-export type ReviewJudgmentInput = z.infer<typeof reviewJudgmentInputSchema>;
+export const reviewJudgmentRecordSchema = z.object({ statement, createdAt: instant }).strict();
+export const reviewSections = [
+  'conclusion',
+  'requestedAction',
+  'decisions',
+  'changes',
+  'evidence',
+  'checks',
+  'uncertainties',
+  'actions',
+] as const;
+export const reviewSectionsSchema = z.tuple([
+  z.literal('conclusion'),
+  z.literal('requestedAction'),
+  z.literal('decisions'),
+  z.literal('changes'),
+  z.literal('evidence'),
+  z.literal('checks'),
+  z.literal('uncertainties'),
+  z.literal('actions'),
+]);
 
 const common = {
   id,
@@ -95,18 +112,17 @@ const common = {
   createdAt: instant,
   decidedAt: instant.nullable(),
 };
-const locked = z
-  .object({ ...common, risk: z.literal('high'), requiresJudgment: z.literal(true) })
-  .strict();
-const visible = z
+export const reviewCardViewSchema = z
   .object({
     ...common,
     requiresJudgment: z.literal(false),
+    legacySubmission: z.boolean(),
+    sections: reviewSectionsSchema,
     submission: structuredSubmissionSchema,
     checks: checkReportSchema,
     diff: reviewDiffSchema,
     evidenceRefs: z.array(reviewEvidenceRefSchema).max(40),
-    judgment: z.object({ statement, createdAt: instant }).strict().nullable(),
+    judgment: reviewJudgmentRecordSchema.nullable(),
     decision: z
       .object({
         id,
@@ -122,10 +138,9 @@ const visible = z
   })
   .strict()
   .refine(
-    (card) => card.risk !== 'high' || card.judgment !== null,
-    '高风险卡必须有本人的独立判断才能显示AI内容。',
+    (card) => !card.legacySubmission || card.submission.decisions.length === 0,
+    '历史结果只能按原始缺失字段显示为空判断清单，不能伪造已记录的Agent判断。',
   );
-export const reviewCardViewSchema = z.discriminatedUnion('requiresJudgment', [locked, visible]);
 export type ReviewCardView = z.infer<typeof reviewCardViewSchema>;
 export const reviewDecisionResultSchema = z
   .object({
@@ -141,6 +156,3 @@ export const reviewDecisionResultSchema = z
     (result) => (result.status === 'approved') === (result.snapshotId !== null),
     '审核决定与冻结回执不一致。',
   );
-export const reviewJudgmentResultSchema = z
-  .object({ cardId: id, judgmentId: id, recorded: z.literal(true), replayed: z.boolean() })
-  .strict();

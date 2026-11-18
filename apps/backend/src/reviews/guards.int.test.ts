@@ -73,25 +73,35 @@ describe('审核数据的数据库保护', () => {
       c.pool.query("UPDATE review_card SET status='pending',version=3 WHERE id=$1", [c.card.id]),
     ).rejects.toMatchObject({ code: '42501' });
   });
-  it('判断绑定当前内容、版本和有效会话，不能借用另一人的判断', async () => {
+  it('高风险不再要求先写判断，决定仍绑定当前内容版本与有效浏览器会话', async () => {
     const c = await setup('high');
     await expect(c.judgment('MEMBER_A', '0'.repeat(64))).rejects.toMatchObject({ code: '23514' });
     await expect(c.judgment('MEMBER_A', c.card.content_hash, 2)).rejects.toMatchObject({
       code: '23514',
     });
-    await expect(c.reject()).rejects.toMatchObject({ code: '42501' });
-    await c.judgment('MEMBER_B');
-    await expect(c.reject('MEMBER_A')).rejects.toMatchObject({ code: '42501' });
-    await c.judgment('MEMBER_A');
-    await c.reject('MEMBER_A');
+    await expect(c.reject('MEMBER_A', '0'.repeat(64))).rejects.toMatchObject({ code: '23514' });
+    await expect(c.reject('MEMBER_A', c.card.content_hash, 2)).rejects.toMatchObject({
+      code: '23514',
+    });
     await c.pool.query('UPDATE web_session SET revoked_at=now() WHERE id=$1', [
       c.session('MEMBER_B'),
     ]);
     await expect(c.reject('MEMBER_B')).rejects.toMatchObject({ code: '42501' });
+    expect((await c.pool.query('SELECT count(*)::int AS n FROM review_judgment')).rows[0].n).toBe(
+      0,
+    );
+    await c.reject('MEMBER_A');
+    expect((await c.pool.query('SELECT actor_user_id FROM review_decision')).rows).toEqual([
+      { actor_user_id: c.userId('MEMBER_A') },
+    ]);
+    expect((await c.pool.query('SELECT count(*)::int AS n FROM review_judgment')).rows[0].n).toBe(
+      0,
+    );
   });
   it('判断和决定拒绝更新、删除及整表清空，语义SQL读角色没有读取权限', async () => {
     const c = await setup('high');
     await c.judgment();
+    const originalJudgment = (await c.pool.query('SELECT * FROM review_judgment')).rows;
     await c.reject();
     for (const table of ['review_judgment', 'review_decision']) {
       for (const query of [
@@ -107,6 +117,7 @@ describe('审核数据的数据库保护', () => {
       has_table_privilege('cert_board_reader','review_judgment','SELECT') OR
       has_table_privilege('cert_board_reader','review_decision','SELECT') AS allowed`);
     expect(rights.rows[0]?.allowed).toBe(false);
+    expect((await c.pool.query('SELECT * FROM review_judgment')).rows).toEqual(originalJudgment);
   });
   it('批准快照必须与卡片的工作区和决定人绑定', async () => {
     const c = await setup();
@@ -155,5 +166,20 @@ describe('审核数据的数据库保护', () => {
     await expect(c.pool.query('TRUNCATE review_card CASCADE')).rejects.toMatchObject({
       code: '42501',
     });
+  });
+
+  it('取消判断门限仍不允许绕过登记工具与撤销凭据创建审核卡', async () => {
+    const c = await setup('high');
+    await expect(
+      c.pool.query(
+        `INSERT INTO review_card(id,project_id,goal_id,conversation_id,run_id,invocation_id,created_by,
+       workspace_version_id,skill_id,skill_version,risk,card_type,structured_result,check_report,diff,
+       evidence_refs,content_hash,data_level)
+       SELECT gen_random_uuid(),project_id,goal_id,conversation_id,run_id,invocation_id,created_by,
+       workspace_version_id,skill_id,skill_version,risk,card_type,structured_result,check_report,diff,
+       evidence_refs,content_hash,data_level FROM review_card WHERE id=$1`,
+        [c.card.id],
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
   });
 });

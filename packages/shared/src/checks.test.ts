@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { checkReportSchema, documentCitationSchema, structuredSubmissionSchema } from './checks.js';
+import {
+  checkReportSchema,
+  documentCitationSchema,
+  structuredSubmissionSchema,
+  legacyStructuredSubmissionSchema,
+  structuredDecisionSchema,
+} from './checks.js';
 
 const id = '10000000-0000-4000-8000-000000000001';
 const quote = '  Predicate K170825\r\n e\u0301  ';
@@ -21,6 +27,7 @@ function submission() {
       },
     ],
     evidence: [citation],
+    decisions: [],
     missing: [],
     uncertain: ['正确号码仍需人工确认。'],
     nextStep: '核对两处资料并审核检查记录。',
@@ -172,5 +179,89 @@ describe('结构化提交与检查范围契约', () => {
         ],
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('过程判断与历史结构化结果', () => {
+  const decision = {
+    id: 'D1',
+    subject: '不同编号的处理',
+    choice: '保留差异，等待原件确认',
+    alternatives: ['按笔误统一编号'],
+    reason: '当前资料不足以确定正确编号。',
+    sources: [citation],
+    risk: 'high',
+  };
+  it('新输入必须显式给出decisions，历史解析不补字段或改变证据原文', () => {
+    const { decisions: _decisions, ...legacy } = submission();
+    const parsed = legacyStructuredSubmissionSchema.parse(legacy);
+    expect(parsed).toEqual(legacy);
+    expect(Object.hasOwn(parsed, 'decisions')).toBe(false);
+    expect(structuredSubmissionSchema.safeParse(legacy).success).toBe(false);
+    expect(structuredSubmissionSchema.safeParse({ ...legacy, decisions: [] }).success).toBe(true);
+    expect(
+      legacyStructuredSubmissionSchema.safeParse({ ...legacy, decisions: [decision] }).success,
+    ).toBe(false);
+  });
+  it('判断结构明确且至少有一条资料来源，不接受草稿、凭据或模型自报阅读调用', () => {
+    expect(structuredDecisionSchema.parse(decision).sources[0]?.quote).toBe(quote);
+    for (const change of [
+      { sources: [] },
+      { risk: 'critical' },
+      { reason: ' ' },
+      { sources: [{ ...citation, readInvocationId: id }] },
+      { sources: [{ path: '草稿.md', quote }] },
+      { approved: true },
+    ])
+      expect(structuredDecisionSchema.safeParse({ ...decision, ...change }).success).toBe(false);
+  });
+  it('陈述与判断条数、所有引用统一计数，不能绕过输出上限', () => {
+    const base = submission();
+    expect(structuredSubmissionSchema.safeParse({ ...base, decisions: [decision] }).success).toBe(
+      true,
+    );
+    expect(
+      structuredSubmissionSchema.safeParse({ ...base, decisions: [decision, decision] }).success,
+    ).toBe(false);
+    expect(
+      structuredSubmissionSchema.safeParse({
+        ...base,
+        claims: Array.from({ length: 20 }, (_, index) => ({ ...base.claims[0], id: `C${index}` })),
+        decisions: [decision],
+      }).success,
+    ).toBe(false);
+    expect(
+      structuredSubmissionSchema.safeParse({
+        ...base,
+        evidence: Array.from({ length: 39 }, () => citation),
+        decisions: [decision],
+      }).success,
+    ).toBe(false);
+    expect(
+      structuredSubmissionSchema.safeParse({
+        ...base,
+        evidence: Array.from({ length: 38 }, () => citation),
+        decisions: [decision],
+      }).success,
+    ).toBe(true);
+  });
+  it('判断错误只允许程序构造的定位，仍不返回自由文字或原始输入键', () => {
+    const report = {
+      passed: false,
+      dataLevel: 'internal',
+      checks: [
+        {
+          code: 'V1',
+          status: 'failed',
+          issues: [{ code: 'quote_mismatch', path: 'decisions[0].sources[0]' }],
+        },
+        { code: 'V3', status: 'passed', issues: [] },
+      ],
+      notRun,
+      citations: [],
+    };
+    expect(checkReportSchema.safeParse(report).success).toBe(true);
+    report.checks[0]!.issues[0]!.path = 'decisions[0].PRIVATE_BODY';
+    expect(checkReportSchema.safeParse(report).success).toBe(false);
   });
 });

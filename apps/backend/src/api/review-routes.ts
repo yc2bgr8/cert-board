@@ -12,6 +12,7 @@ import { z } from 'zod';
 import {
   browserIdentitySchema,
   structuredSubmissionSchema,
+  legacyStructuredSubmissionSchema,
   checkReportSchema,
   reviewDiffSchema,
   reviewEvidenceRefSchema,
@@ -19,8 +20,7 @@ import {
   reviewCardViewSchema,
   reviewDecisionInputSchema,
   reviewDecisionResultSchema,
-  reviewJudgmentInputSchema,
-  reviewJudgmentResultSchema,
+  reviewSections,
   type BackendConfig,
   type BrowserIdentity,
 } from '@cert-board/shared';
@@ -159,8 +159,12 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
     return { card, workspace, goal, run };
   };
   const content = (card: Card) => {
+    const legacySubmission = !Object.hasOwn(card.structured_result as object, 'decisions');
+    const submission = legacySubmission
+      ? { ...legacyStructuredSubmissionSchema.parse(card.structured_result), decisions: [] }
+      : structuredSubmissionSchema.parse(card.structured_result);
     const payload = {
-      submission: structuredSubmissionSchema.parse(card.structured_result),
+      submission,
       checks: checkReportSchema.parse(card.check_report),
       diff: reviewDiffSchema.parse(card.diff),
       evidenceRefs: z.array(reviewEvidenceRefSchema).max(40).parse(card.evidence_refs),
@@ -172,14 +176,20 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
       payload.submission.skill.id !== card.skill_id ||
       payload.submission.skill.version !== card.skill_version ||
       !payload.checks.passed ||
-      reviewContentHash(payload) !== card.content_hash
+      reviewContentHash({
+        ...payload,
+        submission: card.structured_result,
+        checks: card.check_report,
+        diff: card.diff,
+        evidenceRefs: card.evidence_refs,
+      }) !== card.content_hash
     )
       throw new AppError(
         409,
         'REVIEW_CONTENT_MISMATCH',
         '审核卡内容校验失败，请重新提交，不要批准旧卡片。',
       );
-    return payload;
+    return { ...payload, legacySubmission };
   };
   const sources = async (
     tx: PoolClient,
@@ -190,6 +200,7 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
     const refs = [
       ...payload.submission.evidence,
       ...payload.submission.claims.flatMap((claim) => claim.sources),
+      ...payload.submission.decisions.flatMap((decision) => decision.sources),
     ];
     const seen = new Set<string>();
     for (const ref of refs) {
@@ -245,8 +256,6 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
     return browserTransaction(request, false, async (tx, actor) => {
       const { card } = await load(tx, actor, id(request), false);
       const ownJudgment = await judgment(tx, actor, card);
-      if (card.risk === 'high' && !ownJudgment)
-        return reviewCardViewSchema.parse({ ...common(card), requiresJudgment: true });
       const payload = content(card);
       await sources(tx, actor, card, payload);
       const previous = (
@@ -265,6 +274,8 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
       return reviewCardViewSchema.parse({
         ...common(card),
         requiresJudgment: false,
+        legacySubmission: payload.legacySubmission,
+        sections: reviewSections,
         submission: payload.submission,
         checks: payload.checks,
         diff: payload.diff,
@@ -280,91 +291,6 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
               snapshotId: previous.snapshot_id,
             }
           : null,
-      });
-    });
-  });
-  app.post('/api/reviews/:id/judgment', async (request, reply) => {
-    reply.header('cache-control', 'no-store');
-    return browserTransaction(request, true, async (tx, actor) => {
-      const parsed = reviewJudgmentInputSchema.safeParse(request.body);
-      if (!parsed.success)
-        throw new AppError(400, 'REVIEW_JUDGMENT_INVALID', '请填写独立判断并使用当前卡片版本。');
-      const input = parsed.data;
-      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
-        `review-judgment:${actor.userId}:${input.requestKey}`,
-      ]);
-      const { card } = await load(tx, actor, id(request), true);
-      const prior = (
-        await tx.query<{
-          id: string;
-          card_id: string;
-          source_version: number;
-          content_hash: string;
-          statement: string;
-        }>(
-          'SELECT id,card_id,source_version,content_hash,statement FROM review_judgment WHERE actor_user_id=$1 AND request_key=$2',
-          [actor.userId, input.requestKey],
-        )
-      ).rows[0];
-      if (prior) {
-        if (
-          prior.card_id !== card.id ||
-          prior.source_version !== input.expectedVersion ||
-          prior.content_hash !== card.content_hash ||
-          prior.statement !== input.statement
-        )
-          throw conflict('同一判断请求的卡片、版本或文字改变，请刷新后使用新请求编号。');
-        return reviewJudgmentResultSchema.parse({
-          cardId: card.id,
-          judgmentId: prior.id,
-          recorded: true,
-          replayed: true,
-        });
-      }
-      if (card.version !== input.expectedVersion)
-        throw conflict('审核卡版本已变化，请刷新后重新填写判断。');
-      const payload = content(card);
-      await sources(tx, actor, card, payload);
-      const existing = (
-        await tx.query<{ id: string; statement: string }>(
-          'SELECT id,statement FROM review_judgment WHERE card_id=$1 AND actor_user_id=$2 AND content_hash=$3',
-          [card.id, actor.userId, card.content_hash],
-        )
-      ).rows[0];
-      if (existing) {
-        if (existing.statement !== input.statement)
-          throw conflict('已有独立判断不可改写；后续想法可写入决定原因或新对话。');
-        return reviewJudgmentResultSchema.parse({
-          cardId: card.id,
-          judgmentId: existing.id,
-          recorded: true,
-          replayed: true,
-        });
-      }
-      const saved = (
-        await tx.query<{ id: string }>(
-          `INSERT INTO review_judgment(card_id,actor_user_id,session_id,request_key,source_version,content_hash,statement)
-        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-          [
-            card.id,
-            actor.userId,
-            actor.sessionId,
-            input.requestKey,
-            card.version,
-            card.content_hash,
-            input.statement,
-          ],
-        )
-      ).rows[0]!;
-      await tx.query(
-        "INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id,after_hash) VALUES($1,'browser','review.judgment_recorded','review_card',$2,$3)",
-        [actor.userId, card.id, hash(input.statement)],
-      );
-      return reviewJudgmentResultSchema.parse({
-        cardId: card.id,
-        judgmentId: saved.id,
-        recorded: true,
-        replayed: false,
       });
     });
   });
@@ -425,12 +351,6 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
         throw conflict('审核卡或工作区版本已变化，请重新核查并提交，不能批准旧版本。');
       if (goal.status !== 'active' || goal.direction_version !== run.direction_version)
         throw conflict('目标状态或方向已改变，请负责人核对后重新提交审核。');
-      if (card.risk === 'high' && !(await judgment(tx, actor, card)))
-        throw new AppError(
-          403,
-          'REVIEW_JUDGMENT_REQUIRED',
-          '请先在浏览器填写自己的独立判断，再查看结论和作决定。',
-        );
       const payload = content(card);
       await sources(tx, actor, card, payload);
       let snapshotId: string | null = null;

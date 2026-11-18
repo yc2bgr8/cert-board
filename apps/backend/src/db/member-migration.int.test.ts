@@ -66,7 +66,11 @@ test('0010保留历史角色和审计，安全迁移成员/管理权限/会话�
     "INSERT INTO conversation(project_id,user_id,title,mode) VALUES($1,$2,'旧执行','execute'),($1,$2,'旧只读','read_only')",
     [project, ids.member_old],
   );
-  expect((await migrateDatabase(pool)).applied).toEqual(['0010_member_permissions.sql']);
+  await copyFile(
+    path.join(source, '0010_member_permissions.sql'),
+    path.join(directory, '0010_member_permissions.sql'),
+  );
+  expect((await migrateDatabase(pool, directory)).applied).toEqual(['0010_member_permissions.sql']);
   const users = (
     await pool.query<{ username: string; status: string; is_management: boolean }>(
       'SELECT username,status,is_management FROM app_user',

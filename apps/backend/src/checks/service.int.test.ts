@@ -88,6 +88,7 @@ function submission(citation: Awaited<ReturnType<typeof addSource>>): Structured
       },
     ],
     evidence: [citation],
+    decisions: [],
     missing: [],
     uncertain: ['编号真实性未回查'],
     nextStep: '请注册人员核对原件中的编号。',
@@ -121,6 +122,150 @@ beforeEach(async () => {
     workspaceVersion,
     workspace,
   ]);
+});
+
+test('仅出现在判断中的资料也逐字核对并加入定位，错误落在固定判断路径', async () => {
+  const base = await addSource();
+  const judgment = await addSource({ text: '判断依据：仍缺少原件，暂不选择正确编号。' });
+  const data = submission(base);
+  data.decisions = [
+    {
+      id: 'D1',
+      subject: '差异处理',
+      choice: '保留差异',
+      alternatives: ['按笔误统一'],
+      reason: '先核对原件。',
+      sources: [judgment],
+      risk: 'high',
+    },
+  ];
+  const report = await checkSubmission(context.pool, caller, data);
+  expect(report.passed).toBe(true);
+  expect(report.citations.map((item) => item.documentId).sort()).toEqual(
+    [base.documentId, judgment.documentId].sort(),
+  );
+  data.decisions[0]!.sources[0]!.quote = '判断依据：已有全部原件，确定正确编号。';
+  const bad = await checkSubmission(context.pool, caller, data);
+  expect(bad.checks[0]!.issues).toContainEqual({
+    code: 'quote_mismatch',
+    path: 'decisions[0].sources[0]',
+  });
+  expect(bad.passed).toBe(false);
+});
+
+test.each(['other_project', 'placeholder', 'voided'] as const)(
+  '判断独有的%s来源不能绕过引用边界',
+  async (kind) => {
+    const base = await addSource();
+    const extra = await addSource({
+      ...(kind === 'other_project' ? { projectId: await anotherProject() } : {}),
+      placeholder: kind === 'placeholder',
+    });
+    if (kind === 'voided')
+      await context.pool.query(
+        "UPDATE document SET voided=true,void_reason='测试作废' WHERE id=$1",
+        [extra.documentId],
+      );
+    const data = submission(base);
+    data.decisions = [
+      {
+        id: 'D1',
+        subject: '处理',
+        choice: '暂缓',
+        alternatives: [],
+        reason: '等待依据',
+        sources: [extra],
+        risk: 'low',
+      },
+    ];
+    const report = await checkSubmission(context.pool, caller, data);
+    expect(report.passed).toBe(false);
+    expect(report.checks[0]!.issues).toContainEqual({
+      code: kind === 'placeholder' ? 'placeholder_source' : 'source_unavailable',
+      path: 'decisions[0].sources[0]',
+    });
+  },
+);
+
+test('判断独有来源升密或作废会进入最高级别及重放刷新校验', async () => {
+  const base = await addSource();
+  const extra = await addSource({ text: '判断采用的独有依据。' });
+  const data = submission(base);
+  data.decisions = [
+    {
+      id: 'D1',
+      subject: '处理',
+      choice: '暂缓',
+      alternatives: [],
+      reason: '等待核对',
+      sources: [extra],
+      risk: 'low',
+    },
+  ];
+  const first = await checkSubmission(context.pool, caller, data);
+  expect(first.dataLevel).toBe('internal');
+  await addSource({
+    documentId: extra.documentId,
+    version: 2,
+    text: '后续保密记录',
+    dataLevel: 'confidential',
+  });
+  expect(await refreshCheckDataLevel(context.pool, caller, first.citations)).toBe('confidential');
+  expect((await checkSubmission(context.pool, caller, data)).dataLevel).toBe('confidential');
+  await context.pool.query("UPDATE document SET voided=true,void_reason='测试作废' WHERE id=$1", [
+    extra.documentId,
+  ]);
+  await expect(refreshCheckDataLevel(context.pool, caller, first.citations)).rejects.toMatchObject({
+    code: 'CHECK_SOURCE_UNAVAILABLE',
+  });
+});
+
+test('新提交缺decisions或判断没有来源时V3失败，不能按旧存储格式通过', async () => {
+  const base = submission(await addSource());
+  const { decisions: _decisions, ...legacy } = base;
+  for (const data of [
+    legacy,
+    {
+      ...base,
+      decisions: [
+        {
+          id: 'D1',
+          subject: '处理',
+          choice: '暂缓',
+          alternatives: [],
+          reason: '待核对',
+          sources: [],
+          risk: 'high',
+        },
+      ],
+    },
+  ]) {
+    const result = await checkSubmission(context.pool, caller, data);
+    expect(result.checks).toEqual([
+      { code: 'V1', status: 'not_run', issues: [] },
+      { code: 'V3', status: 'failed', issues: [{ code: 'schema_invalid', path: 'submission' }] },
+    ]);
+  }
+});
+
+test('最大合法问题组合完整返回80项，不截断或因报告上限而抛异常', async () => {
+  const ref = await addSource();
+  const data = submission(ref);
+  data.claims = Array.from({ length: 20 }, (_, index) => ({
+    id: `C${index}`,
+    object: '资料',
+    field: '数量',
+    value: 3,
+    unit: null,
+    sources: [],
+    status: 'unverified',
+  }));
+  data.evidence = Array.from({ length: 40 }, () => ({ ...ref, quote: '不存在的内容' }));
+  const report = await checkSubmission(context.pool, caller, data);
+  expect(report.passed).toBe(false);
+  expect(report.checks[0]!.issues).toHaveLength(60);
+  expect(report.checks[1]!.issues).toHaveLength(20);
+  expect(report.notRun).toContain('V7');
 });
 afterEach(async () => {
   if (context) await context.close();

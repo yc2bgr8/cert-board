@@ -4,8 +4,9 @@ import {
   reviewDecisionInputSchema,
   reviewDecisionResultSchema,
   reviewEvidenceRefSchema,
-  reviewJudgmentInputSchema,
+  reviewJudgmentRecordSchema,
   reviewPolicySchema,
+  reviewSections,
 } from './reviews.js';
 import { documentCitationSchema } from './checks.js';
 
@@ -31,6 +32,8 @@ function visible() {
   return {
     ...common,
     requiresJudgment: false,
+    legacySubmission: false,
+    sections: reviewSections,
     submission: {
       skill,
       workspaceVersion: id,
@@ -47,6 +50,7 @@ function visible() {
         },
       ],
       evidence: [citation],
+      decisions: [],
       missing: [],
       uncertain: [],
       nextStep: '核对原件。',
@@ -68,18 +72,19 @@ function visible() {
 }
 
 describe('审核卡边界契约', () => {
-  it('高风险未判断响应只接受安全元数据，不允许携带AI内容或人的决定', () => {
-    const locked = { ...common, requiresJudgment: true };
-    expect(reviewCardViewSchema.safeParse(locked).success).toBe(true);
-    for (const key of ['submission', 'checks', 'diff', 'evidenceRefs', 'judgment', 'decision']) {
-      expect(reviewCardViewSchema.safeParse({ ...locked, [key]: null }).success).toBe(false);
-    }
-    expect(reviewCardViewSchema.safeParse({ ...locked, risk: 'standard' }).success).toBe(false);
+  it('高风险没有独立判断也返回完整卡片，不再接受隐藏内容的旧响应', () => {
+    expect(reviewCardViewSchema.safeParse({ ...visible(), judgment: null }).success).toBe(true);
+    expect(reviewCardViewSchema.safeParse({ ...common, requiresJudgment: true }).success).toBe(
+      false,
+    );
+    expect(reviewCardViewSchema.safeParse({ ...visible(), requiresJudgment: true }).success).toBe(
+      false,
+    );
   });
-  it('高风险完整响应必须含本人判断，刷新后保留退回原因', () => {
+  it('已有本人的历史判断和真实退回原因均保留', () => {
     const card = visible();
     expect(reviewCardViewSchema.safeParse(card).success).toBe(true);
-    expect(reviewCardViewSchema.safeParse({ ...card, judgment: null }).success).toBe(false);
+    expect(reviewCardViewSchema.parse(card).judgment?.statement).toBe(card.judgment.statement);
     const reason = '  请补充第二处引文。\r\n';
     const parsed = reviewCardViewSchema.parse({
       ...card,
@@ -96,13 +101,52 @@ describe('审核卡边界契约', () => {
       },
     });
     expect(parsed.requiresJudgment).toBe(false);
-    if (!parsed.requiresJudgment) expect(parsed.decision?.reason).toBe(reason);
+    expect(parsed.decision?.reason).toBe(reason);
+  });
+  it('八部分顺序固定，历史空判断清单不冒充已保存的Agent判断', () => {
+    expect(reviewCardViewSchema.parse(visible()).sections).toEqual([
+      'conclusion',
+      'requestedAction',
+      'decisions',
+      'changes',
+      'evidence',
+      'checks',
+      'uncertainties',
+      'actions',
+    ]);
+    expect(
+      reviewCardViewSchema.safeParse({ ...visible(), sections: [...reviewSections].reverse() })
+        .success,
+    ).toBe(false);
+    expect(reviewCardViewSchema.safeParse({ ...visible(), legacySubmission: true }).success).toBe(
+      true,
+    );
+    expect(
+      reviewCardViewSchema.safeParse({
+        ...visible(),
+        legacySubmission: true,
+        submission: {
+          ...visible().submission,
+          decisions: [
+            {
+              id: 'D1',
+              subject: '旧卡没有此判断',
+              choice: '不应补写',
+              alternatives: [],
+              reason: '保持历史',
+              sources: [citation],
+              risk: 'low',
+            },
+          ],
+        },
+      }).success,
+    ).toBe(false);
   });
   it('人的原话保持空白和Unicode，退回必须给出原因，不能注入审批身份', () => {
     const statement = '  判断 e\u0301\r\n';
-    expect(
-      reviewJudgmentInputSchema.parse({ expectedVersion: 1, requestKey: id, statement }).statement,
-    ).toBe(statement);
+    expect(reviewJudgmentRecordSchema.parse({ statement, createdAt: now }).statement).toBe(
+      statement,
+    );
     const input = { expectedVersion: 1, workspaceVersion: id, requestKey: id, action: 'rejected' };
     for (const reason of [undefined, null, ' \n', 'x'.repeat(4001)]) {
       expect(reviewDecisionInputSchema.safeParse({ ...input, reason }).success).toBe(false);

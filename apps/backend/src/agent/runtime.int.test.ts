@@ -668,8 +668,8 @@ test('ask过程批准经真实登记工具和同一内核持久暂停，允许�
   expect(models).toBe(1);
 });
 
-test('真实内核读取后提交真实审核卡并暂停，人工浏览器请求可以批准', async () => {
-  const context = await createReviewTestContext({ autoRead: false });
+test('同一内核提交带过程判断的审核卡并暂停，其他成员可通过高风险结果', async () => {
+  const context = await createReviewTestContext({ autoRead: false, risk: 'high' });
   close = () => context.close();
   const store = new MemoryStore();
   await seedDevelopmentBudgetPolicy(context.pool, 'test');
@@ -700,6 +700,17 @@ test('真实内核读取后提交真实审核卡并暂停，人工浏览器请�
     )
   ).rows[0]!.conversation_id;
   const target = await queued(context, 'ask', convo);
+  const decisions = [
+    {
+      id: 'D1',
+      subject: '两处不同编号的处理',
+      choice: '并列列出，交注册人员核对',
+      alternatives: ['根据一处写法修改另一处'],
+      reason: '两处引用支持写法不一致。正确编号待确认。',
+      sources: context.submission.evidence,
+      risk: 'high',
+    },
+  ];
   let count = 0;
   const gateway = new ModelGateway(
     context.pool,
@@ -710,7 +721,7 @@ test('真实内核读取后提交真实审核卡并暂停，人工浏览器请�
         count++;
         return count === 1
           ? call('doc_read', { id: context.documentId, version: 1, page: 1 })
-          : call('submit_for_review', { ...context.submission, workspaceVersion: next });
+          : call('submit_for_review', { ...context.submission, workspaceVersion: next, decisions });
       },
     },
     { environment: 'test' },
@@ -727,7 +738,14 @@ test('真实内核读取后提交真实审核卡并暂停，人工浏览器请�
       done.reviewId,
     ])
   ).rows[0];
-  const auth = await context.login('MEMBER_A');
+  const auth = await context.login('MEMBER_B');
+  const view = await context.app.inject({
+    method: 'GET',
+    url: `/api/reviews/${done.reviewId}`,
+    headers: auth.headers,
+  });
+  expect(view.statusCode).toBe(200);
+  expect(view.json()).toMatchObject({ risk: 'high', submission: { decisions } });
   const approved = await context.app.inject({
     method: 'POST',
     url: `/api/reviews/${done.reviewId}/decision`,
@@ -740,6 +758,12 @@ test('真实内核读取后提交真实审核卡并暂停，人工浏览器请�
     },
   });
   expect(approved.statusCode).toBe(200);
+  const decision = (
+    await context.pool.query('SELECT actor_user_id FROM review_decision WHERE card_id=$1', [
+      done.reviewId,
+    ])
+  ).rows[0];
+  expect(decision.actor_user_id).toBe(context.userId('MEMBER_B'));
   expect(
     (await context.pool.query('SELECT status FROM run WHERE id=$1', [target.runId])).rows[0].status,
   ).toBe('completed');

@@ -15,7 +15,7 @@ const exampleCitation = {
 };
 const metadata: ToolMetadata = {
   name: 'check_run',
-  version: 'builtin-checks-v1',
+  version: 'builtin-checks-v2',
   publication: 'published',
   effect: 'read',
   modes: ['read_only', 'ask', 'full'],
@@ -28,7 +28,7 @@ const metadata: ToolMetadata = {
     avoid:
       '不要用它代替doc_read或法规判断；它不证明模型实际读过，不验证哪个K号正确。通过后仍须submit_for_review，审批只能由人在浏览器完成。',
     parameters:
-      '直接传skill、workspaceVersion、conclusion、claims、evidence、missing、uncertain、nextStep。引用只用documentId/version整数/page/quote；禁止草稿路径。K号是字符串且unit为null；数量/单位转换暂未支持。例子为虚构格式，必须替换成真实资料与版本。',
+      '直接传skill、workspaceVersion、conclusion、claims、decisions、evidence、missing、uncertain、nextStep。decisions必填，没有过程判断时显式传[]；每项含id/subject/choice/alternatives/reason/sources/risk(low或high)，至少一条原文。陈述与判断合计最多20条，全部引用合计40条。引用只用documentId/version整数/page/quote，禁止草稿路径；K号是字符串且unit为null，数量换算未支持。V1只核验引文，不证明判断正确。例子为虚构格式，必须换成真实定位。',
     example: {
       skill: { id: 'R09', version: '0.1.0' },
       workspaceVersion: '10000000-0000-4000-8000-000000000002',
@@ -45,6 +45,17 @@ const metadata: ToolMetadata = {
         },
       ],
       evidence: [exampleCitation],
+      decisions: [
+        {
+          id: 'D1',
+          subject: '编号写法的处理',
+          choice: '保留当前写法并标为待确认',
+          alternatives: ['在未核对前修改编号'],
+          reason: '仅凭这条摘录不能证明号码真实性。',
+          sources: [exampleCitation],
+          risk: 'high',
+        },
+      ],
       missing: [],
       uncertain: ['正确编号需业务人员核实。'],
       nextStep: '核对原件后提交审核。',
