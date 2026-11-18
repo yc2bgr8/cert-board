@@ -78,7 +78,7 @@ async function lockContext(tx: PoolClient, runId: string, userId: string) {
         : 'internal',
   };
 }
-async function append(pool: Pool, kind: Kind, input: unknown) {
+async function appendTx(tx: PoolClient, kind: Kind, input: unknown) {
   const parsed =
     kind === 'message'
       ? appendConversationMessageSchema.safeParse(input)
@@ -90,74 +90,78 @@ async function append(pool: Pool, kind: Kind, input: unknown) {
   const hash = createHash('sha256').update(text).digest('hex');
   // 表名只由此模块的封闭联合类型选择，不接收请求中的SQL标识符。
   const table = kind === 'message' ? 'conversation_message' : 'conversation_event';
+  const context = await lockContext(tx, runId, userId);
+  const previous = (
+    await tx.query<{ id: string; seq: string; content_hash: string }>(
+      `SELECT id,seq,content_hash FROM ${table} WHERE run_id=$1 AND request_key=$2`,
+      [runId, requestKey],
+    )
+  ).rows[0];
+  if (previous) {
+    if (previous.content_hash !== hash)
+      throw new AppError(
+        409,
+        'CONVERSATION_REQUEST_CONFLICT',
+        '同一请求编号已保存不同内容，请使用新的请求编号。',
+      );
+    return conversationAppendResultSchema.parse({
+      id: previous.id,
+      conversationId: context.id,
+      runId,
+      seq: Number(previous.seq),
+      replayed: true,
+    });
+  }
+  const seq = Number(kind === 'message' ? context.last_message_seq : context.last_event_seq) + 1;
+  if (!Number.isSafeInteger(seq))
+    throw new AppError(409, 'CONVERSATION_SEQUENCE_LIMIT', '对话记录已达上限，请建立新对话。');
+  const values: unknown[] = [runId, context.id, userId, requestKey, seq, hash, context.dataLevel];
+  let columns: string, parameters: string;
+  if ('message' in parsed.data) {
+    columns = 'message_json';
+    parameters = '$8';
+    values.push(text);
+  } else {
+    columns = 'type,payload_json';
+    parameters = '$8,$9';
+    values.push(parsed.data.event.type, JSON.stringify(canonical(parsed.data.event.payload)));
+  }
+  const saved = (
+    await tx.query<{ id: string }>(
+      `INSERT INTO ${table}
+    (run_id,conversation_id,user_id,request_key,seq,content_hash,data_level,${columns})
+    VALUES($1,$2,$3,$4,$5,$6,$7,${parameters}) RETURNING id`,
+      values,
+    )
+  ).rows[0]!;
+  if (kind === 'event') {
+    const notification = conversationEventNotificationSchema.parse({
+      conversationId: context.id,
+      eventId: saved.id,
+      seq,
+    });
+    // PostgreSQL仅在本事务成功提交后投递；重放分支不再发通知。
+    await tx.query('SELECT pg_notify($1,$2)', [
+      CONVERSATION_EVENT_CHANNEL,
+      JSON.stringify(notification),
+    ]);
+  }
+  return conversationAppendResultSchema.parse({
+    id: saved.id,
+    conversationId: context.id,
+    runId,
+    seq,
+    replayed: false,
+  });
+}
+
+async function append(pool: Pool, kind: Kind, input: unknown) {
   const tx = await pool.connect();
   try {
     await tx.query('BEGIN');
-    const context = await lockContext(tx, runId, userId);
-    const previous = (
-      await tx.query<{ id: string; seq: string; content_hash: string }>(
-        `SELECT id,seq,content_hash FROM ${table} WHERE run_id=$1 AND request_key=$2`,
-        [runId, requestKey],
-      )
-    ).rows[0];
-    if (previous) {
-      if (previous.content_hash !== hash)
-        throw new AppError(
-          409,
-          'CONVERSATION_REQUEST_CONFLICT',
-          '同一请求编号已保存不同内容，请使用新的请求编号。',
-        );
-      await tx.query('COMMIT');
-      return conversationAppendResultSchema.parse({
-        id: previous.id,
-        conversationId: context.id,
-        runId,
-        seq: Number(previous.seq),
-        replayed: true,
-      });
-    }
-    const seq = Number(kind === 'message' ? context.last_message_seq : context.last_event_seq) + 1;
-    if (!Number.isSafeInteger(seq))
-      throw new AppError(409, 'CONVERSATION_SEQUENCE_LIMIT', '对话记录已达上限，请建立新对话。');
-    const values: unknown[] = [runId, context.id, userId, requestKey, seq, hash, context.dataLevel];
-    let columns: string, parameters: string;
-    if ('message' in parsed.data) {
-      columns = 'message_json';
-      parameters = '$8';
-      values.push(text);
-    } else {
-      columns = 'type,payload_json';
-      parameters = '$8,$9';
-      values.push(parsed.data.event.type, JSON.stringify(canonical(parsed.data.event.payload)));
-    }
-    const saved = (
-      await tx.query<{ id: string }>(
-        `INSERT INTO ${table}
-      (run_id,conversation_id,user_id,request_key,seq,content_hash,data_level,${columns})
-      VALUES($1,$2,$3,$4,$5,$6,$7,${parameters}) RETURNING id`,
-        values,
-      )
-    ).rows[0]!;
-    if (kind === 'event') {
-      const notification = conversationEventNotificationSchema.parse({
-        conversationId: context.id,
-        eventId: saved.id,
-        seq,
-      });
-      // PostgreSQL仅在本事务成功提交后投递；重放分支不再发通知。
-      await tx.query('SELECT pg_notify($1,$2)', [
-        CONVERSATION_EVENT_CHANNEL,
-        JSON.stringify(notification),
-      ]);
-    }
+    const result = await appendTx(tx, kind, input);
     await tx.query('COMMIT');
-    return conversationAppendResultSchema.parse({
-      id: saved.id,
-      conversationId: context.id,
-      runId,
-      seq,
-      replayed: false,
-    });
+    return result;
   } catch (error) {
     await tx.query('ROLLBACK').catch(() => undefined);
     if (error instanceof AppError) throw error;
@@ -169,6 +173,13 @@ async function append(pool: Pool, kind: Kind, input: unknown) {
   } finally {
     tx.release();
   }
+}
+// 调用方必须持有事务；这里不提交、不释放连接，通知随同一事务的提交投递。
+export function appendConversationMessageTx(tx: PoolClient, input: unknown) {
+  return appendTx(tx, 'message', input);
+}
+export function appendConversationEventTx(tx: PoolClient, input: unknown) {
+  return appendTx(tx, 'event', input);
 }
 export function appendConversationMessage(pool: Pool, input: unknown) {
   return append(pool, 'message', input);

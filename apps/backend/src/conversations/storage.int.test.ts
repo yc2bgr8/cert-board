@@ -6,6 +6,8 @@ import { createIntegrationContext, type MemberKey } from '../test-support/contex
 import {
   appendConversationMessage,
   appendConversationEvent,
+  appendConversationMessageTx,
+  appendConversationEventTx,
   listConversationMessages,
   listConversationEvents,
 } from './storage.js';
@@ -37,6 +39,60 @@ async function setup() {
   };
   return { ...c, createRun: c.run, run, identity, input };
 }
+it('外部事务原子追加消息和事件，回滚恢复序号且只在最终提交时通知', async () => {
+  const c = await setup();
+  const tx = await c.pool.connect();
+  const listener = await c.pool.connect();
+  const received: string[] = [];
+  const receive = (message: Notification) => received.push(message.payload ?? '');
+  listener.on('notification', receive);
+  const event = {
+    runId: c.run.runId,
+    userId: c.run.userId,
+    requestKey: c.input.requestKey,
+    event: { type: 'user_message', payload: { content: '同事务合成输入' } },
+  };
+  try {
+    await listener.query('LISTEN cert_board_conversation_events');
+    await tx.query('BEGIN');
+    const message = await appendConversationMessageTx(tx, c.input);
+    await appendConversationEventTx(tx, event);
+    expect(message.seq).toBe(1);
+    expect((await listener.query('SELECT id FROM conversation_message')).rowCount).toBe(0);
+    expect((await listener.query('SELECT id FROM conversation_event')).rowCount).toBe(0);
+    expect(received).toHaveLength(0);
+    await tx.query('ROLLBACK');
+    expect(
+      (
+        await listener.query(
+          'SELECT last_message_seq,last_event_seq FROM conversation WHERE id=$1',
+          [c.run.conversationId],
+        )
+      ).rows[0],
+    ).toEqual({ last_message_seq: '0', last_event_seq: '0' });
+    await tx.query('BEGIN');
+    const saved = await appendConversationMessageTx(tx, c.input);
+    const published = await appendConversationEventTx(tx, event);
+    expect((await appendConversationMessageTx(tx, c.input)).replayed).toBe(true);
+    expect((await appendConversationEventTx(tx, event)).replayed).toBe(true);
+    expect(saved.seq).toBe(1);
+    await tx.query('COMMIT');
+    await vi.waitFor(() => expect(received).toHaveLength(1), { timeout: 1000 });
+    expect(JSON.parse(received[0]!)).toEqual({
+      conversationId: c.run.conversationId,
+      eventId: published.id,
+      seq: 1,
+    });
+    expect((await listener.query('SELECT id FROM conversation_message')).rowCount).toBe(1);
+    expect((await listener.query('SELECT id FROM conversation_event')).rowCount).toBe(1);
+  } finally {
+    await tx.query('ROLLBACK');
+    tx.release();
+    await listener.query('UNLISTEN cert_board_conversation_events');
+    listener.removeListener('notification', receive);
+    listener.release();
+  }
+});
 it('并发同请求只保存一次、不耗额外序号，不同内容重放被拒且后续序号连续', async () => {
   const c = await setup();
   const results = await Promise.all([
@@ -129,10 +185,16 @@ it('数据库连续序号、归属、只追加及reader拒读保护不依赖调�
     for (const query of [
       `UPDATE ${table} SET content_hash=repeat('0',64)`,
       `DELETE FROM ${table}`,
-      `TRUNCATE ${table}`,
     ]) {
       await expect(c.pool.query(query)).rejects.toMatchObject({ code: '42501' });
     }
+    // 0014的插话回执外键先拦截普通消息表截断；CASCADE仍须被只追加守卫拒绝。
+    await expect(c.pool.query(`TRUNCATE ${table}`)).rejects.toMatchObject({
+      code: table === 'conversation_message' ? '0A000' : '42501',
+    });
+    await expect(c.pool.query(`TRUNCATE ${table} CASCADE`)).rejects.toMatchObject({
+      code: '42501',
+    });
     expect(
       (
         await c.pool.query<{ allowed: boolean }>(

@@ -1,6 +1,7 @@
 import type { ChatRequest, GatewayResponse, RuntimeModelConfig } from '@cert-board/shared';
 
 export type KernelMessage = ChatRequest['messages'][number];
+export type KernelUserMessage = Extract<KernelMessage, { role: 'user' }>;
 export type KernelUsage = { steps: number; totalTokens: number; costNano: string };
 export type KernelTerminal = 'review' | 'proposal' | 'approval' | 'question';
 export type KernelTool = {
@@ -26,6 +27,8 @@ export type AgentKernelOptions = {
   history: KernelMessage[];
   messages: KernelMessage[];
   continuation?: { initialUsage: KernelUsage };
+  takeSteering?(signal: AbortSignal): Promise<readonly KernelUserMessage[]>;
+  refreshCatalog?(signal: AbortSignal): Promise<{ names: readonly string[]; modeNote?: string }>;
   model: RuntimeModelConfig;
   tools: KernelTool[];
   complete(
