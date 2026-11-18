@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>需求变更单（2026-11-18）</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#1-变更内容">1 变更内容</a><a class="level-3" href="#1-1-不区分角色">1.1 不区分角色</a><a class="level-3" href="#1-2-两个agent-注册agent和维护agent">1.2 两个Agent：注册Agent和维护Agent</a><a class="level-3" href="#1-3-权限模式">1.3 权限模式</a><a class="level-3" href="#1-4-过程由agent完成-人审核最终结果">1.4 过程由Agent完成，人审核最终结果</a><a class="level-3" href="#1-5-agent在对话中汇报进度">1.5 Agent在对话中汇报进度</a><a class="level-3" href="#1-6-界面-简洁-参考codex-claude-code-dsh">1.6 界面：简洁，参考Codex、Claude Code、DSH</a><a class="level-2" href="#2-lan确认的做法">2 Lan确认的做法</a><a class="level-2" href="#3-对文档的影响">3 对文档的影响</a><a class="level-2" href="#4-待确认事项">4 待确认事项</a><a class="level-2" href="#附录a-界面风格要求">附录A 界面风格要求</a><a class="level-3" href="#a-1-方向">A.1 方向</a><a class="level-3" href="#a-2-颜色">A.2 颜色</a><a class="level-3" href="#a-3-文字">A.3 文字</a><a class="level-3" href="#a-4-布局">A.4 布局</a><a class="level-3" href="#a-5-对话中的元素">A.5 对话中的元素</a><a class="level-3" href="#a-6-输入框">A.6 输入框</a><a class="level-3" href="#a-7-审核">A.7 审核</a><a class="level-3" href="#a-8-不要做的">A.8 不要做的</a><a class="level-3" href="#a-9-质量底线">A.9 质量底线</a><a class="level-2" href="#附录b-对pr的调整">附录B 对PR的调整</a><a class="level-3" href="#b-1-已合并和进行中的pr">B.1 已合并和进行中的PR</a><a class="level-3" href="#b-2-新增的pr-插在pr-20之后-按顺序做">B.2 新增的PR（插在PR-20之后，按顺序做）</a><a class="level-3" href="#b-3-已有pr的范围调整">B.3 已有PR的范围调整</a><a class="level-3" href="#b-4-仓库agents-md的修改">B.4 仓库AGENTS.md的修改</a></nav><main><h1 id="需求变更单-2026-11-18">需求变更单（2026-11-18）</h1>
+<p>文档版本：1</p>
+<p>编制日期：2026年11月18日</p>
+<p>文档状态：已确认（Lan，项目全权负责人）；其中一项待质量负责人确认（D22）</p>
+<p>适用对象：Lan；在本机开发的Codex；注册人员</p>
+<p>2026-11-18管理层与Lan对接后，对角色、Agent划分、权限、审核方式和界面风格作出调整，Lan确认了其中四项具体做法（第2节）。</p>
+<p>本变更单优先于以下文档中与之冲突的内容：《需求文档V0.9》《总体方案v0.4》《技术方案v0.3》《执行方案v0.3》。正文随后并入这些文档；并入之前，冲突处以本变更单为准。</p>
+<p>不变的部分：形态（器械认证版的Claude Code）、技术路线、Agent内核、工具、项目工作区、资料库、数据级别、安全边界、模型策略，以及分期和V1的范围（下文另有说明的除外）。</p>
+<h2 id="1-变更内容">1 变更内容</h2>
+<h3 id="1-1-不区分角色">1.1 不区分角色</h3>
+<ol><li>登录本平台的都是注册部门的成员，登录后不区分角色：每个人都可以发起和处理注册项目与维护事项，都可以审核Agent的结果。界面上只显示人名，不显示「注册人员A」「注册人员B」之类的角色。</li><li>每个注册项目和维护事项仍有一位负责人：接收提醒，事项出现在他的「待我处理」中；负责人可以更换。其他成员同样可以查看和审核。</li><li>取消以下强制规则：「每项工作只设一名主责，另一名注册人员复核，主责与复核不能是同一人」（需求2.1），以及各能力中「注册A审核、注册B交叉检查」一类的分工。需要同事复核时，在审核卡上「转交他人」。质量体系是否要求申报资料由第二人复核，请质量负责人确认（D22）；确认需要时，再加为可配置的规则。</li><li>销售人员和管理层不登录：<ul><li>销售的合规报告、证照资料包、UPC请求，由注册人员在对话中代为提出（以后可以经邮件转入，需求5.7）。取消销售视图和「销售只能看到自己的请求」的要求。</li><li>管理层的周报和决策项由Agent准备，经企业微信或邮件发给管理层（S04，按内部消息的规则发送）；管理层的决定由注册人员记录到对应的项目中。</li></ul></li><li>系统维护（用户、模型配置、预算、任务监控）是个别人员的管理权限，不是业务角色。有这项权限的人在设置中看到维护页入口（原「技术维护人员」，需求NF14）。</li><li>资料提供方不变：不登录，接收Agent的资料请求和催办（需求3.7）。</li><li>各文档中把「注册人员A」「注册人员B」「注册A」「注册B」作为执行人、审核人或确认人的地方，一律理解为「注册人员」，即任何一位部门成员，或该事项的负责人。</li></ol>
+<h3 id="1-2-两个agent-注册agent和维护agent">1.2 两个Agent：注册Agent和维护Agent</h3>
+<p>首版就分为两个角色Agent，取代「首版只有一个器械认证Agent」（需求2.1「角色Agent」一段）：</p>
+<table><thead><tr><th>Agent</th><th>负责</th><th>切片中的能力</th></tr></thead><tbody><tr><td>注册Agent</td><td>注册项目：R01–R12</td><td>R09 申报一致性检查</td></tr><tr><td>维护Agent</td><td>维护事项：M01–M12；S01 合规报告与证照资料包、S02 UPC（都依赖证照台账）；S04 周报与管理层决策项</td><td>M02 美国注册与列名核查</td></tr></tbody></table>
+<p>规则：</p>
+<ol><li>两个Agent共用同一个内核、同一套工具和约束、同一套预算和计量、同一个资料库和项目工作区机制；各自有系统提示词、技能索引和评测集（即两份Agent定义，技术方案4.4）。</li><li>注册项目下的对话用注册Agent，维护事项下的对话用维护Agent；「新对话」由人选择，默认注册Agent。唤醒时按目标所属项目的类型选择Agent。</li><li>S03（沟通与会议归档）由所属项目的Agent处理；S05（AI工作质量保障）是系统功能，不属于某个Agent。</li><li>两个Agent都可以读取台账回答问题（台账问答，需求5.6）。</li><li>交接：R12获证后，注册Agent建立对应的维护事项并附移交清单（按当前对话的权限模式执行），之后由维护Agent负责。</li><li>以后需要更多角色Agent时，按同样方式增加Agent定义。</li></ol>
+<h3 id="1-3-权限模式">1.3 权限模式</h3>
+<p>每个对话有一个权限模式，在输入框旁选择，可以随时切换，从下一次工具调用起生效。新对话默认「请求批准」。</p>
+<table><thead><tr><th>模式</th><th>Agent直接做的</th><th>先请人批准的</th></tr></thead><tbody><tr><td>只读</td><td>读资料和记录、检索、运行检查、计算、回答问题</td><td>不做任何写入，工作副本也不能写（即原「只查不动」）</td></tr><tr><td>请求批准（默认）</td><td>只读模式的全部；在本对话的工作副本中写、改文件；在沙箱中运行代码；启动子Agent；维护计划；保存工作区版本；把附件和产出导入资料库</td><td>写业务记录（台账字段、AI建议、提醒、建立项目）；给内部同事发消息；作关键判断（1.4）前先提出建议，等人确认</td></tr><tr><td>完全允许</td><td>请求批准模式下直接做的全部，加上：写业务记录；给公司内部同事发资料请求和催办；关键判断由Agent作出，写明依据后继续</td><td>中途不需要批准，只在最后把结果交人审核</td></tr></tbody></table>
+<p>任何模式下都不变的：</p>
+<ol><li><strong>结果交人审核。</strong> 交付物以审核卡提交，人通过后才算完成；定稿冻结只在人批准后发生（需求2.6）。</li><li><strong>发往公司外部的消息每条都要人批准。</strong> 收件人是CRO、实验室、代理、客户等公司外部对象的，先生成外发提案，人批准后进入外发队列，发送前再检查（需求2.4、3.4）。</li><li><strong>法律和质量体系效力的动作只能由人完成。</strong> 监管门户提交、缴费、签署、向监管机构或客户发正式文件由人完成；不可逆动作始终拒绝；真值字段只由人写。</li><li><strong>安全边界不变。</strong> 数据级别路由、密钥、沙箱不联网、出网白名单、预算上限、审计记录和撤销都照旧。权限模式只决定「问不问人」，不放宽这些边界。</li><li><strong>批准只能在浏览器界面中点击。</strong> 在对话或企业微信中说「同意」不算批准（需求3.4规则4、IX-08）。</li><li><strong>工具目录按模式生成。</strong> 只读模式下写入工具不出现在目录中（需求2.4规则3）。</li></ol>
+<p><strong>批准请求的形式</strong>：输入框上方出现一张小卡片，写明Agent要做什么、改哪条记录（改前和改后的值），或消息的收件人和内容；按钮为「允许」「本对话中都允许」（同一个工具在本对话内以后不再问）和「拒绝」（可以写原因）。拒绝时Agent收到原因并调整做法。批准请求只能由发起该对话的人处理。</p>
+<p><strong>完全允许模式下直接发送内部消息</strong>时：收件人必须是已登记并绑定身份的公司同事（需求3.7规则1）；发送前照常检查事项是否已取消、外发是否已暂停、附件的数据级别是否允许；同一事项对同一个人每个工作日最多催办一次；发出的消息在对话中显示，并进入日摘要。</p>
+<h3 id="1-4-过程由agent完成-人审核最终结果">1.4 过程由Agent完成，人审核最终结果</h3>
+<ol><li>需求2.2第2条改为：<strong>人负责目标和最终结果。</strong> 分类与路径、对比器械、法规适用性、变更是否需申报、发补答复立场等判断，在过程中由Agent作出（请求批准模式下先提出建议、等人确认），写明理由、备选方案和依据，并在最终的审核卡中逐条列出。人不同意时在对话中说明，Agent修改后重新提交。</li><li>仍由人决定的：风险接受；超出预算的费用；向监管机构或客户发出正式文件前的最终确认；需要管理层决定的路径、重大风险、大额费用和关键商业结论。</li><li><strong>缺事实和证据冲突时仍要问人。</strong> 资料中没有的信息（收件人、日期、编号等）不猜测（需求2.2第6条）；子Agent的证据冲突时停止写入并问人（需求6.2规则4）。这和「作判断」不同：判断可以由Agent作出，事实不能编造。</li><li><strong>审核卡增加「过程中作出的判断」。</strong> 放在「需要你做什么」之后，每条写明：事项、Agent的选择、考虑过的备选、理由、依据（链接到原文）、风险高低。结构化结果（需求6.4、技术方案4.8）增加对应的字段 <code>decisions[]</code>。审核卡由七部分变为八部分。</li><li><strong>取消「高风险先写判断」的强制要求</strong>（需求2.4末段、3.4规则3、6.8第1条；技术方案3.3；执行方案PR-16、PR-27）。防过度依赖的措施保留植入缺陷的检出率统计和审核卡上的「不确定事项」。</li><li><strong>等级</strong>（需求2.3）：首版所有能力的最终结果都交人审核（相当于等级2）；等级3（抽查后直接生效）以后按评测和试用数据开放。需求2.4规则5（内部请求在等级3且注册人员同意后免逐次批准）由权限模式取代。</li><li>「请求批准模式下关键判断先问」是Agent的工作方法，由系统提示词和技能规定，系统无法逐条识别「判断」；兜底是最终审核卡逐条列出所有判断。</li></ol>
+<h3 id="1-5-agent在对话中汇报进度">1.5 Agent在对话中汇报进度</h3>
+<ol><li>Agent开始一项工作时列出步骤（计划与待办），每完成一步在对话中用一句话说明做到了哪一步、下一步做什么。</li><li>运行中，输入框上方显示当前状态：正在做什么、第几步共几步、已用时间，以及停止按钮；计划可以展开查看。</li><li>后台运行（人不在线时）同样把进度写进对话。只有需要人处理的事（批准请求、提问、阻塞）和最终结果才推送通知，其余按需求3.8「少打扰」合并进日摘要。</li></ol>
+<h3 id="1-6-界面-简洁-参考codex-claude-code-dsh">1.6 界面：简洁，参考Codex、Claude Code、DSH</h3>
+<p>界面以对话为中心，视觉上安静、克制。具体要求见附录A，它替代技术方案3.1–3.3中与之冲突的布局和样式描述。现有界面稿（PR-03）按附录A重做后，再开发正式界面（PR-26、PR-27）。</p>
+<h2 id="2-lan确认的做法">2 Lan确认的做法</h2>
+<table><thead><tr><th>事项</th><th>决定</th></tr></thead><tbody><tr><td>销售和管理层是否登录</td><td>登录后不区分角色，界面不显示角色；登录的只有注册部门的成员，销售和管理层不登录（1.1第4条）</td></tr><tr><td>完全允许模式下发消息</td><td>只能直接发给公司内部同事；发给公司外部的每条都要人批准</td></tr><tr><td>新对话的默认模式</td><td>请求批准</td></tr><tr><td>界面稿</td><td>当前PR完成后，先按新风格重做界面稿，再继续主路径</td></tr></tbody></table>
+<p>2026-11-18上午Lan曾确认保留销售角色；下午按管理层的意见改为本表的做法。</p>
+<h2 id="3-对文档的影响">3 对文档的影响</h2>
+<p>正文并入时按下表修改。</p>
+<table><thead><tr><th>文档</th><th>章节</th><th>修改</th></tr></thead><tbody><tr><td>需求</td><td>开头的「适用对象」和板块介绍</td><td>「注册人员A和B」改为注册人员；「器械认证Agent」改为注册Agent和维护Agent</td></tr><tr><td>需求</td><td>2.1 角色</td><td>按1.1、1.2重写角色表和「角色Agent」一段；删去主责与复核不能是同一人的规则</td></tr><tr><td>需求</td><td>2.2</td><td>第2条按1.4第1条改；第4条改为管理层经企业微信或邮件收决策项</td></tr><tr><td>需求</td><td>2.3</td><td>按1.4第6条补充</td></tr><tr><td>需求</td><td>2.4</td><td>增加权限模式（1.3）；规则4「只读检查模式」并入权限模式；删去规则5；末段「属于人的判断」按1.4改</td></tr><tr><td>需求</td><td>2.5.2</td><td>「等待决定」改为等人的批准、回答或审核</td></tr><tr><td>需求</td><td>3.1</td><td>界面的组织：删去销售视图（第7条）；增加Agent选择、权限模式选择、批准卡片和进度显示；界面风格指向附录A</td></tr><tr><td>需求</td><td>3.3、3.4</td><td>3.3增加进度汇报（1.5）；3.4增加「过程中作出的判断」，删去规则3</td></tr><tr><td>需求</td><td>3.9</td><td>IX-02改为注册人员代销售提问；其余示例中的「注册A」「注册B」改为注册人员；增加三例：完全允许模式下发内部催办、请求批准模式下的批准卡片、拒绝后Agent调整做法</td></tr><tr><td>需求</td><td>第4章</td><td>各能力的「人决定」改为：Agent在过程中作出判断并写明依据，人审核最终结果；删去A、B分工</td></tr><tr><td>需求</td><td>6.3、6.4、6.8</td><td>工具表按权限模式注明；结构化结果增加 <code>decisions[]</code>；删去6.8第1条</td></tr><tr><td>需求</td><td>NF01、NF14</td><td>权限不再按角色区分；维护权限按1.1第5条</td></tr><tr><td>需求</td><td>8.7、第9章、第10章</td><td>「注册人员A、B」改为注册人员；S01的验收去掉销售的可见范围；增加D22</td></tr><tr><td>总体方案</td><td>角色、分工、界面、路线中的相关段落</td><td>按本变更单改；两个Agent写入系统组成</td></tr><tr><td>技术方案</td><td>3.1–3.3、3.7</td><td>按附录A改；审核卡八部分；删去「先写判断」；界面稿按新风格重做</td></tr><tr><td>技术方案</td><td>4.2</td><td>增加批准请求的接口；对话带Agent和权限模式</td></tr><tr><td>技术方案</td><td>4.4、8.1</td><td>两份Agent定义；系统提示词增加1.4、1.5的工作方法</td></tr><tr><td>技术方案</td><td>4.5、4.6</td><td>工具登记增加「请求批准模式下是否先问」；判定按三种模式；完全允许模式下的内部消息直接进外发队列</td></tr><tr><td>技术方案</td><td>4.8</td><td>结构化结果增加 <code>decisions[]</code>；审核卡八部分；任何注册人员都可以作决定</td></tr><tr><td>技术方案</td><td>第6章</td><td><code>app_user</code> 增加管理权限；<code>conversation</code> 增加 <code>agent_code</code>、<code>permission_mode</code>；增加批准请求表</td></tr><tr><td>执行方案</td><td>PR列表</td><td>按附录B调整</td></tr><tr><td>执行方案</td><td>6.1、第8章</td><td>「注册人员A、B」改为注册人员</td></tr></tbody></table>
+<h2 id="4-待确认事项">4 待确认事项</h2>
+<table><thead><tr><th>编号</th><th>事项</th><th>建议确认人</th></tr></thead><tbody><tr><td>D22</td><td>质量体系是否要求申报资料或法规判断由第二人复核；需要时，加为可配置的规则</td><td>质量负责人</td></tr></tbody></table>
+<h2 id="附录a-界面风格要求">附录A 界面风格要求</h2>
+<p>参考Codex、Claude Code和DSH的界面：以对话为中心，安静、克制，信息按需出现。只参考它们的布局和交互方式，不复制它们的标志、图标、配色和代码。</p>
+<h3 id="a-1-方向">A.1 方向</h3>
+<ul><li>用户是注册人员，在办公室用桌面浏览器长时间工作。主要做三件事：交代工作、看进度、审核结果。</li><li>整体像一份干净的工作文档：白底、黑灰文字、细分隔线，几乎没有装饰。</li><li>只让一处被记住：<strong>依据</strong>。结论中的引用可以一键打开原文和原页并排对照，这是本产品区别于一般聊天工具的地方。其他元素都保持安静。</li><li>强调色只用于「需要你处理」：批准请求、待审核、主要按钮和焦点。</li></ul>
+<h3 id="a-2-颜色">A.2 颜色</h3>
+<table><thead><tr><th>名称</th><th>色值</th><th>用途</th></tr></thead><tbody><tr><td>纸</td><td>#FFFFFF</td><td>对话区和右栏的背景</td></tr><tr><td>侧栏</td><td>#F5F6F7</td><td>左栏背景、人的消息的底色</td></tr><tr><td>墨</td><td>#1C1F23</td><td>正文</td></tr><tr><td>灰</td><td>#5F6670</td><td>次要文字、工具步骤</td></tr><tr><td>线</td><td>#E4E6E9</td><td>分隔线、输入框边框</td></tr><tr><td>墨蓝</td><td>#2A4D8F</td><td>强调色：主要按钮、批准请求、焦点、待处理数量</td></tr></tbody></table>
+<p>状态色只用于检查结果和运行状态，饱和度较低：通过 #2F7D4F，注意 #A86A00，失败 #B42318。首版只做浅色主题；颜色写成设计变量，以后可以加深色主题。</p>
+<h3 id="a-3-文字">A.3 文字</h3>
+<ul><li>用系统字体，不引用网络字体：<code>&quot;PingFang SC&quot;, &quot;Microsoft YaHei UI&quot;, &quot;Microsoft YaHei&quot;, &quot;Segoe UI&quot;, system-ui, sans-serif</code>。</li><li>等宽字体只用于标识符和路径（K号、文件名、版本号、代码）：<code>&quot;Cascadia Mono&quot;, Consolas, &quot;SF Mono&quot;, monospace</code>；不用于装饰性的小标签。</li><li>字号：正文15px，行高1.75；控件14px；次要信息13px；项目标题18px。只有项目标题和审核卡的结论用600字重，其余用400。</li><li>用平实的动词。按钮写清点了会发生什么（「通过」「退回修改」「允许」「拒绝」），按钮文字后不加箭头；错误信息写清发生了什么、怎么处理。</li></ul>
+<h3 id="a-4-布局">A.4 布局</h3>
+<pre><code>┌ 左栏 ──────────────┬ 对话 ──────────────────────────────────┬ 右栏（按需）──────┐
+│ ＋ 新对话           │ L08 510(k)    对话  文件  资料           │ 审核              │
+│ 搜索                │                                         │                   │
+│                     │      检查L08申报资料中对比器械K号的写法  │ 结论              │
+│ 待我处理          2 │                                         │ 需要你做什么      │
+│                     │ ▸ 已执行 6 步                           │ 过程中作出的判断  │
+│ 注册项目            │ 两处写法不一致：K123456与K123465……      │ 改动              │
+│   L08 510(k)        │                                         │ 依据              │
+│     K号写法检查     │ 结果已提交审核                  [审核]  │ 自检              │
+│   CPAP 510(k)       │                                         │ 不确定事项        │
+│ 维护事项            │ ┌───────────────────────────────────┐  │                   │
+│   L08 年度注册      │ │ 让注册Agent做什么？                 │  │                   │
+│                     │ │ 附件  注册Agent  请求批准      发送 │  │ [通过] [退回修改] │
+│ 张三           设置 │ └───────────────────────────────────┘  │                   │
+└─────────────────────┴─────────────────────────────────────────┴───────────────────┘</code></pre>
+<ul><li><strong>左栏</strong>（约248px，可收起）：顶部是「新对话」和搜索；下面是待我处理（带数量）、注册项目、维护事项，项目可以展开看它的对话；底部是人名和设置，有维护权限的人在设置中看到维护页。左栏用浅灰底，不用深色。</li><li><strong>对话</strong>：内容列居中，最大宽度约760px。顶部一行：项目名、对话标题，以及「对话」「文件」「资料」三个切换项；不叠加面包屑、眉题和徽章。</li><li><strong>右栏</strong>（约520px）：只在审核、看改动、看原文时从右侧打开，可以关闭，不常驻。</li></ul>
+<h3 id="a-5-对话中的元素">A.5 对话中的元素</h3>
+<table><thead><tr><th>元素</th><th>样式</th></tr></thead><tbody><tr><td>人的消息</td><td>浅灰底的圆角块，靠右，最大宽度80%</td></tr><tr><td>Agent的消息</td><td>不加气泡，直接排版；每轮开头显示Agent名称（注册Agent或维护Agent）</td></tr><tr><td>工具步骤</td><td>每步一行13px灰字，带状态符号（进行中、完成、失败）和摘要，例如「读取12份资料」；连续的步骤合并成一行「已执行6步」，点开逐条看；默认不显示参数原文</td></tr><tr><td>进度</td><td>计划以简短的勾选清单显示在输入框上方，标明第几步共几步，可以收起；Agent每完成一步的一句话说明正常显示在对话中</td></tr><tr><td>运行状态</td><td>输入框上方一行：正在做什么、第几步共几步、已用时间、停止</td></tr><tr><td>批准请求</td><td>输入框上方的小卡片：要做什么、改哪条记录（改前、改后），或消息的收件人和内容；按钮「允许」「本对话中都允许」「拒绝」；强调色细边框</td></tr><tr><td>提问</td><td>同样位置的小卡片：问题和选项按钮，也可以输入文字</td></tr><tr><td>结果</td><td>一行「结果已提交审核：……」和「审核」按钮，点开右栏</td></tr><tr><td>改动</td><td>一行：改了哪些文件、增删多少行；点开在右栏看对比</td></tr><tr><td>引用</td><td>正文中的引用显示为小号角标，悬停显示文件名和页码，点击在右栏打开原文和原页</td></tr><tr><td>反馈</td><td>鼠标移到消息上时，下方出现「有用」「没用」</td></tr></tbody></table>
+<h3 id="a-6-输入框">A.6 输入框</h3>
+<ul><li>底部的圆角输入框，多行；回车发送，Shift加回车换行；运行中「发送」变为「停止」，运行中输入的话作为插话。</li><li>左下角依次是：附件；Agent选择（只在新对话中可以选，项目中的对话显示当前Agent）；权限模式选择（只读、请求批准、完全允许，每项附一句说明）。</li><li>占位文字随Agent变化，例如「让注册Agent做什么？」。</li></ul>
+<h3 id="a-7-审核">A.7 审核</h3>
+<ul><li>右栏中按八部分排列：结论（较大字号）、需要你做什么、过程中作出的判断、改动、依据、自检、不确定事项，底部固定操作按钮。各部分用普通的小标题，不加编号。</li><li>主要按钮「通过」，次要按钮「退回修改」；「修改后通过」「追问」「转交他人」放在更多操作里。</li><li>显示所针对的工作区版本；版本已变化时提示刷新。</li></ul>
+<h3 id="a-8-不要做的">A.8 不要做的</h3>
+<ul><li>不用编号标记（01、02……），除非内容本身是顺序步骤（计划的步骤可以编号）。</li><li>标题上方不加眉题式的小标签；不用「A · B · C」式的元信息串；按钮文字后不加箭头。</li><li>不用深色侧栏、渐变、大面积色块和装饰插图；不把内容切成一张张带阴影的卡片，卡片里不再套卡片。</li><li>徽章只用于需要人处理的数量和检查结果，不到处贴状态标签。</li><li>正式界面中不出现「界面稿」「示例数据」之类的标记；开发环境可以在设置中显示一行小字。</li><li>不做与操作无关的动画。只保留展开、收起、打开右栏这类由人触发的过渡（150–200毫秒），并遵守系统的「减少动态效果」设置。</li></ul>
+<h3 id="a-9-质量底线">A.9 质量底线</h3>
+<ul><li>主要操作可以用键盘完成：Ctrl加K搜索，Esc关闭右栏；焦点可见（2px强调色）。</li><li>文字与背景的对比度符合WCAG AA。</li><li>以1280px以上的桌面为主；窄于1024px时左栏自动收起。手机端按D16另行决定。</li><li>图标用统一的线性图标（16px），随前端打包，不从外部加载。</li></ul>
+<h2 id="附录b-对pr的调整">附录B 对PR的调整</h2>
+<h3 id="b-1-已合并和进行中的pr">B.1 已合并和进行中的PR</h3>
+<p>变更单编制时（2026-11-18中午），PR-00～PR-16中的切片PR已合并（PR-13、PR-15未做），PR-20正在进行。</p>
+<table><thead><tr><th>PR</th><th>需要的调整</th><th>在哪个PR中做</th></tr></thead><tbody><tr><td>PR-03 界面稿</td><td>按附录A重做；去掉角色切换和销售视图；加入两个Agent、权限模式、批准卡片、进度显示和八部分审核</td><td>PR-C2</td></tr><tr><td>PR-04 身份与授权</td><td>去掉RA、RB、GM、SALES、TECH五个角色：登录用户都是注册人员，业务权限相同；保留按对象授权的框架；系统维护改为管理权限</td><td>PR-C3</td></tr><tr><td>PR-05 项目主数据</td><td>不需要调整，项目已有「注册项目、维护事项」两种类型</td><td>—</td></tr><tr><td>PR-08 工具登记与动作级别</td><td>会话模式从「只读检查、执行」改为三种权限模式；工具登记增加「请求批准模式下是否先问」</td><td>PR-C3</td></tr><tr><td>PR-09 提案与外发队列</td><td>发往公司外部的保持提案；完全允许模式下的内部消息不经提案，直接进外发队列，发送前照常检查</td><td>PR-C3</td></tr><tr><td>PR-16 提交审核与审核卡</td><td>结构化结果增加 <code>decisions[]</code>；审核卡八部分；删去「高风险卡在本人提交独立判断前不返回AI内容」的限制；任何注册人员都可以作决定，记录决定人，不再按角色重验</td><td>PR-C4</td></tr><tr><td>PR-20 Agent内核（进行中）</td><td>照原范围完成并合并。Agent定义如果还没写，直接按两份（注册、维护）建立，系统提示词按1.4、1.5写；如果已经写成一份，在PR-21中改</td><td>PR-20或PR-21</td></tr></tbody></table>
+<h3 id="b-2-新增的pr-插在pr-20之后-按顺序做">B.2 新增的PR（插在PR-20之后，按顺序做）</h3>
+<h4 id="pr-c1-变更同步">PR-C1 变更同步</h4>
+<ul><li><strong>范围</strong>：把本变更单复制到仓库的 <code>docs/变更单/</code> 并生成HTML；按B.4修改仓库的 <code>AGENTS.md</code>；更新 <code>docs/开发进度.md</code> 中的后续顺序。</li><li><strong>验收</strong>：<code>pnpm docs:html</code> 通过；<code>AGENTS.md</code> 中没有与本变更单冲突的条款。</li></ul>
+<h4 id="pr-c2-界面稿按新风格重做">PR-C2 界面稿按新风格重做</h4>
+<ul><li><strong>范围</strong>：在 <code>apps/web</code> 中按附录A重做可点击的静态界面稿，用假数据，不接后端。走通三条路径：<ol><li>在「L08 510(k)」项目中，用注册Agent和请求批准模式检查对比器械K号的写法：看到计划和进度；Agent在作出「K123465是笔误」的判断前请人确认；提交审核；在右栏审核（含「过程中作出的判断」）并通过。</li><li>在「L08 年度注册」维护事项中，用维护Agent和完全允许模式核查：Agent直接更新提醒，直接给一位内部同事发催办，对话中显示已发送；最后提交审核。</li><li>「待我处理」：批准请求和待审核的结果。</li></ol></li><li>更新 <code>docs/界面稿评审.md</code>；截图存入 <code>docs/evidence/</code>，1440×900和1280×800各一组。</li><li><strong>验收</strong>：组件测试覆盖三条路径；对照附录A.8逐条自查截图，结果写入PR说明。</li></ul>
+<h4 id="pr-c3-不区分角色与权限模式-后端">PR-C3 不区分角色与权限模式（后端）</h4>
+<ul><li><strong>范围</strong>：<ul><li>迁移：去掉五个角色；<code>app_user</code> 增加管理权限标记；开发账号改为几位注册人员和一个有管理权限的账号，密码仍只来自 <code>.env.local</code>；</li><li><code>conversation</code> 增加 <code>agent_code</code>（<code>registration</code>、<code>maintenance</code>）和 <code>permission_mode</code>（<code>read_only</code>、<code>ask</code>、<code>full</code>，默认 <code>ask</code>）；</li><li>工具判定按三种模式（1.3）；工具登记增加「请求批准模式下是否先问」；</li><li>批准请求：表 <code>tool_approval</code>（对话、运行、工具调用、要做的事的摘要、状态、决定人、时间）；<code>POST /api/approvals/{id}</code>，接受「允许」「本对话中都允许」「拒绝（附原因）」；调用来源的限制同审核卡，只接受浏览器中带Cookie和CSRF令牌的请求；只有发起该对话的人能处理；</li><li>内部消息：完全允许模式下直接进外发队列，同一事项对同一个人每个工作日最多一次；发往公司外部的保持提案；</li><li>授权测试按「部门成员的业务权限相同，管理权限另行控制」重写。</li></ul></li><li><strong>验收</strong>：表驱动测试覆盖三种模式下每类工具的判定结果；工具和后台进程无法对批准请求作出决定；「本对话中都允许」只对本对话的同一个工具生效；完全允许模式下发往公司外部的消息仍生成提案；不可逆动作在三种模式下都被拒绝。</li></ul>
+<h4 id="pr-c4-审核卡调整-后端">PR-C4 审核卡调整（后端）</h4>
+<ul><li><strong>范围</strong>：<ul><li>结构化结果增加 <code>decisions[]</code>：事项、Agent的选择、考虑过的备选、理由、依据、风险高低；模式定义在 <code>packages/shared</code>，边界处校验；</li><li>审核卡增加「过程中作出的判断」，共八部分；</li><li>删去高风险卡「本人先提交独立判断才返回AI内容」的限制；已保存的独立判断记录保留，不再要求；</li><li>任何注册人员都可以作决定，记录决定人。</li></ul></li><li><strong>验收</strong>：带 <code>decisions[]</code> 的结构化结果生成八部分审核卡；<code>decisions[]</code> 中引用的原文同样经过V1核对；高风险卡直接返回完整内容；不同的注册人员都能作决定，审计记录中有决定人；PR-16已有的版本、来源和冻结测试仍然通过。</li></ul>
+<h3 id="b-3-已有pr的范围调整">B.3 已有PR的范围调整</h3>
+<table><thead><tr><th>PR</th><th>调整</th></tr></thead><tbody><tr><td>PR-21 工具接入</td><td>按权限模式判定；工具调用需要批准时，结束本轮并记录待批准的调用，人批准后由后端执行该调用，把结果交给Agent并开始下一轮，拒绝时把原因交给Agent并开始下一轮；PR-20中如果只有一份Agent定义，在本PR改为两份（注册、维护），各有系统提示词和技能索引，系统提示词加入1.4、1.5的工作方法（请求批准模式下关键判断先问，完全允许模式下作出判断并记录，每步汇报进度）；<code>plan_update</code> 的内容用于输入框上方的计划和运行状态</td></tr><tr><td>PR-24 技能机制</td><td>技能元数据增加所属Agent；系统提示词只放该Agent的技能索引；发布由注册人员审阅</td></tr><tr><td>PR-25 对话接口与事件流</td><td>新建对话时指定Agent和权限模式，之后可以切换模式；事件增加批准请求、批准结果和进度；部门成员可以查看他人的对话，只有发起人能在其中发消息和处理批准请求</td></tr><tr><td>PR-26 界面：外框与对话</td><td>按附录A和重做后的界面稿实现；输入框中的Agent选择和权限模式选择；批准卡片；计划与运行状态</td></tr><tr><td>PR-27 界面：审核卡等</td><td>八部分审核；删去「请先写下你的判断」</td></tr><tr><td>PR-28 目标、等待与唤醒</td><td>唤醒时按项目类型选择Agent</td></tr><tr><td>PR-48 S01</td><td>由注册人员代销售发起；验收中删去「销售只能看到自己的请求」</td></tr><tr><td>PR-59 维护页</td><td>「用户与角色」改为用户和管理权限</td></tr><tr><td>PR-63 S04</td><td>周报和决策项经企业微信或邮件发给管理层</td></tr></tbody></table>
+<p>主路径的顺序改为：PR-20（进行中）、PR-C1、PR-C2、PR-C3、PR-C4、PR-21、PR-25、PR-26、PR-27。</p>
+<h3 id="b-4-仓库agents-md的修改">B.4 仓库AGENTS.md的修改</h3>
+<table><thead><tr><th>位置</th><th>修改</th></tr></thead><tbody><tr><td>开头一段</td><td>「和『器械认证Agent』对话」改为「和注册Agent或维护Agent对话」</td></tr><tr><td>先读什么</td><td>表格第一行加入 <code>docs/变更单/需求变更单_2026-11-18.md</code>，用途写「与需求、技术方案、执行方案冲突时以它为准」</td></tr><tr><td>不能破坏的设计第3条</td><td>改为：「后端按用户身份、权限模式、目标状态和动作级别授权：未登记或未声明级别的工具拒绝；<code>irreversible</code> 始终拒绝；发往公司外部的 <code>external</code> 只生成提案；只读模式下没有写入；请求批准模式下，登记为需要先问的工具先生成批准请求，人批准后才执行；完全允许模式下直接执行，内部消息直接进外发队列；<code>reversible_write</code> 都保存原值和版本。」</td></tr><tr><td>不能破坏的设计第5条</td><td>增加：「请求批准模式下的批准请求同样只接受浏览器请求，只有发起对话的人能处理。」</td></tr><tr><td>界面约定</td><td>「布局和用语以确认后的界面稿为准（PR-03）」改为「布局、样式和用语以变更单附录A和重做后的界面稿（PR-C2）为准」；删去「高风险审核卡在人提交判断前不显示AI结论」一句</td></tr></tbody></table><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

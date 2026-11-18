@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr">PR</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应的需求和技术方案">对应的需求和技术方案</a><a class="level-2" href="#真实模型测试">真实模型测试</a><a class="level-2" href="#新增依赖">新增依赖</a><a class="level-2" href="#风险和需要lan决定的事">风险和需要Lan决定的事</a></nav><main><h2 id="pr">PR</h2>
+<p>PR-C1 变更单与仓库约定同步</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>只读复制已确认的2026-11-18变更单版本1到docs/变更单/，按仓库约定统一LF，生成离线HTML。</li><li>按附录B.4及明确冲突同步AGENTS.md：双Agent、部门成员同等业务权限、三种权限模式、过程批准和最终审核的权限区别、逐步汇报、八部分审核以及附录A界面依据。</li><li>保留同一内核、工具登记、浏览器Cookie/CSRF审批、沙箱、数据级别、预算、凭据、出网和测试渠道等边界。</li><li>归档PR-20合并与验收结果，更新开发进度和晨报的后续顺序。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>不提前修改角色/模式/审核接口、Agent定义或界面：分别在C3/C4/21/C2实施。</li><li>不逐章重写四份旧方案；正文合并前按已确认变更单的优先规则执行。</li><li>不把当前临时自行合并授权变成永久仓库政策；D22第二人复核尚未确认，不提前强制。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td>原件只读及副本一致性</td><td>原件复制前后SHA256一致；LF规范化后副本逐字一致</td></tr><tr><td><code>pnpm docs:html</code></td><td>通过，50份离线HTML，含变更单和本PR说明</td></tr><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，315项单元测试</td></tr><tr><td>AGENTS与变更单逐条核对</td><td>B.4及共享读取、发起人过程控制、工作方法联动条款已同步；合并前独立复审</td></tr><tr><td>GitHub CI、AI审查、密钥扫描</td><td>索引与历史密钥扫描、提交后CI及最终AI审查全部通过后才合并；结果更新PR正文及下一次进度归档</td></tr></tbody></table>
+<p>原件SHA256：F72693649452044430134FAE237F70DA5702B5921EABA06FD39E3CB51E24E206。没有新增业务代码或数据库迁移，因此本PR不额外进行真实模型或数据库专项验收；持续集成仍运行完整现有检查。</p>
+<h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
+<ul><li>变更单1.1～1.6、附录A及B.2/B.4；本变更单优先于旧方案冲突项。</li></ul>
+<h2 id="真实模型测试">真实模型测试</h2>
+<p>无。本次开发累计仍为0.000599248美元，未结算预占0。</p>
+<h2 id="新增依赖">新增依赖</h2>
+<p>无。</p>
+<h2 id="风险和需要lan决定的事">风险和需要Lan决定的事</h2>
+<ul><li>本次是规则同步，不能据此认定新业务行为已经上线；后续实施顺序和未完成项见开发进度。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
