@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr">PR</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应的需求和技术方案">对应的需求和技术方案</a><a class="level-2" href="#真实模型测试">真实模型测试</a><a class="level-2" href="#新增依赖">新增依赖</a><a class="level-2" href="#风险和需要lan决定的事">风险和需要Lan决定的事</a></nav><main><h2 id="pr">PR</h2>
+<p>PR-14 原文证据与结构检查</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>建立结构化结果、资料库引用与受限检查报告契约，保真保存原文引用。</li><li>V1只统一空白后逐字核对指定版本/页；拒绝不存在、越权、跨项目、作废及占位来源，工作区草稿不能作证据。</li><li>V3核验结构和同项目已发布工作区版本；显式数量/单位不在此切片支持范围，保守拒绝。</li><li>check_run作为登记只读工具，复用registry事务，缓存仍重验来源可用性和最高级别。报告只含定位与固定问题码，不回显正文。</li><li>用L08 T1两处真实摘录验证通过/一字差/换页反例；DOCX定位明确为提取单元。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>V4业务记录比对、V7单位目录和转换、V8完整外发检查未实现；V2/V5/V6仍按原计划在其他PR。</li><li>V1通过不代表事实成立、K号真实正确或Agent实际读过；读回执证明在PR-16/21提交与工具接入时完成。</li><li>Agent/技能评测在PR-20/21接内核后执行，本PR不将占位eval当作通过。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，266项单元测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，219项集成测试，含checker16项与factory2项</td></tr><tr><td>L08摘录正反例</td><td>3项纯函数测试通过，引用原样、空白统一及单字/页错误均覆盖</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>提交前执行</td></tr><tr><td>GitHub CI、AI审查</td><td>开PR后完成</td></tr></tbody></table>
+<h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
+<ul><li>需求6.4、6.5；技术方案4.8、4.10；取舍见D-017。工具说明全文见docs/工具说明.md。</li></ul>
+<h2 id="真实模型测试">真实模型测试</h2>
+<p>本PR无真实调用；本次开发累计仍为0.0001941美元。</p>
+<h2 id="新增依赖">新增依赖</h2>
+<p>无；没有新增网络或遥测。</p>
+<h2 id="风险和需要lan决定的事">风险和需要Lan决定的事</h2>
+<ul><li>程序原文匹配是审核前的检查，不替代注册人员判断；法规与正确K号仍待确认。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
