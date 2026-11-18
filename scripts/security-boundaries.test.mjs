@@ -44,3 +44,33 @@ test('后台也不能通过动态模块加载绕过审批和宿主机执行隔�
     ).toBe(true);
   }
 });
+
+test('Agent与工具不能绕过模型网关直接建立网络请求', async () => {
+  const lint = new ESLint();
+  for (const code of [
+    "import 'undici';",
+    "import 'node:http';",
+    "import 'node:https';",
+    "import 'node:net';",
+    "import 'node:tls';",
+    "import 'node:module';",
+    "import 'openai';",
+    "void fetch('https://example.invalid');",
+    "void globalThis.fetch('https://example.invalid');",
+    "void globalThis['fetch']('https://example.invalid');",
+    "void process.getBuiltinModule('http');",
+  ]) {
+    const results = await lint.lintText(code, {
+      filePath: path.join(process.cwd(), 'apps/backend/src/agent/network-probe.ts'),
+    });
+    expect(
+      results.some((result) =>
+        result.messages.some((message) =>
+          ['no-restricted-imports', 'no-restricted-syntax', 'no-restricted-globals'].includes(
+            message.ruleId,
+          ),
+        ),
+      ),
+    ).toBe(true);
+  }
+});

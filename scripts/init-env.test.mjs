@@ -21,6 +21,7 @@ test('首次生成隔离库与随机凭据，重复运行不改已有值', () =>
     expect(new URL(values.TEST_DATABASE_URL).pathname).toBe('/cert_board_test');
     expect(values.CUSTOM_VALUE).toBe('keep');
     expect(values.OPENROUTER_API_KEY).toBeUndefined();
+    expect(values.HTTPS_PROXY).toBe('http://127.0.0.1:28085');
     initializeEnvironment(filename);
     expect(readFileSync(filename, 'utf8')).toBe(first);
   } finally {
