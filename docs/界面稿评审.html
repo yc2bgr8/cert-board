@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>界面稿评审（PR-03）</title><style>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>界面稿评审（PR-C2）</title><style>
 :root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
 *{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
 .layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
@@ -15,17 +15,22 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;backgrou
 img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
 @media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
-</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#布局与用语">布局与用语</a><a class="level-2" href="#界面稿的边界">界面稿的边界</a><a class="level-2" href="#评审与验收记录">评审与验收记录</a><a class="level-2" href="#未确认事项">未确认事项</a></nav><main><h1 id="界面稿评审-pr-03">界面稿评审（PR-03）</h1>
-<p>状态：<strong>待Lan及注册人员A、B确认</strong>。按2026-11-17晚间特别授权，先依技术方案第3章实现并继续后续界面PR；不代替注册人员确认。</p>
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#布局与用语">布局与用语</a><a class="level-2" href="#界面稿边界与三条路径">界面稿边界与三条路径</a><a class="level-2" href="#打开方法">打开方法</a><a class="level-2" href="#开发验收记录">开发验收记录</a><a class="level-2" href="#历史与未完成项">历史与未完成项</a></nav><main><h1 id="界面稿评审-pr-c2">界面稿评审（PR-C2）</h1>
+<p>状态：<strong>待注册人员确认</strong>。设计方向以已确认的<a href="变更单/需求变更单_2026-11-18.html">2026-11-18变更单附录A</a>为准；按Lan授权先完成开发验收并继续后续PR，不伪造对具体界面的人工确认。</p>
 <h2 id="布局与用语">布局与用语</h2>
-<ul><li>左栏：待我处理、注册项目、维护事项、新对话。销售视图只显示合规报告和自己的请求。</li><li>项目页顶部说明状态和目标，分为对话、文件、资料；中间以当前工作对话为主。</li><li>工作过程默认收起，点击展开摘要；计划、审核、证据和改动在右栏按需显示。</li><li>审核卡按结论、需要人做什么、改动、关键依据、AI自检、不确定事项、操作七部分呈现，显示工作区版本。</li><li>采用中文系统字体、深青导航和浅色内容，不加载外部字体、图片或脚本。</li></ul>
-<h2 id="界面稿的边界">界面稿的边界</h2>
-<p>所有记录为虚构示例；示例K号K123456/K123465不代表真实L08资料。页面标明“界面稿·待确认”“示例数据·未调用模型”。角色切换、流程状态、审批及高风险先写判断均为浏览器中的静态演示，不代表身份授权、真实审核或业务执行。PR-04/16/25/26/27逐步接入真实后端约束。</p>
-<p>模型Markdown组件禁用原始HTML与所有图片，链接仅允许锚点及HTTP(S)，外部链接显示提示且点击才打开。</p>
-<h2 id="评审与验收记录">评审与验收记录</h2>
-<table><thead><tr><th>项目</th><th>状态</th><th>说明</th></tr></thead><tbody><tr><td>技术方案第3章布局</td><td>开发验收通过</td><td>桌面1440×1000、窄屏390×844已截图检查，无横向溢出；正文14px、辅助文字至少12px</td></tr><tr><td>检查申报包→改意见→审核通过</td><td>浏览器与组件测试通过</td><td>第1版检查、对话修改、第2版审核通过；只验证示例交互</td></tr><tr><td>M02维护核查与提醒</td><td>组件测试通过</td><td>M02技能名称与维护内容一致，只验证示例交互</td></tr><tr><td>待我处理、销售隔离视图</td><td>组件测试通过</td><td>真实授权后端另验收</td></tr><tr><td>Lan确认</td><td>待确认</td><td>今晚不等待，不伪造确认</td></tr><tr><td>注册人员A、B确认</td><td>待确认</td><td>明早可依截图和可点击界面逐条反馈</td></tr></tbody></table>
-<p>开发自查修复：新一版高风险审核重置独立判断；维护工具过程显示M02；文件计数包含AGENTS.md；提高过小字号。独立审查另发现维护路径仍复用注册依据，已统一替换为三份维护专用虚构资料，覆盖过程、审核、证据、资料、文件、计划和改动，并补3项先失败后修复的回归。维护读取计数由误用模板的2改为3，对应企业注册记录、年费凭据和代理人协议。共13项新增组件与Markdown安全测试通过。</p>
-<p>截图与证据：</p>
-<ul><li><a href="evidence/pr03-review-desktop.png">桌面审核卡</a></li><li><a href="evidence/pr03-approved-mobile.png">窄屏已通过状态</a></li><li><a href="evidence/pr03-browser-check.json">浏览器验证记录</a>：构建预览使用严格本站CSP，控制台错误0、外部资源请求0。</li></ul>
-<h2 id="未确认事项">未确认事项</h2>
-<ul><li>信息密度、审核卡用语、证据/改动的阅读顺序。</li><li>窄屏是否仅作为临时查看入口；完整审核建议桌面浏览器。</li><li>拖拽上传、Word改动和PDF原页在对应后续PR接入真实数据。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
+<ul><li>白底、黑灰正文、浅灰左栏、细分隔线；不使用深色导航、渐变、阴影卡片、眉题或装饰性编号。强调色用于主要操作、焦点和待处理事项。</li><li>左栏约248px，可收起，含新对话、搜索、待我处理、注册项目、维护事项和各自对话；人名及设置在底部。</li><li>对话列最大约760px。顶部一行项目及对话信息，配对话、文件、资料切换；右栏约520px，仅审核、证据、改动需要时打开。</li><li>使用15px/1.75正文、14px控件、13px次要信息、18px项目标题；系统字体，不加载网络字体。注意色只用于图标/边框，文字保持可读对比度，见D-022。</li><li>人的消息靠右浅灰底，Agent消息直接排版；工具过程默认折叠。计划和运行状态在输入框上方，每完成一步在对话中汇报。</li><li>新对话可选注册Agent或维护Agent，项目内固定所属Agent；权限模式默认请求批准，可选择只读或完全允许，并显示说明。</li><li>过程批准提供允许、本对话中都允许、拒绝；最终审核按结论、需要你做什么、过程中作出的判断、改动、依据、自检、不确定事项、操作八部分展示。</li><li>主要审核操作为通过、退回修改；其余操作收在更多操作中。引用可打开对应原文，修改可打开文本对比；显示工作区版本。</li></ul>
+<h2 id="界面稿边界与三条路径">界面稿边界与三条路径</h2>
+<p>所有资料、K号、联系人和执行回执均为虚构演示。K123456/K123465不代表真实L08资料，也不能据此认定实际对比器械编号。演示不调用后端、不调用模型、不写业务数据库、不发真实消息。按附录A.8，开发说明仅放在设置里。</p>
+<p>原页是按虚构文本排版的本地HTML纸页，用于验证与解析原文并排对照的交互，不是实际PDF解析产物。</p>
+<ol><li>注册项目：在L08 510(k)对话中发送K号写法检查，看到计划与进度；在关键判断批准卡上允许后，打开八部分审核并通过。</li><li>维护事项：进入L08 年度注册，选择完全允许后核查；对话展示更新提醒和给内部同事催办的本地演示回执，再提交审核。</li><li>待我处理：可以保留注册对话的批准请求，再运行维护核查，列表分别提供批准请求与待审核结果入口。</li></ol>
+<p>审核动作在本PR中只是浏览器状态演示。真实身份、权限模式、批准恢复、最终审核及冻结分别由C3/C4/21/25/26/27接入并验收。</p>
+<h2 id="打开方法">打开方法</h2>
+<p>开发方式：在仓库执行 <code>pnpm dev:web</code>，打开 <code>http://127.0.0.1:28080</code>。构建验收方式：<code>pnpm build</code> 后运行 <code>pnpm preview</code>，使用相同地址；两者不能同时占用28080。</p>
+<p>本PR静态界面不需要登录。正式开发账号及密码变量以最终晨报为准，此处不能视作登录功能已经接入。</p>
+<h2 id="开发验收记录">开发验收记录</h2>
+<table><thead><tr><th>项目</th><th>状态</th></tr></thead><tbody><tr><td>注册ask、维护full、待我处理三条组件路径</td><td>组件与两尺寸原生浏览器通过；审核按钮可完成本地演示批准</td></tr><tr><td>模式、停止、插话、键盘、IME与状态隔离</td><td>组件回归通过；浏览器另验Ctrl+K、Esc、焦点和1023断点</td></tr><tr><td>安全Markdown与严格本站CSP</td><td>原4项安全测试保留；弹窗样式注入已消除，最终浏览器0外部请求/0API/0控制台错误</td></tr><tr><td>1440×900、1280×800截图及A.8自查</td><td>各5张，实际视觉复核通过；A.8逐条结果见PR-C2说明</td></tr><tr><td>注册人员确认</td><td>待确认，按授权继续</td></tr></tbody></table>
+<p>截图与验证记录：</p>
+<table><thead><tr><th>状态</th><th>1440×900</th><th>1280×800</th></tr></thead><tbody><tr><td>注册过程批准</td><td><a href="evidence/pr-c2-registration-approval-1440x900.png">截图</a></td><td><a href="evidence/pr-c2-registration-approval-1280x800.png">截图</a></td></tr><tr><td>注册八部分审核</td><td><a href="evidence/pr-c2-registration-review-1440x900.png">截图</a></td><td><a href="evidence/pr-c2-registration-review-1280x800.png">截图</a></td></tr><tr><td>维护完全允许与审核</td><td><a href="evidence/pr-c2-maintenance-review-1440x900.png">截图</a></td><td><a href="evidence/pr-c2-maintenance-review-1280x800.png">截图</a></td></tr><tr><td>两类待我处理</td><td><a href="evidence/pr-c2-inbox-1440x900.png">截图</a></td><td><a href="evidence/pr-c2-inbox-1280x800.png">截图</a></td></tr><tr><td>原文与原页对照</td><td><a href="evidence/pr-c2-evidence-1440x900.png">截图</a></td><td><a href="evidence/pr-c2-evidence-1280x800.png">截图</a></td></tr></tbody></table>
+<p><a href="evidence/pr-c2-browser-check.json">浏览器记录</a>记录实际尺寸、网络、CSP、键盘、减少动态效果和对比度。<a href="pr/PR-C2.html">PR-C2自查</a>记录每条A.8结果与修复。</p>
+<h2 id="历史与未完成项">历史与未完成项</h2>
+<ul><li>PR-03的深色导航、角色切换、销售视图和高风险先写判断已由本变更替代；旧截图保留为历史，不能作为后续正式界面依据。</li><li>原始PDF页图、Word解析对比、真实附件导入和正式后端连接按后续PR接入。静态界面不能证明法规判断、实际发送或真实冻结已经发生。</li><li>桌面为本次重点；小于1024px收起侧栏，手机完整审核按D16另行决定。</li><li>静态稿每项目只有一条活动演示对话，有运行或待处理事项时不允许新对话覆盖。多对话持久历史留PR-25/26；刷新会重置本地演示状态。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

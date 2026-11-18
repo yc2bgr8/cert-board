@@ -1,36 +1,47 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
-import * as Collapsible from '@radix-ui/react-collapsible';
 import * as Dialog from '@radix-ui/react-dialog';
 import { SafeMarkdown } from './SafeMarkdown.js';
+import {
+  conclusion,
+  newThread,
+  pending,
+  permissionDescriptions,
+  projects,
+  reviewText,
+  running,
+  sources,
+  type Permission,
+  type ProjectKey,
+  type Thread,
+} from './prototype/data.js';
 import './prototype.css';
 
 const paths = {
-  inbox: 'M4 4h16v16H4z M4 13h5l2 3h2l2-3h5',
+  plus: 'M12 5v14M5 12h14',
+  search: 'm20 20-5-5M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0',
+  inbox: 'M4 4h16v16H4zM4 13h5l2 3h2l2-3h5',
   folder: 'M3 6h7l2 2h9v12H3z',
-  calendar: 'M4 5h16v16H4z M8 3v4 M16 3v4 M4 10h16',
-  plus: 'M12 5v14 M5 12h14',
-  arrow: 'M5 12h14 M13 6l6 6-6 6',
+  calendar: 'M4 5h16v16H4zM8 3v4M16 3v4M4 10h16',
   chevron: 'm9 5 7 7-7 7',
+  close: 'm6 6 12 12M6 18 18 6',
   check: 'm5 12 4 4L19 6',
-  close: 'm6 6 12 12 M6 18 18 6',
-  file: 'M5 3h9l5 5v13H5z M14 3v6h5 M8 13h8 M8 17h6',
-  search: 'M20 20l-5-5 M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0',
-  clock: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M12 7v5l3 2',
+  file: 'M5 3h9l5 5v13H5zM14 3v6h5M8 13h8M8 17h6',
   attach: 'm8 12 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l8-8',
-  spark: 'm12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z',
-  list: 'M8 6h12 M8 12h12 M8 18h12 M3 6h1 M3 12h1 M3 18h1',
+  panel: 'M3 4h18v16H3zM9 4v16',
+  settings: 'M4 7h16M4 17h16M8 4v6M16 14v6',
+  stop: 'M6 6h12v12H6z',
+  clock: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M12 7v5l3 2',
 } as const;
-
-function Icon({ name, size = 18 }: { name: keyof typeof paths; size?: number }) {
+function Icon({ name }: { name: keyof typeof paths }) {
   return (
     <svg
-      width={size}
-      height={size}
+      width="16"
+      height="16"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.65"
+      strokeWidth="1.6"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -39,1303 +50,1461 @@ function Icon({ name, size = 18 }: { name: keyof typeof paths; size?: number }) 
     </svg>
   );
 }
-
-type Project = 'registration' | 'maintenance' | 'todo' | 'sales';
-type Panel = 'review' | 'evidence' | 'changes' | 'plan' | null;
-type Phase = 'ready' | 'running' | 'review' | 'approved' | 'stopped' | 'returned' | 'transferred';
-type DecisionAction = 'amend' | 'return' | 'question' | 'transfer' | null;
-type Message = { id: number; role: 'user' | 'agent'; text: string };
-
-const phaseLabels: Record<Phase, string> = {
-  ready: '准备就绪',
-  running: '运行中',
-  review: '等待你的决定',
-  approved: '已通过',
-  stopped: '已停止',
-  returned: '已退回',
-  transferred: '已转交',
+type View = ProjectKey | 'todo' | 'new';
+type Panel = {
+  kind: 'review' | 'evidence' | 'changes' | 'file' | 'details';
+  project: ProjectKey;
+  version: number;
+  conservative: boolean;
+  sourceIndex: number;
+} | null;
+type Decision = 'return' | 'amend' | 'question' | 'transfer' | null;
+const phaseText: Record<Thread['phase'], string> = {
+  ready: '可以开始',
+  reading: '正在读取项目说明与资料',
+  approval: '等待你批准下一步',
+  finishing: '正在整理结果并自检',
+  review: '等待审核',
+  approved: '审核已通过',
+  rejected: '已拒绝本次操作',
+  returned: '已退回修改',
+  stopped: '运行已停止',
+  read_complete: '只读检查已完成',
+  transferred: '已转交王敏审核',
 };
-const decisionLabels = { amend: '修改后通过', return: '退回', question: '追问', transfer: '转交' };
-
-const registrationSources = [
-  {
-    id: 'EXAMPLE-01',
-    name: '示例对比表',
-    page: 2,
-    prefix: 'Predicate device 510(k) number: ',
-    highlight: 'K123456',
-    suffix: '.',
-  },
-  {
-    id: 'EXAMPLE-02',
-    name: '示例摘要',
-    page: 4,
-    prefix: 'Predicate device 510(k) number: ',
-    highlight: 'K123465',
-    suffix: '.',
-  },
-];
-const maintenanceSources = [
-  {
-    id: 'MAINT-EXAMPLE-01',
-    name: '企业注册示例记录',
-    page: 1,
-    prefix: '企业注册状态：',
-    highlight: '待核对',
-    suffix: '。',
-  },
-  {
-    id: 'MAINT-EXAMPLE-02',
-    name: '年费付款凭据示例',
-    page: 1,
-    prefix: '付款适用年度与金额：',
-    highlight: '待核对',
-    suffix: '。',
-  },
-  {
-    id: 'MAINT-EXAMPLE-03',
-    name: '美国代理人协议示例',
-    page: 1,
-    prefix: '协议有效期：',
-    highlight: '待核对',
-    suffix: '。',
-  },
-];
-const maintenanceChecklist = [
-  '企业注册状态：待核对。',
-  '年费付款凭据：适用年度与金额待核对。',
-  '美国代理人协议：有效期待核对。',
-];
-
-function ReviewSection({
-  number,
-  title,
-  children,
-}: {
-  number: string;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="review-section">
-      <h3>
-        <span>{number}</span>
-        {title}
-      </h3>
-      {children}
-    </section>
-  );
-}
+const duration = (seconds: number) =>
+  `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
 export function PrototypeApp() {
-  const [role, setRole] = useState('RA');
-  const [project, setProject] = useState<Project>('registration');
+  const [threads, setThreads] = useState<Record<ProjectKey, Thread>>({
+    registration: newThread(),
+    maintenance: newThread(),
+  });
+  const [view, setView] = useState<View>('registration');
   const [tab, setTab] = useState('conversation');
+  const [newAgent, setNewAgent] = useState<ProjectKey>('registration');
+  const [newDraft, setNewDraft] = useState('');
+  const [newPermission, setNewPermission] = useState<Permission>('ask');
   const [panel, setPanel] = useState<Panel>(null);
-  const [phase, setPhase] = useState<Phase>('ready');
-  const [version, setVersion] = useState(0);
-  const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [planOpen, setPlanOpen] = useState(true);
+  const [processOpen, setProcessOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [decision, setDecision] = useState<Decision>(null);
+  const [decisionReason, setDecisionReason] = useState('');
   const [notice, setNotice] = useState('');
-  const [highRisk, setHighRisk] = useState(false);
-  const [judgment, setJudgment] = useState('');
-  const [judgmentSubmitted, setJudgmentSubmitted] = useState(false);
-  const [decisionAction, setDecisionAction] = useState<DecisionAction>(null);
-  const [decisionNote, setDecisionNote] = useState('');
-  const [feedback, setFeedback] = useState<Record<number, string>>({});
   const [feedbackReason, setFeedbackReason] = useState<number | null>(null);
-  const [reason, setReason] = useState('');
-  const [questionAnswer, setQuestionAnswer] = useState('');
-  const [salesRequestOpen, setSalesRequestOpen] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const messageId = useRef(0);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [feedbackText, setFeedbackText] = useState('');
+  const timers = useRef<Partial<Record<ProjectKey, ReturnType<typeof setTimeout>>>>({});
+  const sequence = useRef(0);
+  const composer = useRef<HTMLTextAreaElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const drawerTitle = useRef<HTMLHeadingElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const endOfMessages = useRef<HTMLDivElement>(null);
+  const project: ProjectKey =
+    view === 'maintenance' ? 'maintenance' : view === 'new' ? newAgent : 'registration';
+  const thread = threads[project];
+  const active = view === 'registration' || view === 'maintenance';
+  const isRunning = active && running(thread);
+  const metadata = projects[project];
+  const text = view === 'new' ? newDraft : thread.draft;
+  const permission = view === 'new' ? newPermission : thread.permission;
+  const tasks = (['registration', 'maintenance'] as const).filter((key) => pending(threads[key]));
+  const hasRunning = running(threads.registration) || running(threads.maintenance);
+
+  function update(key: ProjectKey, change: (current: Thread) => Thread) {
+    setThreads((previous) => ({ ...previous, [key]: change(previous[key]) }));
+  }
+  function message(role: 'user' | 'agent', value: string) {
+    return { id: ++sequence.current, role, text: value };
+  }
+  function closePanel() {
+    setPanel(null);
+    setDecision(null);
+    returnFocus.current?.focus();
+  }
+  function openPanel(kind: NonNullable<Panel>['kind'], key = project, sourceIndex = 0) {
+    const current = threads[key];
+    if (
+      kind === 'review' &&
+      !['review', 'approved', 'returned', 'transferred'].includes(current.phase)
+    ) {
+      setNotice('当前还没有提交审核的结果，请先完成本次核查。');
+      return;
+    }
+    if (
+      document.activeElement instanceof HTMLElement &&
+      !document.activeElement.closest('.right-panel')
+    )
+      returnFocus.current = document.activeElement;
+    setPanel({
+      kind,
+      project: key,
+      version: current.version,
+      conservative: current.conservative,
+      sourceIndex,
+    });
+    setDecision(null);
+  }
+  function openProject(key: ProjectKey) {
+    setView(key);
+    setTab('conversation');
+    setPanel(null);
+    setSidebarOpen(false);
+    setProcessOpen(false);
+    setRejectOpen(false);
+    setRejectReason('');
+    setFeedbackReason(null);
+    setFeedbackText('');
+    setNotice('');
+    setDecision(null);
+  }
+  function clearTimer(key: ProjectKey) {
+    const timer = timers.current[key];
+    if (timer) clearTimeout(timer);
+    delete timers.current[key];
+  }
+  function finish(key: ProjectKey, current: Thread): Thread {
+    const notes =
+      key === 'maintenance' && !current.conservative
+        ? [
+            message('agent', '已更新提醒：每周一核对年度注册资料。下一步催办待核对的原件。'),
+            message(
+              'agent',
+              '已向内部同事王敏发送催办：请补充年费付款年度与金额，并核对美国代理人协议签署页。下一步提交审核。',
+            ),
+          ]
+        : [
+            message(
+              'agent',
+              current.conservative
+                ? '已保留两处不同写法，不选择正确编号。下一步提交差异记录供你审核。'
+                : '已记录处理判断并保存核查记录。下一步完成原文自检并提交审核。',
+            ),
+          ];
+    return {
+      ...current,
+      phase: 'review',
+      onceAllowed: false,
+      processCount: key === 'registration' ? 6 : 7,
+      elapsed: Math.floor((Date.now() - current.startedAt) / 1000),
+      messages: [
+        ...current.messages,
+        ...notes,
+        message('agent', reviewText(key, current.conservative)),
+      ],
+    };
+  }
+  function schedule(key: ProjectKey, token: number) {
+    clearTimer(key);
+    timers.current[key] = setTimeout(() => {
+      update(key, (current) => {
+        if (current.token !== token || !running(current)) return current;
+        if (current.permission === 'read_only')
+          return {
+            ...current,
+            phase: 'read_complete',
+            onceAllowed: false,
+            processCount: 4,
+            messages: [
+              ...current.messages,
+              message(
+                'agent',
+                key === 'registration'
+                  ? '只读检查已完成：两处写法为 K123456 与 K123465，尚未判断哪处正确。未修改文件或业务记录。'
+                  : '只读检查已完成：企业注册年度、付款信息和代理人协议有效期待核对。未更新提醒或发送消息。',
+              ),
+            ],
+          };
+        if (current.phase === 'reading') {
+          const read = message(
+            'agent',
+            key === 'registration'
+              ? '已读两份资料，发现 K123456 与 K123465 两种写法。下一步判断是否按笔误处理。'
+              : '已核对企业注册记录、年费付款凭据和美国代理人协议。下一步更新核对提醒并催办原件。',
+          );
+          const next = { ...current, processCount: 4, messages: [...current.messages, read] };
+          if (current.permission === 'ask' && !current.allowed && !current.conservative)
+            return { ...next, phase: 'approval' };
+          return finish(key, next);
+        }
+        if (
+          current.permission === 'ask' &&
+          !current.allowed &&
+          !current.onceAllowed &&
+          !current.conservative
+        )
+          return { ...current, phase: 'approval' };
+        return finish(key, current);
+      });
+    }, 650);
+  }
+  function start(key: ProjectKey, value: string) {
+    const token = ++sequence.current;
+    update(key, (previous) => ({
+      ...previous,
+      phase: 'reading',
+      processCount: 0,
+      token,
+      draft: '',
+      conservative: false,
+      onceAllowed: false,
+      version: previous.phase === 'ready' ? 1 : previous.version + 1,
+      startedAt: Date.now(),
+      elapsed: 0,
+      messages: [
+        ...previous.messages,
+        message('user', value),
+        message(
+          'agent',
+          key === 'registration'
+            ? '我会先读取项目说明和 R09 技能，再对照两处 K 号原文；记录判断、自检后提交审核。'
+            : '我会先读取项目说明和 M02 技能，再核对三项资料；更新提醒和催办后提交审核。',
+        ),
+      ],
+    }));
+    setProcessOpen(false);
+    setPlanOpen(true);
+    setRejectOpen(false);
+    setNotice('');
+    schedule(key, token);
+  }
+  function send() {
+    if (!text.trim()) return;
+    if (isRunning) {
+      update(project, (current) => ({
+        ...current,
+        draft: '',
+        messages: [
+          ...current.messages,
+          message('user', text),
+          message('agent', '已收到补充，将在下一步处理；当前读取继续。'),
+        ],
+      }));
+      return;
+    }
+    if (view === 'new') {
+      if (running(threads[project]) || pending(threads[project])) {
+        setNotice('该项目还有运行或待处理结果，请先处理当前对话后再新建对话。');
+        return;
+      }
+      clearTimer(project);
+      const token = ++sequence.current;
+      setThreads((previous) => ({
+        ...previous,
+        [project]: {
+          ...newThread(newPermission),
+          phase: 'reading',
+          token,
+          startedAt: Date.now(),
+          messages: [
+            message('user', text),
+            message(
+              'agent',
+              `我会先读取项目说明和相关技能，列出步骤后开始${project === 'registration' ? '核对K号' : '年度核查'}。`,
+            ),
+          ],
+        },
+      }));
+      setNewDraft('');
+      setView(project);
+      setPlanOpen(true);
+      setTab('conversation');
+      schedule(project, token);
+    } else start(project, text);
+  }
+  function stop() {
+    clearTimer(project);
+    update(project, (current) => ({
+      ...current,
+      phase: 'stopped',
+      token: current.token + 1,
+      elapsed: Math.floor((Date.now() - current.startedAt) / 1000),
+      messages: [
+        ...current.messages,
+        message(
+          'agent',
+          '运行已停止。已读取的内容保留，尚未完成的操作未执行；你可以补充要求后重新发送。',
+        ),
+      ],
+    }));
+  }
+  function allow(all: boolean) {
+    const token = ++sequence.current;
+    update(project, (current) => ({
+      ...current,
+      phase: 'finishing',
+      token,
+      allowed: all || current.allowed,
+      onceAllowed: true,
+      messages: [
+        ...current.messages,
+        message(
+          'agent',
+          all
+            ? '已允许本对话中同一操作继续执行。下一步整理判断与结果。'
+            : '已收到允许，下一步执行本次操作并整理结果。',
+        ),
+      ],
+    }));
+    setRejectOpen(false);
+    schedule(project, token);
+  }
+  function reject() {
+    update(project, (current) => ({
+      ...current,
+      phase: 'rejected',
+      allowed: false,
+      onceAllowed: false,
+      conservative: true,
+      messages: [
+        ...current.messages,
+        message(
+          'agent',
+          `已拒绝本次${project === 'registration' ? '判断' : '操作'}${rejectReason.trim() ? `，原因：${rejectReason}` : '。'}\n\n${project === 'registration' ? '我会保留两处不同写法，不把任一编号当作已确认事实。可以仅列差异继续。' : '我会保留待核对事项，不更新提醒或发送催办。请补充希望如何处理。'}`,
+        ),
+      ],
+    }));
+    setRejectOpen(false);
+    setRejectReason('');
+  }
+  function continueDifferences() {
+    const token = ++sequence.current;
+    update(project, (current) => ({ ...current, phase: 'finishing', conservative: true, token }));
+    schedule(project, token);
+  }
+  function changePermission(value: Permission) {
+    if (view === 'new') {
+      setNewPermission(value);
+      return;
+    }
+    update(project, (current) => ({
+      ...current,
+      permission: value,
+      onceAllowed: value === 'read_only' ? false : current.onceAllowed,
+    }));
+    setNotice(
+      `权限已切换为${value === 'ask' ? '请求批准' : value === 'full' ? '完全允许' : '只读'}，从下一次工具调用起生效。`,
+    );
+    if (thread.phase === 'approval' && value !== 'ask') {
+      const token = ++sequence.current;
+      update(project, (current) => ({ ...current, phase: 'finishing', token }));
+      schedule(project, token);
+    }
+  }
+  function approve() {
+    if (!panel || panel.kind !== 'review') return;
+    update(panel.project, (current) =>
+      current.version !== panel.version || current.phase !== 'review'
+        ? current
+        : {
+            ...current,
+            phase: 'approved',
+            messages: [
+              ...current.messages,
+              message(
+                'agent',
+                `审核已通过。${projects[panel.project].filename}已按工作区第${current.version}版定稿。`,
+              ),
+            ],
+          },
+    );
+    setDecision(null);
+  }
+  function decide() {
+    if (!panel || !decision || !decisionReason.trim()) return;
+    const action = decision;
+    update(panel.project, (current) => {
+      if (current.version !== panel.version || current.phase !== 'review') return current;
+      return {
+        ...current,
+        phase:
+          action === 'amend'
+            ? 'approved'
+            : action === 'transfer'
+              ? 'transferred'
+              : action === 'return'
+                ? 'returned'
+                : 'review',
+        messages: [
+          ...current.messages,
+          message('user', decisionReason),
+          message(
+            'agent',
+            action === 'return'
+              ? '已退回修改。已保留你的原因，请在对话中补充要求，我会修改后重新提交。'
+              : action === 'amend'
+                ? '修改意见已记录，审核已通过。'
+                : action === 'transfer'
+                  ? '已转交王敏审核，当前结果仍等待人工决定。'
+                  : '已收到追问，当前审核保持待处理；请在对话中补充核对要求。',
+          ),
+        ],
+      };
+    });
+    setDecision(null);
+    setDecisionReason('');
+  }
 
   useEffect(
     () => () => {
-      if (timer.current) clearTimeout(timer.current);
+      for (const timer of Object.values(timers.current)) clearTimeout(timer);
     },
     [],
   );
-
-  const maintenance = project === 'maintenance';
-  const sources = maintenance ? maintenanceSources : registrationSources;
-  const recordFilename = maintenance ? '年度维护核查记录.md' : '检查记录.md';
-  const planSteps = [
-    '读取项目说明和相关技能',
-    maintenance ? '检索、读取三份维护示例资料' : '检索、读取两份示例资料',
-    maintenance ? '整理维护事项并执行自检' : '整理差异并执行自检',
-    '提交审核，等待你的决定',
-  ];
-  const diffLines = maintenance
-    ? maintenanceChecklist
-    : [
-        '示例对比表：K123456',
-        '示例摘要：K123465',
-        version > 1 ? '已按人工意见补充差异原因，待确认。' : '两处写法不一致，待人工确认。',
-      ];
-  const sales = role === 'SALES';
-  const title =
-    project === 'todo'
-      ? '待我处理'
-      : sales
-        ? '合规报告'
-        : maintenance
-          ? 'L08 年度注册'
-          : 'L08 510(k)';
-  const addMessage = (messageRole: Message['role'], text: string) => {
-    const id = ++messageId.current;
-    setMessages((current) => [...current, { id, role: messageRole, text }]);
-  };
-  const chooseProject = (next: Project) => {
-    if (timer.current) clearTimeout(timer.current);
-    setProject(next);
-    setTab('conversation');
-    setPanel(null);
-    setNotice('');
-    setMessages([]);
-    setInput('');
-    setPhase('ready');
-    setVersion(0);
-    setHighRisk(false);
-    setJudgmentSubmitted(false);
-    setQuestionAnswer('');
-  };
-  const showDemoNotice = (text: string) => setNotice(`${text}（仅界面稿演示，未写入后台）`);
-
-  const startCheck = (text: string) => {
-    if (!text.trim()) {
-      setNotice('请先输入要交给 Agent 的任务。');
-      return;
-    }
-    if (phase === 'running') {
-      addMessage('user', text.trim());
-      setInput('');
-      showDemoNotice('插话已加入本页对话，演示运行继续');
-      return;
-    }
-    addMessage('user', text.trim());
-    setInput('');
-    setPhase('running');
-    setJudgment('');
-    setJudgmentSubmitted(false);
-    setPanel(null);
-    const nextVersion = version + 1;
-    timer.current = setTimeout(() => {
-      setVersion(nextVersion);
-      setPhase('review');
-      addMessage(
-        'agent',
-        maintenance
-          ? '已完成年度维护核查的**界面演示**。三项记录需要核对：企业注册状态、年度费用依据、美国代理人协议。所有状态均为虚构示例，不代表 L08 的实际情况。'
-          : nextVersion > 1
-            ? '已按你的修改意见更新示例检查记录，并重新提交审核。请核对改动和依据，再决定是否通过。'
-            : '示例资料中出现两种对比器械 K 号写法：**K123456** 与 **K123465**。已整理为一项待确认差异并提交审核；这些号码和摘录均为虚构示例。',
-      );
-      timer.current = null;
-    }, 900);
-  };
-
-  const stopRun = () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    setPhase('stopped');
-    addMessage(
-      'agent',
-      '演示运行已停止。已展示的读取过程保留，没有生成审核结果，也没有保存工作区版本。',
+  useEffect(() => {
+    if (!hasRunning) return;
+    const timer = setInterval(
+      () =>
+        setThreads((previous) => ({
+          registration: running(previous.registration)
+            ? {
+                ...previous.registration,
+                elapsed: Math.floor((Date.now() - previous.registration.startedAt) / 1000),
+              }
+            : previous.registration,
+          maintenance: running(previous.maintenance)
+            ? {
+                ...previous.maintenance,
+                elapsed: Math.floor((Date.now() - previous.maintenance.startedAt) / 1000),
+              }
+            : previous.maintenance,
+        })),
+      1000,
     );
-  };
+    return () => clearInterval(timer);
+  }, [hasRunning]);
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+      if (event.key === 'Escape' && !searchOpen && !settingsOpen && feedbackReason === null) {
+        closePanel();
+        setSidebarOpen(false);
+      }
+    };
+    document.addEventListener('keydown', keydown);
+    return () => document.removeEventListener('keydown', keydown);
+  }, [searchOpen, settingsOpen, feedbackReason]);
+  useEffect(() => {
+    if (panel) drawerTitle.current?.focus();
+  }, [panel?.kind]);
+  useEffect(() => {
+    endOfMessages.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [thread.messages.length, view]);
 
-  const openExampleReview = (target: 'registration' | 'maintenance') => {
-    chooseProject(target);
-    setPhase('review');
-    setVersion(1);
-    setPanel('review');
-    addMessage('agent', '已打开待我处理中的示例审核。此卡仅用于确认界面布局，不对应真实业务事项。');
-  };
-
-  const approve = () => {
-    setPhase('approved');
-    showDemoNotice(`已通过第 ${version} 版示例审核`);
-    addMessage(
-      'agent',
-      `你已在审核卡上通过第 ${version} 版。界面稿展示为已定稿；此演示没有形成真实审批或冻结记录。`,
-    );
-  };
-
-  const confirmDecision = () => {
-    if (!decisionAction || !decisionNote.trim()) return;
-    if (decisionAction === 'amend') approve();
-    else if (decisionAction === 'return') {
-      setPhase('returned');
-      addMessage('agent', '审核已在本页演示中退回。可以在对话中提出修改意见，再次提交。');
-    } else if (decisionAction === 'transfer') setPhase('transferred');
-    else {
-      addMessage('user', decisionNote);
-      setPanel(null);
-    }
-    showDemoNotice(`已演示“${decisionLabels[decisionAction]}”`);
-    setDecisionAction(null);
-    setDecisionNote('');
-  };
-
-  const feedbackButtons = (id: number) => (
-    <div className="feedback-row">
-      <button
-        type="button"
-        aria-pressed={feedback[id] === 'useful'}
-        onClick={() => {
-          setFeedback((current) => ({ ...current, [id]: 'useful' }));
-          showDemoNotice('已记录“有用”反馈');
-        }}
-      >
-        有用
-      </button>
-      <span>·</span>
-      <button
-        type="button"
-        aria-pressed={feedback[id] === 'not-useful'}
-        onClick={() => setFeedbackReason(id)}
-      >
-        没用
-      </button>
-    </div>
-  );
-
-  const processDetails = (
-    <Collapsible.Root className="process-block" defaultOpen={false}>
-      <Collapsible.Trigger className="process-trigger">
-        <span className={phase === 'running' ? 'process-indicator running' : 'process-indicator'}>
-          <Icon name={phase === 'running' ? 'clock' : 'check'} size={14} />
-        </span>
-        <span>
-          {phase === 'running'
-            ? '正在读取示例资料…'
-            : `已读取 ${sources.length} 份示例资料，完成 3 步检查`}
-        </span>
-        <Icon name="chevron" size={14} />
-      </Collapsible.Trigger>
-      <Collapsible.Content className="process-content">
-        <div>
-          <span>01</span>
-          <strong>读取项目说明与 {maintenance ? 'M02' : 'R09'} 技能</strong>
-          <code>load_skill</code>
-          <p>技能草稿 · 示例版本；了解任务范围和交付要求。</p>
-        </div>
-        <div>
-          <span>02</span>
-          <strong>
-            {maintenance ? '读取企业注册、年费凭据与美国代理人协议' : '查找对比器械 K 号'}
-          </strong>
-          <code>doc_search → doc_read</code>
-          <p>
-            {maintenance
-              ? '资料 MAINT-EXAMPLE-01 / 02 / 03，v1，均为第 1 页；三项记录仍待核对。'
-              : '资料 EXAMPLE-01 / EXAMPLE-02，v1，第 2 / 4 页；仅显示摘要。'}
-          </p>
-        </div>
-        <div>
-          <span>03</span>
-          <strong>{maintenance ? '整理维护事项并自检' : '整理差异并自检'}</strong>
-          <code>submit_review</code>
-          <p>虚构摘录检查通过；真实法规判断仍待注册人员确认。</p>
-        </div>
-      </Collapsible.Content>
-    </Collapsible.Root>
-  );
-
-  const reviewCard = (
-    <>
-      <div className="review-meta">
-        <span className="eyebrow">人工审核</span>
-        <span className={`status-pill ${phase === 'approved' ? 'success' : ''}`}>
-          {phaseLabels[phase]}
-        </span>
-      </div>
-      <h2>{maintenance ? '年度维护核查' : '对比器械 K 号写法'}</h2>
-      <p className="panel-subtitle">工作区第 {version || 1} 版 · 虚构示例</p>
-      <label className="risk-toggle">
-        <input
-          type="checkbox"
-          checked={highRisk}
-          onChange={(event) => {
-            setHighRisk(event.target.checked);
-            setJudgmentSubmitted(false);
-            setJudgment('');
-          }}
-        />
-        演示高风险审核
-      </label>
-      {highRisk && !judgmentSubmitted ? (
-        <div className="independent-judgment">
-          <span className="eyebrow">先形成独立判断</span>
-          <h3>请先写下你的判断</h3>
-          <p>提交后才显示 AI 结论和审核操作。正式版本由后端强制执行。</p>
-          <label htmlFor="independent-judgment">你的独立判断</label>
-          <textarea
-            id="independent-judgment"
-            value={judgment}
-            onChange={(event) => setJudgment(event.target.value)}
-            placeholder="根据原始资料，你认为应如何处理？"
-          />
-          <button
-            type="button"
-            className="button primary"
-            disabled={!judgment.trim()}
-            onClick={() => setJudgmentSubmitted(true)}
-          >
-            提交判断
-          </button>
-        </div>
-      ) : (
-        <>
-          <ReviewSection number="01" title="结论">
-            <p>
-              {maintenance ? (
-                '三项年度维护记录仍需人工核对，暂不判断为完成。'
-              ) : (
-                <>
-                  两份示例资料的对比器械 K 号写法不一致：<strong>K123456</strong> /{' '}
-                  <strong>K123465</strong>。
-                </>
-              )}
-            </p>
-            <span className="tag amber">待注册人员确认</span>
-          </ReviewSection>
-          <ReviewSection number="02" title="需要你做什么">
-            <p>
-              {maintenance
-                ? '核对正式台账、年费付款凭据与美国代理人协议，确认记录状态、适用年度和协议有效期。'
-                : '确认正确号码与差异原因，决定是否通过这份检查记录。此操作不修改原始申报资料。'}
-            </p>
-          </ReviewSection>
-          <ReviewSection number="03" title="改动">
-            <button type="button" className="file-link" onClick={() => setPanel('changes')}>
-              <Icon name="file" />
-              <span>
-                {recordFilename}
-                <small>已保存为第 {version || 1} 版 · 1 个文件</small>
-              </span>
-              <Icon name="chevron" size={14} />
-            </button>
-          </ReviewSection>
-          <ReviewSection number="04" title="关键依据">
-            {sources.map((source, index) => (
-              <button
-                key={source.id}
-                type="button"
-                className="evidence-link"
-                onClick={() => setPanel('evidence')}
-              >
-                [{index + 1}] {source.name} · v1 · 第 {source.page} 页
-                <Icon name="arrow" size={14} />
-              </button>
-            ))}
-            <small className="muted">虚构原文，仅供界面评审。</small>
-          </ReviewSection>
-          <ReviewSection number="05" title="AI 自检">
-            <ul className="check-list">
-              <li>
-                <Icon name="check" size={14} />
-                示例摘录与引用匹配
-              </li>
-              <li>
-                <Icon name="check" size={14} />
-                结果结构完整
-              </li>
-              <li>
-                <Icon name="check" size={14} />
-                未对外发送、未改变原件
-              </li>
-            </ul>
-          </ReviewSection>
-          <ReviewSection number="06" title="不确定事项">
-            <p>
-              {maintenance
-                ? '未核实企业注册状态、付款对应年度与金额、美国代理人协议有效期。法规判断与真实资料均需注册人员确认。'
-                : '尚未核实哪个号码为正确记录。法规判断与真实资料均需注册人员确认。'}
-            </p>
-          </ReviewSection>
-          <ReviewSection number="07" title="操作">
-            {phase === 'approved' ? (
-              <div className="approved-state">
-                <Icon name="check" />
-                <strong>已通过</strong>
-                <p>第 {version || 1} 版 · 仅原型演示</p>
-              </div>
-            ) : (
-              <div className="decision-buttons">
-                <button type="button" className="button primary" onClick={approve}>
-                  通过
-                  <Icon name="check" size={16} />
-                </button>
-                <button
-                  type="button"
-                  className="button secondary"
-                  onClick={() => setDecisionAction('amend')}
-                >
-                  修改后通过
-                </button>
-                <button
-                  type="button"
-                  className="button secondary"
-                  onClick={() => setDecisionAction('return')}
-                >
-                  退回
-                </button>
-                <button
-                  type="button"
-                  className="button quiet"
-                  onClick={() => setDecisionAction('question')}
-                >
-                  追问
-                </button>
-                <button
-                  type="button"
-                  className="button quiet"
-                  onClick={() => setDecisionAction('transfer')}
-                >
-                  转交
-                </button>
-              </div>
-            )}
-            <p className="tiny-note">批准只在审核卡上操作。对话中的“已批准”不算审批。</p>
-          </ReviewSection>
-          {feedbackButtons(-1)}
-        </>
-      )}
-    </>
-  );
+  const completed =
+    thread.phase === 'reading'
+      ? 0
+      : thread.phase === 'approval' ||
+          thread.phase === 'rejected' ||
+          thread.phase === 'read_complete'
+        ? 2
+        : thread.phase === 'finishing'
+          ? 3
+          : thread.phase === 'ready' || thread.phase === 'stopped'
+            ? thread.processCount >= 4
+              ? 2
+              : 0
+            : 4;
+  const steps =
+    project === 'registration'
+      ? [
+          '读取项目说明与 R09 技能',
+          '读取对比器械对照表，第2页',
+          '读取510(k)摘要，第4页',
+          '对照 K123456 与 K123465',
+          thread.conservative ? '保留差异，不选择正确编号' : '记录经确认的笔误判断',
+          '核对原文并提交审核',
+        ]
+      : [
+          '读取项目说明与 M02 技能',
+          '读取企业注册记录，第1页',
+          '读取年费付款凭据，第1页',
+          '读取美国代理人协议，第1页',
+          '更新年度资料核对提醒',
+          '向内部同事王敏发送催办',
+          '核对原文并提交审核',
+        ];
+  const shownSteps =
+    thread.phase === 'reading' ? steps.slice(0, 1) : steps.slice(0, thread.processCount);
+  const setDraft = (value: string) =>
+    view === 'new'
+      ? setNewDraft(value)
+      : update(project, (current) => ({ ...current, draft: value }));
+  const drawerProject = panel?.project ?? project;
+  const drawerThread = threads[drawerProject];
+  const drawerMetadata = projects[drawerProject];
+  const stale = panel !== null && panel.version !== drawerThread.version;
+  const source = panel ? sources[panel.project][panel.sourceIndex] : undefined;
 
   return (
-    <div className={`cert-app ${panel && !sales ? 'has-panel' : ''}`}>
-      <aside className="sidebar" aria-label="主导航">
-        <a
-          href="#"
-          className="brand"
-          onClick={(event) => {
-            event.preventDefault();
-            chooseProject(sales ? 'sales' : 'registration');
+    <div
+      className={`prototype-shell${sidebarOpen ? ' sidebar-open' : ''}${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}
+    >
+      <aside className="left-sidebar" aria-label="项目导航">
+        <div className="sidebar-top">
+          <button
+            className="nav-button"
+            onClick={() => {
+              setView('new');
+              setNewAgent('registration');
+              setNewPermission('ask');
+              setNewDraft('');
+              setPanel(null);
+              setSidebarOpen(false);
+            }}
+          >
+            <Icon name="plus" />
+            新对话
+          </button>
+          <button
+            className="icon-button collapse-sidebar"
+            aria-label="收起侧栏"
+            onClick={() => {
+              setSidebarCollapsed(true);
+              setSidebarOpen(false);
+            }}
+          >
+            <Icon name="panel" />
+          </button>
+        </div>
+        <button className="nav-button search-nav" onClick={() => setSearchOpen(true)}>
+          <Icon name="search" />
+          搜索<span className="shortcut">Ctrl K</span>
+        </button>
+        <button
+          className={`nav-button inbox-nav${view === 'todo' ? ' selected' : ''}`}
+          onClick={() => {
+            setView('todo');
+            setPanel(null);
+            setSidebarOpen(false);
           }}
         >
-          <span className="brand-mark">
-            <Icon name="spark" size={22} />
-          </span>
-          <span>
-            器械认证<small>CERT BOARD</small>
-          </span>
-        </a>
-        <div className="workspace-label">
-          工作空间<span>开发环境</span>
+          <Icon name="inbox" />
+          待我处理{tasks.length > 0 && <span className="pending-count">{tasks.length}</span>}
+        </button>
+        <div className="navigation-groups">
+          <p className="nav-section-label">注册项目</p>
+          <button
+            className={`nav-button${view === 'registration' ? ' selected' : ''}`}
+            onClick={() => openProject('registration')}
+          >
+            <Icon name="folder" />
+            L08 510(k)
+          </button>
+          <button className="conversation-nav" onClick={() => openProject('registration')}>
+            K号写法检查
+          </button>
+          <p className="nav-section-label maintenance-label">维护事项</p>
+          <button
+            className={`nav-button${view === 'maintenance' ? ' selected' : ''}`}
+            onClick={() => openProject('maintenance')}
+          >
+            <Icon name="calendar" />
+            L08 年度注册
+          </button>
+          <button className="conversation-nav" onClick={() => openProject('maintenance')}>
+            年度注册核查
+          </button>
         </div>
-        <nav>
-          {!sales ? (
-            <>
-              <button
-                type="button"
-                className={`nav-item ${project === 'todo' ? 'selected' : ''}`}
-                onClick={() => chooseProject('todo')}
-              >
-                <Icon name="inbox" />
-                <span>待我处理</span>
-                <span className="nav-count">2</span>
-              </button>
-              <div className="nav-group-label">注册项目</div>
-              <button
-                type="button"
-                className={`nav-item ${project === 'registration' ? 'selected' : ''}`}
-                onClick={() => chooseProject('registration')}
-              >
-                <Icon name="folder" />
-                <span>L08 510(k)</span>
-                <i className="nav-dot" />
-              </button>
-              <div className="nav-group-label">维护事项</div>
-              <button
-                type="button"
-                className={`nav-item ${project === 'maintenance' ? 'selected' : ''}`}
-                onClick={() => chooseProject('maintenance')}
-              >
-                <Icon name="calendar" />
-                <span>L08 年度注册</span>
-              </button>
-              <button
-                type="button"
-                className="new-conversation"
-                onClick={() => {
-                  chooseProject(project === 'maintenance' ? 'maintenance' : 'registration');
-                  showDemoNotice('已开始新的示例对话');
-                }}
-              >
-                <Icon name="plus" />
-                新对话
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="nav-group-label">销售工作台</div>
-              <button
-                type="button"
-                className="nav-item selected"
-                onClick={() => chooseProject('sales')}
-              >
-                <Icon name="file" />
-                合规报告
-              </button>
-              <div className="nav-group-label">我的请求</div>
-              <button
-                type="button"
-                className="nav-item"
-                onClick={() => showDemoNotice('当前展示你的两条示例请求')}
-              >
-                <Icon name="list" />
-                我的报告请求<span className="nav-count">2</span>
-              </button>
-            </>
-          )}
-        </nav>
-        <div className="sidebar-footer">
-          <div className="local-status">
-            <span />
-            资料与改动，交由你审核
-          </div>
-          <div className="profile">
-            <span className="avatar">{sales ? '销' : '注'}</span>
-            <div>
-              {sales ? '销售人员' : '注册人员 A'}
-              <small>开发演示账号</small>
-            </div>
-            <span className="profile-indicator">在线</span>
-          </div>
+        <div className="sidebar-bottom">
+          <span>张三</span>
+          <button onClick={() => setSettingsOpen(true)}>
+            <Icon name="settings" />
+            设置
+          </button>
         </div>
       </aside>
-
-      <div className="workspace-main">
-        <header className="topbar">
-          <div className="breadcrumbs">
-            工作空间
-            <Icon name="chevron" size={12} />
-            <span>{title}</span>
-          </div>
-          <div className="prototype-tools">
-            <span className="prototype-badge">界面稿 · 待确认</span>
-            <label>
-              原型角色
-              <select
-                aria-label="原型角色"
-                value={role}
-                onChange={(event) => {
-                  setRole(event.target.value);
-                  chooseProject(event.target.value === 'SALES' ? 'sales' : 'registration');
-                }}
-              >
-                <option value="RA">注册人员 A</option>
-                <option value="SALES">销售人员</option>
-              </select>
-            </label>
-          </div>
+      {sidebarOpen && (
+        <button
+          className="sidebar-scrim"
+          aria-label="关闭项目导航"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      <main className="main-column">
+        <header className="project-header">
+          <button
+            className="icon-button expand-sidebar"
+            aria-label="展开侧栏"
+            onClick={() => {
+              setSidebarCollapsed(false);
+              setSidebarOpen(true);
+            }}
+          >
+            <Icon name="panel" />
+          </button>
+          <h1>{view === 'todo' ? '待我处理' : view === 'new' ? '新对话' : metadata.name}</h1>
+          {active && (
+            <>
+              <span className="conversation-title">{metadata.conversation}</span>
+              <Tabs.Root value={tab} onValueChange={setTab} className="header-tabs">
+                <Tabs.List aria-label="项目内容">
+                  <Tabs.Trigger
+                    value="conversation"
+                    id="project-tab-conversation"
+                    aria-controls="project-content-panel"
+                  >
+                    对话
+                  </Tabs.Trigger>
+                  <Tabs.Trigger
+                    value="files"
+                    id="project-tab-files"
+                    aria-controls="project-content-panel"
+                  >
+                    文件
+                  </Tabs.Trigger>
+                  <Tabs.Trigger
+                    value="sources"
+                    id="project-tab-sources"
+                    aria-controls="project-content-panel"
+                  >
+                    资料
+                  </Tabs.Trigger>
+                </Tabs.List>
+              </Tabs.Root>
+            </>
+          )}
         </header>
-        <div className="project-heading">
-          <div>
-            <div className="eyebrow">
-              {sales
-                ? '销售支持'
-                : project === 'todo'
-                  ? '你的工作队列'
-                  : maintenance
-                    ? '维护事项 / 美国'
-                    : '注册项目 / 美国'}
-            </div>
-            <h1>
-              {title}
-              {project !== 'todo' && !sales && <span className="tag teal">进行中</span>}
-            </h1>
-            <p>
-              {sales
-                ? '申请所需的合规材料，跟踪自己的报告请求。'
-                : project === 'todo'
-                  ? '集中处理需要你审核、判断或补充的信息。'
-                  : maintenance
-                    ? '围绕企业注册、年度费用与美国代理人，核对维护依据。'
-                    : '核对申报资料，保留过程和依据，由人决定最终版本。'}
-            </p>
-          </div>
-          {!sales && project !== 'todo' && (
-            <button
-              type="button"
-              className="button secondary plan-toggle"
-              onClick={() => setPanel(panel === 'plan' ? null : 'plan')}
+        <div
+          className="project-body"
+          id="project-content-panel"
+          role={active ? 'tabpanel' : undefined}
+          aria-labelledby={active ? `project-tab-${tab}` : undefined}
+          tabIndex={active ? 0 : undefined}
+        >
+          {view === 'todo' ? (
+            <section className="todo-content" aria-label="待我处理事项">
+              <p className="secondary">批准下一步操作，或审核已提交的结果。</p>
+              {tasks.length === 0 ? (
+                <div className="empty-todo">
+                  <Icon name="check" />
+                  <p>暂时没有需要你处理的事项</p>
+                  <button className="text-button" onClick={() => openProject('registration')}>
+                    进入L08项目
+                  </button>
+                </div>
+              ) : (
+                tasks.map((key) => (
+                  <button
+                    className="todo-row"
+                    key={key}
+                    onClick={() => {
+                      openProject(key);
+                      if (threads[key].phase === 'review') openPanel('review', key);
+                    }}
+                  >
+                    <Icon name={threads[key].phase === 'approval' ? 'inbox' : 'file'} />
+                    <span>
+                      <span className="todo-kind">
+                        {threads[key].phase === 'approval' ? '批准请求' : '待审核'}
+                      </span>
+                      <span>{projects[key].name}</span>
+                      <small>
+                        {threads[key].phase === 'approval'
+                          ? key === 'registration'
+                            ? '确认对比器械K号的处理判断'
+                            : '更新提醒并发送内部催办'
+                          : projects[key].filename}
+                      </small>
+                    </span>
+                    <span className="todo-action">
+                      {threads[key].phase === 'approval' ? '处理批准请求' : '查看审核'}
+                    </span>
+                  </button>
+                ))
+              )}
+            </section>
+          ) : active && tab !== 'conversation' ? (
+            <section
+              className="library-view"
+              aria-label={tab === 'files' ? '项目文件' : '项目资料'}
             >
-              <Icon name="list" size={16} />
-              计划与待办
-            </button>
+              <div className="library-heading">
+                <h2>{tab === 'files' ? '工作区文件' : '资料库'}</h2>
+                <button
+                  className="text-button"
+                  onClick={() => setNotice('当前不能添加附件，请先使用资料库中的资料。')}
+                >
+                  添加{tab === 'files' ? '文件' : '资料'}
+                </button>
+              </div>
+              {tab === 'files' ? (
+                <>
+                  <button className="file-row" onClick={() => openPanel('file')}>
+                    <Icon name="file" />
+                    <span>
+                      AGENTS.md<small>项目说明</small>
+                    </span>
+                    <span className="secondary">第1版</span>
+                  </button>
+                  {['review', 'approved', 'returned', 'transferred'].includes(thread.phase) && (
+                    <button className="file-row" onClick={() => openPanel('changes')}>
+                      <Icon name="file" />
+                      <span>
+                        {metadata.filename}
+                        <small>核查记录</small>
+                      </span>
+                      <span className="secondary">第{thread.version}版</span>
+                    </button>
+                  )}
+                </>
+              ) : (
+                sources[project].map((item, index) => (
+                  <button
+                    className="file-row"
+                    key={item.id}
+                    onClick={() => openPanel('evidence', project, index)}
+                  >
+                    <Icon name="file" />
+                    <span>
+                      {item.name}
+                      <small>
+                        {item.id}，第1版，第{item.page}页
+                      </small>
+                    </span>
+                    <span className="secondary">查看原文</span>
+                  </button>
+                ))
+              )}
+              {notice && (
+                <p className="inline-notice" role="status">
+                  {notice}
+                </p>
+              )}
+            </section>
+          ) : (
+            <>
+              <div className="conversation-scroll">
+                <section className="conversation-content" aria-label="对话记录">
+                  {view === 'new' || thread.messages.length === 0 ? (
+                    <div className="welcome">
+                      <h2>
+                        {project === 'registration'
+                          ? '从需要核对的问题开始'
+                          : '一起处理年度注册事项'}
+                      </h2>
+                      <p className="secondary">
+                        {project === 'registration'
+                          ? '读取资料、对照依据，把判断和改动交给你审核。'
+                          : '核对资料、跟进提醒，把结果和未确认事项交给你审核。'}
+                      </p>
+                      <button
+                        className="suggested-task"
+                        onClick={() => {
+                          setDraft(metadata.prompt);
+                          composer.current?.focus();
+                        }}
+                      >
+                        <Icon name="file" />
+                        {metadata.task}
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {thread.messages.map((entry) => (
+                        <article className={`chat-message ${entry.role}`} key={entry.id}>
+                          {entry.role === 'agent' && <p className="agent-name">{metadata.agent}</p>}
+                          <SafeMarkdown>{entry.text}</SafeMarkdown>
+                          {entry.role === 'agent' && (
+                            <div className="message-feedback">
+                              <button
+                                onClick={() =>
+                                  update(project, (current) => ({
+                                    ...current,
+                                    feedback: { ...current.feedback, [entry.id]: '已记录有用反馈' },
+                                  }))
+                                }
+                              >
+                                有用
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setFeedbackReason(entry.id);
+                                  setFeedbackText('');
+                                }}
+                              >
+                                没用
+                              </button>
+                              {thread.feedback[entry.id] && (
+                                <span role="status">{thread.feedback[entry.id]}</span>
+                              )}
+                            </div>
+                          )}
+                        </article>
+                      ))}
+                      <section className="process-section" aria-label="工具过程">
+                        <button
+                          className="process-toggle"
+                          aria-expanded={processOpen}
+                          onClick={() => setProcessOpen(!processOpen)}
+                        >
+                          <span className={processOpen ? 'chevron-open' : ''}>
+                            <Icon name="chevron" />
+                          </span>
+                          {isRunning ? '正在执行' : '已执行'} {shownSteps.length} 步
+                        </button>
+                        {processOpen && (
+                          <ol className="tool-steps">
+                            {shownSteps.map((step, index) => (
+                              <li key={step}>
+                                <Icon
+                                  name={
+                                    isRunning && index === shownSteps.length - 1 ? 'clock' : 'check'
+                                  }
+                                />
+                                <span>{step}</span>
+                              </li>
+                            ))}
+                            <li>
+                              <button className="text-button" onClick={() => openPanel('details')}>
+                                运行详情
+                              </button>
+                            </li>
+                          </ol>
+                        )}
+                      </section>
+                      {['approval', 'review', 'approved', 'read_complete'].includes(
+                        thread.phase,
+                      ) && (
+                        <div className="inline-evidence">
+                          <span className="secondary">原文依据</span>
+                          {sources[project].map((item, index) => (
+                            <button
+                              key={item.id}
+                              className="citation"
+                              title={`${item.name}，第${item.page}页`}
+                              aria-label={`查看依据${index + 1}：${item.name}`}
+                              onClick={() => openPanel('evidence', project, index)}
+                            >
+                              <sup>{index + 1}</sup>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {['review', 'approved', 'returned', 'transferred'].includes(thread.phase) && (
+                        <div className="result-row">
+                          <span>
+                            {phaseText[thread.phase]}：{metadata.filename}
+                          </span>
+                          <button className="primary-text" onClick={() => openPanel('review')}>
+                            审核
+                          </button>
+                          <button className="text-button" onClick={() => openPanel('changes')}>
+                            查看改动
+                          </button>
+                        </div>
+                      )}
+                      {thread.phase === 'rejected' && project === 'registration' && (
+                        <button className="text-button" onClick={continueDifferences}>
+                          仅列差异并继续
+                        </button>
+                      )}
+                    </>
+                  )}
+                  <div ref={endOfMessages} />
+                </section>
+              </div>
+              <div className="composer-area">
+                {active && thread.phase !== 'ready' && (
+                  <section className="plan-block" aria-label="计划与待办">
+                    <button
+                      className="plan-toggle"
+                      aria-expanded={planOpen}
+                      onClick={() => setPlanOpen(!planOpen)}
+                    >
+                      <span className={planOpen ? 'chevron-open' : ''}>
+                        <Icon name="chevron" />
+                      </span>
+                      计划与待办
+                      <span className="secondary">第 {Math.min(completed + 1, 4)} 步，共 4 步</span>
+                    </button>
+                    {planOpen && (
+                      <ol>
+                        {metadata.plan.map((step, index) => (
+                          <li key={step} className={index < completed ? 'plan-done' : ''}>
+                            {index < completed ? (
+                              <Icon name="check" />
+                            ) : (
+                              <span className="plan-check" />
+                            )}
+                            <span>{step}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </section>
+                )}
+                {active && thread.phase === 'approval' && (
+                  <section className="approval-card" aria-label="批准请求">
+                    <h2>
+                      {project === 'registration' ? '确认这项判断后继续' : '允许更新提醒并催办'}
+                    </h2>
+                    {project === 'registration' ? (
+                      <>
+                        <p>
+                          建议将 <code>K123465</code> 作为笔误处理，候选统一为 <code>K123456</code>
+                          。
+                        </p>
+                        <p className="secondary">
+                          改前：两处编号不同，尚未选择正确编号。
+                          <br />
+                          改后：在核查记录中记录候选统一写法；原始资料不变。
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p>将核对提醒设为每周一，并向内部同事王敏催办付款信息与协议签署页。</p>
+                        <p className="secondary">
+                          改前：提醒未设置，资料待核对。
+                          <br />
+                          改后：记录提醒并发送一条内部催办。
+                        </p>
+                      </>
+                    )}
+                    <div className="approval-buttons">
+                      <button className="primary-button" onClick={() => allow(false)}>
+                        允许
+                      </button>
+                      <button className="secondary-button" onClick={() => allow(true)}>
+                        本对话中都允许
+                      </button>
+                      <button className="text-button" onClick={() => setRejectOpen(true)}>
+                        拒绝
+                      </button>
+                    </div>
+                    {rejectOpen && (
+                      <div className="reason-form">
+                        <label htmlFor="approval-reason">拒绝原因</label>
+                        <textarea
+                          id="approval-reason"
+                          value={rejectReason}
+                          onChange={(event) => setRejectReason(event.target.value)}
+                          placeholder="可选，说明希望如何调整"
+                        />
+                        <button className="secondary-button" onClick={reject}>
+                          确认拒绝
+                        </button>
+                      </div>
+                    )}
+                  </section>
+                )}
+                {active && thread.phase !== 'ready' && (
+                  <div className="run-status" role="status">
+                    <span>
+                      {phaseText[thread.phase]}
+                      {`，第 ${Math.min(completed + 1, 4)} 步，共 4 步`}
+                    </span>
+                    <span className="secondary">已用 {duration(thread.elapsed)}</span>
+                    {isRunning && (
+                      <button className="text-button" onClick={stop}>
+                        停止运行
+                      </button>
+                    )}
+                  </div>
+                )}
+                {notice && (
+                  <p className="inline-notice" role="status">
+                    {notice}
+                  </p>
+                )}
+                <div className="composer">
+                  <textarea
+                    ref={composer}
+                    aria-label="给Agent的消息"
+                    placeholder={`让${metadata.agent}做什么？`}
+                    value={text}
+                    rows={2}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (
+                        event.key === 'Enter' &&
+                        !event.shiftKey &&
+                        !event.nativeEvent.isComposing &&
+                        event.keyCode !== 229
+                      ) {
+                        event.preventDefault();
+                        send();
+                      }
+                    }}
+                  />
+                  <div className="composer-toolbar">
+                    <button
+                      className="composer-control"
+                      onClick={() => setNotice('当前不能添加附件，请先使用资料库中的资料。')}
+                    >
+                      <Icon name="attach" />
+                      附件
+                    </button>
+                    {view === 'new' ? (
+                      <select
+                        aria-label="选择Agent"
+                        value={newAgent}
+                        onChange={(event) => setNewAgent(event.target.value as ProjectKey)}
+                      >
+                        <option value="registration">注册Agent</option>
+                        <option value="maintenance">维护Agent</option>
+                      </select>
+                    ) : (
+                      <span className="fixed-agent">{metadata.agent}</span>
+                    )}
+                    <select
+                      aria-label="权限模式"
+                      value={permission}
+                      title={permissionDescriptions[permission]}
+                      onChange={(event) => changePermission(event.target.value as Permission)}
+                    >
+                      <option value="read_only">只读</option>
+                      <option value="ask">请求批准</option>
+                      <option value="full">完全允许</option>
+                    </select>
+                    {isRunning ? (
+                      <button className="primary-button send-button" onClick={stop}>
+                        <Icon name="stop" />
+                        停止
+                      </button>
+                    ) : (
+                      <button
+                        className="primary-button send-button"
+                        disabled={!text.trim()}
+                        onClick={send}
+                      >
+                        发送
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="mode-description">
+                  {permissionDescriptions[permission]}
+                  {isRunning && ' 输入后按回车可以补充要求。'}
+                </p>
+              </div>
+            </>
           )}
         </div>
-        <div className="demo-strip">
-          <span className="demo-dot" />
-          示例数据 · 未调用模型<span className="demo-strip-note">所有号码、摘录和状态均为虚构</span>
-        </div>
-        {notice && (
-          <div className="notice" role="status">
-            <span>{notice}</span>
-            <button type="button" aria-label="关闭提示" onClick={() => setNotice('')}>
-              <Icon name="close" size={14} />
+      </main>
+      {panel && (
+        <aside
+          className="right-panel"
+          aria-label={
+            panel.kind === 'review'
+              ? '审核详情'
+              : panel.kind === 'evidence'
+                ? '原文依据'
+                : panel.kind === 'changes'
+                  ? '文件改动'
+                  : panel.kind === 'details'
+                    ? '运行详情'
+                    : '文件内容'
+          }
+        >
+          <header className="panel-header">
+            <h2 ref={drawerTitle} tabIndex={-1}>
+              {panel.kind === 'review'
+                ? '审核'
+                : panel.kind === 'evidence'
+                  ? '原文依据'
+                  : panel.kind === 'changes'
+                    ? '改动'
+                    : panel.kind === 'details'
+                      ? '运行详情'
+                      : '项目说明'}
+            </h2>
+            <button className="icon-button" aria-label="关闭右栏" onClick={closePanel}>
+              <Icon name="close" />
             </button>
-          </div>
-        )}
-
-        {sales ? (
-          <section className="sales-page">
-            <div className="section-heading">
-              <h2>我的报告请求</h2>
-              <button
-                type="button"
-                className="button primary"
-                onClick={() => setSalesRequestOpen(true)}
-              >
-                <Icon name="plus" size={16} />
-                申请合规报告
-              </button>
-            </div>
-            <div className="request-card">
-              <span className="document-icon">
-                <Icon name="file" size={23} />
-              </span>
-              <div>
-                <h3>L08 美国市场销售资料包</h3>
-                <p>示例请求 SR-001 · 用途：客户资料预审</p>
-              </div>
-              <span className="tag amber">等待注册人员</span>
-            </div>
-            <div className="request-card">
-              <span className="document-icon">
-                <Icon name="file" size={23} />
-              </span>
-              <div>
-                <h3>L08 产品合规报告</h3>
-                <p>示例请求 SR-002 · 申请人：当前销售账号</p>
-              </div>
-              <button
-                type="button"
-                className="button secondary"
-                onClick={() => showDemoNotice('此处展示报告下载入口，界面稿未生成可用报告')}
-              >
-                查看报告
-              </button>
-            </div>
-            <p className="muted access-note">
-              销售视图只展示自己的请求。正式版本由后端执行访问授权。
-            </p>
-          </section>
-        ) : project === 'todo' ? (
-          <section className="todo-page">
-            <div className="section-heading">
-              <h2>
-                需要你的决定 <span>2</span>
-              </h2>
-              <span className="muted">示例工作队列</span>
-            </div>
-            <button
-              type="button"
-              className="todo-card"
-              onClick={() => openExampleReview('registration')}
-            >
-              <span className="document-icon amber">
-                <Icon name="file" size={23} />
-              </span>
-              <div>
-                <span className="eyebrow">L08 510(k) · 审核</span>
-                <h3>对比器械 K 号写法核查</h3>
-                <p>1 项候选差异 · 工作区第 1 版</p>
-              </div>
-              <span className="tag amber">待审核</span>
-              <Icon name="arrow" />
-            </button>
-            <button
-              type="button"
-              className="todo-card"
-              onClick={() => openExampleReview('maintenance')}
-            >
-              <span className="document-icon">
-                <Icon name="calendar" size={23} />
-              </span>
-              <div>
-                <span className="eyebrow">L08 年度注册 · 维护</span>
-                <h3>年度维护核查结果</h3>
-                <p>3 项记录待确认 · 不代表真实逾期</p>
-              </div>
-              <span className="tag">待确认</span>
-              <Icon name="arrow" />
-            </button>
-          </section>
-        ) : (
-          <Tabs.Root value={tab} onValueChange={setTab} className="project-tabs">
-            <Tabs.List className="tab-list" aria-label="项目内容">
-              <Tabs.Trigger value="conversation">
-                对话<span>1</span>
-              </Tabs.Trigger>
-              <Tabs.Trigger value="files">
-                文件<span>{version ? '2' : '1'}</span>
-              </Tabs.Trigger>
-              <Tabs.Trigger value="documents">
-                资料<span>{sources.length}</span>
-              </Tabs.Trigger>
-              <span className="tab-list-spacer" />
-              <span className={`conversation-status ${phase === 'running' ? 'is-running' : ''}`}>
-                <i />
-                {phaseLabels[phase]}
-              </span>
-            </Tabs.List>
-            <Tabs.Content value="conversation" className="conversation-content">
-              <div className="conversation-scroll">
-                <div className="conversation-date">
-                  演示会话 <span />
-                  今天
-                </div>
-                {maintenance && (
-                  <div className="maintenance-overview">
-                    <div className="section-heading">
-                      <h2>本次维护概览</h2>
-                      <span className="tag">M02</span>
-                    </div>
-                    <div className="maintenance-grid">
-                      {['企业注册', '年度费用', '美国代理人'].map((item) => (
-                        <div key={item}>
-                          <Icon name="calendar" size={17} />
-                          <strong>{item}</strong>
-                          <span>待核对</span>
-                        </div>
+          </header>
+          <div className="panel-scroll">
+            {panel.kind === 'review' ? (
+              <>
+                <p className="review-version">
+                  工作区第{panel.version}版，{drawerMetadata.filename}
+                </p>
+                {stale && (
+                  <div className="version-warning" role="alert">
+                    工作区版本已变化，请刷新审核内容。
+                    <button
+                      className="text-button"
+                      onClick={() => openPanel('review', panel.project)}
+                    >
+                      刷新审核
+                    </button>
+                  </div>
+                )}
+                <ReviewSection title="结论">
+                  <p className="review-conclusion">
+                    {conclusion(panel.project, panel.conservative)}
+                  </p>
+                </ReviewSection>
+                <ReviewSection title="需要你做什么">
+                  <p>
+                    {panel.project === 'registration'
+                      ? '核对候选处理与两处原文；同意则通过，不同意请退回修改。'
+                      : '核对提醒和催办内容是否恰当，并确认待补充的原件范围。'}
+                  </p>
+                </ReviewSection>
+                <ReviewSection title="过程中作出的判断">
+                  <dl className="decision-list">
+                    <dt>事项</dt>
+                    <dd>
+                      {panel.project === 'registration' ? '对比器械K号的写法' : '年度资料跟进方式'}
+                    </dd>
+                    <dt>Agent的选择</dt>
+                    <dd>
+                      {panel.project === 'registration'
+                        ? panel.conservative
+                          ? '保留差异，暂不选择正确编号。'
+                          : '将 K123465 作为笔误记录，候选统一为 K123456。'
+                        : '先更新资料核对提醒，再向内部同事王敏催办原件。'}
+                    </dd>
+                    <dt>考虑过的备选</dt>
+                    <dd>
+                      {panel.project === 'registration'
+                        ? '保留两处差异，等待原件核对后再作判断。'
+                        : '暂不更新提醒，等待全部原件到齐后集中核对。'}
+                    </dd>
+                    <dt>理由</dt>
+                    <dd>
+                      {panel.project === 'registration'
+                        ? '两处字段指向同一对比器械，数字顺序不同；本次处理不改写原始资料。'
+                        : '三项资料均有待核对信息，先跟进原件有助于完成年度核查。'}
+                    </dd>
+                    <dt>依据</dt>
+                    <dd>
+                      {sources[panel.project].map((item, index) => (
+                        <button
+                          className="source-link"
+                          key={item.id}
+                          onClick={() => openPanel('evidence', panel.project, index)}
+                        >
+                          {item.name}，第{item.page}页
+                        </button>
                       ))}
-                    </div>
-                    <p>这是演示提醒，不是真实逾期。请先核对依据，再确认维护状态。</p>
-                    <button
-                      type="button"
-                      className="button secondary"
-                      onClick={() => startCheck('查看 L08 年度维护核查结果')}
-                    >
-                      查看核查结果
-                      <Icon name="arrow" size={15} />
-                    </button>
-                  </div>
-                )}
-                <article className="message agent-message">
-                  <span className="agent-avatar">
-                    <Icon name="spark" size={19} />
-                  </span>
-                  <div className="message-body">
-                    <div className="message-author">
-                      器械认证 Agent<span>演示</span>
-                    </div>
-                    <SafeMarkdown>
-                      {maintenance
-                        ? '我会把维护事项的记录、来源和不确定信息放在一起，交给你核对。你可以先查看核查结果，也可以告诉我想检查哪一项。'
-                        : '我可以帮你检查申报资料，整理差异和依据。完成后，我会提交审核，原始资料的处理由你决定。'}
-                    </SafeMarkdown>
-                    {!maintenance && messages.length === 0 && (
-                      <button
-                        type="button"
-                        className="starter-task"
-                        onClick={() => startCheck('检查 L08 申报资料中对比器械 K 号的写法')}
-                      >
-                        <span>
-                          <Icon name="search" size={18} />
-                          <span>
-                            <strong>检查对比器械 K 号的写法</strong>
-                            <small>读取资料 → 核对依据 → 提交审核</small>
-                          </span>
-                        </span>
-                        <span className="starter-action">
-                          开始检查
-                          <Icon name="arrow" size={17} />
-                        </span>
-                      </button>
-                    )}
-                  </div>
-                </article>
-                {messages.map((message) => (
-                  <article
-                    className={`message ${message.role === 'user' ? 'user-message' : 'agent-message'}`}
-                    key={message.id}
+                    </dd>
+                    <dt>风险高低</dt>
+                    <dd>
+                      高。
+                      {panel.project === 'registration'
+                        ? '正确编号仍需原件确认。'
+                        : '年度适用性与期限仍需原件确认。'}
+                    </dd>
+                  </dl>
+                </ReviewSection>
+                <ReviewSection title="改动">
+                  <p>
+                    {panel.project === 'registration'
+                      ? '新增核查记录，记录两处引文和处理判断。'
+                      : '新增年度核查记录，记录提醒与内部催办。'}
+                  </p>
+                  <button
+                    className="text-button"
+                    onClick={() => openPanel('changes', panel.project)}
                   >
-                    {message.role === 'agent' ? (
-                      <span className="agent-avatar">
-                        <Icon name="spark" size={19} />
-                      </span>
-                    ) : (
-                      <span className="user-avatar">你</span>
-                    )}
-                    <div className="message-body">
-                      <div className="message-author">
-                        {message.role === 'user' ? '你' : '器械认证 Agent'}
-                        {message.role === 'agent' && <span>演示</span>}
-                      </div>
-                      {message.role === 'agent' && version > 0 && processDetails}
-                      <SafeMarkdown>{message.text}</SafeMarkdown>
-                      {message.role === 'agent' && feedbackButtons(message.id)}
-                    </div>
-                  </article>
-                ))}
-                {phase === 'running' && (
-                  <article className="message agent-message">
-                    <span className="agent-avatar">
-                      <Icon name="spark" size={19} />
-                    </span>
-                    <div className="message-body">
-                      <div className="message-author">
-                        器械认证 Agent<span>演示运行</span>
-                      </div>
-                      {processDetails}
-                      <p className="muted">读取项目说明，整理待核对的资料…</p>
-                    </div>
-                  </article>
-                )}
-                {version > 0 && phase !== 'running' && (
-                  <div className="result-area">
-                    <div className="change-card">
-                      <span>
-                        <Icon name="file" size={18} />
-                        <strong>本轮改动</strong>
-                      </span>
-                      <button type="button" onClick={() => setPanel('changes')}>
-                        {recordFilename}
-                        <Icon name="chevron" size={14} />
+                    查看文件改动
+                  </button>
+                </ReviewSection>
+                <ReviewSection title="依据">
+                  {sources[panel.project].map((item, index) => (
+                    <div className="review-evidence" key={item.id}>
+                      <button
+                        className="source-link"
+                        onClick={() => openPanel('evidence', panel.project, index)}
+                      >
+                        {item.name}，第{item.page}页
                       </button>
-                      <small>已保存为第 {version} 版 · 演示</small>
+                      <blockquote>{item.quote}</blockquote>
                     </div>
+                  ))}
+                </ReviewSection>
+                <ReviewSection title="自检">
+                  <p className="check-result">
+                    <Icon name="check" />
+                    原文摘录与资料页一致
+                  </p>
+                  <p className="check-result">
+                    <Icon name="check" />
+                    结构化结果完整
+                  </p>
+                  <p className="secondary">未运行法规适用性、期限及数值单位检查。</p>
+                </ReviewSection>
+                <ReviewSection title="不确定事项">
+                  <p>
+                    {panel.project === 'registration'
+                      ? '本次对照不能单独证明哪个K号正确；发布前仍需核对原始申报记录。'
+                      : '适用年度、付款金额和协议有效期未完成原件确认，不据此认定逾期或注册有效。'}
+                  </p>
+                </ReviewSection>
+              </>
+            ) : panel.kind === 'evidence' ? (
+              <>
+                <div className="evidence-tabs">
+                  {sources[panel.project].map((item, index) => (
                     <button
-                      type="button"
-                      className={`review-summary ${phase === 'approved' ? 'approved' : ''}`}
-                      onClick={() => setPanel('review')}
+                      className={index === panel.sourceIndex ? 'current-source' : ''}
+                      key={item.id}
+                      onClick={() => setPanel({ ...panel, sourceIndex: index })}
                     >
-                      <span className="review-summary-icon">
-                        <Icon name={phase === 'approved' ? 'check' : 'inbox'} size={21} />
-                      </span>
-                      <span>
-                        <strong>
-                          {phase === 'approved' ? '审核已通过' : '检查结果已提交审核'}
-                        </strong>
-                        <small>
-                          {maintenance ? '3 项维护记录' : '1 项候选差异'} · 工作区第 {version} 版 ·{' '}
-                          {phaseLabels[phase]}
-                        </small>
-                      </span>
-                      <span className="review-summary-action">
-                        查看审核卡
-                        <Icon name="arrow" size={16} />
-                      </span>
+                      {item.name}
                     </button>
-                  </div>
+                  ))}
+                </div>
+                {source && (
+                  <>
+                    <p className="secondary">
+                      {source.id}，资料第1版，第{source.page}页
+                    </p>
+                    <div className="evidence-comparison">
+                      <section className="parsed-source" aria-label="解析原文">
+                        <h3>解析原文</h3>
+                        {source.text.split('\n').map((line, index) => (
+                          <p key={index}>{line === source.quote ? <mark>{line}</mark> : line}</p>
+                        ))}
+                      </section>
+                      <section className="source-original" aria-label="原页">
+                        <h3>原页</h3>
+                        <div className="source-page">
+                          <p className="source-page-title">{source.name}</p>
+                          {source.text.split('\n').map((line, index) => (
+                            <p key={index}>{line === source.quote ? <mark>{line}</mark> : line}</p>
+                          ))}
+                          <p className="source-page-number">{source.page}</p>
+                        </div>
+                      </section>
+                    </div>
+                  </>
                 )}
-                <Collapsible.Root className="run-details">
-                  <Collapsible.Trigger>
-                    <Icon name="chevron" size={13} />
-                    运行详情
-                  </Collapsible.Trigger>
-                  <Collapsible.Content>
-                    <dl>
+                {['review', 'approved', 'returned', 'transferred'].includes(drawerThread.phase) && (
+                  <button
+                    className="text-button"
+                    onClick={() => openPanel('review', panel.project)}
+                  >
+                    返回审核
+                  </button>
+                )}
+              </>
+            ) : panel.kind === 'changes' ? (
+              <>
+                <p className="review-version">工作区第{panel.version}版</p>
+                <h3 className="filename">{drawerMetadata.filename}</h3>
+                <p className="secondary">新增核查记录；原始资料未修改。</p>
+                <div className="diff-lines">
+                  {(panel.project === 'registration'
+                    ? [
+                        '+ 对比器械对照表：K123456',
+                        '+ 510(k)摘要：K123465',
+                        panel.conservative
+                          ? '+ 处理：保留差异，暂不选择正确编号'
+                          : '+ 处理：将 K123465 作为笔误记录，候选统一为 K123456',
+                        '+ 原始资料保持不变，正确编号待核对',
+                      ]
+                    : [
+                        '+ 企业注册状态：适用年度待核对',
+                        '+ 年费付款凭据：年度与金额待核对',
+                        '+ 美国代理人协议：有效期待核对',
+                        '+ 核对提醒：每周一',
+                        '+ 内部催办：王敏',
+                      ]
+                  ).map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                </div>
+                <button className="text-button" onClick={() => openPanel('review', panel.project)}>
+                  返回审核
+                </button>
+              </>
+            ) : panel.kind === 'file' ? (
+              <>
+                <h3 className="filename">AGENTS.md</h3>
+                <SafeMarkdown>{`本项目由${drawerMetadata.agent}处理。\n\n先读取项目说明和相关技能，列出计划，核对原文并逐步汇报；判断按当前权限模式处理，最后提交审核。\n\n${panel.project === 'registration' ? '资料：对比器械对照表、510(k)摘要。' : '资料：企业注册记录、年费付款凭据、美国代理人协议。'}`}</SafeMarkdown>
+              </>
+            ) : (
+              <>
+                <p>执行方式：按当前对话的权限模式处理。</p>
+                <p>已用时间：{duration(drawerThread.elapsed)}</p>
+                <p>资料读取：{sources[panel.project].length}份</p>
+                <p>工作区版本：第{panel.version}版</p>
+                <p className="secondary">过程摘要保留在对话中；参数原文默认收起。</p>
+              </>
+            )}
+          </div>
+          {panel.kind === 'review' && (
+            <footer className="review-actions" aria-label="审核操作">
+              {drawerThread.phase === 'approved' ? (
+                <p className="approved-state">
+                  <Icon name="check" />
+                  审核已通过
+                </p>
+              ) : drawerThread.phase === 'returned' || drawerThread.phase === 'transferred' ? (
+                <p>{phaseText[drawerThread.phase]}</p>
+              ) : (
+                <>
+                  <div className="review-action-buttons">
+                    <button
+                      className="primary-button"
+                      onClick={approve}
+                      disabled={stale || drawerThread.phase !== 'review'}
+                    >
+                      通过
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => {
+                        setDecision('return');
+                        setDecisionReason('');
+                      }}
+                      disabled={stale || drawerThread.phase !== 'review'}
+                    >
+                      退回修改
+                    </button>
+                    <details className="more-actions">
+                      <summary>更多操作</summary>
                       <div>
-                        <dt>运行方式</dt>
-                        <dd>本页静态演示</dd>
-                      </div>
-                      <div>
-                        <dt>工具调用</dt>
-                        <dd>3 步示例，未执行真实工具</dd>
-                      </div>
-                      <div>
-                        <dt>用量 / 费用</dt>
-                        <dd>0 tokens / $0（未调用模型）</dd>
-                      </div>
-                      <div>
-                        <dt>子 Agent / 评测</dt>
-                        <dd>未运行 / 未运行</dd>
-                      </div>
-                    </dl>
-                    <p>事件：开始 → 读取示例 → 检查示例 → 提交审核。正式运行会逐条记录。</p>
-                  </Collapsible.Content>
-                </Collapsible.Root>
-                <Collapsible.Root className="question-example">
-                  <Collapsible.Trigger>
-                    <Icon name="chevron" size={13} />
-                    查看提问卡示例
-                  </Collapsible.Trigger>
-                  <Collapsible.Content>
-                    <div className="question-card">
-                      <h3>{maintenance ? '这项维护事项应如何处理？' : '这项差异应如何记录？'}</h3>
-                      <p>请结合原始资料，选择一个处理方向。</p>
-                      <div className="question-options">
-                        {(maintenance
-                          ? ['保留待核对状态', '补充凭据后重新核查']
-                          : ['先列为待确认差异', '按笔误记录，补充依据']
-                        ).map((answer) => (
+                        {(['amend', 'question', 'transfer'] as const).map((action) => (
                           <button
-                            type="button"
-                            className={`button secondary ${questionAnswer === answer ? 'is-selected' : ''}`}
-                            key={answer}
+                            key={action}
                             onClick={() => {
-                              setQuestionAnswer(answer);
-                              showDemoNotice(`已选择：${answer}`);
+                              setDecision(action);
+                              setDecisionReason('');
                             }}
                           >
-                            {answer}
+                            {action === 'amend'
+                              ? '修改后通过'
+                              : action === 'question'
+                                ? '追问'
+                                : '转交他人'}
                           </button>
                         ))}
                       </div>
-                      {questionAnswer && <small role="status">你的回答：{questionAnswer}</small>}
-                    </div>
-                  </Collapsible.Content>
-                </Collapsible.Root>
-              </div>
-              <form
-                className="composer-area"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  startCheck(input);
-                }}
-              >
-                <div className="composer">
-                  <textarea
-                    ref={inputRef}
-                    aria-label="发送给器械认证Agent的消息"
-                    value={input}
-                    onChange={(event) => setInput(event.target.value)}
-                    placeholder={
-                      version ? '提出修改意见，或继续检查其他内容…' : '告诉 Agent 你希望完成什么…'
-                    }
-                    rows={2}
-                  />
-                  <div className="composer-actions">
-                    <button
-                      type="button"
-                      className="attach-button"
-                      onClick={() => showDemoNotice('附件入口已展示；真实上传在后续版本实现')}
-                    >
-                      <Icon name="attach" size={17} />
-                      附件
-                    </button>
-                    <span className="composer-context">
-                      {maintenance ? 'M02 年度维护' : 'L08 项目工作区'}
-                      <span>·</span>执行模式
-                    </span>
-                    {phase === 'running' && (
-                      <button type="button" className="button stop-button" onClick={stopRun}>
-                        <span />
-                        停止
+                    </details>
+                  </div>
+                  {decision && (
+                    <div className="reason-form">
+                      <label htmlFor="review-reason">
+                        {decision === 'return'
+                          ? '退回原因'
+                          : decision === 'amend'
+                            ? '修改意见'
+                            : decision === 'question'
+                              ? '追问内容'
+                              : '转交说明'}
+                      </label>
+                      {decision === 'transfer' && <p className="secondary">转交给王敏</p>}
+                      <textarea
+                        id="review-reason"
+                        value={decisionReason}
+                        onChange={(event) => setDecisionReason(event.target.value)}
+                      />
+                      <button
+                        className="secondary-button"
+                        disabled={!decisionReason.trim() || stale}
+                        onClick={decide}
+                      >
+                        {decision === 'return'
+                          ? '确认退回'
+                          : decision === 'amend'
+                            ? '记录修改并通过'
+                            : decision === 'question'
+                              ? '发送追问'
+                              : '确认转交'}
                       </button>
-                    )}
-                    <button
-                      type="submit"
-                      className="button primary send-button"
-                      disabled={!input.trim()}
-                    >
-                      发送
-                      <Icon name="arrow" size={16} />
-                    </button>
-                  </div>
-                </div>
-                <p className="composer-footnote">
-                  AI 的结论需要你审核。此界面稿使用虚构数据，不作法规或申报依据。
-                </p>
-              </form>
-            </Tabs.Content>
-            <Tabs.Content value="files" className="collection-page">
-              <div className="section-heading">
-                <h2>项目工作区</h2>
-                <button
-                  type="button"
-                  className="button secondary"
-                  onClick={() => showDemoNotice('上传修改稿尚未接入，未选择或保存任何文件')}
-                >
-                  <Icon name="attach" size={16} />
-                  上传修改稿
-                </button>
-              </div>
-              <div className="file-table">
-                <div className="file-table-head">
-                  <span>文件</span>
-                  <span>版本</span>
-                  <span>状态</span>
-                  <span>操作</span>
-                </div>
-                <div className="file-table-row">
-                  <span>
-                    <Icon name="file" />
-                    AGENTS.md<small>项目说明</small>
-                  </span>
-                  <span>v1</span>
-                  <span>示例</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      showDemoNotice('项目说明：先读资料与技能，执行、自查，再提交审核')
-                    }
-                  >
-                    查看
-                  </button>
-                </div>
-                {version > 0 && (
-                  <div className="file-table-row">
-                    <span>
-                      <Icon name="file" />
-                      {recordFilename}
-                      <small>Agent 交付物</small>
-                    </span>
-                    <span>v{version}</span>
-                    <span>{phase === 'approved' ? '已定稿（演示）' : '待审核'}</span>
-                    <button type="button" onClick={() => setPanel('changes')}>
-                      对比
-                    </button>
-                  </div>
-                )}
-              </div>
-              <p className="muted">工作副本独立；保存基于后端版本，冲突时不会覆盖他人的修改。</p>
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => showDemoNotice('历史版本入口已展示，当前仅有本页示例版本')}
-              >
-                查看历史版本
-                <Icon name="clock" size={14} />
-              </button>
-            </Tabs.Content>
-            <Tabs.Content value="documents" className="collection-page">
-              <div className="section-heading">
-                <h2>项目资料库</h2>
-                <button
-                  type="button"
-                  className="button secondary"
-                  onClick={() => showDemoNotice('导入资料尚未接入，未上传任何内容')}
-                >
-                  <Icon name="plus" size={16} />
-                  添加资料
-                </button>
-              </div>
-              <div className="source-notice">以下资料和摘录均为虚构示例，不是真实 L08 原文。</div>
-              {sources.map((document) => (
-                <button
-                  type="button"
-                  className="document-card"
-                  key={document.id}
-                  onClick={() => setPanel('evidence')}
-                >
-                  <span className="document-icon">
-                    <Icon name="file" size={25} />
-                  </span>
-                  <span>
-                    <strong>{document.name}.pdf</strong>
-                    <small>
-                      {document.id} · v1 · 第 {document.page} 页 · 内部
-                    </small>
-                  </span>
-                  <span className="tag teal">已解析（示例）</span>
-                  <Icon name="arrow" size={17} />
-                </button>
-              ))}
-              <div
-                className="upload-zone"
-                role="region"
-                aria-label="资料导入演示区"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  showDemoNotice('已识别拖放动作；界面稿不会读取或上传文件');
-                }}
-              >
-                <Icon name="attach" size={21} />
-                <strong>将资料放到这里</strong>
-                <span>拖放交互示例；实际导入在后续版本实现</span>
-              </div>
-            </Tabs.Content>
-          </Tabs.Root>
-        )}
-      </div>
-
-      {panel && !sales && (
-        <aside className="inspector" aria-label="审核详情">
-          <div className="inspector-toolbar">
-            <span>
-              {panel === 'review'
-                ? '审核卡'
-                : panel === 'evidence'
-                  ? '证据原文'
-                  : panel === 'changes'
-                    ? '改动对比'
-                    : '计划与待办'}
-            </span>
-            <button type="button" aria-label="关闭侧栏" onClick={() => setPanel(null)}>
-              <Icon name="close" size={18} />
-            </button>
-          </div>
-          <div className="inspector-content">
-            {panel === 'review' ? (
-              reviewCard
-            ) : panel === 'evidence' ? (
-              <>
-                <div className="eyebrow">只读证据 · 虚构示例</div>
-                <h2>{maintenance ? '三项维护记录的来源' : '同一差异的两处来源'}</h2>
-                <p className="panel-subtitle">资料库版本固定，点击引用回到原文。</p>
-                {sources.map((source) => (
-                  <section className="source-excerpt" key={source.id}>
-                    <span className="eyebrow">
-                      {source.id} · v1 · 第 {source.page} 页
-                    </span>
-                    <h3>{source.name}</h3>
-                    <p>
-                      {source.prefix}
-                      <mark>{source.highlight}</mark>
-                      {source.suffix}
-                    </p>
-                    <small>虚构原文，不对应真实 L08 资料。</small>
-                  </section>
-                ))}
-                <div className="page-preview">
-                  <span>原页占位 · 非真实 PDF</span>
-                  <div className="paper-page">
-                    <strong>示例资料</strong>
-                    <p>{maintenance ? '企业注册示例记录' : 'Predicate Device'}</p>
-                    <div />
-                    <div />
-                    <p className="highlight-line">
-                      {maintenance ? '企业注册状态：待核对' : '510(k): K123456'}
-                    </p>
-                    <div />
-                    <div />
-                    <small>此区域展示原页位置与高亮样式。</small>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="button secondary full-width"
-                  onClick={() => setPanel('review')}
-                >
-                  返回审核卡
-                </button>
-              </>
-            ) : panel === 'changes' ? (
-              <>
-                <div className="eyebrow">工作区版本对比</div>
-                <h2>{recordFilename}</h2>
-                <p className="panel-subtitle">
-                  {version > 1 ? `第 ${version - 1} 版 → 第 ${version} 版` : '工作副本 → 第 1 版'} ·
-                  虚构示例
-                </p>
-                <div className="diff-stats">
-                  <span>+ 3 行</span>
-                  <span>− 1 行</span>
-                </div>
-                <div className="diff-view">
-                  <div className="diff-context">
-                    <span>1</span>
-                    {maintenance ? '# 年度维护核查记录' : '# 对比器械 K 号检查记录'}
-                  </div>
-                  <div className="diff-removed">
-                    <span>−</span>
-                    {maintenance ? '待核对维护依据。' : '待核对资料写法。'}
-                  </div>
-                  {diffLines.map((line) => (
-                    <div className="diff-added" key={line}>
-                      <span>+</span>
-                      {line}
                     </div>
-                  ))}
-                </div>
-                <p className="tiny-note">仅修改工作区检查记录，原始资料保持只读。</p>
-                <button
-                  type="button"
-                  className="button secondary full-width"
-                  onClick={() => setPanel('review')}
-                >
-                  返回审核卡
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="eyebrow">本次任务</div>
-                <h2>{maintenance ? '年度维护核查' : '核对对比器械 K 号'}</h2>
-                <p className="panel-subtitle">每一步保留来源，最终由你审核。</p>
-                <ol className="plan-list">
-                  {planSteps.map((step, index) => (
-                    <li
-                      key={step}
-                      className={
-                        version > 0 && (index < 3 || phase === 'approved') ? 'complete' : ''
-                      }
-                    >
-                      <span>
-                        {version > 0 && (index < 3 || phase === 'approved') ? (
-                          <Icon name="check" size={14} />
-                        ) : (
-                          index + 1
-                        )}
-                      </span>
-                      <div>
-                        <strong>{step}</strong>
-                        <small>
-                          {index === 3 ? phaseLabels[phase] : version ? '已完成（演示）' : '待执行'}
-                        </small>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-                <div className="plan-note">
-                  <strong>交付物</strong>
-                  <p>
-                    {maintenance
-                      ? '一份带来源的年度维护核查记录，以及需要人确认的三项维护事项。'
-                      : '一份带来源的检查记录，以及需要人判断的事项。'}
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
+                  )}
+                </>
+              )}
+            </footer>
+          )}
         </aside>
       )}
-
-      <Dialog.Root
-        open={decisionAction !== null}
-        onOpenChange={(open) => {
-          if (!open) setDecisionAction(null);
-        }}
-      >
+      <Dialog.Root modal={false} open={searchOpen} onOpenChange={setSearchOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content
+            className="dialog-content search-dialog"
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              searchInput.current?.focus();
+            }}
+          >
+            <div className="dialog-title-row">
+              <Dialog.Title>搜索</Dialog.Title>
+              <Dialog.Close className="icon-button" aria-label="关闭搜索">
+                <Icon name="close" />
+              </Dialog.Close>
+            </div>
+            <Dialog.Description className="secondary">查找项目、事项或对话。</Dialog.Description>
+            <input
+              ref={searchInput}
+              aria-label="搜索项目或对话"
+              placeholder="搜索项目或对话"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            {(['registration', 'maintenance'] as const)
+              .filter((key) =>
+                `${projects[key].name}${projects[key].conversation}`
+                  .toLowerCase()
+                  .includes(search.toLowerCase()),
+              )
+              .map((key) => (
+                <button
+                  className="search-result"
+                  key={key}
+                  onClick={() => {
+                    openProject(key);
+                    setSearchOpen(false);
+                  }}
+                >
+                  <Icon name="folder" />
+                  <span>
+                    {projects[key].name}
+                    <small>{projects[key].conversation}</small>
+                  </span>
+                </button>
+              ))}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <Dialog.Root modal={false} open={settingsOpen} onOpenChange={setSettingsOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay" />
           <Dialog.Content className="dialog-content">
-            <Dialog.Title>
-              {decisionAction ? decisionLabels[decisionAction] : '处理审核'}
-            </Dialog.Title>
-            <Dialog.Description>
-              请留下处理说明。这里仅演示交互，不会提交真实审批。
-            </Dialog.Description>
-            {decisionAction === 'transfer' && (
-              <label>
-                转交给
-                <select>
-                  <option>注册人员 B（示例）</option>
-                  <option>技术维护人员（示例）</option>
-                </select>
-              </label>
-            )}
-            <label htmlFor="decision-note">处理说明</label>
-            <textarea
-              id="decision-note"
-              value={decisionNote}
-              onChange={(event) => setDecisionNote(event.target.value)}
-              placeholder="说明修改、退回、追问或转交的原因…"
-            />
-            <div className="dialog-actions">
-              <Dialog.Close className="button secondary">取消</Dialog.Close>
-              <button
-                type="button"
-                className="button primary"
-                disabled={!decisionNote.trim()}
-                onClick={confirmDecision}
-              >
-                确认{decisionAction ? decisionLabels[decisionAction] : ''}
-              </button>
+            <div className="dialog-title-row">
+              <Dialog.Title>设置</Dialog.Title>
+              <Dialog.Close className="icon-button" aria-label="关闭设置">
+                <Icon name="close" />
+              </Dialog.Close>
             </div>
+            <Dialog.Description className="secondary">账户与使用偏好。</Dialog.Description>
+            <p>当前成员：张三</p>
+            <p>显示时区：北京时间</p>
+            <button
+              className="text-button"
+              onClick={() => setNotice('维护页尚未接入，可在后续版本管理用户、模型和预算。')}
+            >
+              打开维护页
+            </button>
+            {notice && (
+              <p role="status" className="secondary">
+                {notice}
+              </p>
+            )}
+            <p className="development-note">
+              开发环境：界面稿待确认，所有资料和人物均为虚构示例；仅本地交互，不调用模型或后端，不向真实对象发送消息。
+            </p>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
       <Dialog.Root
+        modal={false}
         open={feedbackReason !== null}
         onOpenChange={(open) => {
           if (!open) setFeedbackReason(null);
@@ -1344,71 +1513,45 @@ export function PrototypeApp() {
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay" />
           <Dialog.Content className="dialog-content">
-            <Dialog.Title>告诉我们哪里没用</Dialog.Title>
-            <Dialog.Description>
-              你的反馈会帮助改进技能；本页反馈仅用于交互演示。
+            <div className="dialog-title-row">
+              <Dialog.Title>反馈</Dialog.Title>
+              <Dialog.Close className="icon-button" aria-label="关闭反馈">
+                <Icon name="close" />
+              </Dialog.Close>
+            </div>
+            <Dialog.Description className="secondary">
+              说明哪一处没有帮助，方便调整。
             </Dialog.Description>
-            <label htmlFor="feedback-reason">反馈原因</label>
+            <label htmlFor="feedback-text">反馈原因</label>
             <textarea
-              id="feedback-reason"
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder="例如：依据不够清楚，或遗漏了重要资料…"
+              id="feedback-text"
+              value={feedbackText}
+              onChange={(event) => setFeedbackText(event.target.value)}
             />
-            <div className="dialog-actions">
-              <Dialog.Close className="button secondary">取消</Dialog.Close>
-              <button
-                type="button"
-                className="button primary"
-                disabled={!reason.trim()}
-                onClick={() => {
-                  if (feedbackReason !== null)
-                    setFeedback((current) => ({ ...current, [feedbackReason]: 'not-useful' }));
-                  setFeedbackReason(null);
-                  setReason('');
-                  showDemoNotice('已记录反馈原因');
-                }}
-              >
-                提交反馈
-              </button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-      <Dialog.Root open={salesRequestOpen} onOpenChange={setSalesRequestOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="dialog-overlay" />
-          <Dialog.Content className="dialog-content">
-            <Dialog.Title>申请合规报告</Dialog.Title>
-            <Dialog.Description>
-              填写需求，交给注册人员准备资料。界面稿不会创建真实请求。
-            </Dialog.Description>
-            <label>
-              产品 / 型号
-              <input defaultValue="L08（示例）" />
-            </label>
-            <label>
-              用途
-              <textarea placeholder="说明客户、市场与需要的材料…" />
-            </label>
-            <div className="dialog-actions">
-              <Dialog.Close className="button secondary">取消</Dialog.Close>
-              <button
-                type="button"
-                className="button primary"
-                onClick={() => {
-                  setSalesRequestOpen(false);
-                  showDemoNotice('申请入口已展示，尚未创建真实报告请求');
-                }}
-              >
-                提交申请示例
-              </button>
-            </div>
+            <button
+              className="primary-button"
+              onClick={() => {
+                if (feedbackReason !== null)
+                  update(project, (current) => ({
+                    ...current,
+                    feedback: { ...current.feedback, [feedbackReason]: '已记录反馈' },
+                  }));
+                setFeedbackReason(null);
+              }}
+            >
+              提交反馈
+            </button>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
     </div>
   );
 }
-
-export default PrototypeApp;
+function ReviewSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="review-section">
+      <h3>{title}</h3>
+      {children}
+    </section>
+  );
+}

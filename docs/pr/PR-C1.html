@@ -22,7 +22,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="没做什么">没做什么</h2>
 <ul><li>不提前修改角色/模式/审核接口、Agent定义或界面：分别在C3/C4/21/C2实施。</li><li>不逐章重写四份旧方案；正文合并前按已确认变更单的优先规则执行。</li><li>不把当前临时自行合并授权变成永久仓库政策；D22第二人复核尚未确认，不提前强制。</li></ul>
 <h2 id="验收结果">验收结果</h2>
-<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td>原件只读及副本一致性</td><td>原件复制前后SHA256一致；LF规范化后副本逐字一致</td></tr><tr><td><code>pnpm docs:html</code></td><td>通过，50份离线HTML，含变更单和本PR说明</td></tr><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，315项单元测试</td></tr><tr><td>AGENTS与变更单逐条核对</td><td>B.4及共享读取、发起人过程控制、工作方法联动条款已同步；合并前独立复审</td></tr><tr><td>GitHub CI、AI审查、密钥扫描</td><td>索引与历史密钥扫描、提交后CI及最终AI审查全部通过后才合并；结果更新PR正文及下一次进度归档</td></tr></tbody></table>
+<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td>原件只读及副本一致性</td><td>原件复制前后SHA256一致；LF规范化后副本逐字一致</td></tr><tr><td><code>pnpm docs:html</code></td><td>通过，50份离线HTML，含变更单和本PR说明</td></tr><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，315项单元测试</td></tr><tr><td>AGENTS与变更单逐条核对</td><td>B.4及共享读取、发起人过程控制、工作方法联动条款已同步；合并前独立复审</td></tr><tr><td>GitHub CI、AI审查、密钥扫描</td><td>全部通过，CI 44246267704、独立Codex最终复审无阻断；head36ca615，合并36c6e4e；索引及全Git历史扫描无泄漏</td></tr></tbody></table>
 <p>原件SHA256：F72693649452044430134FAE237F70DA5702B5921EABA06FD39E3CB51E24E206。没有新增业务代码或数据库迁移，因此本PR不额外进行真实模型或数据库专项验收；持续集成仍运行完整现有检查。</p>
 <h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
 <ul><li>变更单1.1～1.6、附录A及B.2/B.4；本变更单优先于旧方案冲突项。</li></ul>

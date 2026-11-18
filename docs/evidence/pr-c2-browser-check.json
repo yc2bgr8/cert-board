@@ -1,0 +1,126 @@
+{
+  "verifiedAtUtc": "2026-11-18 06:29:37 UTC",
+  "kind": "本地静态界面稿；不代表真实业务或模型验收",
+  "address": "http://127.0.0.1:28080",
+  "previewCsp": "default-src 'self'; script-src 'self'; img-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; style-src 'self'; connect-src 'self'",
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 900,
+      "sidebar": 248,
+      "rightPanel": 520,
+      "main": 672,
+      "bodyFont": "15px",
+      "horizontalOverflow": false
+    },
+    {
+      "bodyFont": "15px",
+      "font": "\"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", \"Segoe UI\", system-ui, sans-serif",
+      "height": 800,
+      "horizontalOverflow": false,
+      "main": 512,
+      "rightPanel": 520,
+      "sidebar": 248,
+      "width": 1280
+    }
+  ],
+  "flows": {
+    "evidenceSideBySide": true,
+    "finalApproval": true,
+    "inboxBothKinds": true,
+    "maintenanceFullLocalOnly": true,
+    "registrationApprovalReview": true
+  },
+  "browser": {
+    "desktop1440": {
+      "consoleErrors": 0,
+      "pageErrors": 0,
+      "externalRequests": 0,
+      "apiRequests": 0
+    },
+    "desktop1280": {
+      "apiRequests": [],
+      "consoleErrors": [],
+      "externalRequests": [],
+      "pageErrors": []
+    },
+    "dialogsAndKeyboard": {
+      "apiRequests": [],
+      "consoleErrors": [],
+      "externalRequests": [],
+      "pageErrors": []
+    },
+    "feedback": {
+      "apiRequests": [],
+      "consoleErrors": [],
+      "externalRequests": [],
+      "pageErrors": []
+    }
+  },
+  "keyboard": {
+    "searchFocus": true,
+    "escapeReturnsReviewFocus": "审核",
+    "focusStyle": {
+      "color": "rgb(42, 77, 143)",
+      "outline": "2px",
+      "style": "solid"
+    },
+    "tabs": [
+      {
+        "labelledByExists": true,
+        "name": "对话",
+        "panelRole": "tabpanel",
+        "targetExists": true
+      },
+      {
+        "labelledByExists": true,
+        "name": "文件",
+        "panelRole": "tabpanel",
+        "targetExists": true
+      },
+      {
+        "labelledByExists": true,
+        "name": "资料",
+        "panelRole": "tabpanel",
+        "targetExists": true
+      }
+    ],
+    "narrow": {
+      "horizontalOverflow": false,
+      "width": 1023
+    },
+    "activeMotionWithReducedPreference": 0,
+    "feedbackSubmitted": true
+  },
+  "componentOnly": [
+    "中文输入法Enter不发送",
+    "Shift+Enter",
+    "运行中插话",
+    "停止不虚报工具",
+    "批准拒绝",
+    "模式切换",
+    "待处理对话禁止覆盖"
+  ],
+  "contrast": {
+    "inkOnPaper": 16.54,
+    "mutedOnPaper": 5.8,
+    "mutedOnSidebar": 5.36,
+    "accentOnPaper": 8.21,
+    "successOnPaper": 5.04,
+    "attentionOnPaper": 4.44,
+    "attentionOnSidebar": 4.11
+  },
+  "attentionColorUsage": "对比度不足4.5，仅用于图标/边框，不作小号文字颜色",
+  "screenshots": [
+    "pr-c2-registration-approval-1440x900.png",
+    "pr-c2-inbox-1440x900.png",
+    "pr-c2-maintenance-review-1440x900.png",
+    "pr-c2-registration-review-1440x900.png",
+    "pr-c2-evidence-1440x900.png",
+    "pr-c2-registration-approval-1280x800.png",
+    "pr-c2-inbox-1280x800.png",
+    "pr-c2-maintenance-review-1280x800.png",
+    "pr-c2-registration-review-1280x800.png",
+    "pr-c2-evidence-1280x800.png"
+  ]
+}

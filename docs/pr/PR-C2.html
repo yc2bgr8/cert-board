@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr">PR</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#附录a-8逐条截图自查">附录A.8逐条截图自查</a><a class="level-2" href="#对应的需求和技术方案">对应的需求和技术方案</a><a class="level-2" href="#真实模型测试">真实模型测试</a><a class="level-2" href="#新增依赖">新增依赖</a><a class="level-2" href="#风险和需要lan决定的事">风险和需要Lan决定的事</a></nav><main><h2 id="pr">PR</h2>
+<p>PR-C2 按附录A重做静态界面稿</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>按变更单附录A重做白底、浅灰侧栏、对话居中及按需右栏，使用指定设计变量与系统字体。</li><li>演示注册Agent的请求批准、维护Agent的完全允许，以及待我处理中的批准请求和待审核结果。</li><li>过程判断进入八部分审核；计划、逐步进度和可展开工具过程留在对话中。角色选择、销售视图及高风险先写判断取消。</li><li>保留安全Markdown、本地资源策略，演示说明只在设置中显示。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>本PR仅静态交互，不接后端、真实模型、真实业务写入或消息发送；C3/C4/21/25/26/27继续实现正式行为。</li><li>PDF原页和Word解析对比仍需后续解析服务；此处只展示虚构解析摘录和文本改动。</li><li>手机端按D16后续决定；本次主要验收1440×900和1280×800，并检查小于1024时侧栏收起。</li><li>静态稿每个项目只保留一条活动演示对话；已有运行、批准请求或待审结果时阻止新对话覆盖。真正多对话持久历史在PR-25/26实现。刷新页面会重置演示状态。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code>、<code>pnpm build</code></td><td>全部通过，328项单元测试；补充插话回归及最后类型修正目标验证通过</td></tr><tr><td>三条组件路径与键盘回归</td><td>22项原型行为及原4项Markdown安全测试；包括模式切换、拒绝、停止、插话、中文IME及ARIA关联</td></tr><tr><td>两组桌面截图、浏览器网络与控制台</td><td>1440×900、1280×800各5张；三路径和审核通过、原文/原页并排通过；无横向溢出，后端API/外部请求/最终控制台及页面错误均0</td></tr><tr><td>原生浏览器键盘/响应式</td><td>Ctrl+K聚焦、Esc返回审核触发器、2px墨蓝焦点；1023侧栏自动收起且可展开关闭；减少动态效果下过渡/动画计数0</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描、CI、AI复审</td><td>51份离线HTML；提交前扫描，提交后CI及最终复审全部通过后才合并</td></tr></tbody></table>
+<p>旧组件测试的调整依据：销售隔离和角色切换由变更单1.1取消；高风险每个版本先写独立判断由1.4第5条取消。对应测试改为成员界面、过程批准与直接显示八部分结果，不修改或跳过SafeMarkdown安全回归。维护资料不串入注册K号、停止后旧计时器不提交结果等已有有效回归继续保留。</p>
+<p>其他期望调整：主界面原型标记依A.8移到设置；证据文件名去掉“示例”字样，仍保持三类维护证据独立；拒绝后的结果按“保留差异/暂不选择正确编号”验证原有待确认语义。浏览器辅助脚本不再强求设置中出现“示例数据”四字，改为核对实际“虚构示例、仅本地交互、不调用模型后端、不向真实对象发送”说明，安全断言保持。</p>
+<p>发现并先红后绿修复：只读或停止不再列出未执行的写入/提交；切回ask不能借旧finishing计时器绕过批准；无结果的原文页不能提前打开预设审核；新对话不能抹去待处理记录；搜索焦点及Tabs的controls/tabpanel关系修正。原生浏览器还发现Radix模态弹窗注入样式触发CSP，搜索/设置/反馈改为非模态对话，不修改CSP；三项style标签注入回归及真实浏览器复测通过。</p>
+<h2 id="附录a-8逐条截图自查">附录A.8逐条截图自查</h2>
+<p>已实际查看10张截图，1280对话标题初版隐藏的问题已修复并重截4张项目状态图，复核通过。</p>
+<table><thead><tr><th>A.8要求</th><th>截图自查结果</th></tr></thead><tbody><tr><td>不加装饰编号</td><td>通过；仅计划步数、引用编号和资料本身的标识符/页码</td></tr><tr><td>无眉题、点分隔元信息串、按钮尾箭头</td><td>通过；空态Agent眉题已移除，项目与对话名普通一行呈现</td></tr><tr><td>无深色侧栏、渐变、插图、阴影卡片套卡片</td><td>通过；白底、浅灰侧栏、细分隔线，纸页框仅表示资料原页</td></tr><tr><td>徽章克制</td><td>通过；仅待处理数量和必要检查状态，没有角色或装饰徽章</td></tr><tr><td>主界面无原型标记</td><td>通过；开发说明仅在设置中，浏览器另验设置文字</td></tr><tr><td>仅人触发的短过渡，遵守减少动态效果</td><td>截图无装饰动态；CSS仅手动展开的180ms过渡，浏览器reduce偏好下有效动态计数0</td></tr></tbody></table>
+<p>A.9文字对比：正文墨色对白16.54，灰字对白5.80、对侧栏5.36，墨蓝对白8.21，通过色对白5.04，均满足正常文字AA。注意色不用于小号文字。侧栏实测248px、右栏520px，正文15px及指定系统字体；见<a href="../evidence/pr-c2-browser-check.json">浏览器记录</a>。</p>
+<h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>
+<ul><li>变更单1.1～1.6、附录A和B.2；技术方案3章仅采用未被变更替代的部分。设计依据见docs/界面稿评审.md。</li></ul>
+<h2 id="真实模型测试">真实模型测试</h2>
+<p>无。累计费用仍为0.000599248美元，未结算预占0；演示发送没有网络调用。</p>
+<h2 id="新增依赖">新增依赖</h2>
+<p>无，复用已有React、Radix和安全Markdown组件。</p>
+<h2 id="风险和需要lan决定的事">风险和需要Lan决定的事</h2>
+<ul><li>界面仍待注册人员确认，按现有授权先验收并继续后续实现；原PR-03截图已被本PR替代。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
