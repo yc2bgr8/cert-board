@@ -180,6 +180,31 @@ function versionToken(value: unknown): string | null {
     );
   return parsed.data;
 }
+const safeReviewHints = new Map<string, string>([
+  [
+    'REVIEW_READ_REQUIRED',
+    '每条完整引文都须有本对话成功的doc_read回执。请重新读取对应资料版本和页码，确保一段结果完整包含引文，再提交审核。',
+  ],
+  [
+    'REVIEW_EVIDENCE_INSUFFICIENT',
+    '至少需要两条不同的完整资料引文；重复引用或仅改变空白不增加证据数。请补充doc_read取得的依据后重试。',
+  ],
+  [
+    'REVIEW_CHECK_FAILED',
+    '关键检查未通过，尚未建立审核卡。请先用check_run查看问题，修正引用、来源或结构后再提交。',
+  ],
+  [
+    'REVIEW_SKILL_UNAVAILABLE',
+    '技能编号或版本不在当前已登记版本中。请先读取当前技能，不要猜测版本后重试。',
+  ],
+  [
+    'REVIEW_INPUT_INVALID',
+    '结构化交付格式不正确。请按工具说明补齐字段，并用check_run检查后再提交。',
+  ],
+  ['REVIEW_DIFF_LIMIT', '改动文件超过当前审核上限，请缩小交付范围后重新保存和提交。'],
+  ['REVIEW_FILE_LIMIT', '工作区文件数量超过当前审核上限，请缩小交付范围后重试。'],
+]);
+
 async function callback<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
@@ -201,7 +226,8 @@ async function callback<T>(operation: () => Promise<T>): Promise<T> {
       throw fail(
         error.statusCode,
         'TOOL_DATA_REJECTED',
-        '输入或业务检查未通过，请核对参数、分页位置或资料解析状态后重试。',
+        safeReviewHints.get(error.code) ??
+          '输入或业务检查未通过，请核对参数、分页位置或资料解析状态后重试。',
       );
     throw fail(
       500,

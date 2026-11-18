@@ -11,5 +11,6 @@ export default defineConfig({
       '**/*.l08.test.ts',
     ],
     testTimeout: 15_000,
+    maxWorkers: 4,
   },
 });
