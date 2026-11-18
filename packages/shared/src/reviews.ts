@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { checkReportSchema, documentCitationSchema, structuredSubmissionSchema } from './checks.js';
+import {
+  checkReportSchema,
+  documentCitationSchema,
+  structuredSubmissionSchema,
+  legacyStructuredSubmissionSchema,
+} from './checks.js';
 import { sha256Schema } from './documents.js';
 import { workspacePathSchema } from './workspace-path.js';
 
@@ -112,13 +117,25 @@ const common = {
   createdAt: instant,
   decidedAt: instant.nullable(),
 };
-export const reviewCardViewSchema = z
+const legacyReviewSubmissionSchema = z
+  .object({
+    ...legacyStructuredSubmissionSchema.shape,
+    decisions: z.tuple([]),
+  })
+  .strict()
+  .superRefine((submission, context) => {
+    // 派生展示字段不属于历史存储内容；旧结构的完整校验和64000字符上限仍照常执行。
+    const { decisions: _decisions, ...stored } = submission;
+    const parsed = legacyStructuredSubmissionSchema.safeParse(stored);
+    if (!parsed.success)
+      for (const issue of parsed.error.issues)
+        context.addIssue({ code: 'custom', message: issue.message, path: issue.path });
+  });
+const reviewCardBaseSchema = z
   .object({
     ...common,
     requiresJudgment: z.literal(false),
-    legacySubmission: z.boolean(),
     sections: reviewSectionsSchema,
-    submission: structuredSubmissionSchema,
     checks: checkReportSchema,
     diff: reviewDiffSchema,
     evidenceRefs: z.array(reviewEvidenceRefSchema).max(40),
@@ -136,11 +153,17 @@ export const reviewCardViewSchema = z
       .nullable()
       .default(null),
   })
-  .strict()
-  .refine(
-    (card) => !card.legacySubmission || card.submission.decisions.length === 0,
-    '历史结果只能按原始缺失字段显示为空判断清单，不能伪造已记录的Agent判断。',
-  );
+  .strict();
+export const reviewCardViewSchema = z.discriminatedUnion('legacySubmission', [
+  reviewCardBaseSchema.extend({
+    legacySubmission: z.literal(false),
+    submission: structuredSubmissionSchema,
+  }),
+  reviewCardBaseSchema.extend({
+    legacySubmission: z.literal(true),
+    submission: legacyReviewSubmissionSchema,
+  }),
+]);
 export type ReviewCardView = z.infer<typeof reviewCardViewSchema>;
 export const reviewDecisionResultSchema = z
   .object({

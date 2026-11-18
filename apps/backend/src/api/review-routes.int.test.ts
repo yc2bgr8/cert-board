@@ -28,6 +28,26 @@ const decision = (
 
 async function legacyCard() {
   const { decisions: _decisions, ...submission } = context.submission;
+  const claim = submission.claims[0]!;
+  submission.claims = Array.from({ length: 20 }, (_, index) => ({
+    ...claim,
+    id: `C${index + 1}`,
+    object: '资料'.repeat(100),
+    field: '字段'.repeat(100),
+    value: '记录'.repeat(1000),
+    sources: [submission.evidence[0]!],
+  }));
+  submission.uncertain = Array.from({ length: 20 }, () => '待核对'.repeat(160));
+  submission.missing = Array.from({ length: 20 }, () => '待补充'.repeat(160));
+  // 历史合法上限只计原始结构，展示时新增空数组会越过新提交的上限。
+  let extra = JSON.stringify(submission).length - 63_995;
+  for (const item of submission.claims) {
+    const value = String(item.value);
+    const remove = Math.min(extra, value.length - 1);
+    item.value = value.slice(0, value.length - remove);
+    extra -= remove;
+  }
+  expect(JSON.stringify(submission)).toHaveLength(63_995);
   const checks = await checkSubmission(
     context.pool,
     { runId: context.caller.runId, userId: context.caller.userId },

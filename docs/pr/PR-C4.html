@@ -21,8 +21,9 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="没做什么">没做什么</h2>
 <ul><li>八部分的正式浏览器界面与原文卡在 PR-27 接入。过程批准后执行原调用和续跑在 PR-21 接入。</li><li>当前继续支持通过与退回。修改后通过、追问、转交和后续唤醒按执行方案继续实现。</li></ul>
 <h2 id="验收结果">验收结果</h2>
-<table><thead><tr><th>检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code>、<code>pnpm build</code></td><td>通过，293 项单元测试</td></tr><tr><td><code>pnpm eval:agent</code></td><td>26 项通过</td></tr><tr><td><code>pnpm test:int</code></td><td>39 个文件、311 项全量通过。涵盖过程判断、版本、旧卡、成员审批及冻结</td></tr><tr><td>日常库及结构校验</td><td>0011 应用成功，重复迁移新增 0。Drizzle 无结构差异</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描、CI 与独立审查</td><td>待最后验收</td></tr></tbody></table>
+<table><thead><tr><th>检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code>、<code>pnpm build</code></td><td>通过，最终 296 项单元测试</td></tr><tr><td><code>pnpm eval:agent</code></td><td>26 项通过</td></tr><tr><td><code>pnpm test:int</code></td><td>39 个文件、311 项全量通过。历史长度边界修复后复跑审核接口，12 项通过</td></tr><tr><td>日常库及结构校验</td><td>0011 应用成功，重复迁移新增 0。Drizzle 无结构差异</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描、CI 与独立审查</td><td>待最后验收</td></tr></tbody></table>
 <p>旧成员迁移测试改为显式分阶段加载 SQL，仍严格断言 0009 → 0010 独立适用。首轮全量遇到过一次本机连接 <code>EADDRINUSE</code>。独立重跑和最后一轮全量均通过。</p>
+<p>复审发现 63995 至 64000 字符的合法旧卡，可能在展示时因新增空数组越过新提交上限。添加 PG 接口与共享模式的边界回归，历史视图按旧结构计量长度，新提交保持 64000 字符限制。</p>
 <h2 id="对应变更">对应变更</h2>
 <ul><li>变更单 1.4 与附录 B.2，技术方案 4.8 与 4.10，决定记录 D-024。</li></ul>
 <h2 id="模型与依赖">模型与依赖</h2>

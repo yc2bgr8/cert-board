@@ -8,7 +8,11 @@ import {
   reviewPolicySchema,
   reviewSections,
 } from './reviews.js';
-import { documentCitationSchema } from './checks.js';
+import {
+  documentCitationSchema,
+  legacyStructuredSubmissionSchema,
+  structuredSubmissionSchema,
+} from './checks.js';
 
 const id = '10000000-0000-4000-8000-000000000001';
 const now = '2026-11-18T02:00:00.000Z';
@@ -71,7 +75,133 @@ function visible() {
   };
 }
 
+function legacyAtLength(length: number) {
+  const value = legacyStructuredSubmissionSchema.parse({
+    skill,
+    workspaceVersion: id,
+    conclusion: 'x',
+    claims: Array.from({ length: 20 }, (_, index) => ({
+      id: `C${index}`,
+      object: 'x',
+      field: 'x',
+      value: 'x',
+      unit: null,
+      sources: [citation],
+      status: 'checked',
+    })),
+    evidence: [citation, { ...citation, quote: '另一处完整引文' }],
+    missing: Array.from({ length: 20 }, () => 'x'),
+    uncertain: Array.from({ length: 20 }, () => 'x'),
+    nextStep: 'x',
+  });
+  let remaining = length - JSON.stringify(value).length;
+  const grow = (read: () => string, write: (text: string) => void, maximum: number) => {
+    const amount = Math.min(maximum - read().length, Math.max(0, remaining));
+    write('x'.repeat(read().length + amount));
+    remaining -= amount;
+  };
+  for (const claim of value.claims) {
+    grow(
+      () => claim.object,
+      (text) => {
+        claim.object = text;
+      },
+      200,
+    );
+    grow(
+      () => claim.field,
+      (text) => {
+        claim.field = text;
+      },
+      200,
+    );
+    grow(
+      () => String(claim.value),
+      (text) => {
+        claim.value = text;
+      },
+      2000,
+    );
+  }
+  for (const entries of [value.missing, value.uncertain])
+    for (let index = 0; index < entries.length; index++)
+      grow(
+        () => entries[index]!,
+        (text) => {
+          entries[index] = text;
+        },
+        500,
+      );
+  grow(
+    () => value.conclusion,
+    (text) => {
+      value.conclusion = text;
+    },
+    2000,
+  );
+  grow(
+    () => value.nextStep,
+    (text) => {
+      value.nextStep = text;
+    },
+    1000,
+  );
+  expect(remaining).toBe(0);
+  return value;
+}
+
 describe('审核卡边界契约', () => {
+  it.each([63995, 64000])('长度%d的合法历史卡显示空判断清单，不占用历史输入额度', (length) => {
+    const legacy = legacyAtLength(length);
+    const original = JSON.stringify(legacy);
+    expect(original.length).toBe(length);
+    expect(legacyStructuredSubmissionSchema.safeParse(legacy).success).toBe(true);
+    const projected = { ...legacy, decisions: [] };
+    expect(JSON.stringify(projected).length).toBe(length + 15);
+    const historical = reviewCardViewSchema.safeParse({
+      ...visible(),
+      legacySubmission: true,
+      submission: projected,
+    });
+    expect(historical.success).toBe(true);
+    if (historical.success) expect(historical.data.submission.decisions).toEqual([]);
+    expect(JSON.stringify(legacy) === original).toBe(true);
+    expect(structuredSubmissionSchema.safeParse(projected).success).toBe(false);
+    expect(
+      reviewCardViewSchema.safeParse({
+        ...visible(),
+        legacySubmission: false,
+        submission: projected,
+      }).success,
+    ).toBe(false);
+  });
+  it('历史展示仍执行旧输入的长度、重复陈述和未知字段限制', () => {
+    expect(
+      reviewCardViewSchema.safeParse({
+        ...visible(),
+        legacySubmission: true,
+        submission: { ...legacyAtLength(64001), decisions: [] },
+      }).success,
+    ).toBe(false);
+    const view = visible();
+    expect(
+      reviewCardViewSchema.safeParse({
+        ...view,
+        legacySubmission: true,
+        submission: {
+          ...view.submission,
+          claims: [view.submission.claims[0], view.submission.claims[0]],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      reviewCardViewSchema.safeParse({
+        ...view,
+        legacySubmission: true,
+        submission: { ...view.submission, approved: true },
+      }).success,
+    ).toBe(false);
+  });
   it('高风险没有独立判断也返回完整卡片，不再接受隐藏内容的旧响应', () => {
     expect(reviewCardViewSchema.safeParse({ ...visible(), judgment: null }).success).toBe(true);
     expect(reviewCardViewSchema.safeParse({ ...common, requiresJudgment: true }).success).toBe(
