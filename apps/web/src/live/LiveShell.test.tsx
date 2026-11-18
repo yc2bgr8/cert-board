@@ -140,6 +140,22 @@ function authenticated() {
     refresh: mocks.refresh,
   };
 }
+
+test('首页只有同事的未关联对话时，仍能加载后续自己的对话', async () => {
+  mocks.api.conversations.mockImplementation(async ({ cursor }: { cursor?: string }) =>
+    cursor
+      ? { items: [{ ...own, projectId: null, goalId: null }], hasMore: false, nextCursor: null }
+      : {
+          items: [{ ...shared, projectId: null, goalId: null }],
+          hasMore: true,
+          nextCursor: sharedId,
+        },
+  );
+  app();
+  fireEvent.click(await screen.findByRole('button', { name: '加载更多未关联对话' }));
+  await screen.findByRole('button', { name: '切换到对话：我的核对' });
+  expect(screen.queryByRole('button', { name: '切换到对话：同事的核对' })).toBeNull();
+});
 async function projectView() {
   fireEvent.click(await screen.findByRole('button', { name: 'L08 510(k)' }));
   await screen.findByRole('button', { name: '打开对话：我的核对' });

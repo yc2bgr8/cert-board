@@ -151,7 +151,7 @@ export function Sidebar(props: Props) {
         )}
         {group('registration', '注册项目')}
         {group('maintenance', '维护事项')}
-        {props.unassigned.length > 0 && (
+        {(props.unassigned.length > 0 || props.hasMoreUnassigned) && (
           <section className="live-project-group" aria-label="未关联项目的对话">
             <h2>未关联项目</h2>
             {props.unassigned.map((conversation) => (
