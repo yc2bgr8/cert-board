@@ -30,9 +30,57 @@ const mocks = vi.hoisted(() => ({
 vi.mock('./useSession.js', () => ({ useSession: mocks.session }));
 vi.mock('./useMemberNotifications.js', () => ({ useMemberNotifications: mocks.notifications }));
 vi.mock('./LiveConversation.js', () => ({
-  LiveConversation: ({ conversationId }: { conversationId: string }) => (
-    <section aria-label="已打开的真实对话">{conversationId}</section>
+  LiveConversation: ({
+    conversationId,
+    onReview,
+  }: {
+    conversationId: string;
+    onReview(id: string): void;
+  }) => (
+    <>
+      <section aria-label="已打开的真实对话">{conversationId}</section>
+      <textarea aria-label="保留的对话输入" />
+      <button type="button" onClick={() => onReview('10000000-0000-4000-8000-000000000009')}>
+        查看审核
+      </button>
+    </>
   ),
+}));
+vi.mock('./ReviewCard.js', () => ({
+  ReviewCard: ({
+    reviewId,
+    onOpenEvidence,
+    onOpenDiff,
+  }: {
+    reviewId: string;
+    onOpenEvidence(sources: unknown[]): void;
+    onOpenDiff(target: unknown): void;
+  }) => (
+    <section>
+      <p>真实审核 {reviewId}</p>
+      <button onClick={() => onOpenEvidence([{ documentId: 'source', version: 1, page: 1 }])}>
+        查看引用原文
+      </button>
+      <button onClick={() => onOpenDiff({ projectId: 'project', from: 'old', to: 'new' })}>
+        查看审核改动
+      </button>
+    </section>
+  ),
+}));
+vi.mock('./EvidencePanel.js', () => ({ EvidencePanel: () => <p>真实解析原文</p> }));
+vi.mock('./DiffPanel.js', () => ({
+  DiffPanel: ({ onOpenFile }: { onOpenFile(target: unknown): void }) => (
+    <button onClick={() => onOpenFile({ projectId: 'project', versionId: 'new', path: '结果.md' })}>
+      查看改动文件
+    </button>
+  ),
+}));
+vi.mock('./FilePanel.js', () => ({ FilePanel: () => <p>已保存的文件内容</p> }));
+vi.mock('./ProjectFiles.js', () => ({
+  ProjectFiles: () => <section aria-label="项目文件">项目实际文件列表</section>,
+}));
+vi.mock('./ProjectDocuments.js', () => ({
+  ProjectDocuments: () => <section aria-label="项目资料">项目实际资料列表</section>,
 }));
 vi.mock('./api.js', async (original) => {
   const actual = await original<typeof import('./api.js')>();
@@ -155,6 +203,83 @@ test('首页只有同事的未关联对话时，仍能加载后续自己的对�
   fireEvent.click(await screen.findByRole('button', { name: '加载更多未关联对话' }));
   await screen.findByRole('button', { name: '切换到对话：我的核对' });
   expect(screen.queryByRole('button', { name: '切换到对话：同事的核对' })).toBeNull();
+});
+
+test('审核右栏保留原对话和草稿，证据返回及Esc关闭恢复原触发焦点', async () => {
+  app();
+  await projectView();
+  fireEvent.click(screen.getByRole('button', { name: '打开对话：我的核对' }));
+  const input = await screen.findByRole('textbox', { name: '保留的对话输入' });
+  fireEvent.change(input, { target: { value: '尚未发送的修改意见' } });
+  const trigger = screen.getByRole('button', { name: '查看审核' });
+  trigger.focus();
+  fireEvent.click(trigger);
+  const card = screen.getByRole('complementary', { name: '审核卡' });
+  const source = within(card).getByRole('button', { name: '查看引用原文' });
+  source.focus();
+  fireEvent.click(source);
+  expect(screen.getByRole('complementary', { name: '原文依据' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '返回审核卡' }));
+  await waitFor(() => expect(document.activeElement).toBe(source));
+  expect(screen.getByRole('complementary', { name: '审核卡' })).toBeTruthy();
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.queryByRole('complementary', { name: '审核卡' })).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+  expect(
+    (screen.getByRole('textbox', { name: '保留的对话输入' }) as HTMLTextAreaElement).value,
+  ).toBe('尚未发送的修改意见');
+});
+
+test('对话文件资料切换保留当前会话输入，右栏改动和文件逐层返回', async () => {
+  app();
+  await projectView();
+  fireEvent.click(screen.getByRole('button', { name: '打开对话：我的核对' }));
+  const input = await screen.findByRole('textbox', { name: '保留的对话输入' });
+  fireEvent.change(input, { target: { value: '保留输入' } });
+  const tabs = screen.getByRole('navigation', { name: '项目内容' });
+  fireEvent.click(within(tabs).getByRole('button', { name: '文件' }));
+  expect(screen.getByRole('region', { name: '项目文件' })).toBeTruthy();
+  expect(screen.queryByRole('textbox', { name: '保留的对话输入' })).toBeNull();
+  fireEvent.click(within(tabs).getByRole('button', { name: '资料' }));
+  expect(screen.getByRole('region', { name: '项目资料' })).toBeTruthy();
+  fireEvent.click(within(tabs).getByRole('button', { name: '对话' }));
+  expect(
+    (screen.getByRole('textbox', { name: '保留的对话输入' }) as HTMLTextAreaElement).value,
+  ).toBe('保留输入');
+  fireEvent.click(screen.getByRole('button', { name: '查看审核' }));
+  fireEvent.click(screen.getByRole('button', { name: '查看审核改动' }));
+  fireEvent.click(screen.getByRole('button', { name: '查看改动文件' }));
+  expect(screen.getByRole('complementary', { name: '文件' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '返回改动' }));
+  expect(screen.getByRole('complementary', { name: '改动' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '返回审核卡' }));
+  expect(screen.getByRole('complementary', { name: '审核卡' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '关闭右栏' }));
+  expect(screen.queryByRole('complementary', { name: '审核卡' })).toBeNull();
+});
+
+test('待我处理的真实review直接开卡，关闭后仍是原列表且焦点返回', async () => {
+  const reviewId = '10000000-0000-4000-8000-000000000009';
+  mocks.notifications.mockReturnValue({
+    snapshot: {
+      generatedAt: now,
+      items: [{ id: reviewId, kind: 'review', conversationId: ownId, projectId, createdAt: now }],
+      truncated: false,
+    },
+    connection: 'open',
+    error: null,
+  });
+  app();
+  fireEvent.click(await screen.findByRole('button', { name: /待我处理/ }));
+  const trigger = screen.getByRole('button', { name: /待审核结果.*查看审核/ });
+  trigger.focus();
+  fireEvent.click(trigger);
+  expect(
+    within(screen.getByRole('complementary', { name: '审核卡' })).getByText(`真实审核 ${reviewId}`),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '关闭右栏' }));
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+  expect(screen.getByRole('region', { name: '待我处理事项' })).toBeTruthy();
 });
 async function projectView() {
   fireEvent.click(await screen.findByRole('button', { name: 'L08 510(k)' }));

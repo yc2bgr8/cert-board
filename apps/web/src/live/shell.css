@@ -269,6 +269,105 @@ body {
   display: flex;
   flex-direction: column;
 }
+.live-view-content,
+.live-thread-host {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.live-view-content[hidden],
+.live-thread-host[hidden],
+.live-inspector-page[hidden] {
+  display: none;
+}
+.live-inspector {
+  flex: 0 0 var(--live-inspector-width);
+  width: var(--live-inspector-width);
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+}
+.live-inspector-navigation {
+  min-height: 64px;
+  padding: 13px 22px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+}
+.live-inspector-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+  overflow-wrap: anywhere;
+}
+.live-project-assets h2 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.live-asset-controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: end;
+  margin-block: 24px 12px;
+}
+.live-asset-controls label {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+}
+.live-asset-controls select {
+  max-width: 220px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  padding: 6px 10px;
+  border-radius: 5px;
+}
+.live-shell button.live-asset-row {
+  width: 100%;
+  display: flex;
+  text-align: left;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.live-asset-row > span {
+  min-width: 0;
+}
+.live-asset-row small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+.live-asset-row .live-row-action {
+  flex-shrink: 0;
+}
+.live-file-path {
+  font-family: var(--mono);
+}
+.live-project-assets > button.live-secondary,
+.live-project-assets > button.live-text-button {
+  margin-top: 16px;
+}
+@media (max-width: 1149px) {
+  .live-inspector {
+    position: fixed;
+    inset: 0 0 0 auto;
+    z-index: 25;
+    width: min(var(--live-inspector-width), 100vw);
+  }
+}
 .live-overview {
   width: min(var(--live-content-width), 100%);
   margin: 0 auto;

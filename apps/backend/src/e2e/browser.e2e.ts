@@ -3,6 +3,7 @@ import { access, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
 import { startBrowserHarness } from '../test-support/browser-harness.js';
+import { reviewBrowserFlow } from '../test-support/browser-review-flow.js';
 
 let stage = '启动';
 async function until(check: () => boolean | Promise<boolean>, timeout = 20000) {
@@ -46,12 +47,18 @@ async function browserPath() {
 async function createConversation(
   page: Page,
   projectId: string,
-  mode: 'ask' | 'read_only' | 'full',
+  mode?: 'ask' | 'read_only' | 'full',
 ) {
   await page.getByRole('button', { name: '新对话', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '新对话', exact: true });
   await dialog.getByRole('combobox', { name: '选择项目', exact: true }).selectOption(projectId);
-  await dialog.getByRole('combobox', { name: '权限模式', exact: true }).selectOption(mode);
+  if (mode)
+    await dialog.getByRole('combobox', { name: '权限模式', exact: true }).selectOption(mode);
+  else
+    assert.equal(
+      await dialog.getByRole('combobox', { name: '权限模式', exact: true }).inputValue(),
+      'ask',
+    );
   const request = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
@@ -325,6 +332,19 @@ async function main() {
       decisions.map((decision) => decision.action),
       ['reject', 'allow_once', 'allow_conversation'],
     );
+    await reviewBrowserFlow(
+      page,
+      harness,
+      {
+        create: () => createConversation(page!, harness.projectId),
+        send: (text) => send(page!, text),
+        until,
+        stage: (name) => {
+          stage = name;
+        },
+      },
+      output,
+    );
     stage = '共享对话只读';
     await page.getByRole('button', { name: 'L08 510(k)', exact: true }).click();
     await page.getByRole('button', { name: '部门对话', exact: true }).click();
@@ -402,6 +422,16 @@ async function main() {
             'shared_read_only',
             'markdown_sanitized',
             'strict_csp',
+            'l08_exact_request_ask',
+            'review_eight_sections',
+            'review_decisions',
+            'real_evidence_highlight',
+            'evidence_pair',
+            'saved_report',
+            'report_download_hash',
+            'chat_not_approval',
+            'browser_review_freeze',
+            'revision_single_path_diff',
             'width_1280',
           ],
           externalRequests,
@@ -414,6 +444,12 @@ async function main() {
             'plan-active.png',
             'approval-pending.png',
             'conversation-shared.png',
+            'review-card.png',
+            'review-evidence.png',
+            'review-evidence-pair.png',
+            'review-file.png',
+            'review-approved.png',
+            'review-revision-diff.png',
           ],
         },
         null,
@@ -422,7 +458,7 @@ async function main() {
       'utf8',
     );
     console.log(
-      '浏览器验收通过：真实登录、L08资料、插话、权限切换、停止、过程批准、共享只读、Markdown和CSP；未调用真实模型。',
+      '浏览器验收通过：真实登录、L08原文与审核冻结、修改差异、插话、权限切换、停止、过程批准、共享只读、Markdown和CSP；未调用真实模型。',
     );
   } catch (error) {
     if (authenticated && page)

@@ -22,6 +22,27 @@ import {
   toolApprovalViewSchema,
   toolApprovalDecisionInputSchema,
   toolApprovalDecisionResultSchema,
+  reviewCardViewSchema,
+  reviewDecisionInputSchema,
+  reviewDecisionResultSchema,
+  workspaceRecordSchema,
+  workspaceVersionListOptionsSchema,
+  workspaceVersionListSchema,
+  documentListOptionsSchema,
+  documentListSchema,
+  documentRecordSchema,
+  documentVersionListOptionsSchema,
+  documentVersionListSchema,
+  documentPageParamsSchema,
+  documentPageReadOptionsSchema,
+  documentPageReadSchema,
+  workspaceFileQuerySchema,
+  workspaceFileListSchema,
+  workspacePathSchema,
+  workspaceReadQuerySchema,
+  workspaceReadFileSchema,
+  workspaceDiffQuerySchema,
+  workspaceDiffResponseSchema,
   type AuthResponse,
   type ConversationCreateInput,
   type ConversationMessageInput,
@@ -29,12 +50,15 @@ import {
   type ConversationStopInput,
   type ConversationModeInput,
   type ToolApprovalDecisionInput,
+  type ReviewDecisionInput,
 } from '@cert-board/shared';
 
 export type ConversationDetail = ReturnType<typeof conversationPublicRecordSchema.parse>;
 export type ApprovalView = ReturnType<typeof toolApprovalViewSchema.parse>;
 export type ProjectPage = ReturnType<typeof projectListSchema.parse>;
 export type ConversationPage = ReturnType<typeof conversationPublicListSchema.parse>;
+export type ReviewView = ReturnType<typeof reviewCardViewSchema.parse>;
+export type WorkspaceVersions = ReturnType<typeof workspaceVersionListSchema.parse>;
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -141,6 +165,108 @@ async function request<T>(
 }
 const signalOption = (signal: AbortSignal | undefined) => (signal ? { signal } : {});
 export const api = {
+  review: (id: string, signal?: AbortSignal) =>
+    request(`/api/reviews/${identifier(id)}`, reviewCardViewSchema, signalOption(signal)),
+  decideReview: (id: string, input: ReviewDecisionInput) =>
+    request(`/api/reviews/${identifier(id)}/decision`, reviewDecisionResultSchema, {
+      method: 'POST',
+      body: checked(reviewDecisionInputSchema, input),
+    }),
+  workspace: (projectId: string, signal?: AbortSignal) =>
+    request(
+      `/api/projects/${identifier(projectId)}/workspace`,
+      workspaceRecordSchema,
+      signalOption(signal),
+    ),
+  workspaceVersions: (
+    id: string,
+    options: { afterNumber?: number; limit?: number } = {},
+    signal?: AbortSignal,
+  ) =>
+    request(
+      `/api/workspaces/${identifier(id)}/versions${search(checked(workspaceVersionListOptionsSchema, options))}`,
+      workspaceVersionListSchema,
+      signalOption(signal),
+    ),
+  documents: (
+    projectId: string,
+    options: { cursor?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ) =>
+    request(
+      `/api/projects/${identifier(projectId)}/documents${search(checked(documentListOptionsSchema, options))}`,
+      documentListSchema,
+      signalOption(signal),
+    ),
+  document: (id: string, signal?: AbortSignal) =>
+    request(`/api/documents/${identifier(id)}`, documentRecordSchema, signalOption(signal)),
+  documentVersions: (
+    id: string,
+    options: { afterVersion?: number; limit?: number } = {},
+    signal?: AbortSignal,
+  ) =>
+    request(
+      `/api/documents/${identifier(id)}/versions${search(checked(documentVersionListOptionsSchema, options))}`,
+      documentVersionListSchema,
+      signalOption(signal),
+    ),
+  documentPage: (
+    id: string,
+    version: number,
+    page: number,
+    options: { offset?: number; limit?: number } = {},
+    signal?: AbortSignal,
+  ) => {
+    const location = checked(documentPageParamsSchema, { id, version, page });
+    return request(
+      `/api/documents/${location.id}/versions/${location.version}/pages/${location.page}${search(checked(documentPageReadOptionsSchema, options))}`,
+      documentPageReadSchema,
+      signalOption(signal),
+    );
+  },
+  workspaceFiles: (
+    id: string,
+    options: { versionId?: string; cursor?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ) =>
+    request(
+      `/api/workspaces/${identifier(id)}/files${search(checked(workspaceFileQuerySchema, options))}`,
+      workspaceFileListSchema,
+      signalOption(signal),
+    ),
+  workspaceFile: (
+    id: string,
+    path: string,
+    options: { versionId?: string; offset?: number; limit?: number } = {},
+    signal?: AbortSignal,
+  ) => {
+    const pathname = checked(workspacePathSchema, path)
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/');
+    return request(
+      `/api/workspaces/${identifier(id)}/files/${pathname}${search(checked(workspaceReadQuerySchema, options))}`,
+      workspaceReadFileSchema,
+      signalOption(signal),
+    );
+  },
+  workspaceDiff: (
+    id: string,
+    options: {
+      from: string;
+      to: string;
+      path?: string;
+      cursor?: string;
+      offset?: number;
+      limit?: number;
+    },
+    signal?: AbortSignal,
+  ) =>
+    request(
+      `/api/workspaces/${identifier(id)}/diff${search(checked(workspaceDiffQuerySchema, options))}`,
+      workspaceDiffResponseSchema,
+      signalOption(signal),
+    ),
   me: (signal?: AbortSignal) => request('/api/auth/me', authResponseSchema, signalOption(signal)),
   login: (username: string, password: string) =>
     request('/api/auth/login', authResponseSchema, {
