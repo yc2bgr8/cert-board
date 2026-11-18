@@ -128,9 +128,11 @@ export default [
                 '**/api/proposal-routes*',
                 '**/api/review-routes*',
                 '**/api/approval-routes*',
+                '**/api/conversation-write-routes*',
+                '**/conversations/commands*',
                 '**/auth/session*',
               ],
-              message: '审批与浏览器会话只供接口层使用，不能给Agent或后台提供审批调用路径。',
+              message: '浏览器会话、审批和写对话接口只供浏览器路由使用。',
             },
             {
               group: ['node:child_process', 'child_process', 'node:vm', 'vm'],

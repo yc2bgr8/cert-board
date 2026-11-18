@@ -100,6 +100,14 @@ export async function runAgentKernel(options: AgentKernelOptions): Promise<Agent
   const model = piModel(config.data);
   const localSignal = (signal?: AbortSignal) =>
     AbortSignal.any([options.signal, stop.signal, ...(signal ? [signal] : [])]);
+  const deliverSteering = async (signal: AbortSignal) => {
+    if (signal.aborted || !options.takeSteering) return;
+    const messages = await options.takeSteering(signal);
+    if (messages.length > 10 || messages.some((message) => message.role !== 'user'))
+      throw new Error();
+    if (signal.aborted) return;
+    for (const message of messages) agent.steer(toPiMessage(message, model, names));
+  };
   const names = new Map<string, string>();
   for (const message of [...history, ...prompts])
     if (message.role === 'assistant')
@@ -107,6 +115,7 @@ export async function runAgentKernel(options: AgentKernelOptions): Promise<Agent
   const providedNames = new Set(options.tools.map((tool) => tool.name));
   if (providedNames.size !== options.tools.length || options.tools.length > 64)
     return failResult('KERNEL_TOOL_CATALOG_INVALID');
+  let visibleNames = providedNames;
   const executed = new Map<string, { data: JsonValue; isError: boolean }>();
   const toolFailure = (code: string, message: string) => ({
     content: [{ type: 'text' as const, text: JSON.stringify({ error: { code, message } }) }],
@@ -174,16 +183,32 @@ export async function runAgentKernel(options: AgentKernelOptions): Promise<Agent
           recoverable: false,
         });
       const requestKey = randomUUID();
+      const authorization = await options.refreshCatalog?.(signal);
+      visibleNames = authorization ? new Set(authorization.names) : providedNames;
+      if ([...visibleNames].some((name) => !providedNames.has(name)))
+        throw new KernelToolError('KERNEL_TOOL_CATALOG_INVALID', '当前工具目录无法核对。', {
+          recoverable: false,
+        });
+      const prompt = getCurrentSystemPrompt(context.messages);
       const request = chatRequestSchema.parse({
         model: config.data.id,
         messages: [
-          { role: 'system', content: getCurrentSystemPrompt(context.messages) },
+          {
+            role: 'system',
+            content: authorization?.modeNote ? `${prompt}\n\n${authorization.modeNote}` : prompt,
+          },
           ...context.messages.filter((entry) => entry.role !== 'system').map(fromPiMessage),
         ],
-        tools: getCurrentTools(context.messages).map((tool) => ({
-          type: 'function',
-          function: { name: tool.name, description: tool.description, parameters: tool.parameters },
-        })),
+        tools: getCurrentTools(context.messages)
+          .filter((tool) => visibleNames.has(tool.name))
+          .map((tool) => ({
+            type: 'function',
+            function: {
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.parameters,
+            },
+          })),
         max_tokens: config.data.maxOutputTokens,
         stream: false,
         tool_choice: 'auto',
@@ -266,9 +291,14 @@ export async function runAgentKernel(options: AgentKernelOptions): Promise<Agent
     streamFn,
     getApiKey: () => undefined,
     toolExecution: 'sequential',
-    async beforeToolCall(_context, signal) {
+    steeringMode: 'all',
+    async beforeToolCall(context, signal) {
       if (localSignal(signal).aborted || terminal || fatal)
         return { block: true, reason: '运行已停止或等待审核，后续工具未执行。', terminate: true };
+      if (!visibleNames.has(context.toolCall.name)) {
+        fatal = 'TOOL_NOT_VISIBLE';
+        return { block: true, reason: '本轮目录没有授权此工具。', terminate: true };
+      }
       return undefined;
     },
     async finishTurn() {
@@ -286,6 +316,16 @@ export async function runAgentKernel(options: AgentKernelOptions): Promise<Agent
       }
       if (terminal || fatal || options.signal.aborted || stop.signal.aborted)
         return { action: 'end' };
+      if (options.takeSteering) {
+        const signal = localSignal();
+        try {
+          await deliverSteering(signal);
+          if (signal.aborted) return { action: 'end' };
+        } catch {
+          fatal = 'KERNEL_STEERING_READ_FAILED';
+          return { action: 'end' };
+        }
+      }
       return undefined;
     },
   });
@@ -331,8 +371,10 @@ export async function runAgentKernel(options: AgentKernelOptions): Promise<Agent
   options.signal.addEventListener('abort', abort, { once: true });
   try {
     if (options.signal.aborted) abort();
-    if (options.continuation) await agent.continue();
-    else await agent.prompt(prompts.map((message) => toPiMessage(message, model, names)));
+    if (options.continuation) {
+      await deliverSteering(localSignal());
+      if (!options.signal.aborted) await agent.continue();
+    } else await agent.prompt(prompts.map((message) => toPiMessage(message, model, names)));
   } catch {
     fatal ??= 'KERNEL_INTERNAL_ERROR';
   } finally {

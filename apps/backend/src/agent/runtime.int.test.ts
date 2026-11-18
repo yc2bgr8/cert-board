@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
-import { type ModelGatewayConfig } from '@cert-board/shared';
+import {
+  conversationCreateResultSchema,
+  conversationWriteResultSchema,
+  type ModelGatewayConfig,
+} from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
 import { setTestReminderClock } from '../test-support/internal-reminder-clock.js';
 import { createReviewTestContext } from '../reviews/test-support.js';
@@ -16,6 +20,7 @@ import * as leaseService from '../runs/lease.js';
 import { queueInternalMessageTool } from '../tools/queue-internal-message.js';
 import { agentInteractionTools } from '../tools/agent-interaction.js';
 import { prepareContinuationForDispatch } from '../approvals/continuation.js';
+import { buildWorkspaceTools } from '../tools/workspace-tools.js';
 
 class MemoryStore implements DocumentBlobStore {
   private values = new Map<string, Buffer>();
@@ -439,6 +444,153 @@ async function queued(
   });
   return { runId, conversationId: convo, userId };
 }
+
+test.each([
+  { label: '升为请求批准', initial: 'read_only', next: 'ask', canWrite: true },
+  { label: '降为只读', initial: 'ask', next: 'read_only', canWrite: false },
+] as const)('浏览器运行中$label，动态授权和插话投递一致', async ({ initial, next, canWrite }) => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const owner = await context.login('MEMBER_A');
+  const created = await context.app.inject({
+    method: 'POST',
+    url: `/api/projects/${context.projectId}/conversations`,
+    headers: owner.headers,
+    payload: { requestKey: randomUUID(), title: '浏览器插话与模式', permissionMode: initial },
+  });
+  expect(created.statusCode).toBeLessThan(300);
+  const thread = conversationCreateResultSchema.parse(created.json());
+  const path = `/api/conversations/${thread.conversation.id}`;
+  const first = await context.app.inject({
+    method: 'POST',
+    url: `${path}/messages`,
+    headers: owner.headers,
+    payload: { requestKey: randomUUID(), text: '只读核查合成项目。' },
+  });
+  expect(first.statusCode).toBeLessThan(300);
+  const queued = conversationWriteResultSchema.parse(first.json());
+  let releaseModel!: () => void;
+  const paused = new Promise<void>((resolve) => {
+    releaseModel = resolve;
+  });
+  let modelStarted!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    modelStarted = resolve;
+  });
+  let calls = 0;
+  const model = new ModelGateway(
+    context.pool,
+    config,
+    {
+      kind: 'fixture',
+      async send(_model, request) {
+        calls++;
+        const names = request.tools?.map((entry) => entry.function.name);
+        if (calls === 1) {
+          expect(names).toContain('ws_read');
+          expect(names?.includes('ws_write')).toBe(initial === 'ask');
+          modelStarted();
+          await paused;
+          if (!canWrite)
+            return call('ws_write', { path: '草稿/插话核查.md', content: '过期目录选择的写入。' });
+          return call('ws_read', { view: 'current', path: 'AGENTS.md', limit: 640 });
+        }
+        if (calls === 2) {
+          expect(request.messages.slice(-2).map((message) => message.role)).toEqual([
+            'tool',
+            'user',
+          ]);
+          expect(request.messages.at(-1)).toEqual({
+            role: 'user',
+            content: '请建立一份合成核查草稿。',
+          });
+          expect(names).toContain('ws_write');
+          return call('ws_write', {
+            path: '草稿/插话核查.md',
+            content: '# 合成核查\n已按补充意见建立。',
+          });
+        }
+        return result({ role: 'assistant', content: '草稿已建立。' });
+      },
+    },
+    { environment: 'test' },
+  );
+  const running = executeAgentRun(
+    {
+      pool: context.pool,
+      store,
+      gateway: model,
+      models: config,
+      definitions: buildWorkspaceTools(store),
+    },
+    queued.runId,
+  );
+  try {
+    await Promise.race([
+      entered,
+      running.then(() => {
+        throw new Error('运行在模型调用前提前结束');
+      }),
+    ]);
+    const changed = await context.app.inject({
+      method: 'PATCH',
+      url: `${path}/permission-mode`,
+      headers: owner.headers,
+      payload: {
+        requestKey: randomUUID(),
+        expectedVersion: thread.permissionVersion,
+        permissionMode: next,
+      },
+    });
+    expect(changed.statusCode).toBe(200);
+    const inserted = { requestKey: randomUUID(), text: '请建立一份合成核查草稿。' };
+    const sent = await context.app.inject({
+      method: 'POST',
+      url: `${path}/messages`,
+      headers: owner.headers,
+      payload: inserted,
+    });
+    expect(sent.statusCode).toBeLessThan(300);
+    const buffered = conversationWriteResultSchema.parse(sent.json());
+    expect(buffered).toMatchObject({ kind: 'steering', runId: queued.runId, replayed: false });
+    const retry = await context.app.inject({
+      method: 'POST',
+      url: `${path}/messages`,
+      headers: owner.headers,
+      payload: inserted,
+    });
+    expect(retry.json()).toMatchObject({ steeringId: buffered.steeringId, replayed: true });
+    const consumed = await context.pool.query(
+      'SELECT delivered_message_id FROM run_steering_message WHERE id=$1',
+      [buffered.steeringId],
+    );
+    expect(consumed.rows[0].delivered_message_id).toBeNull();
+  } finally {
+    releaseModel();
+    await running.catch(() => undefined);
+  }
+  const ended = await running;
+  expect(ended.reasonCode).toBe(canWrite ? 'REVIEW_NOT_SUBMITTED' : 'TOOL_READ_ONLY');
+  expect(calls).toBe(canWrite ? 3 : 1);
+  const persisted = await context.pool.query(
+    `SELECT (SELECT count(*)::int FROM conversation_message
+    WHERE run_id=$1 AND message_json->>'role'='user') AS users,
+    (SELECT count(*)::int FROM workspace_draft_file WHERE path='草稿/插话核查.md') AS drafts`,
+    [queued.runId],
+  );
+  expect(persisted.rows[0]).toEqual(canWrite ? { users: 2, drafts: 1 } : { users: 1, drafts: 0 });
+  if (!canWrite) {
+    const final = await context.pool.query(
+      `SELECT payload_json->>'pendingSteeringCount' AS pending
+      FROM conversation_event WHERE run_id=$1 AND type='run_status' ORDER BY seq DESC LIMIT 1`,
+      [queued.runId],
+    );
+    expect(final.rows[0].pending).toBe('1');
+  }
+});
 
 test('计划事件显示进度，提问暂停同一内核并接收对话中的后续回答', async () => {
   const context = await createIntegrationContext();

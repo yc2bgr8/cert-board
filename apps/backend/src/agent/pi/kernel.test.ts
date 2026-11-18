@@ -87,6 +87,69 @@ function options(
 }
 afterEach(() => vi.unstubAllGlobals());
 
+test('插话在整批工具回执之后进入下一轮用户消息', async () => {
+  const source = scripted([reply(toolCall('first_read'), toolCall('second_read')), reply()]);
+  const events: string[] = [];
+  let used = false;
+  const result = await runAgentKernel({
+    ...options(
+      source.complete,
+      ['first_read', 'second_read'].map((name) =>
+        tool(name, async () => {
+          events.push(name);
+          return { data: { ok: true } };
+        }),
+      ),
+    ),
+    async takeSteering() {
+      if (used) return [];
+      used = true;
+      events.push('user');
+      return [{ role: 'user', content: '请保留两处依据。' }];
+    },
+  });
+  expect(result.status).toBe('completed');
+  expect(events).toEqual(['first_read', 'second_read', 'user']);
+  expect(source.requests[1]?.messages.slice(-3).map((message) => message.role)).toEqual([
+    'tool',
+    'tool',
+    'user',
+  ]);
+  expect(source.requests[1]?.messages.at(-1)).toEqual({
+    role: 'user',
+    content: '请保留两处依据。',
+  });
+});
+
+test('新请求实时刷新目录，权限放宽后才展示和执行写工具', async () => {
+  const source = scripted([
+    reply(toolCall('read_record')),
+    reply(toolCall('write_draft')),
+    reply(),
+  ]);
+  let allowWrite = false;
+  const wrote = vi.fn(async () => ({ data: { ok: true } }));
+  const result = await runAgentKernel({
+    ...options(source.complete, [tool('read_record'), tool('write_draft', wrote)]),
+    async refreshCatalog() {
+      return allowWrite
+        ? { names: ['read_record', 'write_draft'], modeNote: '当前权限为完全允许。' }
+        : { names: ['read_record'], modeNote: '当前权限为只读。' };
+    },
+    onTurn() {
+      allowWrite = true;
+    },
+  });
+  expect(result.status).toBe('completed');
+  expect(source.requests[0]?.tools?.map((entry) => entry.function.name)).toEqual(['read_record']);
+  expect(source.requests[1]?.tools?.map((entry) => entry.function.name)).toEqual([
+    'read_record',
+    'write_draft',
+  ]);
+  expect(source.requests[1]?.messages[0]?.content).toContain('当前权限为完全允许');
+  expect(wrote).toHaveBeenCalledTimes(1);
+});
+
 test.each([
   { approval: '允许一次', receipt: { executed: true, status: 'queued' } },
   { approval: '拒绝', receipt: { executed: false, rejected: true, reason: '请先核对登记' } },

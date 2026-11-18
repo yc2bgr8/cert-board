@@ -25,3 +25,5 @@ export * from './workspace-tools.js';
 export * from './agent-interaction.js';
 export * from './agent-definitions.js';
 export * from './document-tools.js';
+export * from './conversation-api.js';
+export * from './conversation-read.js';

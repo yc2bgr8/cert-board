@@ -23,6 +23,9 @@ export const conversationEventTypes = [
   'question',
   'approval_requested',
   'approval_resolved',
+  'question_answered',
+  'permission_changed',
+  'changes',
   'review_submitted',
   'run_status',
 ] as const;

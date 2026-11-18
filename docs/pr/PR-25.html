@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr-25-对话接口-权限模式-插话与事件流">PR-25 对话接口、权限模式、插话与事件流</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应方案和依赖">对应方案和依赖</a></nav><main><h2 id="pr-25-对话接口-权限模式-插话与事件流">PR-25 对话接口、权限模式、插话与事件流</h2>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>项目成员可以查询项目对话、历史消息、进度和待处理事项。发起人可新建对话、发送、回答、停止及切换权限。写请求带 Cookie、来源和 CSRF 校验，重复请求号绑定原操作和内容。</li><li>新消息与运行同事务入队。插话进入持久缓冲，由同一 Pi 内核在当前工具批次结束后领取。问题回答关联原问题进入下一轮。过程批准仍通过自己的批准接口继续。</li><li>对话 SSE 按序号回补与续读，并持续验证浏览器会话。工具事件传定位和摘要，原始参数与资料正文保持在私有记录。个人通知流先以待处理快照覆盖批准、问题、阻塞和最终审核。</li><li>指定权限从下一次工具执行起生效。后续模型请求按现有模式重新取得工具目录。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>项目外对话可创建与列表展示，自动建立真实项目和工作区留后续业务工具接入。</li><li>对话附件及原件导入依赖 PR-17/19。正式聊天、批准、审核抽屉在 PR-26/27 实现。</li><li>真实模型保持日常账本冻结，当前使用隔离数据库与同一内核的剧本模型验收。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code>、<code>pnpm eval:agent</code></td><td>通过，328 项单元、30 项内核剧本</td></tr><tr><td>写入、HTTP/SSE、插话目标集成</td><td>12 项写入、8 项实际 HTTP/SSE、4 项插话投递、2 项运行时权限与插话。L08 剧本全链路复测通过</td></tr><tr><td><code>pnpm test:int</code></td><td>首轮 380 项中 379 项通过。历史不可清空断言按新外键修订，目标 7 项通过。最终全量与 CI 留待合并前核对</td></tr><tr><td>日常库</td><td>0014 迁移成功，重复新增 0。开发账号登录与后台启停通过</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描、CI 和独立复审</td><td>57 份离线 HTML。提交后完成扫描与复审</td></tr></tbody></table>
+<p>普通 <code>TRUNCATE conversation_message</code> 现在先被 0014 的插话回执外键以 <code>0A000</code> 拒绝。更新后的测试保留 <code>UPDATE</code>、<code>DELETE</code> 和 <code>TRUNCATE CASCADE</code> 的 <code>42501</code> 断言。停止请求已验证变参复用请求编号会返回 409，实际监听未收到新运行的取消通知。</p>
+<h2 id="对应方案和依赖">对应方案和依赖</h2>
+<ul><li>需求 V1.0 第 3 章与技术方案 v0.4 第 3.5、4.2 节。接口取舍见 D-027。无新增依赖。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

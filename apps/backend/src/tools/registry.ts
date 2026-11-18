@@ -543,6 +543,10 @@ export class ToolRegistry {
     return decision;
   }
   async catalog(reference: unknown) {
+    return (await this.turnCatalog(reference)).tools;
+  }
+
+  async turnCatalog(reference: unknown) {
     const parsed = toolCatalogContextSchema.safeParse(reference);
     if (!parsed.success) throw fail(400, 'TOOL_CONTEXT_INVALID', '运行身份无效，请重新打开对话。');
     return this.transaction({ ...parsed.data, callId: 'catalog' }, async (ctx) => {
@@ -550,17 +554,26 @@ export class ToolRegistry {
       for (const definition of this.definitions.values()) {
         if ((await this.decision(definition, ctx)).decision !== 'deny') permitted.push(definition);
       }
-      return permitted.map((definition) => ({
-        name: definition.metadata.name,
-        version: definition.metadata.version,
-        effect: definition.metadata.effect,
-        description: toolDescription(definition.metadata),
-        parameters: z.toJSONSchema(definition.inputSchema, {
-          io: 'input',
-          unrepresentable: 'any',
-        }),
-      }));
+      return {
+        permissionMode: ctx.permissionMode,
+        tools: permitted.map((definition) => this.describe(definition)),
+      };
     });
+  }
+
+  private describe(definition: ToolDefinition) {
+    return {
+      name: definition.metadata.name,
+      version: definition.metadata.version,
+      effect: definition.metadata.effect,
+      description: toolDescription(definition.metadata),
+      parameters: z.toJSONSchema(definition.inputSchema, { io: 'input', unrepresentable: 'any' }),
+    };
+  }
+
+  // Pi保留本地实现。每个模型请求和工具执行仍须分别通过实时目录和执行授权。
+  registeredToolDescriptions() {
+    return [...this.definitions.values()].map((definition) => this.describe(definition));
   }
 
   private async propagate(ctx: LoadedContext, level: DataLevel, invocationId?: string) {

@@ -16,6 +16,8 @@ import { registerProposalRoutes } from './api/proposal-routes.js';
 import { registerReviewRoutes } from './api/review-routes.js';
 import { registerRunControlRoutes } from './api/run-control-routes.js';
 import { registerApprovalRoutes } from './api/approval-routes.js';
+import { registerConversationReadRoutes } from './api/conversation-read-routes.js';
+import { registerConversationWriteRoutes } from './api/conversation-write-routes.js';
 
 export interface AppDependencies extends HealthDependencies {
   database?: pg.Pool;
@@ -61,6 +63,8 @@ export function createApp(
     registerReviewRoutes(app, dependencies.database, config);
     registerRunControlRoutes(app, dependencies.database, config);
     registerApprovalRoutes(app, dependencies.database, config);
+    registerConversationReadRoutes(app, dependencies.database, config);
+    registerConversationWriteRoutes(app, dependencies.database, config);
     registerWorkspaceRoutes(
       app,
       dependencies.database,

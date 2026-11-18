@@ -578,6 +578,8 @@ export const conversation = pgTable(
       .references(() => appUser.id, { onDelete: 'restrict' }),
     title: varchar('title', { length: 255 }).notNull(),
     permissionMode: permissionMode('permission_mode').notNull().default('ask'),
+    permissionVersion: integer('permission_version').notNull().default(1),
+    currentRunId: uuid('current_run_id'),
     agentCode: agentCode('agent_code').notNull().default('registration'),
     maxDataLevel: documentDataLevel('max_data_level').notNull().default('internal'),
     status: conversationStatus('status').notNull().default('active'),
@@ -587,9 +589,15 @@ export const conversation = pgTable(
     ...timestamps(),
     version: integer('version').notNull().default(1),
   },
-  (table) => [
+  (table): PgTableExtraConfigValue[] => [
     unique('conversation_owner_project_unique').on(table.id, table.userId, table.projectId),
     unique('conversation_owner_unique').on(table.id, table.userId),
+    foreignKey({
+      name: 'conversation_current_run_owner_fk',
+      columns: [table.currentRunId, table.id, table.userId],
+      foreignColumns: [run.id, run.conversationId, run.userId],
+    }).onDelete('restrict'),
+    check('conversation_permission_version_positive', sql`${table.permissionVersion}>0`),
     foreignKey({
       name: 'conversation_goal_project_fk',
       columns: [table.goalId, table.projectId],
@@ -1647,6 +1655,9 @@ export const conversationEventType = pgEnum('conversation_event_type', [
   'run_status',
   'approval_requested',
   'approval_resolved',
+  'question_answered',
+  'permission_changed',
+  'changes',
 ]);
 export const conversationMessage = pgTable(
   'conversation_message',
@@ -1984,5 +1995,121 @@ export const runContinuation = pgTable(
       sql`${table.reasonCode} IS NULL OR ${table.reasonCode} ~ '^[A-Z][A-Z0-9_]{1,79}$'`,
     ),
     index('run_continuation_run_state_idx').on(table.runId, table.state),
+  ],
+);
+
+export const conversationCommand = pgTable(
+  'conversation_command',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id').notNull(),
+    sessionId: uuid('session_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    requestKey: uuid('request_key').notNull(),
+    action: varchar('action', { length: 24 }).notNull(),
+    payloadHash: varchar('payload_hash', { length: 64 }).notNull(),
+    resultJson: jsonb('result_json').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('conversation_command_user_request_unique').on(table.userId, table.requestKey),
+    foreignKey({
+      name: 'conversation_command_owner_fk',
+      columns: [table.conversationId, table.userId],
+      foreignColumns: [conversation.id, conversation.userId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'conversation_command_session_fk',
+      columns: [table.sessionId, table.userId],
+      foreignColumns: [webSession.id, webSession.userId],
+    }).onDelete('restrict'),
+    check(
+      'conversation_command_action',
+      sql`${table.action} IN ('create','message','answer','mode','stop')`,
+    ),
+    check('conversation_command_hash', sql`${table.payloadHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'conversation_command_result_bound',
+      sql`jsonb_typeof(${table.resultJson})='object' AND octet_length(${table.resultJson}::text)<=16384`,
+    ),
+  ],
+);
+export const runSteeringMessage = pgTable(
+  'run_steering_message',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    runId: uuid('run_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    requestKey: uuid('request_key').notNull(),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    deliveredMessageId: uuid('delivered_message_id').references(() => conversationMessage.id, {
+      onDelete: 'restrict',
+    }),
+    deliveredSeq: bigint('delivered_seq', { mode: 'number' }),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    deliveredGeneration: bigint('delivered_generation', { mode: 'number' }),
+  },
+  (table) => [
+    unique('run_steering_message_run_request_unique').on(table.runId, table.requestKey),
+    foreignKey({
+      name: 'run_steering_message_owner_fk',
+      columns: [table.runId, table.conversationId, table.userId],
+      foreignColumns: [run.id, run.conversationId, run.userId],
+    }).onDelete('restrict'),
+    check(
+      'run_steering_message_content_bound',
+      sql`length(btrim(${table.content}))>0 AND length(${table.content})<=8000 AND octet_length(${table.content})<=32000`,
+    ),
+    check(
+      'run_steering_message_delivery_complete',
+      sql`(${table.deliveredMessageId} IS NULL AND ${table.deliveredSeq} IS NULL AND ${table.deliveredAt} IS NULL AND ${table.deliveredGeneration} IS NULL) OR (${table.deliveredMessageId} IS NOT NULL AND ${table.deliveredSeq}>0 AND ${table.deliveredSeq}<=9007199254740991 AND ${table.deliveredAt} IS NOT NULL AND ${table.deliveredGeneration}>0 AND ${table.deliveredGeneration}<=9007199254740991)`,
+    ),
+    index('run_steering_message_pending_idx')
+      .on(table.runId, table.createdAt, table.id)
+      .where(sql`${table.deliveredAt} IS NULL`),
+  ],
+);
+export const conversationAnswer = pgTable(
+  'conversation_answer',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    conversationId: uuid('conversation_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    questionInvocationId: uuid('question_invocation_id').notNull().unique(),
+    sourceRunId: uuid('source_run_id').notNull(),
+    questionCallId: varchar('question_call_id', { length: 128 }).notNull(),
+    newRunId: uuid('new_run_id').notNull().unique(),
+    requestKey: uuid('request_key').notNull(),
+    text: text('text').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (table) => [
+    unique('conversation_answer_user_request_unique').on(table.userId, table.requestKey),
+    foreignKey({
+      name: 'conversation_answer_question_owner_fk',
+      columns: [table.questionInvocationId, table.sourceRunId, table.conversationId, table.userId],
+      foreignColumns: [
+        toolInvocation.id,
+        toolInvocation.runId,
+        toolInvocation.conversationId,
+        toolInvocation.userId,
+      ],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'conversation_answer_new_run_owner_fk',
+      columns: [table.newRunId, table.conversationId, table.userId],
+      foreignColumns: [run.id, run.conversationId, run.userId],
+    }).onDelete('restrict'),
+    check('conversation_answer_distinct_run', sql`${table.sourceRunId}<>${table.newRunId}`),
+    check(
+      'conversation_answer_text_bound',
+      sql`length(btrim(${table.text}))>0 AND length(${table.text})<=8000 AND octet_length(${table.text})<=32000`,
+    ),
   ],
 );
