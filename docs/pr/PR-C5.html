@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr-c5-同步新版本文档">PR-C5 同步新版本文档</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#真实模型及依赖">真实模型及依赖</a></nav><main><h2 id="pr-c5-同步新版本文档">PR-C5 同步新版本文档</h2>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>更新需求文档至 V1.0、总体方案至 v0.5、技术方案与执行方案至 v0.4。新建 <code>docs/数据与评测方案/</code> 并同步 v0.1。</li><li>同步总体架构图及部署图，生成同名离线 HTML。仓库 Markdown 和 SVG 统一 LF，复制前后核对 MDC 原件哈希。</li><li>归档 2026-11-18 变更单，更新 AGENTS、README、PR 模板和字段对照里的阅读入口。记录 C4 的合并证据及 C5 → 21 → 25 → 26 → 27 的顺序。</li><li>整理新版文档、图与实现的主要落差。周末催办修正在 PR-21。原页渲染、版面预览及整包导入按 PR-17/19 的依赖与后续验收推进。详见决定记录 D-025。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>C5 同步文档和进度。工具实现、队列规则和界面行为留给对应 PR。</li><li>总体图保持源文件内容。图中的历史模型标签和页脚已记录，运行策略以总体正文及当前授权为准。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>检查</th><th>结果</th></tr></thead><tbody><tr><td>五份 Markdown 和两张 SVG</td><td>严格 UTF-8 解码，复制后与源文本一致（统一 LF）。原件哈希不变</td></tr><tr><td><code>pnpm docs:html</code>、相对链接</td><td>生成 55 份离线 HTML。五份新版文档的相对资源和两张 SVG 均通过检查</td></tr><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，296 项单元测试</td></tr><tr><td>密钥扫描、CI 和独立复审</td><td>提交后完成</td></tr></tbody></table>
+<h2 id="真实模型及依赖">真实模型及依赖</h2>
+<p>本 PR 为文档同步。累计真实费用为 0.000599248 美元，预占 0。无新增依赖。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
