@@ -1462,3 +1462,163 @@ export const modelRequestContent = pgTable(
     index('model_request_content_expiry_idx').on(table.expiresAt),
   ],
 );
+
+export const reviewRisk = pgEnum('review_risk', ['standard', 'high']);
+export const reviewCardType = pgEnum('review_card_type', ['finalize']);
+export const reviewStatus = pgEnum('review_status', [
+  'pending',
+  'approved',
+  'rejected',
+  'cancelled',
+]);
+export const reviewDecisionAction = pgEnum('review_decision_action', ['approved', 'rejected']);
+
+export const reviewCard = pgTable(
+  'review_card',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id').notNull(),
+    goalId: uuid('goal_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    runId: uuid('run_id').notNull(),
+    invocationId: uuid('invocation_id').notNull().unique(),
+    createdBy: uuid('created_by').notNull(),
+    workspaceVersionId: uuid('workspace_version_id').notNull(),
+    skillId: varchar('skill_id', { length: 64 }).notNull(),
+    skillVersion: varchar('skill_version', { length: 128 }).notNull(),
+    risk: reviewRisk('risk').notNull(),
+    cardType: reviewCardType('card_type').notNull(),
+    status: reviewStatus('status').notNull().default('pending'),
+    structuredResult: jsonb('structured_result').notNull(),
+    checkReport: jsonb('check_report').notNull(),
+    diff: jsonb('diff').notNull(),
+    evidenceRefs: jsonb('evidence_refs').notNull(),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    version: integer('version').notNull().default(1),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    ...timestamps(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'review_card_run_context_fk',
+      columns: [table.runId, table.conversationId, table.createdBy, table.projectId, table.goalId],
+      foreignColumns: [run.id, run.conversationId, run.userId, run.projectId, run.goalId],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'review_card_invocation_context_fk',
+      columns: [table.invocationId, table.runId, table.conversationId, table.createdBy],
+      foreignColumns: [
+        toolInvocation.id,
+        toolInvocation.runId,
+        toolInvocation.conversationId,
+        toolInvocation.userId,
+      ],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'review_card_workspace_project_fk',
+      columns: [table.projectId, table.workspaceVersionId],
+      foreignColumns: [workspaceVersion.projectId, workspaceVersion.id],
+    }).onDelete('restrict'),
+    check(
+      'review_card_skill_not_blank',
+      sql`length(btrim(${table.skillId})) > 0 AND length(btrim(${table.skillVersion})) > 0`,
+    ),
+    check(
+      'review_card_payload_shapes',
+      sql`jsonb_typeof(${table.structuredResult}) = 'object' AND jsonb_typeof(${table.checkReport}) = 'object' AND jsonb_typeof(${table.diff}) = 'object' AND jsonb_typeof(${table.evidenceRefs}) = 'array'`,
+    ),
+    check('review_card_hash_format', sql`${table.contentHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'review_card_data_level_internal',
+      sql`${table.dataLevel} IN ('internal', 'confidential')`,
+    ),
+    check('review_card_version_positive', sql`${table.version} > 0`),
+    check(
+      'review_card_decided_time',
+      sql`${table.decidedAt} IS NULL OR ${table.decidedAt} >= ${table.createdAt}`,
+    ),
+    index('review_card_project_status_idx').on(table.projectId, table.status),
+    index('review_card_project_decided_idx').on(table.projectId, table.decidedAt),
+  ],
+);
+
+export const reviewJudgment = pgTable(
+  'review_judgment',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    cardId: uuid('card_id')
+      .notNull()
+      .references(() => reviewCard.id, { onDelete: 'restrict' }),
+    actorUserId: uuid('actor_user_id').notNull(),
+    sessionId: uuid('session_id').notNull(),
+    requestKey: uuid('request_key').notNull(),
+    sourceVersion: integer('source_version').notNull(),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    statement: text('statement').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('review_judgment_actor_request_unique').on(table.actorUserId, table.requestKey),
+    unique('review_judgment_actor_content_unique').on(
+      table.cardId,
+      table.actorUserId,
+      table.contentHash,
+    ),
+    foreignKey({
+      name: 'review_judgment_browser_session_fk',
+      columns: [table.sessionId, table.actorUserId],
+      foreignColumns: [webSession.id, webSession.userId],
+    }).onDelete('restrict'),
+    check('review_judgment_version_positive', sql`${table.sourceVersion} > 0`),
+    check('review_judgment_hash_format', sql`${table.contentHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'review_judgment_statement_limit',
+      sql`length(btrim(${table.statement})) > 0 AND length(${table.statement}) <= 4000`,
+    ),
+  ],
+);
+
+export const reviewDecision = pgTable(
+  'review_decision',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    cardId: uuid('card_id')
+      .notNull()
+      .references(() => reviewCard.id, { onDelete: 'restrict' }),
+    actorUserId: uuid('actor_user_id').notNull(),
+    sessionId: uuid('session_id').notNull(),
+    requestKey: uuid('request_key').notNull(),
+    sourceVersion: integer('source_version').notNull(),
+    contentHash: varchar('content_hash', { length: 64 }).notNull(),
+    action: reviewDecisionAction('action').notNull(),
+    reason: text('reason'),
+    snapshotId: uuid('snapshot_id').references(() => submissionSnapshot.id, {
+      onDelete: 'restrict',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('review_decision_actor_request_unique').on(table.actorUserId, table.requestKey),
+    unique('review_decision_card_source_unique').on(table.cardId, table.sourceVersion),
+    foreignKey({
+      name: 'review_decision_browser_session_fk',
+      columns: [table.sessionId, table.actorUserId],
+      foreignColumns: [webSession.id, webSession.userId],
+    }).onDelete('restrict'),
+    check('review_decision_version_positive', sql`${table.sourceVersion} > 0`),
+    check('review_decision_hash_format', sql`${table.contentHash} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'review_decision_reason_limit',
+      sql`${table.reason} IS NULL OR (length(btrim(${table.reason})) > 0 AND length(${table.reason}) <= 4000)`,
+    ),
+    check(
+      'review_decision_rejection_reason',
+      sql`${table.action} <> 'rejected' OR ${table.reason} IS NOT NULL`,
+    ),
+    check(
+      'review_decision_snapshot_required',
+      sql`(${table.action} = 'approved' AND ${table.snapshotId} IS NOT NULL) OR (${table.action} = 'rejected' AND ${table.snapshotId} IS NULL)`,
+    ),
+  ],
+);

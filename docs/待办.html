@@ -16,6 +16,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 @media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
 </style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#需要-lan-处理">需要 Lan 处理</a><a class="level-2" href="#各-pr-未完成验收">各 PR 未完成验收</a></nav><main><h1 id="待办">待办</h1>
+<ul><li>PR-16：修改后通过/追问/转交/目标继续事件及正式技能发布后续；内核收到review成功必须立即暂停并阻断同批剩余工具，收尾时尊重已发生的人工决定。主路径审核卡界面在PR-27。V1只针对结构化陈述，不声明整个工作区的所有文字均已核验。</li></ul>
 <ul><li>PR-14：当前仅V1/V3；V4业务比对、V7数量/单位目录与转换、V8完整外发核验后续实现，V2/V5/V6按既定后续PR；实际读取证明与技能证据数在PR-16/21；同内核Agent/技能评测PR-20/21。</li></ul>
 <ul><li>PR-12：上游流式、备用模型/自动重试、图像输入、本机测试HTTP接口、数据库模型配置维护延期；保密本地模型未配置则拒绝。宿主OS级出网封锁和剩余网络分段留PR-13。开发代理DNS映射需刷新/IT处理，不能失败后直连。</li></ul>
 <ul><li>PR-11：执行权和事件的真实运行接入在PR-20；私有对话/SSE在PR-25；真实请求原文正期限保留未开放，今晚为0天；清理常驻调度和各后续业务的审计分别随worker/业务PR完成。</li><li>PR-20接入执行权时：工具写入必须在registry现有tx内核对owner/generation/数据库到期时间，并在提交前复核，不能在持run锁时另开Pool连接调用assertRunLease，也不能把一次事务外检查当成完整fencing。worker应重扫handoffBlockedBudgetRuns，保持已知计量结果不受后置停止故障影响。</li></ul>

@@ -284,6 +284,9 @@ test('冻结快照在数据库层拒绝更新、删除与清空', async () => {
     await expect(database.pool.query(sql, [id])).rejects.toMatchObject({ code: '42501' });
   }
   await expect(database.pool.query('TRUNCATE submission_snapshot')).rejects.toMatchObject({
+    code: '0A000',
+  });
+  await expect(database.pool.query('TRUNCATE submission_snapshot CASCADE')).rejects.toMatchObject({
     code: '42501',
   });
   expect(
