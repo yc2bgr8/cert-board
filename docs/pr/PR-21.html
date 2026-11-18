@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr-21-双-agent-资料和工作区工具与批准续跑">PR-21 双 Agent、资料和工作区工具与批准续跑</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a></nav><main><h2 id="pr-21-双-agent-资料和工作区工具与批准续跑">PR-21 双 Agent、资料和工作区工具与批准续跑</h2>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>按项目所属 Agent 读取固定开发定义和技能索引，共用 Pi 内核、模型网关和对象权限。注册使用 R09，维护使用 M02。两个技能均标为开发草稿，待注册人员确认。</li><li>接入资料检索、原文分页、技能加载、工作副本的列出/读取/搜索/写入/编辑、保存/恢复/重基、计划和提问。工具复用 Registry 事务，资料读取提供可用于 V1 的完整回执，过程事件提供有界摘要。</li><li>浏览器的批准和拒绝产生继续票据，后台在原运行上核对冻结调用并一次性执行或回传拒绝原因。Pi 使用原回执继续，同一运行计量累积。队列重放、停机和租约保持原边界。</li><li>北京时间周六、周日暂停催办，周一至周五按同事项同收件人一天一次。旧积压跨日失效。迁移 0013 加入保护，开发消息只使用现有本地测试通道。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li><code>doc_import</code> 等解析及整包导入依赖 PR-17、PR-19。期限计算和提醒规则依赖 PR-15。完整业务记录查询及写入和通过 Agent 新建项目的流程随相应业务 PR 接入。L08 主路径使用现有项目及种子资料。</li><li>本 PR 登记提问并暂停，剧本验证下一条回答在同一对话进入相同内核。浏览器答案提交和通知、对话权限切换、进度显示随后在 PR-25/26 接入。</li><li>Agent 与技能发布管理留 PR-24，后续接入完整评测及正式审阅。法定节假日日历、非登录收件人目录、日摘要及真实消息渠道后续验收。</li><li>真实模型读、写、保存已由现有工作区及读取回执验证。真实自动送审未完成。测试遇到 token 上限及上游计量问题，等待核账后复验。基于相同内核的剧本模型覆盖了提交及批准续跑。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，317 项单元测试</td></tr><tr><td><code>pnpm eval:agent</code>、<code>pnpm test:int</code></td><td>28 项内核剧本。调优前 352 项全量集成通过。窄读和工作副本变更覆盖 34 项目标测试，其中原始请求幂等的用例按旧契约修正后复跑通过</td></tr><tr><td>L08 全链路剧本验收</td><td>使用实际 T1 解析数据、正式登记工具及同一 Pi 内核，从两处原文取证到新版本、V1/V3、审核卡、另一成员通过并冻结，全链路 1 项集成测试通过</td></tr><tr><td><code>pnpm test:real --l08</code></td><td>前两次实际读取两处写法并保存 Markdown 第 2、3 版，第 2 版通过 V1/V3。前两次分别在 13、17 次已结算调用后触及 token 预占上限。第三次上游失败并有未知用量。扩展验收命令未能完成送审</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描、CI 和独立复审</td><td>待验收</td></tr></tbody></table>
+<p>为降低核查上下文，资料检索返回真实 UTF-16 命中偏移，<code>doc_read</code> 工具默认读 1800 字符，最长仍可显式读 12000。V1 引文仍按完整真实回执校验。新文件可以省略预期哈希，已有文件的哈希条件不变。按原始输入绑定的同调用编号继续拒绝变参，省略字段和显式传空值的模式验收分别覆盖。</p>
+<p>本次真实验收后整晚已结算费用 0.026985314 美元，未知预占 0.00952992 美元。账本把北京时间 2026-11-18 17:58:27 左右的调用记为 <code>request_uncertain</code>，保留 <code>metering_incomplete</code>，待负责人核账后恢复真实测试。日常库迁移 0012、0013 成功，重跑新增 0，后台启停验证通过。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

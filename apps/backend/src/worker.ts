@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { PgBoss } from 'pg-boss';
-import { ConfigurationError, parseBackendConfig } from '@cert-board/shared';
+import { ConfigurationError, parseBackendConfig, type AgentCode } from '@cert-board/shared';
 import { createLogger } from './logger.js';
 import { createDependencies } from './dependencies.js';
 import { BlobStore } from './documents/blob-store.js';
@@ -11,6 +11,7 @@ import { ModelGateway } from './modelgw/service.js';
 import { RealGatewayTransport } from './modelgw/transport.js';
 import { buildAgentTools } from './agent/default-tools.js';
 import { executeAgentRun } from './agent/runtime.js';
+import { getContinuationTicket, listContinuationsForDispatch } from './approvals/continuation.js';
 import {
   AGENT_QUEUE,
   createAgentQueue,
@@ -29,6 +30,8 @@ export async function startWorker() {
   let transport: RealGatewayTransport | undefined;
   let boss: PgBoss | undefined;
   let interval: ReturnType<typeof setInterval> | undefined;
+  let dispatchInterval: ReturnType<typeof setInterval> | undefined;
+  let dispatch: Promise<void> | undefined;
   let maintenance: Promise<void> | undefined;
   let registration: Promise<string> | undefined;
   let stopPromise: Promise<void> | undefined;
@@ -39,6 +42,7 @@ export async function startWorker() {
     (stopPromise ??= (async () => {
       closing = true;
       if (interval) clearInterval(interval);
+      if (dispatchInterval) clearInterval(dispatchInterval);
       process.off('SIGINT', onSignal);
       process.off('SIGTERM', onSignal);
       for (const controller of active.values()) controller.abort();
@@ -49,7 +53,11 @@ export async function startWorker() {
           failed = true;
         });
       // 队列自身超时后可能放弃等待；业务和维护须退出才能关闭共享连接。
-      await Promise.allSettled([...tasks, ...(maintenance ? [maintenance] : [])]);
+      await Promise.allSettled([
+        ...tasks,
+        ...(maintenance ? [maintenance] : []),
+        ...(dispatch ? [dispatch] : []),
+      ]);
       if (transport)
         await transport.close().catch(() => {
           failed = true;
@@ -78,8 +86,8 @@ export async function startWorker() {
     const gateway = new ModelGateway(resources.database, models, transport, {
       environment: config.NODE_ENV,
     });
-    const definitions = await buildAgentTools();
     const store = new BlobStore(resources.storage, config.MINIO_BUCKET);
+    const definitions = (code: AgentCode) => buildAgentTools(store, code);
     const reconcile = async () => {
       await recoverAbandonedAgentRuns(resources.database);
       const orphaned = await resources.database.query<{
@@ -106,7 +114,7 @@ export async function startWorker() {
     const queue = boss;
     const dispatchQueued = async () => {
       const queued = await resources.database.query<{ id: string }>(
-        "SELECT id FROM run WHERE status='queued' AND lease_generation=0 AND lease_owner IS NULL ORDER BY created_at,id LIMIT 100",
+        "SELECT id FROM run WHERE status='queued' AND trigger_type<>'evaluation' AND lease_generation=0 AND lease_owner IS NULL ORDER BY created_at,id LIMIT 100",
       );
       for (const row of queued.rows) {
         if (closing) break;
@@ -117,13 +125,23 @@ export async function startWorker() {
             await finishAbandonedAgentRun(resources.database, row.id, true);
         }
       }
+      if (closing) return;
+      for (const ticket of await listContinuationsForDispatch(resources.database)) {
+        if (closing) break;
+        const id = await enqueueAgentRun(queue, ticket.runId, ticket.id);
+        if (!id) {
+          const job = await queue.getJobById(AGENT_QUEUE, ticket.id);
+          if (job && ['failed', 'completed', 'cancelled'].includes(job.state))
+            await finishAbandonedAgentRun(resources.database, ticket.runId, true, ticket.id);
+        }
+      }
     };
     await dispatchQueued();
     process.once('SIGINT', onSignal);
     process.once('SIGTERM', onSignal);
     registration = consumeAgentRuns(
       queue,
-      async (runId, jobSignal) => {
+      async (runId, jobSignal, ticketId) => {
         if (active.has(runId)) return;
         const controller = new AbortController();
         const abort = () => controller.abort();
@@ -143,11 +161,14 @@ export async function startWorker() {
               await finishAbandonedAgentRun(resources.database, runId);
               return;
             }
-            if (BigInt(before.lease_generation) !== 0n) throw new Error('run_already_started');
+            if (ticketId) {
+              const ticket = await getContinuationTicket(resources.database, ticketId);
+              if (!ticket || ticket.runId !== runId || ticket.state !== 'queued') return;
+            } else if (BigInt(before.lease_generation) !== 0n) return;
             const result = await executeAgentRun(
               { pool: resources.database, store, gateway, models, definitions },
               runId,
-              { signal: controller.signal },
+              { signal: controller.signal, ...(ticketId ? { ticketId } : {}) },
             );
             if (result.status === 'queued') throw new Error('run_not_started');
             const recovered =
@@ -158,7 +179,9 @@ export async function startWorker() {
               '运行状态已记录。',
             );
           } catch {
-            await finishAbandonedAgentRun(resources.database, runId, true).catch(() => undefined);
+            await finishAbandonedAgentRun(resources.database, runId, true, ticketId).catch(
+              () => undefined,
+            );
             logger.warn(
               { event: 'agent_run_failed', runId },
               '运行未完成，请核对执行记录；不会自动重发模型。',
@@ -177,8 +200,8 @@ export async function startWorker() {
         }
       },
       () => closing,
-      async (runId) => {
-        await finishAbandonedAgentRun(resources.database, runId, true);
+      async (runId, ticketId) => {
+        await finishAbandonedAgentRun(resources.database, runId, true, ticketId);
       },
     );
     await registration;
@@ -186,12 +209,21 @@ export async function startWorker() {
       await stop();
       throw new Error('WORKER_START_CANCELLED');
     }
+    dispatchInterval = setInterval(() => {
+      if (dispatch || closing) return;
+      dispatch = dispatchQueued()
+        .catch(() =>
+          logger.warn({ event: 'dispatch_deferred' }, '后台暂未能领取待执行任务，稍后再次检查。'),
+        )
+        .finally(() => {
+          dispatch = undefined;
+        });
+    }, 1_000);
     interval = setInterval(() => {
       logger.info({ event: 'worker_heartbeat' }, '后台进程心跳');
       if (maintenance || closing) return;
       maintenance = (async () => {
         await reconcile();
-        if (!closing) await dispatchQueued();
         await purgeExpiredModelRequests(resources.database);
       })()
         .catch(() => logger.warn({ event: 'maintenance_deferred' }, '后台维护暂未完成，稍后重试。'))

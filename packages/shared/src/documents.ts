@@ -247,6 +247,7 @@ export const documentSearchItemSchema = z
     page: positiveIntegerSchema,
     locatorKind: documentLocatorKindSchema,
     dataLevel: documentDataLevelSchema,
+    snippetOffset: nonnegativeIntegerSchema,
     snippet: z.string().max(300).refine(wellFormedText, '检索摘要包含不完整字符。'),
     method: documentPageMethodSchema,
     ocrScore: z.number().finite().min(0).max(1).nullable(),

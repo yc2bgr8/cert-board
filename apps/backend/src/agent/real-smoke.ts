@@ -1,7 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
-import { parseBackendConfig } from '@cert-board/shared';
+import {
+  checkReportSchema,
+  parseBackendConfig,
+  reviewEvidenceRefSchema,
+  structuredSubmissionSchema,
+} from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { createDependencies } from '../dependencies.js';
 import { BlobStore } from '../documents/blob-store.js';
@@ -14,6 +19,9 @@ import { RealGatewayTransport } from '../modelgw/transport.js';
 import { ModelGateway } from '../modelgw/service.js';
 import type { ToolDefinition } from '../tools/registry.js';
 import { executeAgentRun } from './runtime.js';
+import { buildAgentTools } from './default-tools.js';
+
+const l08 = process.argv.includes('--l08');
 
 async function main() {
   const config = parseBackendConfig(process.env);
@@ -34,6 +42,9 @@ async function main() {
   let runId: string | undefined;
   let passed = false;
   try {
+    const budget = await getBudgetSummary(pool);
+    if (budget.blockedReason || budget.counts.unknown > 0)
+      throw new AppError(409, 'REAL_TEST_BUDGET_BLOCKED', '账本有待核对用量，请先由负责人核账。');
     const catalog = z
       .object({
         data: z.array(
@@ -57,6 +68,13 @@ async function main() {
       )
     ).rows[0]?.id;
     if (!userId) throw new Error('REAL_TEST_ACCOUNT_MISSING');
+    const starting = (
+      await pool.query<{ id: string }>(
+        'SELECT current_version_id AS id FROM workspace WHERE project_id=$1',
+        [developmentProjectId],
+      )
+    ).rows[0]?.id;
+    if (!starting) throw new Error('REAL_TEST_WORKSPACE_MISSING');
     const tx = await pool.connect();
     try {
       await tx.query('BEGIN');
@@ -69,8 +87,14 @@ async function main() {
       if (!goal) throw new Error('REAL_TEST_GOAL_INACTIVE');
       conversationId = (
         await tx.query<{ id: string }>(
-          "INSERT INTO conversation(project_id,user_id,goal_id,title,permission_mode) VALUES($1,$2,$3,'Pi内核真实多轮验证（合成文本）','read_only') RETURNING id",
-          [developmentProjectId, userId, developmentGoalId],
+          'INSERT INTO conversation(project_id,user_id,goal_id,title,permission_mode) VALUES($1,$2,$3,$4,$5) RETURNING id',
+          [
+            developmentProjectId,
+            userId,
+            developmentGoalId,
+            l08 ? 'L08 K号写法真实模型验收' : 'Pi内核真实多轮验证（合成文本）',
+            l08 ? 'ask' : 'read_only',
+          ],
         )
       ).rows[0]!.id;
       runId = (
@@ -128,21 +152,86 @@ async function main() {
       requestKey: randomUUID(),
       message: {
         role: 'user',
-        content:
-          '请做合成内核连通性验收：先调用probe_read，label=start；看到回执后，再调用同一工具，label为回执中的nextLabel。然后简短汇报第二次的value。本次只读，不生成审核或业务改动，不需要技能。必须两轮依次调用，不能猜测nextLabel。',
+        content: l08
+          ? `检查L08申报资料中对比器械K号的写法。请优先在已导入的 510(k) 摘要中查找 510(k) number，读取足以支持两处写法的相关片段。把差异列为待确认。在工作副本中新建“交付/L08-K号核查-${randomUUID().slice(0, 8)}.md”，简要记录原文、位置和待确认事项。保存为工作区版本，以同一份结构化结果通过原文检查后送审。项目说明已随对话提供，本次无需查看旧核查稿。`
+          : '请做合成内核连通性验收：先调用probe_read，label=start；看到回执后，再调用同一工具，label为回执中的nextLabel。然后简短汇报第二次的value。本次只读，不生成审核或业务改动，不需要技能。必须两轮依次调用，不能猜测nextLabel。',
       },
     });
     const gateway = new ModelGateway(pool, models, transport, { environment: 'development' });
-    const done = await executeAgentRun(
-      {
-        pool,
-        store: new BlobStore(dependencies.storage, config.MINIO_BUCKET),
-        gateway,
-        models,
-        definitions: [probe],
-      },
-      runId,
-    );
+    const store = new BlobStore(dependencies.storage, config.MINIO_BUCKET);
+    const definitions = l08
+      ? (await buildAgentTools(store, 'registration')).filter(
+          (tool) => !['queue_internal_message', 'propose_external'].includes(tool.metadata.name),
+        )
+      : [probe];
+    const runtime = { pool, store, gateway, models, definitions };
+    const done = await executeAgentRun(runtime, runId);
+    if (l08) {
+      const tools = (
+        await pool.query<{ tool_name: string }>(
+          "SELECT tool_name FROM tool_invocation WHERE run_id=$1 AND status='completed'",
+          [runId],
+        )
+      ).rows;
+      const names = new Set(tools.map((tool) => tool.tool_name));
+      if (
+        done.status !== 'waiting' ||
+        !done.reviewId ||
+        !done.usage ||
+        done.usage.costNano === null
+      ) {
+        console.error(
+          `L08 运行结果为 ${done.status}（${done.reasonCode ?? 'RUN_STATUS_UNAVAILABLE'}），成功登记工具 ${[...names].join('、')}。`,
+        );
+        throw new AppError(422, 'REAL_L08_REVIEW_NOT_REACHED', '请核对 L08 工具与审核记录。');
+      }
+      const card = (
+        await pool.query<{
+          structured_result: unknown;
+          check_report: unknown;
+          evidence_refs: unknown;
+          workspace_version_id: string;
+        }>(
+          "SELECT structured_result,check_report,evidence_refs,workspace_version_id FROM review_card WHERE id=$1 AND run_id=$2 AND status='pending'",
+          [done.reviewId, runId],
+        )
+      ).rows[0];
+      const proof = z.array(reviewEvidenceRefSchema).min(2).safeParse(card?.evidence_refs);
+      const checked = checkReportSchema.safeParse(card?.check_report);
+      const submission = structuredSubmissionSchema.safeParse(card?.structured_result);
+      const file = await pool.query(
+        `SELECT b.path FROM workspace_file b LEFT JOIN workspace_file a ON a.version_id=$2 AND a.path=b.path
+         WHERE b.version_id=$1 AND (b.path LIKE '交付/%' OR b.path LIKE '草稿/%') AND b.path LIKE '%.md'
+         AND b.sha256 IS DISTINCT FROM a.sha256`,
+        [card?.workspace_version_id ?? starting, starting],
+      );
+      if (
+        !card ||
+        !checked.success ||
+        !checked.data.passed ||
+        !submission.success ||
+        !proof.success ||
+        card.workspace_version_id === starting ||
+        !file.rowCount ||
+        !names.has('doc_search') ||
+        !names.has('doc_read') ||
+        !names.has('workspace_save') ||
+        !names.has('check_run') ||
+        !['K170825', 'K170285'].every((number) =>
+          proof.data.some((ref) => ref.quote.toUpperCase().includes(number)),
+        )
+      )
+        throw new AppError(
+          422,
+          'REAL_L08_EVIDENCE_INCOMPLETE',
+          'L08 验收缺少两处实际引语、保存版本或通过核验的审核卡。',
+        );
+      passed = true;
+      console.log(
+        `L08 资料检索、读取、写入、保存与审核卡验收通过，${done.usage.steps} 次调用。本次 ${nanoToUsd(BigInt(done.usage.costNano))} 美元。人工决定留浏览器验收。`,
+      );
+      return;
+    }
     const events = (
       await pool.query<{ seq: string }>(
         'SELECT seq FROM conversation_event WHERE conversation_id=$1 ORDER BY seq',
@@ -172,16 +261,7 @@ async function main() {
         'REAL_AGENT_ASSERTION_FAILED',
         '真实内核行为未满足验收，费用已入账。',
       );
-    const again = await executeAgentRun(
-      {
-        pool,
-        store: new BlobStore(dependencies.storage, config.MINIO_BUCKET),
-        gateway,
-        models,
-        definitions: [probe],
-      },
-      runId,
-    );
+    const again = await executeAgentRun(runtime, runId);
     if (!again.skipped) throw new Error('REAL_AGENT_REPLAYED');
     passed = true;
     console.log(

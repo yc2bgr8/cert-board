@@ -58,6 +58,12 @@ export async function stopOwnedRun(tx: PoolClient, actor: BrowserIdentity, runId
     [runId],
   );
   await tx.query(
+    `UPDATE run_continuation SET state='blocked',reason_code='CONTINUATION_STOPPED',
+     version=version+1,finished_at=clock_timestamp(),updated_at=clock_timestamp()
+     WHERE run_id=$1 AND state NOT IN ('blocked','completed')`,
+    [runId],
+  );
+  await tx.query(
     "INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id) VALUES($1,'browser','run.stop_requested','run',$2)",
     [actor.userId, runId],
   );

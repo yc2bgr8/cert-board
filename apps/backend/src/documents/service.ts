@@ -21,6 +21,8 @@ import { authorize } from '../auth/authorization.js';
 import { getProject } from '../projects/service.js';
 import type { DocumentBlobStore } from './blob-store.js';
 
+export type DocumentReadDatabase = Pick<Pool, 'query'>;
+
 const maximumImportBytes = 25 * 1024 * 1024;
 const maximumInteger = 2_147_483_647;
 const classification = `(SELECT sv.data_level FROM document_version sv WHERE sv.document_id = d.id ORDER BY sv.data_level DESC LIMIT 1)`;
@@ -72,7 +74,11 @@ function toVersion(row: Record<string, unknown>) {
     createdAt: iso(row.createdAt),
   });
 }
-async function projectAccess(pool: Pool, identity: ServiceIdentity, projectId: string) {
+async function projectAccess(
+  pool: DocumentReadDatabase,
+  identity: ServiceIdentity,
+  projectId: string,
+) {
   if (!projectIdSchema.safeParse(projectId).success) throw invalid();
   await getProject(pool, identity, projectId);
 }
@@ -243,7 +249,7 @@ export async function ingestParsedDocument(pool: Pool, store: DocumentBlobStore,
 }
 
 export async function listDocuments(
-  pool: Pool,
+  pool: DocumentReadDatabase,
   identity: ServiceIdentity,
   projectId: string,
   options: unknown = {},
@@ -266,7 +272,11 @@ export async function listDocuments(
   });
 }
 
-export async function getDocument(pool: Pool, identity: ServiceIdentity, documentId: string) {
+export async function getDocument(
+  pool: DocumentReadDatabase,
+  identity: ServiceIdentity,
+  documentId: string,
+) {
   if (!projectIdSchema.safeParse(documentId).success) throw invalid();
   const result = await pool.query<Record<string, unknown>>(
     `SELECT ${documentFields} FROM document d ${latestVersion} WHERE d.id=$1 AND NOT d.voided`,
@@ -291,7 +301,7 @@ export async function getDocument(pool: Pool, identity: ServiceIdentity, documen
 }
 
 export async function listDocumentVersions(
-  pool: Pool,
+  pool: DocumentReadDatabase,
   identity: ServiceIdentity,
   documentId: string,
   options: unknown = {},
@@ -315,7 +325,7 @@ export async function listDocumentVersions(
 }
 
 export async function readDocumentPage(
-  pool: Pool,
+  pool: DocumentReadDatabase,
   identity: ServiceIdentity,
   documentId: string,
   version: number,
@@ -399,7 +409,7 @@ export async function readDocumentPage(
 }
 
 export async function searchDocuments(
-  pool: Pool,
+  pool: DocumentReadDatabase,
   identity: ServiceIdentity,
   projectId: string,
   options: unknown,
@@ -431,7 +441,7 @@ export async function searchDocuments(
       text.charCodeAt(end - 1) <= 0xdbff
     )
       end--;
-    return { ...row, snippet: text.slice(start, end) };
+    return { ...row, snippetOffset: start, snippet: text.slice(start, end) };
   });
   return documentSearchResultSchema.parse({
     items,

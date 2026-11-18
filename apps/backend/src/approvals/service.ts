@@ -129,7 +129,11 @@ function pendingData(id: string, status: 'pending' | 'approved' | 'rejected' | '
     message:
       status === 'pending'
         ? '操作尚未执行，请发起对话的人在浏览器处理批准请求。'
-        : '该批准请求已有决定；当前版本仅记录决定，不执行或恢复调用，请等待后续继续入口。',
+        : status === 'approved'
+          ? '批准已记录，等待后台核对原调用并继续；尚未取得真实回执，不能视为已经执行。'
+          : status === 'rejected'
+            ? '拒绝已记录，后台将把原因交回Agent；该调用不会执行。'
+            : '原请求已经取消，不能执行，请核对当前对话后重新提出。',
   });
 }
 

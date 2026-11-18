@@ -87,6 +87,36 @@ function options(
 }
 afterEach(() => vi.unstubAllGlobals());
 
+test.each([
+  { approval: '允许一次', receipt: { executed: true, status: 'queued' } },
+  { approval: '拒绝', receipt: { executed: false, rejected: true, reason: '请先核对登记' } },
+])('从原工具回执继续$approval，累计原运行用量且不重做工具', async ({ receipt }) => {
+  const source = scripted([reply()]);
+  const call = toolCall('queue_internal_message');
+  const apply = vi.fn(async () => ({ data: { forged: true } }));
+  const metered = vi.fn();
+  const result = await runAgentKernel({
+    ...options(source.complete, [tool('queue_internal_message', apply)]),
+    messages: [],
+    history: [
+      { role: 'user', content: '核对合成事项。' },
+      reply(call),
+      { role: 'tool', tool_call_id: call.id, content: JSON.stringify(receipt) },
+    ],
+    continuation: { initialUsage: { steps: 2, totalTokens: 220, costNano: '3000' } },
+    onTurn: metered,
+  });
+  expect(result.status).toBe('completed');
+  expect(source.requests).toHaveLength(1);
+  expect(source.requests[0]?.messages.at(-1)).toMatchObject({
+    role: 'tool',
+    tool_call_id: call.id,
+    content: JSON.stringify(receipt),
+  });
+  expect(apply).not.toHaveBeenCalled();
+  expect(metered).toHaveBeenCalledExactlyOnceWith({ steps: 3, totalTokens: 330, costNano: '4000' });
+});
+
 test('多轮读写后提交即等待，同批后续工具不执行且归一化prompt/tools进入网关', async () => {
   const source = scripted([
     reply(toolCall('doc_read')),

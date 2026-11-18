@@ -5,7 +5,10 @@ import { lockOwnedRun } from '../runs/lock.js';
 import { appendConversationEvent } from '../conversations/storage.js';
 
 export const AGENT_QUEUE = 'cert-agent-runs';
-const jobSchema = z.object({ runId: z.string().uuid() }).strict();
+const jobSchema = z
+  .object({ runId: z.string().uuid(), ticketId: z.string().uuid().optional() })
+  .strict();
+type AgentJob = z.infer<typeof jobSchema>;
 
 export async function createAgentQueue(connectionString: string, onError: () => void) {
   const boss = new PgBoss({
@@ -39,45 +42,55 @@ export async function createAgentQueue(connectionString: string, onError: () => 
   }
 }
 
-export async function enqueueAgentRun(boss: PgBoss, runId: string) {
-  const parsed = jobSchema.safeParse({ runId });
+export async function enqueueAgentRun(boss: PgBoss, runId: string, ticketId?: string) {
+  const parsed = jobSchema.safeParse({ runId, ...(ticketId ? { ticketId } : {}) });
   if (!parsed.success) throw new Error('INVALID_AGENT_JOB');
-  return boss.send(AGENT_QUEUE, parsed.data, { id: runId, retryLimit: 0 });
+  return boss.send(AGENT_QUEUE, parsed.data, { id: ticketId ?? runId, retryLimit: 0 });
 }
 
 export async function consumeAgentRuns(
   boss: PgBoss,
-  handler: (runId: string, signal: AbortSignal) => Promise<void>,
+  handler: (runId: string, signal: AbortSignal, ticketId?: string) => Promise<void>,
   closing: () => boolean,
-  onFailure?: (runId: string) => Promise<void>,
+  onFailure?: (runId: string, ticketId?: string) => Promise<void>,
 ) {
-  return boss.work<{ runId: string }>(
+  return boss.work<AgentJob>(
     AGENT_QUEUE,
     { batchSize: 1, localConcurrency: 1, pollingIntervalSeconds: 1 },
     async (jobs) => {
       for (const job of jobs) {
         const parsed = jobSchema.safeParse(job.data);
+        const data =
+          parsed.success && job.id === (parsed.data.ticketId ?? parsed.data.runId)
+            ? parsed.data
+            : null;
         try {
-          if (!parsed.success) throw new Error('INVALID_AGENT_JOB');
+          if (!data) throw new Error('INVALID_AGENT_JOB');
           if (closing() || job.signal.aborted) throw new Error('AGENT_WORKER_CLOSING');
-          await handler(parsed.data.runId, job.signal);
+          await handler(data.runId, job.signal, data.ticketId);
           if (job.signal.aborted) throw new Error('AGENT_JOB_ABORTED');
         } catch {
-          if (parsed.success) await onFailure?.(parsed.data.runId).catch(() => undefined);
+          if (data) await onFailure?.(data.runId, data.ticketId).catch(() => undefined);
           const error = new Error('AGENT_JOB_FAILED');
           delete error.stack;
           throw error;
         }
-        // 队列只存runId；不把Agent正文、结果或底层错误写入job.output。
+        // 队列只存运行和续跑票据编号，回执正文保存在私有对话中。
       }
     },
   );
 }
 
-export async function finishAbandonedAgentRun(pool: Pool, runId: string, allowQueued = false) {
-  if (!jobSchema.safeParse({ runId }).success) throw new Error('INVALID_AGENT_JOB');
+export async function finishAbandonedAgentRun(
+  pool: Pool,
+  runId: string,
+  allowQueued = false,
+  ticketId?: string,
+) {
+  if (!jobSchema.safeParse({ runId, ...(ticketId ? { ticketId } : {}) }).success)
+    throw new Error('INVALID_AGENT_JOB');
   const tx = await pool.connect();
-  let notice: { userId: string; status: 'failed' | 'stopped' } | undefined;
+  let notice: { userId: string; status: 'failed' | 'stopped'; requestKey: string } | undefined;
   try {
     await tx.query('BEGIN');
     await tx.query("SET LOCAL lock_timeout='1000ms'");
@@ -93,7 +106,16 @@ export async function finishAbandonedAgentRun(pool: Pool, runId: string, allowQu
     const stale =
       row.status === 'running' &&
       (!row.lease_owner || !row.lease_expires_at || row.lease_expires_at <= clock);
-    const unstarted = row.status === 'queued' && (allowQueued || BigInt(row.lease_generation) > 0n);
+    const activeTicket = (
+      await tx.query<{ id: string }>(
+        "SELECT id FROM run_continuation WHERE run_id=$1 AND state='queued' ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+        [runId],
+      )
+    ).rows[0];
+    const unstarted =
+      row.status === 'queued' &&
+      (allowQueued || BigInt(row.lease_generation) > 0n) &&
+      (!activeTicket || (allowQueued && activeTicket.id === ticketId));
     if (!stale && !unstarted) {
       await tx.query('COMMIT');
       return false;
@@ -105,11 +127,17 @@ export async function finishAbandonedAgentRun(pool: Pool, runId: string, allowQu
       [status, runId],
     );
     await tx.query(
+      `UPDATE run_continuation SET state='blocked',reason_code='CONTINUATION_INTERRUPTED',
+       version=version+1,finished_at=clock_timestamp(),updated_at=clock_timestamp()
+       WHERE run_id=$1 AND state NOT IN ('completed','blocked')`,
+      [runId],
+    );
+    await tx.query(
       "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system',$1,'run',$2)",
       [unstarted ? 'agent.queue_failed' : 'agent.worker_interrupted', runId],
     );
     await tx.query('COMMIT');
-    notice = { userId: owner.user_id, status };
+    notice = { userId: owner.user_id, status, requestKey: runId };
   } catch {
     await tx.query('ROLLBACK').catch(() => undefined);
     throw new Error('AGENT_RUN_RECOVERY_DEFERRED');
@@ -121,7 +149,7 @@ export async function finishAbandonedAgentRun(pool: Pool, runId: string, allowQu
       await appendConversationEvent(pool, {
         runId,
         userId: notice.userId,
-        requestKey: runId,
+        requestKey: notice.requestKey,
         event: {
           type: 'run_status',
           payload: {
@@ -154,7 +182,9 @@ export async function recoverAbandonedAgentRuns(pool: Pool) {
   const candidates = await pool.query<{ id: string }>(
     `SELECT id FROM run WHERE
      (status='running' AND (lease_owner IS NULL OR lease_expires_at<=clock_timestamp()))
-     OR (status='queued' AND lease_generation>0) ORDER BY created_at,id LIMIT 100`,
+     OR (status='queued' AND lease_generation>0 AND NOT EXISTS(
+       SELECT 1 FROM run_continuation t WHERE t.run_id=run.id AND t.state='queued'
+     )) ORDER BY created_at,id LIMIT 100`,
   );
   let stopped = 0;
   for (const row of candidates.rows) if (await finishAbandonedAgentRun(pool, row.id)) stopped++;

@@ -7,6 +7,9 @@ const state = vi.hoisted(() => ({
   loadModels: vi.fn(),
   createQueue: vi.fn(),
   consume: vi.fn(),
+  continuations: vi.fn(),
+  lookupTicket: vi.fn(),
+  enqueue: vi.fn(),
   stopQueue: vi.fn(),
   execute: vi.fn(),
   purge: vi.fn(),
@@ -16,7 +19,8 @@ const state = vi.hoisted(() => ({
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
-  handler: undefined as undefined | ((runId: string, signal: AbortSignal) => Promise<void>),
+  handler: undefined as
+    undefined | ((runId: string, signal: AbortSignal, ticketId?: string) => Promise<void>),
 }));
 vi.mock('./logger.js', () => ({
   createLogger: () => ({ info: state.info, warn: state.warn, error: state.error }),
@@ -40,6 +44,10 @@ vi.mock('./modelgw/transport.js', () => ({
 vi.mock('./modelgw/service.js', () => ({ ModelGateway: class {} }));
 vi.mock('./agent/default-tools.js', () => ({ buildAgentTools: async () => [] }));
 vi.mock('./agent/runtime.js', () => ({ executeAgentRun: state.execute }));
+vi.mock('./approvals/continuation.js', () => ({
+  listContinuationsForDispatch: state.continuations,
+  getContinuationTicket: state.lookupTicket,
+}));
 vi.mock('./budget/service.js', () => ({
   handoffBlockedBudgetRuns: state.handoff,
   markUsageIncomplete: async () => undefined,
@@ -49,13 +57,40 @@ vi.mock('./queue/agent-queue.js', () => ({
   AGENT_QUEUE: 'cert-agent-runs',
   createAgentQueue: state.createQueue,
   consumeAgentRuns: state.consume,
-  enqueueAgentRun: async () => null,
+  enqueueAgentRun: state.enqueue,
   finishAbandonedAgentRun: state.finish,
   recoverAbandonedAgentRuns: state.recover,
 }));
 import { startWorker } from './worker.js';
 
 let worker: Awaited<ReturnType<typeof startWorker>> | undefined;
+
+test('后台把批准后续跑送回同一运行，旧初始任务和不匹配票据不会重做任务', async () => {
+  const runId = 'test-run';
+  const ticketId = 'test-ticket';
+  const otherTicketId = 'wrong-ticket';
+  state.continuations.mockResolvedValue([{ runId, id: ticketId }]);
+  state.query.mockImplementation(async (query: string) => ({
+    rows: query.startsWith('SELECT status,lease_generation')
+      ? [{ status: 'queued', lease_generation: '1' }]
+      : [],
+  }));
+  state.lookupTicket.mockImplementation(async (_database, id: string) =>
+    id === ticketId ? { runId, id, state: 'queued' } : { runId: 'other-run', id, state: 'queued' },
+  );
+  worker = await startWorker();
+  expect(state.enqueue).toHaveBeenCalledExactlyOnceWith(expect.anything(), runId, ticketId);
+  const { signal } = new AbortController();
+  await state.handler!(runId, signal);
+  await state.handler!(runId, signal, otherTicketId);
+  expect(state.execute).not.toHaveBeenCalled();
+  await state.handler!(runId, signal, ticketId);
+  expect(state.execute).toHaveBeenCalledExactlyOnceWith(
+    expect.anything(),
+    runId,
+    expect.objectContaining({ ticketId }),
+  );
+});
 beforeEach(() => {
   vi.clearAllMocks();
   state.handler = undefined;
@@ -74,6 +109,9 @@ beforeEach(() => {
   state.finish.mockResolvedValue(false);
   state.purge.mockResolvedValue({ deleted: 0 });
   state.execute.mockResolvedValue({ status: 'completed' });
+  state.continuations.mockResolvedValue([]);
+  state.lookupTicket.mockResolvedValue(null);
+  state.enqueue.mockResolvedValue('test-job');
   for (const [key, value] of Object.entries({
     NODE_ENV: 'test',
     DATABASE_URL: 'postgresql://fixture:fixture@127.0.0.1/daily',

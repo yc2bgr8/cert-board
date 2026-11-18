@@ -24,6 +24,7 @@ import {
   type AgentKernelResult,
   type KernelEvent,
   type KernelMessage,
+  type KernelTerminal,
   type KernelUsage,
 } from './types.js';
 
@@ -38,17 +39,18 @@ const safeToolMessage = (error: KernelToolError) =>
 export async function runAgentKernel(options: AgentKernelOptions): Promise<AgentKernelResult> {
   const outputs: KernelMessage[] = [];
   const usageByRequest = new Map<string, { totalTokens: number; costNano: string }>();
+  const base = options.continuation?.initialUsage ?? { steps: 0, totalTokens: 0, costNano: '0' };
   const usage = (): KernelUsage => ({
-    steps: usageByRequest.size,
+    steps: base.steps + usageByRequest.size,
     totalTokens: [...usageByRequest.values()].reduce(
       (total, entry) => total + entry.totalTokens,
-      0,
+      base.totalTokens,
     ),
     costNano: [...usageByRequest.values()]
-      .reduce((total, entry) => total + BigInt(entry.costNano), 0n)
+      .reduce((total, entry) => total + BigInt(entry.costNano), BigInt(base.costNano))
       .toString(),
   });
-  let terminal: 'review' | 'proposal' | 'approval' | undefined;
+  let terminal: KernelTerminal | undefined;
   let fatal: string | undefined;
   let notifiedWaiting = false;
   let lastMeteredStep = 0;
@@ -83,7 +85,10 @@ export async function runAgentKernel(options: AgentKernelOptions): Promise<Agent
   if (
     !config.success ||
     !initial.success ||
-    !options.messages.length ||
+    (options.continuation
+      ? options.messages.length !== 0 ||
+        !['user', 'tool'].includes(options.history.at(-1)?.role ?? '')
+      : options.messages.length === 0) ||
     [...options.history, ...options.messages].some((message) => message.role === 'system')
   )
     return failResult('KERNEL_INPUT_INVALID');
@@ -326,7 +331,8 @@ export async function runAgentKernel(options: AgentKernelOptions): Promise<Agent
   options.signal.addEventListener('abort', abort, { once: true });
   try {
     if (options.signal.aborted) abort();
-    await agent.prompt(prompts.map((message) => toPiMessage(message, model, names)));
+    if (options.continuation) await agent.continue();
+    else await agent.prompt(prompts.map((message) => toPiMessage(message, model, names)));
   } catch {
     fatal ??= 'KERNEL_INTERNAL_ERROR';
   } finally {
@@ -335,14 +341,7 @@ export async function runAgentKernel(options: AgentKernelOptions): Promise<Agent
   if (options.signal.aborted) return failResult('RUN_ABORTED');
   if (fatal) return failResult(fatal);
   return {
-    status:
-      terminal === 'review'
-        ? 'waiting_review'
-        : terminal === 'proposal'
-          ? 'waiting_proposal'
-          : terminal === 'approval'
-            ? 'waiting_approval'
-            : 'completed',
+    status: terminal ? `waiting_${terminal}` : 'completed',
     messages: outputs,
     usage: usage(),
   };

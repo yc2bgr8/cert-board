@@ -7,6 +7,12 @@ import {
   type PermissionMode,
 } from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
+import {
+  reminderMonday,
+  reminderSaturday,
+  reminderSunday,
+  setTestReminderClock,
+} from '../test-support/internal-reminder-clock.js';
 import { createToolRuntime } from '../agent/tool-runtime.js';
 import { queueInternalMessageTool } from '../tools/queue-internal-message.js';
 import { proposeExternalTool } from '../tools/propose-external.js';
@@ -33,6 +39,7 @@ let context: Awaited<ReturnType<typeof createIntegrationContext>>;
 let contactId: string;
 beforeEach(async () => {
   context = await createIntegrationContext();
+  await setTestReminderClock(context.pool);
   await seedDevelopmentWorkspace(context.pool, new MemoryStore(), { NODE_ENV: 'test' });
   contactId = (
     await context.pool.query<{ id: string }>(
@@ -41,6 +48,54 @@ beforeEach(async () => {
       [context.projectId, context.userId('MEMBER_A'), context.userId('MEMBER_B')],
     )
   ).rows[0]!.id;
+});
+
+test.each([reminderSaturday, reminderSunday])(
+  '北京时间周末 %s 不建立提醒队列或批准请求',
+  async (instant) => {
+    await setTestReminderClock(context.pool, instant);
+    const ask = await runner('ask');
+    const full = await runner('full');
+    await expect(
+      ask.registry.execute(ask.source, 'queue_internal_message', payload()),
+    ).rejects.toBeInstanceOf(AppError);
+    await expect(
+      full.registry.execute(full.source, 'queue_internal_message', payload()),
+    ).rejects.toBeInstanceOf(AppError);
+    const counts = await context.pool
+      .query(`SELECT (SELECT count(*)::int FROM internal_outbound_message) AS queue,
+    (SELECT count(*)::int FROM tool_approval) AS approvals`);
+    expect(counts.rows[0]).toEqual({ queue: 0, approvals: 0 });
+  },
+);
+
+test('周五积压在北京时间周六处理时无回执，周一可新建一条', async () => {
+  const run = await runner();
+  const friday = internalMessageQueuedSchema.parse(
+    (await run.registry.execute(run.source, 'queue_internal_message', payload())).data,
+  );
+  await setTestReminderClock(context.pool, reminderSaturday);
+  await expect(
+    context.pool.query(
+      `UPDATE internal_outbound_message SET status='done',attempts=1,version=version+1,
+       processed_at=clock_timestamp(),receipt_id=$2 WHERE id=$1`,
+      [friday.queueId, randomUUID()],
+    ),
+  ).rejects.toMatchObject({ code: '23514' });
+  const weekend = await processTestInternalMessage(context.pool, friday.queueId);
+  expect(weekend).toMatchObject({ status: 'failed', attempts: 0, receipt: null });
+  expect(weekend.reason).toContain('周末');
+  await setTestReminderClock(context.pool, reminderMonday);
+  const source = { ...run.source, callId: randomUUID() };
+  const monday = internalMessageQueuedSchema.parse(
+    (await run.registry.execute(source, 'queue_internal_message', payload())).data,
+  );
+  const processed = await processTestInternalMessage(context.pool, monday.queueId);
+  expect(processed).toMatchObject({ status: 'done', attempts: 1 });
+  expect(processed.receipt).not.toBeNull();
+  await expect(
+    run.registry.execute({ ...source, callId: randomUUID() }, 'queue_internal_message', payload()),
+  ).rejects.toBeInstanceOf(AppError);
 });
 
 test('ask只生成有真实收件人预览的批准请求；浏览器允许一次仍不提前排队', async () => {
