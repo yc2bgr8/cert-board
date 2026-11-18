@@ -75,6 +75,35 @@ test('只读到部分引语不能证明完整引用已读', async () => {
   expect(await cardCount()).toBe(0);
 });
 
+test('决策独有引语也必须在完整doc_read回执内，补读后才允许提交', async () => {
+  const options: { readText?: string } = { readText: '第一处 K123456\n第二处 K654321' };
+  context = await createReviewTestContext(options);
+  const data = structuredClone(context.submission);
+  data.decisions = [
+    {
+      id: 'D1',
+      subject: '是否确认编号',
+      choice: '保留待确认',
+      alternatives: ['直接选用一个编号'],
+      reason: '资料明确说明不代表正确编号。',
+      sources: [
+        {
+          documentId: context.documentId,
+          version: 1,
+          page: 1,
+          quote: '纯虚构测试资料，不代表正确编号。',
+        },
+      ],
+      risk: 'high',
+    },
+  ];
+  await expect(context.submit(data)).rejects.toMatchObject({ statusCode: 422 });
+  expect(await cardCount()).toBe(0);
+  delete options.readText;
+  await context.read();
+  expect(reviewSubmitResultSchema.parse((await context.submit(data)).data).status).toBe('pending');
+});
+
 test('两次分段读取不能拼装成一条完整读取回执', async () => {
   const options = { autoRead: false, readText: '第一处 K123456' };
   context = await createReviewTestContext(options);

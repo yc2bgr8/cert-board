@@ -15,14 +15,14 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;backgrou
 img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
 @media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
-</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#check_run-builtin-checks-v1">check_run（builtin-checks-v1）</a><a class="level-2" href="#submit_for_review-builtin-review-v1">submit_for_review（builtin-review-v1）</a><a class="level-2" href="#propose_external-builtin-proposal-v1">propose_external（builtin-proposal-v1）</a><a class="level-2" href="#queue_internal_message-builtin-internal-v1">queue_internal_message（builtin-internal-v1）</a></nav><main><h1 id="工具说明">工具说明</h1>
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#check_run-builtin-checks-v2">check_run（builtin-checks-v2）</a><a class="level-2" href="#submit_for_review-builtin-review-v2">submit_for_review（builtin-review-v2）</a><a class="level-2" href="#propose_external-builtin-proposal-v1">propose_external（builtin-proposal-v1）</a><a class="level-2" href="#queue_internal_message-builtin-internal-v1">queue_internal_message（builtin-internal-v1）</a></nav><main><h1 id="工具说明">工具说明</h1>
 <p>以下为当前登记工具的完整模型说明。其他通用/业务工具在PR-21接入。所有部门成员业务权限相同；过程批准只由对话发起人在浏览器处理。approvalInAsk=false不免除外部提案逐条审批或最终审核。</p>
-<h2 id="check_run-builtin-checks-v1">check_run（builtin-checks-v1）</h2>
+<h2 id="check_run-builtin-checks-v2">check_run（builtin-checks-v2）</h2>
 <p>动作级别：read；模式：read_only、ask、full；请求批准模式先问：否。</p>
 <p>做什么：提交审核前核对结构化结果与资料库原文；当前执行V1原文逐字核验和V3结构检查。</p>
 <p>何时使用：已有doc_read取得的真实引用和本项目已保存工作区版本，准备检查交付时使用。</p>
 <p>何时不用：不要用它代替doc_read或法规判断；它不证明模型实际读过，不验证哪个K号正确。通过后仍须submit_for_review，审批只能由人在浏览器完成。</p>
-<p>参数：直接传skill、workspaceVersion、conclusion、claims、evidence、missing、uncertain、nextStep。引用只用documentId/version整数/page/quote；禁止草稿路径。K号是字符串且unit为null；数量/单位转换暂未支持。例子为虚构格式，必须替换成真实资料与版本。</p>
+<p>参数：直接传skill、workspaceVersion、conclusion、claims、decisions、evidence、missing、uncertain、nextStep。decisions必填，没有过程判断时显式传[]；每项含id/subject/choice/alternatives/reason/sources/risk(low或high)，至少一条原文。陈述与判断合计最多20条，全部引用合计40条。引用只用documentId/version整数/page/quote，禁止草稿路径；K号是字符串且unit为null，数量换算未支持。V1只核验引文，不证明判断正确。例子为虚构格式，必须换成真实定位。</p>
 <p>格式示例（不是真实业务数据）：</p>
 <pre><code>{
   &quot;skill&quot;: {
@@ -57,18 +57,38 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
       &quot;quote&quot;: &quot;EXAMPLE-001&quot;
     }
   ],
+  &quot;decisions&quot;: [
+    {
+      &quot;id&quot;: &quot;D1&quot;,
+      &quot;subject&quot;: &quot;编号写法的处理&quot;,
+      &quot;choice&quot;: &quot;保留当前写法并标为待确认&quot;,
+      &quot;alternatives&quot;: [
+        &quot;在未核对前修改编号&quot;
+      ],
+      &quot;reason&quot;: &quot;仅凭这条摘录不能证明号码真实性。&quot;,
+      &quot;sources&quot;: [
+        {
+          &quot;documentId&quot;: &quot;10000000-0000-4000-8000-000000000001&quot;,
+          &quot;version&quot;: 1,
+          &quot;page&quot;: 1,
+          &quot;quote&quot;: &quot;EXAMPLE-001&quot;
+        }
+      ],
+      &quot;risk&quot;: &quot;high&quot;
+    }
+  ],
   &quot;missing&quot;: [],
   &quot;uncertain&quot;: [
     &quot;正确编号需业务人员核实。&quot;
   ],
   &quot;nextStep&quot;: &quot;核对原件后提交审核。&quot;
 }</code></pre>
-<h2 id="submit_for_review-builtin-review-v1">submit_for_review（builtin-review-v1）</h2>
+<h2 id="submit_for_review-builtin-review-v2">submit_for_review（builtin-review-v2）</h2>
 <p>动作级别：reversible_write；模式：ask、full；请求批准模式先问：否。</p>
 <p>做什么：把已保存的核查报告和结构化证据提交给人审核；仅建立待审核卡，不会批准或冻结版本。</p>
 <p>何时使用：已按技能读取实际资料、完成报告、保存最新工作区版本并用check_run通过关键检查后使用。</p>
 <p>何时不用：不能当作审批工具；对话中的同意不算批准。资料未读完整请先doc_read，保存冲突先合并；程序不判断正确K号或法规立场。</p>
-<p>参数：直接传结构化结果的skill/workspaceVersion/conclusion/claims/evidence/missing/uncertain/nextStep。引语须完整出现在本对话成功doc_read回执；最少证据数和风险由服务端技能策略确定。例子为虚构格式，请替换成真实定位。</p>
+<p>参数：直接传结构化结果的skill/workspaceVersion/conclusion/claims/decisions/evidence/missing/uncertain/nextStep。decisions必填，可显式[]；每项记录id/subject/choice/alternatives/reason/sources/risk(low或high)，至少一条原文。所有判断与陈述引语都须完整出现在本对话成功doc_read回执；陈述与判断合计20条、全部引用40条。最少证据和卡片风险仍由服务端策略确定，判断风险不能降低检查要求。例子为虚构格式，请替换成真实定位。</p>
 <p>格式示例（不是真实业务数据）：</p>
 <pre><code>{
   &quot;skill&quot;: {
@@ -107,6 +127,32 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
       &quot;version&quot;: 1,
       &quot;page&quot;: 1,
       &quot;quote&quot;: &quot;EXAMPLE-B&quot;
+    }
+  ],
+  &quot;decisions&quot;: [
+    {
+      &quot;id&quot;: &quot;D1&quot;,
+      &quot;subject&quot;: &quot;差异处理&quot;,
+      &quot;choice&quot;: &quot;保留两处差异，先核对原件&quot;,
+      &quot;alternatives&quot;: [
+        &quot;将其中一处按笔误统一&quot;
+      ],
+      &quot;reason&quot;: &quot;两处引文不足以认定正确编号。&quot;,
+      &quot;sources&quot;: [
+        {
+          &quot;documentId&quot;: &quot;10000000-0000-4000-8000-000000000002&quot;,
+          &quot;version&quot;: 1,
+          &quot;page&quot;: 1,
+          &quot;quote&quot;: &quot;EXAMPLE-A&quot;
+        },
+        {
+          &quot;documentId&quot;: &quot;10000000-0000-4000-8000-000000000002&quot;,
+          &quot;version&quot;: 1,
+          &quot;page&quot;: 1,
+          &quot;quote&quot;: &quot;EXAMPLE-B&quot;
+        }
+      ],
+      &quot;risk&quot;: &quot;high&quot;
     }
   ],
   &quot;missing&quot;: [],

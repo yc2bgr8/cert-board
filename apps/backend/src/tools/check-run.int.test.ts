@@ -50,6 +50,7 @@ beforeAll(async () => {
     skill: { id: 'R09', version: '0.1.0' },
     workspaceVersion: version,
     conclusion: '写法已逐字核对，编号真实性待确认。',
+    decisions: [],
     claims: [
       {
         id: 'C1',

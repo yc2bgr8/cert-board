@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { checkReportSchema, documentCitationSchema, structuredSubmissionSchema } from './checks.js';
+import {
+  checkReportSchema,
+  documentCitationSchema,
+  structuredSubmissionSchema,
+  legacyStructuredSubmissionSchema,
+} from './checks.js';
 import { sha256Schema } from './documents.js';
 import { workspacePathSchema } from './workspace-path.js';
 
@@ -76,10 +81,27 @@ export const reviewDecisionInputSchema = z
     '退回审核必须说明原因。',
   );
 export type ReviewDecisionInput = z.infer<typeof reviewDecisionInputSchema>;
-export const reviewJudgmentInputSchema = z
-  .object({ expectedVersion: version, requestKey: id, statement })
-  .strict();
-export type ReviewJudgmentInput = z.infer<typeof reviewJudgmentInputSchema>;
+export const reviewJudgmentRecordSchema = z.object({ statement, createdAt: instant }).strict();
+export const reviewSections = [
+  'conclusion',
+  'requestedAction',
+  'decisions',
+  'changes',
+  'evidence',
+  'checks',
+  'uncertainties',
+  'actions',
+] as const;
+export const reviewSectionsSchema = z.tuple([
+  z.literal('conclusion'),
+  z.literal('requestedAction'),
+  z.literal('decisions'),
+  z.literal('changes'),
+  z.literal('evidence'),
+  z.literal('checks'),
+  z.literal('uncertainties'),
+  z.literal('actions'),
+]);
 
 const common = {
   id,
@@ -95,18 +117,29 @@ const common = {
   createdAt: instant,
   decidedAt: instant.nullable(),
 };
-const locked = z
-  .object({ ...common, risk: z.literal('high'), requiresJudgment: z.literal(true) })
-  .strict();
-const visible = z
+const legacyReviewSubmissionSchema = z
+  .object({
+    ...legacyStructuredSubmissionSchema.shape,
+    decisions: z.tuple([]),
+  })
+  .strict()
+  .superRefine((submission, context) => {
+    // 派生展示字段不属于历史存储内容；旧结构的完整校验和64000字符上限仍照常执行。
+    const { decisions: _decisions, ...stored } = submission;
+    const parsed = legacyStructuredSubmissionSchema.safeParse(stored);
+    if (!parsed.success)
+      for (const issue of parsed.error.issues)
+        context.addIssue({ code: 'custom', message: issue.message, path: issue.path });
+  });
+const reviewCardBaseSchema = z
   .object({
     ...common,
     requiresJudgment: z.literal(false),
-    submission: structuredSubmissionSchema,
+    sections: reviewSectionsSchema,
     checks: checkReportSchema,
     diff: reviewDiffSchema,
     evidenceRefs: z.array(reviewEvidenceRefSchema).max(40),
-    judgment: z.object({ statement, createdAt: instant }).strict().nullable(),
+    judgment: reviewJudgmentRecordSchema.nullable(),
     decision: z
       .object({
         id,
@@ -120,12 +153,17 @@ const visible = z
       .nullable()
       .default(null),
   })
-  .strict()
-  .refine(
-    (card) => card.risk !== 'high' || card.judgment !== null,
-    '高风险卡必须有本人的独立判断才能显示AI内容。',
-  );
-export const reviewCardViewSchema = z.discriminatedUnion('requiresJudgment', [locked, visible]);
+  .strict();
+export const reviewCardViewSchema = z.discriminatedUnion('legacySubmission', [
+  reviewCardBaseSchema.extend({
+    legacySubmission: z.literal(false),
+    submission: structuredSubmissionSchema,
+  }),
+  reviewCardBaseSchema.extend({
+    legacySubmission: z.literal(true),
+    submission: legacyReviewSubmissionSchema,
+  }),
+]);
 export type ReviewCardView = z.infer<typeof reviewCardViewSchema>;
 export const reviewDecisionResultSchema = z
   .object({
@@ -141,6 +179,3 @@ export const reviewDecisionResultSchema = z
     (result) => (result.status === 'approved') === (result.snapshotId !== null),
     '审核决定与冻结回执不一致。',
   );
-export const reviewJudgmentResultSchema = z
-  .object({ cardId: id, judgmentId: id, recorded: z.literal(true), replayed: z.boolean() })
-  .strict();

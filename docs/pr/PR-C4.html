@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>文档</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#pr-c4-审核卡增加过程判断">PR-C4 审核卡增加过程判断</a><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#验收结果">验收结果</a><a class="level-2" href="#对应变更">对应变更</a><a class="level-2" href="#模型与依赖">模型与依赖</a></nav><main><h2 id="pr-c4-审核卡增加过程判断">PR-C4 审核卡增加过程判断</h2>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>新结构化交付包含 <code>decisions[]</code>。每条过程判断含事项、选择、备选、理由、资料库引语和风险。未作过程判断的提交传空数组。</li><li>V1 检查判断引文是否出现在对应版本页。提交还要有本对话完整读取回执，浏览器查看和决定前复核来源有效性。</li><li>后端提供八部分审核内容。高风险卡立即显示完整结果，部门成员可以查看并作决定。记录实际决定人，继续校验版本、来源和冻结条件。</li><li>历史卡按原始结构校验哈希。读取时把过程判断展示为历史未记录。旧独立判断、历史审核结果及冻结快照继续保留。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>八部分的正式浏览器界面与原文卡在 PR-27 接入。过程批准后执行原调用和续跑在 PR-21 接入。</li><li>当前继续支持通过与退回。修改后通过、追问、转交和后续唤醒按执行方案继续实现。</li></ul>
+<h2 id="验收结果">验收结果</h2>
+<table><thead><tr><th>检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code>、<code>pnpm build</code></td><td>通过，最终 296 项单元测试</td></tr><tr><td><code>pnpm eval:agent</code></td><td>26 项通过</td></tr><tr><td><code>pnpm test:int</code></td><td>39 个文件、311 项全量通过。历史长度边界修复后复跑审核接口，12 项通过</td></tr><tr><td>日常库及结构校验</td><td>0011 应用成功，重复迁移新增 0。Drizzle 无结构差异</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描、CI 与独立审查</td><td>待最后验收</td></tr></tbody></table>
+<p>旧成员迁移测试改为显式分阶段加载 SQL，仍严格断言 0009 → 0010 独立适用。首轮全量遇到过一次本机连接 <code>EADDRINUSE</code>。独立重跑和最后一轮全量均通过。</p>
+<p>复审发现 63995 至 64000 字符的合法旧卡，可能在展示时因新增空数组越过新提交上限。添加 PG 接口与共享模式的边界回归，历史视图按旧结构计量长度，新提交保持 64000 字符限制。</p>
+<h2 id="对应变更">对应变更</h2>
+<ul><li>变更单 1.4 与附录 B.2，技术方案 4.8 与 4.10，决定记录 D-024。</li></ul>
+<h2 id="模型与依赖">模型与依赖</h2>
+<p>本 PR 使用剧本模型回归。累计真实调用仍为 6 次，费用 0.000599248 美元，预占 0。无新增依赖。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

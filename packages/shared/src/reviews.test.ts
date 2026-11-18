@@ -4,10 +4,15 @@ import {
   reviewDecisionInputSchema,
   reviewDecisionResultSchema,
   reviewEvidenceRefSchema,
-  reviewJudgmentInputSchema,
+  reviewJudgmentRecordSchema,
   reviewPolicySchema,
+  reviewSections,
 } from './reviews.js';
-import { documentCitationSchema } from './checks.js';
+import {
+  documentCitationSchema,
+  legacyStructuredSubmissionSchema,
+  structuredSubmissionSchema,
+} from './checks.js';
 
 const id = '10000000-0000-4000-8000-000000000001';
 const now = '2026-11-18T02:00:00.000Z';
@@ -31,6 +36,8 @@ function visible() {
   return {
     ...common,
     requiresJudgment: false,
+    legacySubmission: false,
+    sections: reviewSections,
     submission: {
       skill,
       workspaceVersion: id,
@@ -47,6 +54,7 @@ function visible() {
         },
       ],
       evidence: [citation],
+      decisions: [],
       missing: [],
       uncertain: [],
       nextStep: '核对原件。',
@@ -67,19 +75,146 @@ function visible() {
   };
 }
 
-describe('审核卡边界契约', () => {
-  it('高风险未判断响应只接受安全元数据，不允许携带AI内容或人的决定', () => {
-    const locked = { ...common, requiresJudgment: true };
-    expect(reviewCardViewSchema.safeParse(locked).success).toBe(true);
-    for (const key of ['submission', 'checks', 'diff', 'evidenceRefs', 'judgment', 'decision']) {
-      expect(reviewCardViewSchema.safeParse({ ...locked, [key]: null }).success).toBe(false);
-    }
-    expect(reviewCardViewSchema.safeParse({ ...locked, risk: 'standard' }).success).toBe(false);
+function legacyAtLength(length: number) {
+  const value = legacyStructuredSubmissionSchema.parse({
+    skill,
+    workspaceVersion: id,
+    conclusion: 'x',
+    claims: Array.from({ length: 20 }, (_, index) => ({
+      id: `C${index}`,
+      object: 'x',
+      field: 'x',
+      value: 'x',
+      unit: null,
+      sources: [citation],
+      status: 'checked',
+    })),
+    evidence: [citation, { ...citation, quote: '另一处完整引文' }],
+    missing: Array.from({ length: 20 }, () => 'x'),
+    uncertain: Array.from({ length: 20 }, () => 'x'),
+    nextStep: 'x',
   });
-  it('高风险完整响应必须含本人判断，刷新后保留退回原因', () => {
+  let remaining = length - JSON.stringify(value).length;
+  const grow = (read: () => string, write: (text: string) => void, maximum: number) => {
+    const amount = Math.min(maximum - read().length, Math.max(0, remaining));
+    write('x'.repeat(read().length + amount));
+    remaining -= amount;
+  };
+  for (const claim of value.claims) {
+    grow(
+      () => claim.object,
+      (text) => {
+        claim.object = text;
+      },
+      200,
+    );
+    grow(
+      () => claim.field,
+      (text) => {
+        claim.field = text;
+      },
+      200,
+    );
+    grow(
+      () => String(claim.value),
+      (text) => {
+        claim.value = text;
+      },
+      2000,
+    );
+  }
+  for (const entries of [value.missing, value.uncertain])
+    for (let index = 0; index < entries.length; index++)
+      grow(
+        () => entries[index]!,
+        (text) => {
+          entries[index] = text;
+        },
+        500,
+      );
+  grow(
+    () => value.conclusion,
+    (text) => {
+      value.conclusion = text;
+    },
+    2000,
+  );
+  grow(
+    () => value.nextStep,
+    (text) => {
+      value.nextStep = text;
+    },
+    1000,
+  );
+  expect(remaining).toBe(0);
+  return value;
+}
+
+describe('审核卡边界契约', () => {
+  it.each([63995, 64000])('长度%d的合法历史卡显示空判断清单，不占用历史输入额度', (length) => {
+    const legacy = legacyAtLength(length);
+    const original = JSON.stringify(legacy);
+    expect(original.length).toBe(length);
+    expect(legacyStructuredSubmissionSchema.safeParse(legacy).success).toBe(true);
+    const projected = { ...legacy, decisions: [] };
+    expect(JSON.stringify(projected).length).toBe(length + 15);
+    const historical = reviewCardViewSchema.safeParse({
+      ...visible(),
+      legacySubmission: true,
+      submission: projected,
+    });
+    expect(historical.success).toBe(true);
+    if (historical.success) expect(historical.data.submission.decisions).toEqual([]);
+    expect(JSON.stringify(legacy) === original).toBe(true);
+    expect(structuredSubmissionSchema.safeParse(projected).success).toBe(false);
+    expect(
+      reviewCardViewSchema.safeParse({
+        ...visible(),
+        legacySubmission: false,
+        submission: projected,
+      }).success,
+    ).toBe(false);
+  });
+  it('历史展示仍执行旧输入的长度、重复陈述和未知字段限制', () => {
+    expect(
+      reviewCardViewSchema.safeParse({
+        ...visible(),
+        legacySubmission: true,
+        submission: { ...legacyAtLength(64001), decisions: [] },
+      }).success,
+    ).toBe(false);
+    const view = visible();
+    expect(
+      reviewCardViewSchema.safeParse({
+        ...view,
+        legacySubmission: true,
+        submission: {
+          ...view.submission,
+          claims: [view.submission.claims[0], view.submission.claims[0]],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      reviewCardViewSchema.safeParse({
+        ...view,
+        legacySubmission: true,
+        submission: { ...view.submission, approved: true },
+      }).success,
+    ).toBe(false);
+  });
+  it('高风险没有独立判断也返回完整卡片，不再接受隐藏内容的旧响应', () => {
+    expect(reviewCardViewSchema.safeParse({ ...visible(), judgment: null }).success).toBe(true);
+    expect(reviewCardViewSchema.safeParse({ ...common, requiresJudgment: true }).success).toBe(
+      false,
+    );
+    expect(reviewCardViewSchema.safeParse({ ...visible(), requiresJudgment: true }).success).toBe(
+      false,
+    );
+  });
+  it('已有本人的历史判断和真实退回原因均保留', () => {
     const card = visible();
     expect(reviewCardViewSchema.safeParse(card).success).toBe(true);
-    expect(reviewCardViewSchema.safeParse({ ...card, judgment: null }).success).toBe(false);
+    expect(reviewCardViewSchema.parse(card).judgment?.statement).toBe(card.judgment.statement);
     const reason = '  请补充第二处引文。\r\n';
     const parsed = reviewCardViewSchema.parse({
       ...card,
@@ -96,13 +231,52 @@ describe('审核卡边界契约', () => {
       },
     });
     expect(parsed.requiresJudgment).toBe(false);
-    if (!parsed.requiresJudgment) expect(parsed.decision?.reason).toBe(reason);
+    expect(parsed.decision?.reason).toBe(reason);
+  });
+  it('八部分顺序固定，历史空判断清单不冒充已保存的Agent判断', () => {
+    expect(reviewCardViewSchema.parse(visible()).sections).toEqual([
+      'conclusion',
+      'requestedAction',
+      'decisions',
+      'changes',
+      'evidence',
+      'checks',
+      'uncertainties',
+      'actions',
+    ]);
+    expect(
+      reviewCardViewSchema.safeParse({ ...visible(), sections: [...reviewSections].reverse() })
+        .success,
+    ).toBe(false);
+    expect(reviewCardViewSchema.safeParse({ ...visible(), legacySubmission: true }).success).toBe(
+      true,
+    );
+    expect(
+      reviewCardViewSchema.safeParse({
+        ...visible(),
+        legacySubmission: true,
+        submission: {
+          ...visible().submission,
+          decisions: [
+            {
+              id: 'D1',
+              subject: '旧卡没有此判断',
+              choice: '不应补写',
+              alternatives: [],
+              reason: '保持历史',
+              sources: [citation],
+              risk: 'low',
+            },
+          ],
+        },
+      }).success,
+    ).toBe(false);
   });
   it('人的原话保持空白和Unicode，退回必须给出原因，不能注入审批身份', () => {
     const statement = '  判断 e\u0301\r\n';
-    expect(
-      reviewJudgmentInputSchema.parse({ expectedVersion: 1, requestKey: id, statement }).statement,
-    ).toBe(statement);
+    expect(reviewJudgmentRecordSchema.parse({ statement, createdAt: now }).statement).toBe(
+      statement,
+    );
     const input = { expectedVersion: 1, workspaceVersion: id, requestKey: id, action: 'rejected' };
     for (const reason of [undefined, null, ' \n', 'x'.repeat(4001)]) {
       expect(reviewDecisionInputSchema.safeParse({ ...input, reason }).success).toBe(false);

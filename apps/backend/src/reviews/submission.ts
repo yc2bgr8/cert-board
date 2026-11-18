@@ -176,6 +176,7 @@ export async function submitReview(
     );
   const references = [
     ...submission.claims.flatMap((claim) => claim.sources),
+    ...submission.decisions.flatMap((decision) => decision.sources),
     ...submission.evidence,
   ];
   await requireSourceAccess(ctx, references);

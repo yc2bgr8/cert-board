@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   documentPageParamsSchema,
   documentPageReadSchema,
-  type DataLevel,
+  type DocumentPageRead,
   type StructuredSubmission,
   type ToolCallContext,
 } from '@cert-board/shared';
@@ -86,8 +86,25 @@ export async function createReviewTestContext(
       outputSchema: documentPageReadSchema,
       async execute(ctx, input) {
         const ref = documentPageParamsSchema.parse(input);
-        const result = await ctx.tx.query<{ text: string; data_level: DataLevel }>(
-          `SELECT p.text,v.data_level FROM document_page p JOIN document_version v ON v.id=p.version_id JOIN document d ON d.id=v.document_id
+        const result = await ctx.tx.query<
+          Pick<
+            DocumentPageRead,
+            | 'text'
+            | 'dataLevel'
+            | 'sourceKey'
+            | 'name'
+            | 'method'
+            | 'locatorKind'
+            | 'ocrScore'
+            | 'isPlaceholder'
+            | 'contentSha256'
+            | 'originalSha256'
+          >
+        >(
+          `SELECT p.text,v.data_level AS "dataLevel",d.source_key AS "sourceKey",d.name,p.method,
+           p.locator_kind AS "locatorKind",p.ocr_score AS "ocrScore",p.is_placeholder AS "isPlaceholder",
+           v.content_sha256 AS "contentSha256",v.original_sha256 AS "originalSha256"
+           FROM document_page p JOIN document_version v ON v.id=p.version_id JOIN document d ON d.id=v.document_id
            WHERE d.id=$1 AND d.project_id=$2 AND NOT d.voided AND v.version_no=$3 AND p.page_number=$4`,
           [ref.id, ctx.projectId, ref.version, ref.page],
         );
@@ -101,25 +118,25 @@ export async function createReviewTestContext(
         return {
           data: documentPageReadSchema.parse({
             documentId: ref.id,
-            sourceKey: 'REVIEW-FIXTURE',
-            name: '虚构审核资料',
+            sourceKey: row.sourceKey,
+            name: row.name,
             version: ref.version,
             page: ref.page,
-            locatorKind: 'physical_page',
-            dataLevel: row.data_level,
+            locatorKind: row.locatorKind,
+            dataLevel: row.dataLevel,
             text: returned,
-            method: 'text',
-            ocrScore: null,
-            isPlaceholder: false,
+            method: row.method,
+            ocrScore: row.ocrScore,
+            isPlaceholder: row.isPlaceholder,
             warning: null,
             offset,
             totalCharacters: row.text.length,
             truncated,
             nextOffset: truncated ? nextOffset : null,
-            contentSha256: sha,
-            originalSha256: null,
+            contentSha256: row.contentSha256,
+            originalSha256: row.originalSha256,
           }),
-          dataLevel: row.data_level,
+          dataLevel: row.dataLevel,
         };
       },
       async refreshDataLevel() {
@@ -146,6 +163,7 @@ export async function createReviewTestContext(
         },
       ],
       evidence: [first, second],
+      decisions: [],
       missing: [],
       uncertain: ['正确编号尚未判断。'],
       nextStep: '请核对原件后决定。',

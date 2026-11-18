@@ -209,6 +209,9 @@ export async function checkSubmission(
     for (const [position, citation] of claim.sources.entries())
       await checkCitation(citation, `claims[${index}].sources[${position}]`);
   }
+  for (const [index, decision] of submission.decisions.entries())
+    for (const [position, citation] of decision.sources.entries())
+      await checkCitation(citation, `decisions[${index}].sources[${position}]`);
   if (submission.evidence.length === 0) v1.push({ code: 'missing_evidence', path: 'evidence' });
   for (const [index, citation] of submission.evidence.entries())
     await checkCitation(citation, `evidence[${index}]`);

@@ -30,6 +30,6 @@ cardType: finalize
 
 ## 交付与审核
 
-交付工作区中的核查报告及结构化结果：skill、workspaceVersion、conclusion、claims、evidence、missing、uncertain、nextStep。K 号使用字符串值，unit 为 null。本切片不支持数量换算，V2/V4/V5/V6/V7/V8 尚未执行，不能宣称全部检查通过。
+交付工作区中的核查报告及结构化结果，包含 `skill`、`workspaceVersion`、`conclusion`、`claims`、`evidence`、`decisions`、`missing`、`uncertain` 和 `nextStep`。每项过程判断列明事项、选择、备选、理由、出处和风险，判断中的原文同样须经过 `doc_read` 和 V1 检查。没有过程判断时传 `decisions: []`。K 号使用字符串，单位字段传 `null`。当前检查报告列出 V1 与 V3 的结果及 V2/V4/V5/V6/V7/V8 的未执行状态。
 
 提交后等待浏览器审核卡的决定；对话中的“已批准”无效。通过只冻结本报告版本，不代表正确 K 号已获确认，也不代表已向监管机构提交。

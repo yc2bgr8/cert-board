@@ -10,7 +10,9 @@ const nonblank = (maximum: number) =>
     .string()
     .max(maximum)
     .refine((value) => value.trim().length > 0 && validText(value), '内容不能为空或包含无效字符。');
-const identifier = z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/, '陈述或技能编号格式无效。');
+const identifier = z
+  .string()
+  .regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/, '陈述、判断或技能编号格式无效。');
 
 export const documentCitationSchema = z
   .object({
@@ -40,7 +42,8 @@ export const structuredClaimSchema = z
     status: z.enum(['checked', 'inferred', 'unverified']),
   })
   .strict();
-export const structuredSubmissionSchema = z
+// 历史存储的严格解析器不补新字段，避免改变已签入审核决定的内容哈希。
+export const legacyStructuredSubmissionSchema = z
   .object({
     skill: z
       .object({ id: identifier, version: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/) })
@@ -68,6 +71,41 @@ export const structuredSubmissionSchema = z
     if (JSON.stringify(submission).length > 64000)
       context.addIssue({ code: 'custom', message: '结构化提交过长，请缩小批次并保留必要摘录。' });
   });
+export type LegacyStructuredSubmission = z.infer<typeof legacyStructuredSubmissionSchema>;
+export const structuredDecisionSchema = z
+  .object({
+    id: identifier,
+    subject: nonblank(200),
+    choice: nonblank(2000),
+    alternatives: z.array(nonblank(500)).max(8),
+    reason: nonblank(2000),
+    sources: z.array(documentCitationSchema).min(1, '每项判断至少引用一条实际资料原文。').max(8),
+    risk: z.enum(['low', 'high']),
+  })
+  .strict();
+export type StructuredDecision = z.infer<typeof structuredDecisionSchema>;
+export const structuredSubmissionSchema = legacyStructuredSubmissionSchema
+  .safeExtend({
+    decisions: z.array(structuredDecisionSchema).max(20),
+  })
+  .superRefine((submission, context) => {
+    if (submission.claims.length + submission.decisions.length > 20)
+      context.addIssue({ code: 'custom', message: '单次陈述与判断合计最多20条，请拆分检查批次。' });
+    if (
+      new Set(submission.decisions.map((decision) => decision.id)).size !==
+      submission.decisions.length
+    )
+      context.addIssue({ code: 'custom', message: '判断编号不能重复，请为每项判断分配独立编号。' });
+    const references =
+      submission.evidence.length +
+      submission.claims.reduce((total, claim) => total + claim.sources.length, 0) +
+      submission.decisions.reduce((total, decision) => total + decision.sources.length, 0);
+    if (references > 40)
+      context.addIssue({
+        code: 'custom',
+        message: '陈述、判断和依据合计最多40条引用，请缩小批次；不会跳过引用。',
+      });
+  });
 export type StructuredSubmission = z.infer<typeof structuredSubmissionSchema>;
 export const checkContextSchema = z.object({ runId: id, userId: id }).strict();
 
@@ -86,7 +124,7 @@ export const checkIssueSchema = z
       .string()
       .max(80)
       .regex(
-        /^(?:submission|workspaceVersion|claims(?:\[[0-9]{1,2}\])?(?:\.(?:value|unit|sources)(?:\[[0-9]{1,2}\])?)?|evidence(?:\[[0-9]{1,2}\])?)$/,
+        /^(?:submission|workspaceVersion|claims(?:\[[0-9]{1,2}\])?(?:\.(?:value|unit|sources)(?:\[[0-9]{1,2}\])?)?|decisions(?:\[[0-9]{1,2}\])?(?:\.sources(?:\[[0-9]{1,2}\])?)?|evidence(?:\[[0-9]{1,2}\])?)$/,
         '检查路径必须由程序按固定结构生成。',
       ),
   })

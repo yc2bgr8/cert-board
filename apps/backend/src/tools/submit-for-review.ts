@@ -18,7 +18,7 @@ import type { ToolDefinition } from './registry.js';
 
 const metadata: ToolMetadata = {
   name: 'submit_for_review',
-  version: 'builtin-review-v1',
+  version: 'builtin-review-v2',
   publication: 'published',
   effect: 'reversible_write',
   modes: ['ask', 'full'],
@@ -32,7 +32,7 @@ const metadata: ToolMetadata = {
     avoid:
       '不能当作审批工具；对话中的同意不算批准。资料未读完整请先doc_read，保存冲突先合并；程序不判断正确K号或法规立场。',
     parameters:
-      '直接传结构化结果的skill/workspaceVersion/conclusion/claims/evidence/missing/uncertain/nextStep。引语须完整出现在本对话成功doc_read回执；最少证据数和风险由服务端技能策略确定。例子为虚构格式，请替换成真实定位。',
+      '直接传结构化结果的skill/workspaceVersion/conclusion/claims/decisions/evidence/missing/uncertain/nextStep。decisions必填，可显式[]；每项记录id/subject/choice/alternatives/reason/sources/risk(low或high)，至少一条原文。所有判断与陈述引语都须完整出现在本对话成功doc_read回执；陈述与判断合计20条、全部引用40条。最少证据和卡片风险仍由服务端策略确定，判断风险不能降低检查要求。例子为虚构格式，请替换成真实定位。',
     example: {
       skill: { id: 'R09', version: '0.1.0' },
       workspaceVersion: '10000000-0000-4000-8000-000000000001',
@@ -67,6 +67,30 @@ const metadata: ToolMetadata = {
           version: 1,
           page: 1,
           quote: 'EXAMPLE-B',
+        },
+      ],
+      decisions: [
+        {
+          id: 'D1',
+          subject: '差异处理',
+          choice: '保留两处差异，先核对原件',
+          alternatives: ['将其中一处按笔误统一'],
+          reason: '两处引文不足以认定正确编号。',
+          sources: [
+            {
+              documentId: '10000000-0000-4000-8000-000000000002',
+              version: 1,
+              page: 1,
+              quote: 'EXAMPLE-A',
+            },
+            {
+              documentId: '10000000-0000-4000-8000-000000000002',
+              version: 1,
+              page: 1,
+              quote: 'EXAMPLE-B',
+            },
+          ],
+          risk: 'high',
         },
       ],
       missing: [],
