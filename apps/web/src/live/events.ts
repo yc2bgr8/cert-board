@@ -60,6 +60,12 @@ export type ConversationStreamState = {
   permissionVersion: number | null;
   textCharacters: number;
 };
+const terminalRunStatuses = new Set<LiveRun['status']>([
+  'completed',
+  'failed',
+  'stopped',
+  'budget_exhausted',
+]);
 export const conversationEventNames = conversationPublicEventSchema.options.map(
   (schema) => schema.shape.type.value,
 );
@@ -241,6 +247,9 @@ export function reduceConversationEvent(
       break;
     case 'run_status': {
       const p = event.payload;
+      // 旧内核可能在终态后追加先前读到的等待状态。保留事件序号与已记录的终态。
+      if (p.status && terminalRunStatuses.has(run.status) && !terminalRunStatuses.has(p.status))
+        break;
       run.summary =
         p.status === 'budget_exhausted' && p.summary === '运行状态已更新。'
           ? '预算或用量计量限制已停止本轮，请先核对用量后继续。'
@@ -249,7 +258,7 @@ export function reduceConversationEvent(
       if (p.reviewId) run.reviewId = p.reviewId;
       if (p.approvalId) run.approvalId = p.approvalId;
       if (p.pendingSteeringCount !== undefined) run.pendingSteeringCount = p.pendingSteeringCount;
-      if (p.status && ['completed', 'failed', 'stopped', 'budget_exhausted'].includes(p.status)) {
+      if (p.status && terminalRunStatuses.has(p.status)) {
         run.question = null;
         run.approvalId = null;
         run.tools = run.tools.map((tool) =>

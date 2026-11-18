@@ -212,3 +212,17 @@ it('停止或其他终态不再把未结束步骤显示为运行中或等待批�
     expect(state.runs[runId]?.tools.every((tool) => !tool.summary.includes('等待批准'))).toBe(true);
   }
 });
+
+it('回放历史中迟到的等待状态时，已结束的运行保持终态', () => {
+  const reviewId = randomUUID();
+  let state = reduceConversationEvent(
+    initialConversationState(conversationId),
+    event(1, 'run_status', { status: 'completed', reviewId, summary: '审核已通过' }),
+  );
+  state = reduceConversationEvent(
+    state,
+    event(2, 'run_status', { status: 'waiting', reviewId, summary: '等待审核' }),
+  );
+  expect(state.lastSeq).toBe(2);
+  expect(state.runs[runId]).toMatchObject({ status: 'completed', reviewId, summary: '审核已通过' });
+});
