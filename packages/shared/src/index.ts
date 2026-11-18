@@ -17,3 +17,5 @@ export * from './run-events.js';
 export * from './model-gateway.js';
 export * from './checks.js';
 export * from './reviews.js';
+export * from './conversations.js';
+export * from './run-control.js';

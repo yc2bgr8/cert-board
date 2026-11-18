@@ -22,7 +22,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="没做什么">没做什么</h2>
 <ul><li>修改后通过、追问、转交及目标继续事件留后续；本切片finalize只冻结报告，不产生真实外部提交。</li><li>技能正式发布与完整语义评测后续实现；R09明确草稿、dev-only，生产拒绝加载。</li><li>Agent内核成功提交后的暂停、执行权fencing、实时对话和审核界面分别在PR-20/25/26/27接入；本PR为HTTP集成验证，不冒称浏览器主路径已完成。</li><li>V2/V4/V5/V6/V7/V8仍未运行，正确K号与法规判断待注册人员确认。</li></ul>
 <h2 id="验收结果">验收结果</h2>
-<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，277项单元测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，250项集成测试；含提交15/API10/SQL5/安全提示1项</td></tr><tr><td><code>pnpm db:generate</code>、<code>pnpm db:migrate</code></td><td>schema无差异，0008应用；旧迁移未改</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>提交前执行</td></tr><tr><td>GitHub CI、AI复审</td><td>开PR后完成</td></tr></tbody></table>
+<table><thead><tr><th>命令/检查</th><th>结果</th></tr></thead><tbody><tr><td><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code></td><td>通过，277项单元测试</td></tr><tr><td><code>pnpm test:int</code></td><td>通过，250项集成测试；含提交15/API10/SQL5/安全提示1项</td></tr><tr><td><code>pnpm db:generate</code>、<code>pnpm db:migrate</code></td><td>schema无差异，0008应用；旧迁移未改</td></tr><tr><td><code>pnpm docs:html</code>、密钥扫描</td><td>通过，47份离线HTML；暂存区和全Git历史密钥扫描无泄漏</td></tr><tr><td>GitHub CI、AI复审</td><td>通过，CI运行44229517495；最终AI复审无阻断</td></tr></tbody></table>
 <p>测试资源调整：并发45个隔离worker造成原有安全边界lint测试15秒超时，设置maxWorkers=4后全量通过。没有提高超时、关闭隔离、删减断言或跳过测试。</p>
 <p>旧测试调整：新增review_decision对submission_snapshot的外键后，普通TRUNCATE首先以0A000被外键拒绝；保留该拒绝检查，并增加TRUNCATE CASCADE仍以42501被不可清空保护拒绝，未放宽快照保护。</p>
 <h2 id="对应的需求和技术方案">对应的需求和技术方案</h2>

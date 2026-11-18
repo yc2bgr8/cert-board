@@ -1,0 +1,65 @@
+import type { Pool, PoolClient } from 'pg';
+import {
+  browserIdentitySchema,
+  runStopParamsSchema,
+  runControlNotificationSchema,
+  runStopResultSchema,
+  type BrowserIdentity,
+} from '@cert-board/shared';
+import { AppError } from '../api/errors.js';
+import { authorize } from '../auth/authorization.js';
+import { lockOwnedRun } from './lock.js';
+
+export const RUN_CONTROL_CHANNEL = 'cert_board_run_control_v1';
+type Database = Pick<Pool, 'query'>;
+const unavailable = () => new AppError(404, 'RUN_STOP_FORBIDDEN', '没有找到本人有权控制的运行。');
+
+export async function authorizeRunStop(db: Database, input: BrowserIdentity, runId: string) {
+  const parsed = browserIdentitySchema.safeParse(input);
+  if (!parsed.success || !runStopParamsSchema.safeParse({ id: runId }).success) throw unavailable();
+  const actor = parsed.data;
+  const found = await db.query<{ project_id: string | null; project_owner: string | null }>(
+    `SELECT r.project_id,p.owner_user_id AS project_owner FROM run r
+     JOIN conversation c ON c.id=r.conversation_id AND c.user_id=r.user_id
+     JOIN app_user u ON u.id=r.user_id LEFT JOIN cert_project p ON p.id=r.project_id
+     WHERE r.id=$1 AND r.user_id=$2 AND u.status='active'`,
+    [runId, actor.userId],
+  );
+  const row = found.rows[0];
+  if (
+    !row ||
+    !authorize(actor, 'conversation.write', {
+      projectId: row.project_id,
+      ownerUserId: actor.userId,
+    }) ||
+    (row.project_id &&
+      !authorize(actor, 'project.read', {
+        projectId: row.project_id,
+        ownerUserId: row.project_owner,
+      }))
+  )
+    throw unavailable();
+}
+
+/** 必须由已认证的接口层调用，并在独立自动提交语句中发出，不能藏在等待工具锁的事务里。 */
+export async function notifyRunStop(pool: Pool, runId: string, userId: string) {
+  const payload = runControlNotificationSchema.parse({ version: 1, action: 'stop', runId, userId });
+  await pool.query('SELECT pg_notify($1,$2)', [RUN_CONTROL_CHANNEL, JSON.stringify(payload)]);
+}
+
+export async function stopOwnedRun(tx: PoolClient, actor: BrowserIdentity, runId: string) {
+  const run = await lockOwnedRun(tx, runId, actor.userId);
+  await authorizeRunStop(tx, actor, runId);
+  if (!['queued', 'running', 'waiting'].includes(run.status))
+    return runStopResultSchema.parse({ runId, status: run.status, changed: false });
+  await tx.query(
+    `UPDATE run SET status='stopped',finished_at=COALESCE(finished_at,CURRENT_TIMESTAMP),
+     lease_owner=NULL,lease_expires_at=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1`,
+    [runId],
+  );
+  await tx.query(
+    "INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id) VALUES($1,'browser','run.stop_requested','run',$2)",
+    [actor.userId, runId],
+  );
+  return runStopResultSchema.parse({ runId, status: 'stopped', changed: true });
+}

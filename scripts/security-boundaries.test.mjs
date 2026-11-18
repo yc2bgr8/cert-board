@@ -74,3 +74,48 @@ test('Agent与工具不能绕过模型网关直接建立网络请求', async () 
     ).toBe(true);
   }
 });
+
+test('真实Agent和worker只能经执行权工厂构造Registry，别名与转导出同样拒绝', async () => {
+  const lint = new ESLint();
+  for (const [code, relative] of [
+    [
+      "import { ToolRegistry as Registry } from '../tools/registry.js'; void Registry;",
+      'agent/unsafe.ts',
+    ],
+    ["export { ToolRegistry } from '../tools/registry.js';", 'agent/forward.ts'],
+    ["export * from './tools/registry.js';", 'worker.ts'],
+    [
+      "import { createReviewTestContext } from '../reviews/test-support.js'; void createReviewTestContext;",
+      'agent/fixture-bypass.ts',
+    ],
+  ]) {
+    const results = await lint.lintText(code, {
+      filePath: path.join(process.cwd(), 'apps/backend/src', relative),
+    });
+    expect(
+      results.some((result) =>
+        result.messages.some((message) => message.ruleId === 'cert-runtime/registry-factory-only'),
+      ),
+    ).toBe(true);
+  }
+  for (const relative of [
+    'agent/tool-runtime.ts',
+    'tools/library.test.ts',
+    'reviews/test-support.ts',
+  ]) {
+    const results = await lint.lintText(
+      "import { ToolRegistry } from '../tools/registry.js'; void ToolRegistry;",
+      {
+        filePath: path.join(process.cwd(), 'apps/backend/src', relative),
+      },
+    );
+    expect(results.every((result) => result.errorCount === 0)).toBe(true);
+  }
+  const types = await lint.lintText(
+    "import type { ToolDefinition } from '../tools/registry.js'; export type Definition = ToolDefinition;",
+    {
+      filePath: path.join(process.cwd(), 'apps/backend/src/agent/types.ts'),
+    },
+  );
+  expect(types.every((result) => result.errorCount === 0)).toBe(true);
+});

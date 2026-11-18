@@ -1,5 +1,51 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
+import path from 'node:path';
+
+const runtimeBoundaryPlugin = {
+  rules: {
+    'registry-factory-only': {
+      meta: {
+        type: 'problem',
+        schema: [],
+        messages: {
+          direct:
+            '真实工具运行必须使用createToolRuntime领取执行权，不能直接导入无guard的ToolRegistry。',
+          fixture: '生产后端不能加载测试夹具作为运行入口；真实运行必须经过执行权工厂。',
+        },
+      },
+      create(context) {
+        const check = (node) => {
+          const source = node.source?.value;
+          if (typeof source !== 'string') return;
+          const resolved = path
+            .resolve(path.dirname(context.filename), source)
+            .replaceAll('\\', '/');
+          const fixture = /(?:^|\/)test-support(?:[./]|$)/.test(source.replaceAll('\\', '/'));
+          if (
+            !fixture &&
+            !/(?:^|\/)tools\/registry(?:\.[cm]?[jt]s)?$/.test(source) &&
+            !/\/apps\/backend\/src\/tools\/registry(?:\.[cm]?[jt]s)?$/.test(resolved)
+          )
+            return;
+          if (node.importKind === 'type' || node.exportKind === 'type') return;
+          if (
+            node.type === 'ImportDeclaration' &&
+            node.specifiers.length &&
+            node.specifiers.every((specifier) => specifier.importKind === 'type')
+          )
+            return;
+          context.report({ node, messageId: fixture ? 'fixture' : 'direct' });
+        };
+        return {
+          ImportDeclaration: check,
+          ExportNamedDeclaration: check,
+          ExportAllDeclaration: check,
+        };
+      },
+    },
+  },
+};
 
 export default [
   {
@@ -109,5 +155,16 @@ export default [
         },
       ],
     },
+  },
+  {
+    files: ['apps/backend/src/**/*.ts'],
+    ignores: [
+      '**/*.test.ts',
+      '**/test-support.ts',
+      '**/test-support/**',
+      'apps/backend/src/agent/tool-runtime.ts',
+    ],
+    plugins: { 'cert-runtime': runtimeBoundaryPlugin },
+    rules: { 'cert-runtime/registry-factory-only': 'error' },
   },
 ];

@@ -241,6 +241,7 @@ export class ModelGateway {
     requestInput: unknown,
     contextInput: unknown,
     signal?: AbortSignal,
+    beforeDispatch?: () => Promise<void>,
   ): Promise<GatewayResponse> {
     if (this.meteringBlocked)
       throw rejected(
@@ -316,6 +317,20 @@ export class ModelGateway {
     } catch (error) {
       await this.incomplete(context, signal?.aborted ? 'aborted' : 'request_uncertain');
       throw error;
+    }
+    if (beforeDispatch) {
+      try {
+        await beforeDispatch();
+        if (signal?.aborted) throw new Error('dispatch_cancelled');
+      } catch {
+        // 可信执行权校验发生在send之前，能确定本请求未发出；不能当作未知费用冻结。
+        await this.account(context, { prompt_tokens: 0, completion_tokens: 0 }, { cost: '0' });
+        throw rejected(
+          'MODEL_DISPATCH_BLOCKED',
+          '发送前执行权或取消状态未通过校验，请求未发出，预占已按零费用结算；请核对运行状态。',
+          409,
+        );
+      }
     }
     if (this.meteringBlocked)
       throw rejected(

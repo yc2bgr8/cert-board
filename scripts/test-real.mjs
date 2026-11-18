@@ -10,7 +10,13 @@ try {
   } else {
     const child = spawn(
       process.execPath,
-      ['--import', 'tsx', 'apps/backend/src/modelgw/real-smoke.ts'],
+      [
+        '--import',
+        'tsx',
+        process.argv.includes('--agent')
+          ? 'apps/backend/src/agent/real-smoke.ts'
+          : 'apps/backend/src/modelgw/real-smoke.ts',
+      ],
       {
         cwd: new URL('..', import.meta.url),
         env: backendEnvironment('worker', local),
