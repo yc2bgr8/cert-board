@@ -74,6 +74,12 @@
   font-size: 14px;
   font-weight: 600;
 }
+.live-project-notice-detail {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-cb-muted);
+  font-size: 12px;
+}
 .live-page-list-row:hover {
   background: var(--color-cb-bg);
 }

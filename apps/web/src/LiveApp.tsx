@@ -216,7 +216,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const visibleConversations = allProjectConversations.filter(
     (conversation) => scope === 'department' || conversation.userId === userId,
   );
-  const recentConversations = visibleConversations.toSorted(
+  const recentConversations = [...visibleConversations].sort(
     (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
   );
   const unassigned = (unassignedQuery.data?.pages.flatMap((page) => page.items) ?? []).filter(
@@ -594,7 +594,13 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
                 <dl>
                   <div>
                     <dt>助手</dt>
-                    <dd>{sidebarAgent === 'maintenance' ? '维护Agent' : '注册Agent'}</dd>
+                    <dd>
+                      {selectedProject
+                        ? selectedProject.projectType === 'maintenance'
+                          ? '维护Agent'
+                          : '注册Agent'
+                        : '正在读取…'}
+                    </dd>
                   </div>
                   {selectedProject && (
                     <div>
@@ -634,6 +640,8 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
                     projectId={projectId}
                     userId={userId}
                     snapshot={snapshot}
+                    notificationError={notifications.error}
+                    conversations={allProjectConversations}
                     onOpenNotice={openNotice}
                     onFiles={() => setTab('files')}
                   />

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ProjectRecord } from '@cert-board/shared';
-import { api } from './api.js';
+import { api, type ConversationDetail } from './api.js';
 import type { MemberNotificationSnapshot } from './useMemberNotifications.js';
 import './pages.css';
 
@@ -149,12 +149,16 @@ export function ProjectHomeAside({
   projectId,
   userId,
   snapshot,
+  notificationError,
+  conversations,
   onOpenNotice,
   onFiles,
 }: {
   projectId: string;
   userId: string;
   snapshot: MemberNotificationSnapshot | null;
+  notificationError: string | null;
+  conversations: readonly ConversationDetail[];
   onOpenNotice(item: Notice): void;
   onFiles(): void;
 }) {
@@ -165,12 +169,18 @@ export function ProjectHomeAside({
     retry: false,
   });
   const versions = useQuery({
-    queryKey: ['live', 'review-workspace-versions', workspace.data?.id],
-    queryFn: ({ signal }) => api.workspaceVersions(workspace.data!.id, { limit: 50 }, signal),
+    queryKey: [
+      'live',
+      'workspace-recent-versions',
+      workspace.data?.id,
+      workspace.data?.currentVersionId,
+    ],
+    queryFn: ({ signal }) =>
+      api.workspaceVersions(workspace.data!.id, { limit: 3, view: 'recent' }, signal),
     enabled: !!workspace.data,
     retry: false,
   });
-  const history = versions.data?.items.slice(-3).reverse() ?? [];
+  const history = versions.data?.items ?? [];
   return (
     <>
       <section className="live-page-card">
@@ -180,7 +190,11 @@ export function ProjectHomeAside({
         </header>
         {items.length === 0 && (
           <p className="live-page-message live-muted">
-            {snapshot ? '当前项目没有待处理事项。' : '正在读取通知…'}
+            {snapshot
+              ? snapshot.truncated
+                ? '已读取的通知中没有当前项目的待处理事项。'
+                : '当前项目没有待处理事项。'
+              : (notificationError ?? '正在读取通知…')}
           </p>
         )}
         {items.map((item) => (
@@ -190,7 +204,14 @@ export function ProjectHomeAside({
             key={`${item.kind}:${item.id}`}
             onClick={() => onOpenNotice(item)}
           >
-            <span className={`live-notice-chip is-${item.kind}`}>{noticeLabels[item.kind]}</span>
+            <span>
+              <span className={`live-notice-chip is-${item.kind}`}>{noticeLabels[item.kind]}</span>
+              <span className="live-project-notice-detail">
+                {conversations.find((conversation) => conversation.id === item.conversationId)
+                  ?.title ?? '项目对话'}{' '}
+                · {displayTime(item.createdAt)}
+              </span>
+            </span>
             <span className="live-row-action">{noticeAction(item.kind)}</span>
           </button>
         ))}
@@ -223,9 +244,6 @@ export function ProjectHomeAside({
               </li>
             ))}
           </ol>
-        )}
-        {versions.data?.hasMore && (
-          <p className="live-page-message live-muted">更多版本可在文件页查看。</p>
         )}
       </section>
     </>

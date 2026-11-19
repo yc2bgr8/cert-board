@@ -6,6 +6,7 @@ import {
   workspaceFileListSchema,
   workspaceReadFileSchema,
   workspaceDiffResponseSchema,
+  workspaceVersionListSchema,
   type BrowserIdentity,
 } from '@cert-board/shared';
 import { createTestDatabase } from '../db/test-database.js';
@@ -180,4 +181,38 @@ test('工作区种子在生产环境拒绝，未登录读取拒绝', async () =>
       })
     ).statusCode,
   ).toBe(401);
+});
+
+test('最近版本跨过 50 个历史版本，沿用同一浏览器鉴权和对照顺序', async () => {
+  const latest = await database.pool.query<{ number: number }>(
+    `WITH existing AS (
+       SELECT COALESCE(MAX(number),0) AS number FROM workspace_version WHERE workspace_id=$1
+     ), added AS (
+       INSERT INTO workspace_version(workspace_id,project_id,number,author_type,summary,data_level)
+       SELECT $1,$2,existing.number+counter,'system','合成历史版本','internal'
+       FROM existing CROSS JOIN generate_series(1,53) AS counter RETURNING id,number
+     ), head AS (SELECT id,number FROM added ORDER BY number DESC LIMIT 1)
+     UPDATE workspace SET current_version_id=head.id FROM head WHERE workspace.id=$1
+     RETURNING head.number`,
+    [developmentWorkspaceId, developmentProjectId],
+  );
+  const current = latest.rows[0]!.number;
+  const path = `/api/workspaces/${developmentWorkspaceId}/versions`;
+  const recent = await app.inject({ url: `${path}?view=recent&limit=3`, headers });
+  expect(recent.statusCode).toBe(200);
+  expect(recent.headers['cache-control']).toBe('no-store');
+  const versions = workspaceVersionListSchema.parse(recent.json());
+  expect(versions.items.map((item) => item.number)).toEqual([current, current - 1, current - 2]);
+  expect(versions).toMatchObject({ hasMore: false, nextAfterNumber: null });
+  const history = await app.inject({ url: `${path}?limit=3`, headers });
+  expect(workspaceVersionListSchema.parse(history.json()).items.map((item) => item.number)).toEqual(
+    [1, 2, 3],
+  );
+  const invalid = await app.inject({ url: `${path}?view=recent&afterNumber=3`, headers });
+  expect(invalid.statusCode).toBe(400);
+  const unauthenticated = await app.inject({
+    url: `${path}?view=recent&limit=3`,
+    headers: { 'sec-fetch-site': 'same-origin' },
+  });
+  expect(unauthenticated.statusCode).toBe(401);
 });

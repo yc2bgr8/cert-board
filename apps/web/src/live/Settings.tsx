@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { useRef, useState, type RefObject } from 'react';
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import type { PublicUser } from '@cert-board/shared';
 import { errorMessage } from './api.js';
@@ -38,6 +38,9 @@ export function Settings({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
+  const maintenanceEntry = useRef<HTMLButtonElement>(null);
+  const backToSettings = useRef<HTMLButtonElement>(null);
+  const lastView = useRef(false);
   async function signOut() {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -54,6 +57,11 @@ export function Settings({
     }
   }
   const showMaintenance = user.isManagement && maintenance;
+  useLayoutEffect(() => {
+    const changed = lastView.current !== showMaintenance;
+    lastView.current = showMaintenance;
+    if (open && changed) (showMaintenance ? backToSettings : maintenanceEntry).current?.focus();
+  }, [open, showMaintenance]);
   const notificationStatus = {
     open: '已连接',
     connecting: '正在连接',
@@ -81,6 +89,7 @@ export function Settings({
               <button
                 type="button"
                 className="live-text-button"
+                ref={backToSettings}
                 onClick={() => onMaintenanceChange(false)}
               >
                 返回设置
@@ -99,7 +108,11 @@ export function Settings({
               <nav className="live-page-card live-settings-nav" aria-label="设置分类">
                 <a href="#account-current">个人与通知</a>
                 {user.isManagement && (
-                  <button type="button" onClick={() => onMaintenanceChange(true)}>
+                  <button
+                    ref={maintenanceEntry}
+                    type="button"
+                    onClick={() => onMaintenanceChange(true)}
+                  >
                     维护页
                   </button>
                 )}

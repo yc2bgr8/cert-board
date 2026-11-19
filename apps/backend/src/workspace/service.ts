@@ -436,11 +436,19 @@ export async function listVersions(
   const parsed = workspaceVersionListOptionsSchema.safeParse(options);
   if (!parsed.success || parsed.data.afterNumber > 2147483647) throw invalid();
   const page = parsed.data;
+  const recent = page.view === 'recent';
   const result = await pool.query<Record<string, unknown>>(
-    `SELECT ${versionFields} FROM workspace_version v WHERE v.workspace_id=$1 AND v.number>$2 AND v.number<=(SELECT number FROM workspace_version WHERE id=$3) ORDER BY v.number LIMIT $4`,
-    [workspace.id, page.afterNumber, workspace.currentVersionId, page.limit + 1],
+    `SELECT ${versionFields} FROM workspace_version v WHERE v.workspace_id=$1 AND v.number>$2
+    AND v.number<=(SELECT number FROM workspace_version WHERE id=$3)
+    ORDER BY v.number ${recent ? 'DESC' : 'ASC'} LIMIT $4`,
+    [
+      workspace.id,
+      page.afterNumber,
+      workspace.currentVersionId,
+      recent ? page.limit : page.limit + 1,
+    ],
   );
-  const hasMore = result.rows.length > page.limit;
+  const hasMore = !recent && result.rows.length > page.limit;
   const items = result.rows
     .slice(0, page.limit)
     .map((row) =>

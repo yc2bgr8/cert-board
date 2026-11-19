@@ -556,6 +556,9 @@ async function main() {
     await home.getByRole('heading', { name: '工作区版本', exact: true }).waitFor();
     await home.getByText('第 3 版', { exact: true }).waitFor();
     await home.getByRole('button', { name: '打开对话：L08审核状态验收', exact: true }).waitFor();
+    await page.getByRole('button', { name: '维护Agent', exact: true }).click();
+    await home.getByText('注册Agent', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '注册Agent', exact: true }).click();
     await captureWorkbench(page, output, 'pr-u4-03-project.png');
     stage = '新版文件与历史版本';
     await home.getByRole('button', { name: '全部文件', exact: true }).click();
@@ -721,14 +724,18 @@ async function main() {
     }
     authenticated = true;
     await page.getByRole('button', { name: '设置', exact: true }).click();
-    await settings.getByRole('button', { name: '维护页', exact: true }).click();
+    const maintenanceEntry = settings.getByRole('button', { name: '维护页', exact: true });
+    await maintenanceEntry.press('Enter');
     const management = page.getByRole('dialog', { name: '维护', exact: true });
     await management.getByRole('heading', { name: '预算与用量', exact: true }).waitFor();
     await management.getByText('管理权限已启用', { exact: false }).waitFor();
     assert.ok((await management.getByText('尚未接入', { exact: true }).count()) > 0);
     await captureWorkbench(page, output, 'pr-u4-16-management.png');
-    await management.getByRole('button', { name: '返回设置', exact: true }).click();
+    const backToSettings = management.getByRole('button', { name: '返回设置', exact: true });
+    assert.equal(await backToSettings.evaluate((el) => el === document.activeElement), true);
+    await backToSettings.press('Enter');
     await settings.getByRole('heading', { name: '个人与通知', exact: true }).waitFor();
+    assert.equal(await maintenanceEntry.evaluate((el) => el === document.activeElement), true);
     stage = 'CSP与零外网检查';
     const cspState = await page.evaluate(() => {
       const state = globalThis as typeof globalThis & {

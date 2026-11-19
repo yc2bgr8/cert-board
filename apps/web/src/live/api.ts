@@ -203,7 +203,7 @@ export const api = {
     ),
   workspaceVersions: (
     id: string,
-    options: { afterNumber?: number; limit?: number } = {},
+    options: { afterNumber?: number; limit?: number; view?: 'recent' } = {},
     signal?: AbortSignal,
   ) =>
     request(

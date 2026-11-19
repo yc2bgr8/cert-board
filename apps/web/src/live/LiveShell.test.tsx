@@ -513,6 +513,33 @@ test('待我处理用服务器快照替换，真实通知可打开对应对话',
   expect(screen.queryByText('批准请求', { exact: true })).toBeNull();
 });
 
+test('项目待办区区分截断、连接失败和完整空列表', async () => {
+  mocks.notifications.mockReturnValue({
+    snapshot: { generatedAt: now, truncated: true, items: [] },
+    connection: 'open',
+    error: null,
+  });
+  const view = app();
+  await projectView();
+  expect(screen.getByText('已读取的通知中没有当前项目的待处理事项。')).toBeTruthy();
+  expect(screen.queryByText('当前项目没有待处理事项。')).toBeNull();
+  mocks.notifications.mockReturnValue({
+    snapshot: null,
+    connection: 'error',
+    error: '通知连接异常，请重新打开页面。',
+  });
+  view.rerender(<LiveApp />);
+  expect(screen.getByText('通知连接异常，请重新打开页面。')).toBeTruthy();
+  expect(screen.queryByText('正在读取通知…')).toBeNull();
+  mocks.notifications.mockReturnValue({
+    snapshot: { generatedAt: now, truncated: false, items: [] },
+    connection: 'open',
+    error: null,
+  });
+  view.rerender(<LiveApp />);
+  expect(screen.getByText('当前项目没有待处理事项。')).toBeTruthy();
+});
+
 test('Ctrl+K和Esc保持搜索焦点，设置为非模态且真实调用logout', async () => {
   app();
   await screen.findByRole('button', { name: 'L08 510(k)' });
