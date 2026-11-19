@@ -45,18 +45,24 @@ const preferencesId = 'e78e2bd8-2e90-49a8-91c9-ba189c2746ab';
 const promptTextLimit = 24000;
 const hostTextReserve = 2000;
 const summaryTextReserve = 3800;
-function outboundTextCosts(messages: readonly { text: string }[], words: string[]) {
+function outboundTextLength(messages: readonly { text: string }[], words: string[]) {
+  if (messages.reduce((size, { text }) => size + text.length, 0) > 32000) return Infinity;
   const redacted = redactExternalMessages(
     messages.map(({ text }) => ({ role: 'user', content: text })),
     words,
   );
-  // 新上下文里代号的编号可能变长，按快照所容纳的最大代号长度估算。
-  return redacted.messages.map(({ content }, index) =>
-    Math.max(
-      messages[index]!.text.length,
-      content.replace(/\[\[CB-[a-f0-9-]{36}-\d+\]\]/gu, 'x'.repeat(52)).length,
-    ),
-  );
+  return redacted.messages.reduce((size, { content }) => size + content.length, 0);
+}
+function fittingPrefix(text: string, fits: (value: string) => boolean) {
+  const characters = Array.from(text);
+  let low = 0;
+  let high = characters.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (fits(characters.slice(0, middle).join(''))) low = middle;
+    else high = middle - 1;
+  }
+  return characters.slice(0, low).join('').trimEnd();
 }
 export const verificationWorkerStateId = '18ee6c88-011a-4e58-a207-3c5ec90700d0';
 const roomAbsent = () => new AppError(404, 'VERIFICATION_ROOM_MISSING', '未找到可访问的核实。');
@@ -702,48 +708,48 @@ export class VerificationRooms {
     const head = existing ? [publicPost(existing)] : [];
     const full = [...head, ...uncompacted.map(publicPost)];
     const words = (await this.protection.words()).map(({ phrase }) => phrase);
-    const costs = outboundTextCosts(full, words);
     if (
-      costs.reduce((size, item) => size + item, 0) < promptTextLimit - hostTextReserve &&
+      outboundTextLength(full, words) < promptTextLimit - hostTextReserve &&
       history.length <= 500
     )
       return full;
-    const postCosts = new Map(full.map((post, index) => [post.id, costs[index]!]));
-    const requiredCost = required.reduce((length, post) => length + postCosts.get(post.id)!, 0);
-    const afterRequired = promptTextLimit - hostTextReserve - 1 - requiredCost;
-    const shortSummary = '较早发言已整理，完整内容可在群聊中回看。';
-    const maxSummary = Math.min(summaryTextReserve, afterRequired);
-    if (maxSummary < outboundTextCosts([{ text: shortSummary }], words)[0]!)
+    const requiredCost = outboundTextLength(required, words);
+    if (requiredCost >= promptTextLimit)
       throw new AppError(
         413,
         'VERIFICATION_CONTEXT_LIMIT',
         '待回复的原话在保密替换后过长，请缩短再发起。',
       );
-    let remaining = afterRequired - maxSummary;
+    const budget = Math.max(promptTextLimit - hostTextReserve - 1, requiredCost);
+    const shortSummary = '较早发言已整理，完整内容可在群聊中回看。';
+    const reserve = Math.min(summaryTextReserve, budget - requiredCost);
+    let kept = [...required].sort((left, right) => left.position - right.position);
     let cut = uncompacted.length;
     while (cut > 0) {
       const post = uncompacted[cut - 1]!;
-      const size = requiredIds.has(post.id) ? 0 : postCosts.get(post.id)!;
-      if (size > remaining) break;
-      remaining -= size;
+      if (!requiredIds.has(post.id)) {
+        const candidate = [post, ...kept].sort((left, right) => left.position - right.position);
+        if (outboundTextLength(candidate, words) > budget - reserve) break;
+        kept = candidate;
+      }
       cut--;
     }
     const older = uncompacted.slice(0, cut);
     if (!older.length && !head.length) return full;
     const compacted = (await runtime.compact([...head, ...older.map(publicPost)], scope))
-      .slice(0, maxSummary)
+      .slice(0, summaryTextReserve)
       .replace(/\p{Surrogate}$/u, '')
       .trim();
-    const text =
-      compacted && outboundTextCosts([{ text: compacted }], words)[0]! <= maxSummary
-        ? compacted
-        : shortSummary;
+    const fits = (text: string) =>
+      outboundTextLength([{ text }], words) <= summaryTextReserve &&
+      outboundTextLength([{ text }, ...kept], words) <= budget;
+    const excerpt = fittingPrefix(compacted, fits) || (fits(shortSummary) ? shortSummary : '');
     const latest = Math.max(existing?.compactsThrough ?? 0, older.at(-1)?.position ?? 0);
     const summary = await this.transaction(async (db) => {
       const postId = await this.append(db, id, {
         type: 'summary',
         author: '主持人',
-        text,
+        text: compacted || shortSummary,
         compactsThrough: latest,
       });
       const { rows } = await db.query<PostRow>(
@@ -752,10 +758,7 @@ export class VerificationRooms {
       );
       return publicPost(rows[0]!);
     });
-    const kept = uncompacted.slice(cut);
-    for (const post of required) if (!kept.some(({ id }) => id === post.id)) kept.push(post);
-    kept.sort((left, right) => left.position - right.position);
-    return [summary, ...kept.map(publicPost)];
+    return [...(excerpt ? [{ ...summary, text: excerpt }] : []), ...kept.map(publicPost)];
   }
 
   private async drive(id: string, runtime: VerificationRuntime) {
@@ -831,21 +834,22 @@ export class VerificationRooms {
                 ? `@${firstRound.label} 请提供首轮核实意见。`
                 : moderation.text;
             const words = (await this.protection.words(db)).map(({ phrase }) => phrase);
-            const text =
-              outboundTextCosts([{ text: candidate }], words)[0]! <= hostTextReserve
-                ? candidate
-                : '请围绕群中问题继续核实。';
+            const text = fittingPrefix(
+              candidate,
+              (part) =>
+                outboundTextLength([...transcript, { text: part }], words) < promptTextLimit,
+            );
             const created = await this.append(db, id, {
               type: 'host',
               author: hostName(current.host),
-              text,
+              text: text || '主持人已安排下一轮核实。',
               ...(choice ? { mention: choice.id } : {}),
             });
             const { rows } = await db.query<PostRow>(
               `SELECT ${postColumns} FROM ${postFrom} WHERE m.id=$1`,
               [created],
             );
-            return publicPost(rows[0]!);
+            return text ? publicPost(rows[0]!) : null;
           });
           if (post) transcript.push(post);
         }

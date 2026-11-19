@@ -499,7 +499,8 @@ test('按保密词替换后的长度整理较早回复并继续派发', async ()
     payload: { phrase: word, category: 'other' },
   });
   const calls: VerificationPrompt[] = [];
-  fixture.runtime.compact = async () => '较早的答复已归档。';
+  const oldReply = '较早的答复已归档。';
+  fixture.runtime.compact = async () => (oldReply + '页'.repeat(3800)).slice(0, 3799) + word;
   fixture.runtime.send = async (model, prompt, dispatch) => {
     await dispatch();
     calls.push(prompt);
@@ -508,11 +509,10 @@ test('按保密词替换后的长度整理较早回复并继续派发', async ()
   const id = await start('合成问题保持原话。');
   await expect.poll(async () => (await detail(id)).room.status).toBe('completed');
   expect(calls).toHaveLength(2);
-  expect(
-    calls[1]!.transcript.some(
-      ({ role, text }) => role === '主持人压缩稿' && text === '较早的答复已归档。',
-    ),
-  ).toBe(true);
+  const summary = calls[1]!.transcript.find(({ role }) => role === '主持人压缩稿')?.text;
+  expect(summary?.startsWith(oldReply)).toBe(true);
+  expect(summary!.length).toBeGreaterThan(3700);
+  expect(summary!.length).toBeLessThanOrEqual(3800);
   expect(calls[1]!.transcript.some(({ text }) => text === '合成问题保持原话。')).toBe(true);
   expect(
     calls[1]!.transcript
@@ -520,4 +520,28 @@ test('按保密词替换后的长度整理较早回复并继续派发', async ()
       .join('')
       .includes(word),
   ).toBe(false);
+});
+
+test('多次重复同一保密词时按实际代号长度判断原话可以发送', async () => {
+  await rounds(1);
+  const word = '隐';
+  await app.inject({
+    method: 'POST',
+    url: '/api/external-model/words',
+    headers,
+    payload: { phrase: word, category: 'other' },
+  });
+  const prompts: VerificationPrompt[] = [];
+  fixture.runtime.send = async (_model, prompt, dispatch) => {
+    await dispatch();
+    prompts.push(prompt);
+    return { text: '短答复。', claims: [] };
+  };
+  const question = word.repeat(424);
+  const room = await start(question);
+  await expect.poll(async () => (await detail(room)).room.status).toBe('completed');
+  expect(prompts).toHaveLength(2);
+  expect(prompts[0]!.transcript[0]!.text).not.toContain(word);
+  expect(prompts[0]!.transcript[0]!.text.length).toBeLessThan(22000);
+  expect((await detail(room)).messages[0]!.text).toBe(question);
 });
