@@ -158,30 +158,47 @@ test('V6 重算声明期限并比较实际时间点，历史报告保持两项�
   const legacy = await checkSubmission(context.pool, caller, base);
   expect(legacy.checks.map(({ code }) => code)).toEqual(['V1', 'V3']);
   expect(legacy.notRun).toContain('V6');
-  const deadlineChecks = [
-    {
-      calculation: {
-        startDate: '2026-03-08',
-        quantity: 0,
-        unit: 'calendar_days',
-        jurisdictionTz: 'America/New_York',
-      },
-      statedDueAt: '2026-03-09T11:59:59.999+08:00',
+  const deadline = {
+    ...base.claims[0]!,
+    field: '核对截止时间',
+    value: '2026-03-09T11:59:59.999+08:00',
+    deadlineCalculation: {
+      startDate: '2026-03-08',
+      quantity: 0,
+      unit: 'calendar_days' as const,
+      jurisdictionTz: 'America/New_York',
     },
-  ] as const;
-  const checked = await checkSubmission(context.pool, caller, { ...base, deadlineChecks });
+  };
+  const checked = await checkSubmission(context.pool, caller, { ...base, claims: [deadline] });
   expect(checked.passed).toBe(true);
   expect(checked.checks.at(-1)).toEqual({ code: 'V6', status: 'passed', issues: [] });
   expect(checked.notRun).not.toContain('V6');
   const falseClaim = await checkSubmission(context.pool, caller, {
     ...base,
-    deadlineChecks: [{ ...deadlineChecks[0], statedDueAt: '2026-03-08T23:59:59.999+08:00' }],
+    claims: [{ ...deadline, value: '2026-03-08T23:59:59.999+08:00' }],
   });
   expect(falseClaim.passed).toBe(false);
   expect(falseClaim.checks.at(-1)).toEqual({
     code: 'V6',
     status: 'failed',
-    issues: [{ code: 'deadline_mismatch', path: 'deadlineChecks[0]' }],
+    issues: [{ code: 'deadline_mismatch', path: 'claims[0].value' }],
+  });
+  const unbound = await checkSubmission(context.pool, caller, {
+    ...base,
+    conclusion: '本次核对在 2026-03-07 截止。',
+    claims: [deadline],
+  });
+  expect(unbound.checks.at(-1)).toMatchObject({
+    status: 'failed',
+    issues: [{ code: 'deadline_unstructured', path: 'conclusion' }],
+  });
+  const uncalculated = await checkSubmission(context.pool, caller, {
+    ...base,
+    claims: [{ ...base.claims[0], field: '截止时间', value: '2026年3月7日' }],
+  });
+  expect(uncalculated.checks.at(-1)).toMatchObject({
+    status: 'failed',
+    issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
   });
 });
 

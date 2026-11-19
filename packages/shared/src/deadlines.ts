@@ -27,12 +27,7 @@ export const deadlineCalculationResultSchema = z
   })
   .strict();
 
-export const deadlineCheckSchema = z
-  .object({
-    calculation: deadlineCalculationSchema,
-    statedDueAt: z.iso.datetime({ offset: true, precision: 3 }),
-  })
-  .strict();
+export const deadlineClaimInstantSchema = z.iso.datetime({ offset: true, precision: 3 });
 
 export type DeadlineCalculation = z.infer<typeof deadlineCalculationSchema>;
 export type DeadlineCalculationResult = z.infer<typeof deadlineCalculationResultSchema>;
@@ -81,6 +76,8 @@ export const deadlineNoticeSchema = z
   .object({
     title: reminderInputSchema.shape.title,
     stage: deadlineStageSchema,
+    profile: reminderProfileSchema,
+    jurisdictionTz: deadlineCalculationSchema.shape.jurisdictionTz,
     dueDate: deadlineDateSchema,
     dueAt: z.iso.datetime({ offset: true }),
     beijingTime: deadlineCalculationResultSchema.shape.beijingTime,

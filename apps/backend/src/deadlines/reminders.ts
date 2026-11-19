@@ -229,7 +229,7 @@ export async function undoReminder(ctx: ToolExecutionContext, record: ToolUndoRe
           saved.plan.calculation.jurisdictionTz,
           saved.state,
           saved.conversationId,
-          saved.lastStage,
+          keep ? current.lastStage : saved.lastStage,
         ],
       )
     : await ctx.tx.query<{ version: number }>(

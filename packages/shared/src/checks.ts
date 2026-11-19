@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { deadlineCheckSchema } from './deadlines.js';
+import { deadlineCalculationSchema } from './deadlines.js';
 import { documentLocatorKindSchema, documentPageMethodSchema } from './documents.js';
 import { workspaceDataLevelSchema } from './workspace.js';
 
@@ -87,8 +87,15 @@ export const structuredDecisionSchema = z
 export type StructuredDecision = z.infer<typeof structuredDecisionSchema>;
 export const structuredSubmissionSchema = legacyStructuredSubmissionSchema
   .safeExtend({
+    claims: z
+      .array(
+        structuredClaimSchema.safeExtend({
+          deadlineCalculation: deadlineCalculationSchema.optional(),
+        }),
+      )
+      .min(1)
+      .max(20),
     decisions: z.array(structuredDecisionSchema).max(20),
-    deadlineChecks: z.array(deadlineCheckSchema).min(1).max(12).optional(),
   })
   .superRefine((submission, context) => {
     if (submission.claims.length + submission.decisions.length > 20)
@@ -123,12 +130,13 @@ export const checkIssueSchema = z
       'missing_evidence',
       'deadline_mismatch',
       'deadline_invalid',
+      'deadline_unstructured',
     ]),
     path: z
       .string()
       .max(80)
       .regex(
-        /^(?:submission|workspaceVersion|claims(?:\[[0-9]{1,2}\])?(?:\.(?:value|unit|sources)(?:\[[0-9]{1,2}\])?)?|decisions(?:\[[0-9]{1,2}\])?(?:\.sources(?:\[[0-9]{1,2}\])?)?|evidence(?:\[[0-9]{1,2}\])?|deadlineChecks\[[0-9]{1,2}\])$/,
+        /^(?:submission|workspaceVersion|conclusion|nextStep|claims(?:\[[0-9]{1,2}\])?(?:\.(?:value|unit|sources)(?:\[[0-9]{1,2}\])?)?|decisions(?:\[[0-9]{1,2}\])?(?:\.(?:choice|reason|alternatives|sources)(?:\[[0-9]{1,2}\])?)?|evidence(?:\[[0-9]{1,2}\])?)$/,
         '检查路径必须由程序按固定结构生成。',
       ),
   })

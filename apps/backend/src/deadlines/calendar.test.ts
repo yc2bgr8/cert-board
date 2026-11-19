@@ -26,6 +26,13 @@ describe('法域日历期限', () => {
     expect(due('2024-05-31', -1, 'calendar_months').dueDate).toBe('2024-04-30');
   });
 
+  it('当地日期最后一小时被夏令时跳过时，取最后实际存在的时刻', () => {
+    expect(due('2026-03-28', 0, 'calendar_days', 'America/Nuuk')).toMatchObject({
+      dueDate: '2026-03-28',
+      dueAt: '2026-03-29T00:59:59.999Z',
+    });
+  });
+
   it('拒绝不存在的日期、不明确时区和超出范围的计算', () => {
     expect(() => due('2025-02-29')).toThrow(
       expect.objectContaining({ code: 'DEADLINE_CALCULATION_INVALID' }),

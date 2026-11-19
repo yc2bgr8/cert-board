@@ -78,7 +78,7 @@ test('只读可算期限，请求批准模式先生成卡片，完全允许可�
     );
   const before = (await pendingDeadline())!;
   const updated = await full.call('reminder_set', { ...plan, title: '调整标题' });
-  expect(reminderResultSchema.parse(updated.data).version).toBe(created.version + 2);
+  expect(reminderResultSchema.parse(updated.data).version).toBe(created.version + 1);
   expect(await pendingDeadline()).toMatchObject({
     id: before.id,
     deadline: { title: '调整标题' },
@@ -181,6 +181,57 @@ test('节点期限只按七天、一天和逾期三种状态更新', async () =>
     const snapshot = await readMemberNotifications(context.pool, own);
     expect(snapshot.items).toHaveLength(1);
     expect(snapshot.items[0]?.deadline?.stage).toBe(stage);
+  }
+});
+
+test('撤销改期后恢复对应期限的提醒，其他期限的历史确认不抵消', async () => {
+  const full = await tools();
+  const on = (startDate: string) => ({ ...plan, calculation: { ...plan.calculation, startDate } });
+  const asOf = new Date('2026-04-01T12:00:00Z');
+  await full.call('reminder_set', on('2026-04-25'));
+  await scanDeadlineReminders(context.pool, asOf);
+  await context.pool.query("UPDATE notification SET status='acknowledged' WHERE status='pending'");
+  await full.call('reminder_set', on('2026-05-01'));
+  await scanDeadlineReminders(context.pool, asOf);
+  const { undoId } = await full.call('reminder_set', on('2026-05-20'));
+  await full.registry.undo(full.reference(), undoId!);
+  expect(await scanDeadlineReminders(context.pool, asOf)).toBe(1);
+  const pending = (await readMemberNotifications(context.pool, browser('MEMBER_A'))).items;
+  expect(pending).toHaveLength(1);
+  expect(pending[0]?.deadline).toMatchObject({ dueDate: '2026-05-01', stage: 'D-30' });
+});
+
+test('后台刷新剩余天数与确认并发，确认后的同阶段提醒不重建', async () => {
+  const full = await tools();
+  const created = await full.call('reminder_set', plan);
+  await scanDeadlineReminders(context.pool, new Date('2026-04-01T12:00:00Z'));
+  const first = (await readMemberNotifications(context.pool, browser('MEMBER_A'))).items[0]!;
+  const lock = await context.pool.connect();
+  let work: Promise<number> | undefined;
+  try {
+    await lock.query('BEGIN');
+    await lock.query("UPDATE notification SET status='acknowledged' WHERE id=$1", [first.id]);
+    work = scanDeadlineReminders(context.pool, new Date('2026-04-02T12:00:00Z'));
+    await vi.waitFor(
+      async () => {
+        const blocked = await context.pool.query(
+          "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'WITH calendar AS%'",
+        );
+        expect(blocked.rowCount).toBe(1);
+      },
+      { timeout: 3000 },
+    );
+    await lock.query('COMMIT');
+    expect(await work).toBe(0);
+    expect((await readMemberNotifications(context.pool, browser('MEMBER_A'))).items).toEqual([]);
+    await full.registry.undo(full.reference(), created.undoId!);
+    expect((await context.pool.query('SELECT state FROM timer')).rows).toEqual([
+      { state: 'cancelled' },
+    ]);
+  } finally {
+    await lock.query('ROLLBACK').catch(() => undefined);
+    lock.release();
+    await work?.catch(() => undefined);
   }
 });
 

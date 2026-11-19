@@ -32,7 +32,7 @@ const metadata: ToolMetadata = {
     avoid:
       '不能当作审批工具；对话中的同意不算批准。资料未读完整请先doc_read，保存冲突先合并；程序不判断正确K号或法规立场。',
     parameters:
-      '直接传结构化结果的skill/workspaceVersion/conclusion/claims/decisions/evidence/missing/uncertain/nextStep。decisions必填，可显式[]；每项记录id/subject/choice/alternatives/reason/sources/risk(low或high)，至少一条原文。所有判断与陈述引语都须完整出现在本对话成功doc_read回执；陈述与判断合计20条、全部引用40条。最少证据和卡片风险仍由服务端策略确定，判断风险不能降低检查要求。例子为虚构格式，请替换成真实定位。',
+      '直接传结构化结果的skill/workspaceVersion/conclusion/claims/decisions/evidence/missing/uncertain/nextStep。decisions必填，可显式[]；每项记录id/subject/choice/alternatives/reason/sources/risk(low或high)，至少一条原文。期限只写在claims的期限陈述中，value使用deadline_calc返回的毫秒级ISO时间点，deadlineCalculation填对应计算依据。所有判断与陈述引语都须完整出现在本对话成功doc_read回执；陈述与判断合计20条、全部引用40条。例子为虚构格式，请替换成真实定位。',
     example: {
       skill: { id: 'R09', version: '0.1.0' },
       workspaceVersion: '10000000-0000-4000-8000-000000000001',

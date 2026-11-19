@@ -453,7 +453,19 @@ function ReviewCardContent({
                 <li key={claim.id}>
                   {claim.object} · {claim.field}{' '}
                   <span className="live-review-identifier">
-                    {claim.value}
+                    {'deadlineCalculation' in claim &&
+                    claim.deadlineCalculation &&
+                    typeof claim.value === 'string' ? (
+                      <time dateTime={claim.value}>
+                        {new Date(claim.value).toLocaleString('zh-CN', {
+                          timeZone: 'Asia/Shanghai',
+                          hour12: false,
+                        })}
+                        （北京时间）
+                      </time>
+                    ) : (
+                      claim.value
+                    )}
                     {claim.unit && ` ${claim.unit}`}
                   </span>{' '}
                   <span className="live-review-meta">{claimStatus[claim.status]}</span>

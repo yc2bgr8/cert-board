@@ -200,7 +200,7 @@ export function Inbox({
                   <li key={id}>
                     <span>{title}</span>
                     <span className="live-muted">
-                      {remainingDays === 0 ? '今日到期' : `还有 ${remainingDays} 天`}
+                      {remainingDays === 0 ? '当地今日到期' : `还有 ${remainingDays} 天`}
                     </span>
                   </li>
                 ))}

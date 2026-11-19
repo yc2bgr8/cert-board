@@ -43,13 +43,27 @@ function atLocalDayEnd(date: string, display: Intl.DateTimeFormat) {
   const matching = [...offsets]
     .map((offset) => wall - offset)
     .filter((instant) => wallClock(instant, display) === last);
-  if (!matching.length)
-    throw new AppError(
-      422,
-      'DEADLINE_LOCAL_TIME_INVALID',
-      '该法域在此日期没有可用的日末时间，请核对日期与时区。',
-    );
-  return Math.max(...matching);
+  if (matching.length) return Math.max(...matching);
+
+  // A forward shift at the end of a day can skip 23:59 without skipping the whole date.
+  const step = hour / 4;
+  const onDate = (instant: number) => wallClock(instant, display).startsWith(`${date}T`);
+  for (let instant = wall + 36 * hour; instant >= wall - 36 * hour; instant -= step) {
+    if (!onDate(instant)) continue;
+    let low = instant;
+    let high = instant + step;
+    while (high - low > 1) {
+      const midpoint = low + Math.floor((high - low) / 2);
+      if (onDate(midpoint)) low = midpoint;
+      else high = midpoint;
+    }
+    return low;
+  }
+  throw new AppError(
+    422,
+    'DEADLINE_LOCAL_TIME_INVALID',
+    '该法域没有这个当地日期，请核对起算日和时区。',
+  );
 }
 
 export function calculateDeadline(input: unknown) {
