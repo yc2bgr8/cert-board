@@ -207,7 +207,15 @@ test('浏览器按对话分页读取提案状态，保留决定且不返回正�
   const browser = await login();
   await approve(first.proposalId, browser);
   const path = `/api/conversations/${conversationId}/proposals`;
-  expect((await app.inject({ url: path })).statusCode).toBe(401);
+  expect((await app.inject({ url: path })).statusCode).toBe(403);
+  expect(
+    (
+      await app.inject({
+        url: path,
+        headers: { origin: config.WEB_ORIGIN, 'sec-fetch-site': 'same-origin' },
+      })
+    ).statusCode,
+  ).toBe(401);
   expect(
     (await app.inject({ url: `${path}?limit=51`, headers: headers(browser) })).statusCode,
   ).toBe(400);
