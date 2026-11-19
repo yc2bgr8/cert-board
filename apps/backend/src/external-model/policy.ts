@@ -65,6 +65,8 @@ export function containsConfidentialOverlap(
   }
   return confidentialPages.some((page) => {
     const value = normalized(page);
+    if (value.length > 0 && value.length < overlapSize)
+      return outgoing.some((message) => normalized(message.content).includes(value));
     for (let offset = 0; offset + overlapSize <= value.length; offset++)
       if (spans.has(value.slice(offset, offset + overlapSize))) return true;
     return false;

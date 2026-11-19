@@ -1,0 +1,1 @@
+ALTER TABLE "verification_worker_state" ADD COLUMN "recheck_at" timestamp with time zone;

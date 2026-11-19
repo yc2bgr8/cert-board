@@ -6,10 +6,14 @@ test('模拟 Cursor 通过 stdin 得到内容，在空目录无工作区读取�
   const { runtime } = verificationFixture();
   const model = runtime.catalog[0]!;
   const response = verificationReply(
-    await runtime.send(model, {
-      instructions: '合成核实问题',
-      transcript: [{ role: 'human', text: '剧本：注入' }],
-    }),
+    await runtime.send(
+      model,
+      {
+        instructions: '合成核实问题',
+        transcript: [{ role: 'human', text: '剧本：注入' }],
+      },
+      async () => undefined,
+    ),
   );
   expect(response.raw.isolation).toEqual({
     empty: true,
@@ -30,10 +34,14 @@ test.each([
   async (label, code) => {
     const { runtime } = verificationFixture();
     await expect(
-      runtime.send(runtime.catalog[0]!, {
-        instructions: '合成核实问题',
-        transcript: [{ role: 'human', text: `剧本：${label}` }],
-      }),
+      runtime.send(
+        runtime.catalog[0]!,
+        {
+          instructions: '合成核实问题',
+          transcript: [{ role: 'human', text: `剧本：${label}` }],
+        },
+        async () => undefined,
+      ),
     ).rejects.toMatchObject({ code });
   },
   10000,

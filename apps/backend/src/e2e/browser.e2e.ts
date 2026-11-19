@@ -617,10 +617,11 @@ async function main() {
       releaseInitial = resolve;
     });
     let calls = 0;
-    harness.verification.runtime.send = async (model, prompt) => {
-      if (++calls === 1) await waiting;
-      return nativeSend(model, prompt);
-    };
+    harness.verification.runtime.send = (model, prompt, dispatch) =>
+      nativeSend(model, prompt, async () => {
+        await dispatch();
+        if (++calls === 1) await waiting;
+      });
     try {
       const stream = page.waitForResponse((response) =>
         /^\/api\/verification\/rooms\/[^/]+\/events$/.test(new URL(response.url()).pathname),
@@ -691,6 +692,9 @@ async function main() {
       )
     ).rows[0]!.text;
     assert.match(quote, /外部核实的引用资料/u);
+    assert.match(quote, /GPT：建议准备附件。/u);
+    assert.match(quote, /Claude：应先核对附件要求。/u);
+    assert.match(quote, /主持人取舍：先回查示例清单中的附件要求。/u);
     assert.equal(quote.includes('示例客户甲'), false);
     await until(
       async () =>

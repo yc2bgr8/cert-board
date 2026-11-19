@@ -34,6 +34,7 @@ function VerificationPreferences({
   const [autoRounds, setRounds] = useState(String(settings.autoRounds));
   const [models, setModels] = useState<VerificationSettingsInput['models']>(settings.models);
   const [saved, setSaved] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
   const command = useBrowserCommand();
   const client = useQueryClient();
   function revise(id: string, patch: Partial<VerificationSettingsInput['models'][number]>) {
@@ -77,7 +78,9 @@ function VerificationPreferences({
                   }
                 >
                   <option value="cursor">Cursor（开发机）</option>
-                  <option value="gateway">模型网关（待配置）</option>
+                  <option value="gateway" disabled={model.enabled}>
+                    模型网关（待配置）
+                  </option>
                 </select>
               </label>
               <label>
@@ -132,6 +135,27 @@ function VerificationPreferences({
         </button>
       )}
       {saved && <p role="status">外部模型设置已保存。</p>}
+      {management && settings.channelStatus !== 'ready' && settings.channelStatus !== 'fixture' && (
+        <button
+          type="button"
+          className="live-secondary"
+          disabled={command.busy}
+          onClick={() => {
+            void command
+              .run(['verification-channel-recheck'], async () => {
+                await api.verificationRecheck();
+                void client.invalidateQueries({ queryKey: verificationSettingsKey(userId) });
+                return true;
+              })
+              .then((accepted) => {
+                if (accepted) setRechecking(true);
+              });
+          }}
+        >
+          复查 Cursor 通道
+        </button>
+      )}
+      {rechecking && <p role="status">已请求复查。通道状态会在检查后更新。</p>}
       {command.error && <p role="alert">{command.error}</p>}
     </form>
   );

@@ -135,6 +135,11 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
     );
     return verification.settings();
   });
+  app.post(`${verify}/settings/recheck`, bounds, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    await write(request, (db, actor) => verification.recheckChannel(db, actor));
+    return reply.code(204).send();
+  });
   app.get(`${verify}/rooms`, async (request, reply) => {
     reply.header('cache-control', 'no-store');
     const paging = checked(
@@ -256,49 +261,52 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
     });
     app.addHook('onClose', async () => clearInterval(recovery));
   }
-  app.get(`${prefix}/setup`, async (request, reply) => {
-    reply.header('cache-control', 'no-store');
-    await read(request);
-    return service.setup();
-  });
-  app.get(`${prefix}/conversations`, async (request, reply) => {
-    reply.header('cache-control', 'no-store');
-    const { cursor: after } = checked(
-      z.object({ cursor: externalModelConversationCursorSchema.optional() }).strict(),
-      request.query,
-    );
-    return externalModelConversationListSchema.parse(
-      await service.conversations(await read(request), after),
-    );
-  });
-  app.post(`${prefix}/conversations`, bounds, async (request, reply) => {
-    reply.header('cache-control', 'no-store');
-    return write(request, (tx, actor) =>
-      service.create(tx, actor, checked(externalModelConversationInputSchema, request.body)),
-    );
-  });
-  app.get(`${prefix}/conversations/:id/messages`, async (request, reply) => {
-    reply.header('cache-control', 'no-store');
-    return externalModelExchangeListSchema.parse(
-      await service.messages(await read(request), id(request), cursor(request)),
-    );
-  });
-  app.post(`${prefix}/conversations/:id/messages`, bounds, async (request, reply) => {
-    reply.header('cache-control', 'no-store');
-    if (runtime) {
-      await requireBrowserIdentity(request, pool, config, { write: true });
-      await service.recoverExpired();
-    }
-    const prepared = await write(request, (tx, actor) =>
-      service.prepare(
-        tx,
-        actor,
-        id(request),
-        checked(externalModelMessageInputSchema, request.body),
-      ),
-    );
-    return prepared.kind === 'replay' ? prepared.exchange : service.dispatch(prepared);
-  });
+  const legacyFixtureRoutes = config.NODE_ENV === 'test' && process.env.NODE_ENV === 'test';
+  if (legacyFixtureRoutes) {
+    app.get(`${prefix}/setup`, async (request, reply) => {
+      reply.header('cache-control', 'no-store');
+      await read(request);
+      return service.setup();
+    });
+    app.get(`${prefix}/conversations`, async (request, reply) => {
+      reply.header('cache-control', 'no-store');
+      const { cursor: after } = checked(
+        z.object({ cursor: externalModelConversationCursorSchema.optional() }).strict(),
+        request.query,
+      );
+      return externalModelConversationListSchema.parse(
+        await service.conversations(await read(request), after),
+      );
+    });
+    app.post(`${prefix}/conversations`, bounds, async (request, reply) => {
+      reply.header('cache-control', 'no-store');
+      return write(request, (tx, actor) =>
+        service.create(tx, actor, checked(externalModelConversationInputSchema, request.body)),
+      );
+    });
+    app.get(`${prefix}/conversations/:id/messages`, async (request, reply) => {
+      reply.header('cache-control', 'no-store');
+      return externalModelExchangeListSchema.parse(
+        await service.messages(await read(request), id(request), cursor(request)),
+      );
+    });
+    app.post(`${prefix}/conversations/:id/messages`, bounds, async (request, reply) => {
+      reply.header('cache-control', 'no-store');
+      if (runtime) {
+        await requireBrowserIdentity(request, pool, config, { write: true });
+        await service.recoverExpired();
+      }
+      const prepared = await write(request, (tx, actor) =>
+        service.prepare(
+          tx,
+          actor,
+          id(request),
+          checked(externalModelMessageInputSchema, request.body),
+        ),
+      );
+      return prepared.kind === 'replay' ? prepared.exchange : service.dispatch(prepared);
+    });
+  }
   app.get(`${prefix}/words`, async (request, reply) => {
     reply.header('cache-control', 'no-store');
     await read(request);
@@ -328,11 +336,12 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
     reply.header('cache-control', 'no-store');
     return service.archive(await read(request), id(request));
   });
-  app.post(`${prefix}/exchanges/:id/share`, bounds, async (request, reply) => {
-    reply.header('cache-control', 'no-store');
-    return write(request, (tx, actor) => {
-      const input = checked(externalModelShareInputSchema, request.body);
-      return service.share(tx, actor, id(request), input.conversationId, input.requestKey);
+  if (legacyFixtureRoutes)
+    app.post(`${prefix}/exchanges/:id/share`, bounds, async (request, reply) => {
+      reply.header('cache-control', 'no-store');
+      return write(request, (tx, actor) => {
+        const input = checked(externalModelShareInputSchema, request.body);
+        return service.share(tx, actor, id(request), input.conversationId, input.requestKey);
+      });
     });
-  });
 }

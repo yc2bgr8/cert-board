@@ -40,7 +40,11 @@ export function verificationFixture() {
         .join('\n')
         .slice(-4000);
     },
-    async send(model, prompt) {
+    async send(model, prompt, beforeDispatch) {
+      const preflight = prompt.transcript.map(({ text }) => text).join('\n');
+      if (['未安装', '未登录', '额度用完'].some((label) => preflight.includes(`剧本：${label}`)))
+        return runCursorFixture(executable, model.id, prompt, 3000);
+      await beforeDispatch();
       requests.push({ model: model.id, prompt });
       return runCursorFixture(executable, model.id, prompt, 3000);
     },

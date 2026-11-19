@@ -148,6 +148,13 @@
       "when": 1795084489843,
       "tag": "0020_verification_worker_state",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795086758254,
+      "tag": "0021_verification_channel_recheck",
+      "breakpoints": true
     }
   ]
 }

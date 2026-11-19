@@ -14,7 +14,7 @@
 Windows 命令行版为 `2026.11.19-f005e9d`。使用 Lan 已登录的团队订阅。Lan 提供的设置界面显示团队锁定 Privacy Mode，并提示某些功能仍可能存储代码。核实使用本机 Ask 会话、临时空工作目录、空 MCP 列表和拒绝工具权限的独立配置。发送仅包含合成问题，未启用后台 Agent 或联网搜索。[Cursor ACP 说明](https://cursor.com/docs/cli/acp) · [Cursor 隐私说明](https://cursor.com/help/security-and-privacy/privacy)
 
 - 真实模型选择为 GPT-5.6 Sol 和 Claude Opus 5.5，使用命令行 ACP 列出的标准参数。明确标注无零数据保留的 Fable 未列为参与模型。
-- 两次连通测试、两次隔离后端群聊、两次隔离浏览器群聊，共 6 次 Cursor 调用，计入订阅次数。已验证浏览器群聊将有效回复和原样回执保存到本地，合成事实无出处时归为「待核实」。OpenRouter 新费用为 0。[浏览器真实核实截图](../evidence/pr-d6-real-cursor-verification.png)
+- 两次连通测试、一次隔离后端群聊和两次隔离浏览器群聊，共 8 次 Cursor 调用，计入订阅次数。最新一次浏览器核实验证了派发前复核、回复和原样回执的入库。合成事实无出处时归为「待核实」。OpenRouter 新费用为 0。[浏览器真实核实截图](../evidence/pr-d6-real-cursor-verification.png)
 - 没有文件、工具、真实项目材料或真实收件人参与验收。网页本身的外部请求为 0。
 
 ## 开发机启动
@@ -33,6 +33,6 @@ Windows 命令行版为 `2026.11.19-f005e9d`。使用 Lan 已登录的团队订�
 
 ## 本地验收
 
-- `pnpm lint`、`pnpm typecheck`、`pnpm test` 通过，共 410 项单元测试。
-- 两套外部模型专项集成共 16 项通过，覆盖浏览器授权、词表、每个模型 7／3 轮、实时插话、停止续聊、真实通道的主网关边界和存档。
+- `pnpm lint`、`pnpm typecheck`、`pnpm test` 通过，共 412 项单元测试。
+- 两套外部模型专项集成共 20 项通过，覆盖浏览器授权、词表、每个模型 7／3 轮、实时插话、停止续聊、停用后拦截、未发送不计次及原样回执。
 - `pnpm eval:agent` 通过 30 项。`pnpm build` 和 `pnpm test:e2e` 通过 55 项。

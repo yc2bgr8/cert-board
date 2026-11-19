@@ -117,3 +117,16 @@ test('两家都表达支持但给出不同事实时不归为可信', () => {
   );
   expect(conclusion.items[0]?.category).toBe('disputed');
 });
+
+test('主持人取舍使用相同议题键，长群聊说明省略范围', () => {
+  const posts = Array.from({ length: 100 }, (_, index) => ({
+    message: from(gpt),
+    claims: [claim(index === 99 ? ' UDI  核对 ' : `条目 ${index}`)],
+    participant: gpt,
+  }));
+  const conclusion = arrangeVerificationConclusion(posts, '请核对号码。', {
+    'UDI 核对': '回查原文。',
+  });
+  expect(conclusion.omitted).toEqual({ issues: 4, human: 0, earlierHistory: false });
+  expect(conclusion.items.at(-1)?.selection).toBe('回查原文。');
+});

@@ -127,6 +127,14 @@ export const verificationMessageSchema = z
 export const verificationConclusionSchema = z
   .object({
     summary: note(2000),
+    omitted: z
+      .object({
+        issues: z.number().int().nonnegative(),
+        human: z.number().int().nonnegative(),
+        earlierHistory: z.boolean(),
+      })
+      .strict()
+      .default({ issues: 0, human: 0, earlierHistory: false }),
     items: z
       .array(
         z.object({

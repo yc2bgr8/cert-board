@@ -232,6 +232,8 @@ export const api = {
       method: 'PUT',
       body: checked(verificationSettingsInputSchema, data),
     }),
+  verificationRecheck: () =>
+    request('/api/verification/settings/recheck', null, { method: 'POST' }),
   externalWords: (signal?: AbortSignal) =>
     request('/api/external-model/words', externalModelWordListSchema, signalOption(signal)),
   externalSaveWord: (data: ExternalModelWordInput) =>

@@ -67,7 +67,11 @@ export type VerificationRuntime = {
     posts: readonly VerificationMessage[],
     scope: Pick<ModeratorContext, 'room' | 'ownerId'>,
   ): Promise<string>;
-  send(model: VerificationModel, prompt: VerificationPrompt): Promise<unknown>;
+  send(
+    model: VerificationModel,
+    prompt: VerificationPrompt,
+    beforeDispatch: () => Promise<void>,
+  ): Promise<unknown>;
 };
 
 export function verificationReply(value: unknown): {

@@ -28,6 +28,7 @@ export function arrangeVerificationConclusion(
   summary: string,
   selections: Readonly<Record<string, string>>,
   createdAt = new Date().toISOString(),
+  earlierHistory = false,
 ) {
   const issues = new Map<string, Map<string, { post: EvidencePost; claim: VerificationClaim }>>();
   for (const post of posts) {
@@ -39,8 +40,11 @@ export function arrangeVerificationConclusion(
       issues.set(key, opinions);
     }
   }
+  const options = new Map(
+    Object.entries(selections).map(([key, value]) => [verificationIssueKey(key), value]),
+  );
   const byCategory = { trusted: 0, disputed: 1, unverified: 2, human: 3 };
-  const items = [...issues.entries()].slice(0, 96).map(([key, opinions]) => {
+  const items = [...issues.entries()].slice(-96).map(([key, opinions]) => {
     const values = [...opinions.values()];
     const sourced = values.filter(({ claim }) => claim.sources.length > 0);
     const providers = new Set(sourced.map(({ post }) => post.participant?.family));
@@ -54,7 +58,7 @@ export function arrangeVerificationConclusion(
     return {
       category,
       statement: sourced[0]?.claim.statement ?? values[0]!.claim.statement,
-      selection: selections[key] ?? null,
+      selection: options.get(key) ?? null,
       evidence: values.map(({ post, claim }) => ({
         messageId: post.message.id,
         author: post.message.author,
@@ -63,7 +67,8 @@ export function arrangeVerificationConclusion(
       })),
     };
   });
-  const human = posts.filter(({ message }) => message.type === 'human').slice(-24);
+  const humanPosts = posts.filter(({ message }) => message.type === 'human');
+  const human = humanPosts.slice(-24);
   const statements = [
     ...items,
     ...human.map(({ message }) => ({
@@ -75,5 +80,14 @@ export function arrangeVerificationConclusion(
       ],
     })),
   ].sort((left, right) => byCategory[left.category] - byCategory[right.category]);
-  return verificationConclusionSchema.parse({ items: statements, summary, createdAt });
+  return verificationConclusionSchema.parse({
+    items: statements,
+    summary,
+    createdAt,
+    omitted: {
+      issues: issues.size - items.length,
+      human: humanPosts.length - human.length,
+      earlierHistory,
+    },
+  });
 }

@@ -1,5 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, test } from 'vitest';
 import { containsConfidentialOverlap, redactExternalMessages } from './policy.js';
+
+test('完整短保密原文也会拦截', () => {
+  expect(
+    containsConfidentialOverlap(
+      [{ role: 'user', content: '请核对项目别名甲 两点。' }],
+      ['项目别名甲'],
+    ),
+  ).toBe(true);
+  expect(
+    containsConfidentialOverlap([{ role: 'user', content: '其他内容。' }], ['项目别名甲', '  ']),
+  ).toBe(false);
+});
 
 describe('外部模型本地内容处理', () => {
   it('按字面匹配最长词和不同大小写，代号只换回对应原文', () => {

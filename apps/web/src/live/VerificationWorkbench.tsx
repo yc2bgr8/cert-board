@@ -22,6 +22,7 @@ export function useVerificationSettings(userId: string) {
     queryKey: verificationSettingsKey(userId),
     queryFn: ({ signal }) => api.verificationSettings(signal),
     retry: false,
+    refetchInterval: 5000,
   });
 }
 export const verificationRoomKey = (userId: string, roomId: string | null) => [
@@ -149,6 +150,14 @@ function Conclusion({
       </header>
       <div className="verification-aside-content">
         <h3>{conclusion.summary}</h3>
+        {(conclusion.omitted.issues > 0 ||
+          conclusion.omitted.human > 0 ||
+          conclusion.omitted.earlierHistory) && (
+          <p role="status">
+            部分发言未纳入整理。另有 {conclusion.omitted.issues} 个议题和 {conclusion.omitted.human}{' '}
+            条人工发言可在群聊中回看。
+          </p>
+        )}
         {Object.entries(claimLabels).map(([category, label]) => {
           const items = conclusion.items.filter((item) => item.category === category);
           if (!items.length) return null;
@@ -578,7 +587,7 @@ export function VerificationWorkbench({
                 {conclusion ? '查看结论' : '本场核实'}
               </button>
             )}
-            {room.status === 'discussing' && !room.stoppedBy && (
+            {room.status !== 'completed' && !room.stoppedBy && (
               <button
                 className="live-secondary"
                 type="button"

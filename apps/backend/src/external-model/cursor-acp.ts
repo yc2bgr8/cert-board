@@ -124,6 +124,7 @@ export async function callCursorAcp(
   config: CursorAcpConfig,
   modelId: string,
   prompt: VerificationPrompt,
+  beforeDispatch: () => Promise<void>,
 ) {
   const model = cursorModels[modelId as keyof typeof cursorModels];
   if (typeof model !== 'string') throw new VerificationChannelError('failed');
@@ -236,6 +237,7 @@ export async function callCursorAcp(
       value: model,
     });
     if (!allowedOption(configured, 'model', model)) throw new VerificationChannelError('failed');
+    await beforeDispatch();
     const completed = await rpc('session/prompt', {
       sessionId,
       prompt: [{ type: 'text', text: JSON.stringify(prompt) }],

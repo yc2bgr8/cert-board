@@ -39,6 +39,7 @@ export async function startVerificationWorker(
       ? 'unavailable'
       : 'privacy_unverified';
   let checked = 0;
+  let examinedRecheck = 0;
   const warn = () =>
     logger.warn({ event: 'cursor_verification_worker_error' }, '外部核实暂不可用。');
   const policy = new ExternalModels(pool, undefined, undefined, 20_000_000_000n);
@@ -84,7 +85,7 @@ export async function startVerificationWorker(
         .join('\n')
         .slice(-3800);
     },
-    async send(model, prompt) {
+    async send(model, prompt, beforeDispatch) {
       if (!config || !permitted || status !== 'ready')
         throw new VerificationChannelError(
           status === 'quota' || status === 'not_signed_in' || status === 'privacy_unverified'
@@ -92,7 +93,7 @@ export async function startVerificationWorker(
             : 'not_installed',
         );
       try {
-        return await callCursorAcp(config, model.id, prompt);
+        return await callCursorAcp(config, model.id, prompt, beforeDispatch);
       } catch (error) {
         if (
           error instanceof VerificationChannelError &&
@@ -110,12 +111,12 @@ export async function startVerificationWorker(
   const service = new VerificationRooms(pool, policy, runtime);
   let tick: Promise<void> | undefined;
   let stopped = false;
-  async function check() {
+  async function check(retryQuota: boolean) {
     if (!config || !permitted) return;
     try {
       await Promise.all([access(config.executable), access(config.entrypoint)]);
       await checkCursorAccount(config);
-      if (status !== 'quota') status = 'ready';
+      if (status !== 'quota' || retryQuota) status = 'ready';
     } catch (error) {
       status =
         error instanceof VerificationChannelError &&
@@ -128,9 +129,16 @@ export async function startVerificationWorker(
   function advance() {
     if (stopped || tick) return;
     tick = (async () => {
-      if (Date.now() - checked > 300000) {
+      const { rows } = await pool.query<{ recheck_at: Date | null }>(
+        'SELECT recheck_at FROM verification_worker_state WHERE id=$1',
+        [verificationWorkerStateId],
+      );
+      const requested = rows[0]?.recheck_at?.getTime() ?? 0;
+      const retryQuota = requested > examinedRecheck;
+      if (Date.now() - checked > 300000 || retryQuota) {
         checked = Date.now();
-        await check();
+        examinedRecheck = requested;
+        await check(retryQuota);
         await service.recoverWorkers();
       }
       await pool.query(

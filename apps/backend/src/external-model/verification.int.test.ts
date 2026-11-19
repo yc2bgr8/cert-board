@@ -11,6 +11,8 @@ import { createIntegrationContext } from '../test-support/context.js';
 import { verificationFixture } from '../test-support/verification-fixture.js';
 import { createVerificationModerator } from './verification-moderator.js';
 import { ExternalModels } from './service.js';
+import { VerificationRooms, verificationWorkerStateId } from './verification-service.js';
+import { VerificationChannelError, type VerificationPrompt } from './verification-runtime.js';
 
 const prefix = '/api/verification';
 let context: Awaited<ReturnType<typeof createIntegrationContext>>;
@@ -114,13 +116,14 @@ test('群里直接插话和点名，当前回答照常完成，停止后继续�
   });
   const send = fixture.runtime.send;
   let calls = 0;
-  fixture.runtime.send = async (model, prompt) => {
-    if (++calls === 1) {
-      started();
-      await released;
-    }
-    return send(model, prompt);
-  };
+  fixture.runtime.send = (model, prompt, dispatch) =>
+    send(model, prompt, async () => {
+      await dispatch();
+      if (++calls === 1) {
+        started();
+        await released;
+      }
+    });
   const other = await context.login('MEMBER_B');
   const word = await app.inject({
     url: '/api/external-model/words',
@@ -254,4 +257,195 @@ test('主模型主持使用已有本人目标和主网关，先替换保密词�
       )
     ).rows,
   ).toEqual([{ status: 'completed' }]);
+});
+
+test('握手期间停用模型后不发送，计次和当日外发档案排除未发送', async () => {
+  await rounds(1);
+  let startHandshake!: () => void;
+  let allowContinuation!: () => void;
+  const handshake = new Promise<void>((resolve) => {
+    startHandshake = resolve;
+  });
+  const permission = new Promise<void>((resolve) => {
+    allowContinuation = resolve;
+  });
+  const send = fixture.runtime.send;
+  fixture.runtime.send = async (model, prompt, dispatch) => {
+    if (model.id === 'gpt-flagship') {
+      startHandshake();
+      await permission;
+    }
+    return send(model, prompt, dispatch);
+  };
+  const id = await start('合成：停用模型时复核派发。');
+  await handshake;
+  const administrator = await context.login('ADMIN');
+  try {
+    const url = `${prefix}/settings`;
+    const current = verificationSettingsSchema.parse((await app.inject({ url, headers })).json());
+    const pendingGateway = current.models.map((model) => ({ ...model, channel: 'gateway' }));
+    expect(
+      (
+        await app.inject({
+          url,
+          method: 'PUT',
+          headers: administrator.headers,
+          payload: { autoRounds: 1, models: pendingGateway },
+        })
+      ).statusCode,
+    ).toBe(409);
+    const models = current.models.map((model) =>
+      model.id === 'gpt-flagship' ? { ...model, enabled: false, defaultParticipant: false } : model,
+    );
+    expect(
+      (
+        await app.inject({
+          url,
+          method: 'PUT',
+          headers: administrator.headers,
+          payload: { autoRounds: 1, models },
+        })
+      ).statusCode,
+    ).toBe(200);
+  } finally {
+    allowContinuation();
+  }
+  await expect.poll(async () => (await detail(id)).room.status).toBe('completed');
+  expect(fixture.requests.map(({ model }) => model)).toEqual(['claude-flagship']);
+  const exchange = await context.pool.query(
+    'SELECT model,status,dispatched_at FROM external_model_exchange WHERE conversation_id=$1 ORDER BY created_at',
+    [id],
+  );
+  expect(exchange.rows[0]).toEqual({
+    model: 'gpt-flagship',
+    status: 'not_sent',
+    dispatched_at: null,
+  });
+  const usage = verificationSettingsSchema.parse(
+    (await app.inject({ url: `${prefix}/settings`, headers })).json(),
+  ).usage;
+  expect(usage).toEqual([{ model: 'claude-flagship', calls: 1 }]);
+  const day = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  const entries = await app.inject({ url: `/api/external-model/archive?day=${day}`, headers });
+  expect(entries.json().items.map(({ model }: { model: string }) => model)).toEqual([
+    'claude-flagship',
+  ]);
+});
+
+test('主模型提前要求结束仍邀请各默认模型，畸形回执和换回超长回执仍按原样保存', async () => {
+  await rounds(1);
+  const word = '保'.repeat(120);
+  await app.inject({
+    method: 'POST',
+    url: '/api/external-model/words',
+    headers,
+    payload: { phrase: word, category: 'other' },
+  });
+  const invalid = { providerText: '合成原始回执', text: '可读取答复', claims: [39] };
+  fixture.runtime.moderate = async () => ({ text: '准备整理。', call: null, finish: true });
+  fixture.runtime.send = async (model, prompt, dispatch) => {
+    await dispatch();
+    if (model.id === 'claude-flagship') return invalid;
+    const token = JSON.stringify(prompt).match(/\[\[CB-[0-9a-f-]+-\d+\]\]/u)?.[0];
+    expect(token).toBeDefined();
+    return { text: token!.repeat(300), claims: [] };
+  };
+  const id = await start(`请核对共用词 ${word}。`);
+  await expect.poll(async () => (await detail(id)).room.status).toBe('completed');
+  const room = await detail(id);
+  expect(room.messages.filter(({ type }) => type === 'model')).toEqual([]);
+  const { rows } = await context.pool.query(
+    'SELECT model,returned FROM external_model_exchange WHERE conversation_id=$1 ORDER BY created_at',
+    [id],
+  );
+  expect(rows).toHaveLength(2);
+  expect(rows[0]?.returned.text).toMatch(/\[\[CB-/u);
+  expect(rows[1]?.returned).toEqual(invalid);
+});
+
+test('额度暂停时可在本地整理，通道复查需要管理员', async () => {
+  await context.pool.query(
+    "INSERT INTO verification_worker_state(id,worker_id,status) VALUES($1,$2,'quota')",
+    [verificationWorkerStateId, randomUUID()],
+  );
+  const administrator = await context.login('ADMIN');
+  const recheck = `${prefix}/settings/recheck`;
+  expect((await context.app.inject({ method: 'POST', url: recheck, headers })).statusCode).toBe(
+    403,
+  );
+  expect(
+    (await context.app.inject({ method: 'POST', url: recheck, headers: administrator.headers }))
+      .statusCode,
+  ).toBe(204);
+  const created = verificationRoomSchema.parse(
+    (
+      await context.app.inject({
+        method: 'POST',
+        url: `${prefix}/rooms`,
+        headers,
+        payload: { requestKey: randomUUID(), question: '通道暂停时的合成核实。' },
+      })
+    ).json(),
+  );
+  expect(created.status).toBe('paused');
+  const verification = new VerificationRooms(
+    context.pool,
+    new ExternalModels(context.pool, undefined, undefined, 20_000_000_000n),
+    { ...fixture.runtime, kind: 'cursor', status: 'quota' },
+  );
+  try {
+    expect(
+      (
+        await context.app.inject({
+          method: 'POST',
+          url: `${prefix}/rooms/${created.id}/stop`,
+          headers,
+        })
+      ).statusCode,
+    ).toBe(204);
+    await verification.wakeReady(() => undefined);
+    await expect.poll(async () => (await detail(created.id)).room.status).toBe('completed');
+    expect(fixture.requests).toHaveLength(0);
+  } finally {
+    await verification.close();
+  }
+});
+
+test('按长度整理旧答复，优先保留待处理发言，成功回应会清除旧超时的影响', async () => {
+  await rounds(1);
+  const calls: Array<{ model: string; prompt: VerificationPrompt }> = [];
+  let gpt = 0;
+  const moderate = fixture.runtime.moderate;
+  fixture.runtime.moderate = async (context) => {
+    if (context.activeHuman && context.eligible.some(({ id }) => id === 'gpt-flagship'))
+      return { text: '请 GPT 回应新问题。', call: 'gpt-flagship', finish: false };
+    return moderate(context);
+  };
+  fixture.runtime.send = async (model, prompt, dispatch) => {
+    await dispatch();
+    calls.push({ model: model.id, prompt });
+    if (model.id === 'gpt-flagship' && gpt++ === 0) throw new VerificationChannelError('timeout');
+    return { text: '合成长答复。'.repeat(4000).slice(0, 15500), claims: [] };
+  };
+  const id = await start('合成长篇核实。');
+  await expect.poll(async () => (await detail(id)).room.status).toBe('completed');
+  await speak(id, '请 GPT 恢复回答。', 'gpt-flagship');
+  await expect
+    .poll(
+      async () =>
+        (await detail(id)).messages.filter(
+          ({ model, type }) => model === 'gpt-flagship' && type === 'model',
+        ).length,
+    )
+    .toBe(1);
+  const instruction = '接着核对这个新的合成问题。';
+  await speak(id, instruction, null);
+  await expect.poll(() => calls.length).toBe(4);
+  expect(calls.at(-1)?.model).toBe('gpt-flagship');
+  expect(calls.at(-1)?.prompt.transcript.some(({ text }) => text === instruction)).toBe(true);
+  expect(calls.at(-1)?.prompt.transcript.some(({ role }) => role === '主持人压缩稿')).toBe(true);
+  expect(
+    calls.at(-1)!.prompt.transcript.reduce((size, item) => size + item.text.length, 0),
+  ).toBeLessThan(24000);
+  expect((await detail(id)).messages.some(({ type }) => type === 'summary')).toBe(true);
 });
