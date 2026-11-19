@@ -449,9 +449,11 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     tab === 'conversation' &&
     currentRunId &&
     Boolean(stream.state.runs[currentRunId]);
-  const conversationProposals = (snapshot?.items ?? [])
+  const proposalNoticeKey = (snapshot?.items ?? [])
     .filter((item) => item.kind === 'proposal' && item.conversationId === conversationId)
-    .map((item) => item.id);
+    .map((item) => item.id)
+    .sort()
+    .join(',');
   const entries = isNewConversation
     ? []
     : panels.map((panel): InspectorEntry => {
@@ -788,7 +790,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               text={messageDrafts.get(conversationId) ?? ''}
               setText={(update) => updateMessageDraft(conversationId, update)}
               onReview={openReview}
-              proposalIds={conversationProposals}
+              proposalNoticeKey={proposalNoticeKey}
               onProposal={openProposal}
             />
           </div>

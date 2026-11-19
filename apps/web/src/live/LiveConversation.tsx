@@ -7,7 +7,7 @@ import {
   type FormEvent,
   type SetStateAction,
 } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { permissionModeSchema, type PermissionMode } from '@cert-board/shared';
 import { api, errorMessage, type ConversationDetail } from './api.js';
 import { ApprovalCard, useBrowserCommand } from './ApprovalCard.js';
@@ -18,6 +18,7 @@ import { InlineExecution } from './InlineExecution.js';
 import { runStateNames } from './RunDetails.js';
 import { ShellIcon } from './ShellIcon.js';
 import { ReferencePicker } from './ReferencePicker.js';
+import { proposalStatusLabels } from './ProposalCard.js';
 import './conversation.css';
 
 const modes: Record<PermissionMode, { label: string; description: string }> = {
@@ -96,7 +97,7 @@ type ConversationProps = {
   text: string;
   setText: (update: SetStateAction<string>) => void;
   onReview?: (id: string) => void;
-  proposalIds?: string[];
+  proposalNoticeKey?: string;
   onProposal?: (id: string) => void;
 };
 
@@ -110,7 +111,7 @@ function ConversationView({
   text,
   setText,
   onReview,
-  proposalIds = [],
+  proposalNoticeKey = '',
   onProposal,
 }: ConversationProps) {
   const detail = useQuery({
@@ -118,6 +119,26 @@ function ConversationView({
     queryFn: ({ signal }) => api.conversation(conversationId, signal),
     retry: false,
   });
+  const proposals = useInfiniteQuery({
+    queryKey: ['live', 'conversation-proposals', conversationId],
+    queryFn: ({ pageParam, signal }) =>
+      api.conversationProposals(
+        conversationId,
+        { limit: 50, ...(pageParam ? { cursor: pageParam } : {}) },
+        signal,
+      ),
+    enabled: !!onProposal && !!detail.data?.projectId,
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    retry: false,
+  });
+  const observedNotices = useRef(proposalNoticeKey);
+  const refreshProposals = proposals.refetch;
+  useEffect(() => {
+    if (observedNotices.current === proposalNoticeKey) return;
+    observedNotices.current = proposalNoticeKey;
+    if (onProposal && detail.data?.projectId) void refreshProposals();
+  }, [proposalNoticeKey, onProposal, detail.data?.projectId, refreshProposals]);
   const { state } = stream;
   const messagesByRun = useMemo(() => {
     const groups = new Map<string, LiveMessage[]>();
@@ -287,17 +308,40 @@ function ConversationView({
             );
           })}
           {onProposal &&
-            proposalIds.map((proposalId) => (
-              <div key={proposalId} className="live-conversation-notice live-conversation-result">
-                <span>
-                  <ShellIcon name="mail" />
-                  外发提案等待批准
-                </span>
-                <button type="button" onClick={() => onProposal(proposalId)}>
-                  查看提案
-                </button>
-              </div>
-            ))}
+            proposals.data?.pages
+              .flatMap((result) => result.items)
+              .map((proposal) => (
+                <div
+                  key={proposal.id}
+                  className="live-conversation-notice live-conversation-result"
+                >
+                  <span>
+                    <ShellIcon name="mail" />
+                    外发提案 · {proposalStatusLabels[proposal.status]}
+                  </span>
+                  <button type="button" onClick={() => onProposal(proposal.id)}>
+                    查看提案
+                  </button>
+                </div>
+              ))}
+          {proposals.isError && (
+            <div className="live-conversation-notice" role="status">
+              {errorMessage(proposals.error)}
+              <button type="button" onClick={() => void proposals.refetch()}>
+                重新读取提案
+              </button>
+            </div>
+          )}
+          {proposals.hasNextPage && (
+            <button
+              type="button"
+              className="live-text-button"
+              disabled={proposals.isFetchingNextPage}
+              onClick={() => void proposals.fetchNextPage()}
+            >
+              继续读取提案
+            </button>
+          )}
           {question && (
             <section className="live-conversation-notice live-question" aria-label="Agent提问">
               <h2>Agent 提问</h2>

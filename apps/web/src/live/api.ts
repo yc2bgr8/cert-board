@@ -28,6 +28,8 @@ import {
   proposalRecordSchema,
   proposalDecisionSchema,
   proposalDecisionResultSchema,
+  proposalListOptionsSchema,
+  proposalSummaryListSchema,
   workspaceRecordSchema,
   workspaceVersionListOptionsSchema,
   workspaceVersionListSchema,
@@ -178,6 +180,16 @@ export const api = {
     }),
   proposal: (id: string, signal?: AbortSignal) =>
     request(`/api/proposals/${identifier(id)}`, proposalRecordSchema, signalOption(signal)),
+  conversationProposals: (
+    id: string,
+    options: { cursor?: string; limit?: number },
+    signal?: AbortSignal,
+  ) =>
+    request(
+      `/api/conversations/${identifier(id)}/proposals${search(checked(proposalListOptionsSchema, options))}`,
+      proposalSummaryListSchema,
+      signalOption(signal),
+    ),
   decideProposal: (id: string, input: ProposalDecision) =>
     request(`/api/proposals/${identifier(id)}/decision`, proposalDecisionResultSchema, {
       method: 'POST',

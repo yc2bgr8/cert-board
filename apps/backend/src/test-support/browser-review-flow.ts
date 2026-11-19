@@ -107,6 +107,14 @@ export async function reviewBrowserFlow(
     const region = page.getByRole('region', { name: `D035 第 ${ref.page} 页原文`, exact: true });
     await region.locator('mark').waitFor();
     assert.equal(await region.locator('mark').textContent(), ref.quote);
+    assert.equal(
+      await region.locator('mark').evaluate((mark) => {
+        const container = mark.closest('pre')!.getBoundingClientRect();
+        const highlight = mark.getBoundingClientRect();
+        return highlight.top >= container.top && highlight.top < container.bottom;
+      }),
+      true,
+    );
   }
   const pairPanel = page.getByRole('complementary', { name: '原文依据', exact: true });
   assert.ok((await pairPanel.boundingBox())!.width > 800);

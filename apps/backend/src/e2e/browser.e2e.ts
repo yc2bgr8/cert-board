@@ -613,6 +613,28 @@ async function main() {
         action === 'approved' ? [{ channel: 'local_test', status: 'queued' }] : [],
       );
       await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
+      if (action === 'approved') {
+        await page
+          .getByRole('region', { name: '待我处理事项' })
+          .getByRole('button', { name: /外发提案.*查看提案/ })
+          .waitFor({ state: 'hidden' });
+        await page.getByRole('button', { name: 'L08 年度注册（验收示例）', exact: true }).click();
+        await page
+          .getByRole('button', { name: '打开对话：年度注册提案复验', exact: true })
+          .click();
+      }
+      await page
+        .getByText(
+          action === 'approved' ? '外发提案 · 已批准，等待本地测试' : '外发提案 · 已拒绝',
+          { exact: true },
+        )
+        .waitFor();
+      await page.getByRole('button', { name: '查看提案', exact: true }).click();
+      await proposal
+        .getByText(action === 'approved' ? '已批准，等待本地测试' : '已拒绝', { exact: true })
+        .waitFor();
+      assert.equal(await proposal.getByRole('button', { name: '批准本地测试' }).count(), 0);
+      await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
     }
     stage = '共享对话只读';
     await page.getByRole('button', { name: '注册Agent', exact: true }).click();
@@ -706,6 +728,7 @@ async function main() {
             'real_evidence_highlight',
             'evidence_pair',
             'evidence_wide_and_single_navigation',
+            'evidence_quote_visible_in_viewport',
             'saved_report',
             'report_download_hash',
             'chat_not_approval',
@@ -714,6 +737,7 @@ async function main() {
             'review_diff_file_list_selects_target',
             'proposal_rejected_without_queue',
             'proposal_browser_approval_local_queue_only',
+            'proposal_history_and_pending_inbox_update',
             'review_current_run_completed_sse',
             'review_completed_after_reopen',
             'width_1280',

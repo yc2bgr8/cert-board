@@ -5,7 +5,7 @@ import { useBrowserCommand } from './ApprovalCard.js';
 import { api, errorMessage, isStaleError } from './api.js';
 import './review.css';
 
-const statuses: Record<ProposalRecord['status'], string> = {
+export const proposalStatusLabels: Record<ProposalRecord['status'], string> = {
   proposed: '待批准',
   approved: '已批准，等待本地测试',
   executing: '正在处理',
@@ -75,6 +75,9 @@ export function ProposalCard({ proposalId }: { proposalId: string }) {
         if (!result) return;
         client.setQueryData(key, { ...proposal, status: result.status, version: result.version });
         void client.invalidateQueries({ queryKey: key });
+        void client.invalidateQueries({
+          queryKey: ['live', 'conversation-proposals', proposal.conversationId],
+        });
       });
   }
 
@@ -85,7 +88,7 @@ export function ProposalCard({ proposalId }: { proposalId: string }) {
           <h2 className="sr-only">外发提案</h2>
           <span className="live-review-chip is-warning">本地测试</span>
           <span className="live-review-chip" role="status">
-            {statuses[proposal.status]}
+            {proposalStatusLabels[proposal.status]}
           </span>
         </div>
         <p className="live-review-meta">

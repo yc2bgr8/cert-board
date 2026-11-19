@@ -111,12 +111,12 @@ function EvidenceSource({ source, number }: { source: EvidenceTarget; number: nu
   const before = match?.before.split('\n').slice(-4).join('\n');
   const after = match?.after.split('\n').slice(0, 4).join('\n');
   const excerpt = !!match && (before !== match.before || after !== match.after);
-  const scrollToQuote = Boolean(match) && (expanded || !excerpt);
+  const hasMatch = Boolean(match);
   useEffect(() => {
     if (textPane.current)
       textPane.current.scrollTop =
-        scrollToQuote && highlight.current ? Math.max(0, highlight.current.offsetTop - 60) : 0;
-  }, [scrollToQuote, source.quote]);
+        hasMatch && highlight.current ? Math.max(0, highlight.current.offsetTop - 60) : 0;
+  }, [hasMatch, expanded, source.quote]);
   return (
     <section
       className="review-evidence-source"

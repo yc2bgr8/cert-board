@@ -12,6 +12,8 @@ import {
   proposalParamsSchema,
   proposalDecisionSchema,
   proposalDecisionResultSchema,
+  proposalListOptionsSchema,
+  proposalSummaryListSchema,
   goalOutboundControlSchema,
   goalOutboundControlResultSchema,
   type BackendConfig,
@@ -81,19 +83,15 @@ export function registerProposalRoutes<Logger extends FastifyBaseLogger>(
       tx.release();
     }
   };
-  const authorizeReview = async (
-    tx: PoolClient,
-    identity: BrowserIdentity,
-    proposal: ProposalRow,
-  ) => {
+  const authorizeReview = async (tx: PoolClient, identity: BrowserIdentity, projectId: string) => {
     const project = await tx.query<{ owner_user_id: string }>(
       'SELECT owner_user_id FROM cert_project WHERE id=$1',
-      [proposal.projectId],
+      [projectId],
     );
     if (
       !project.rows[0] ||
       !authorize(identity, 'review.decide', {
-        projectId: proposal.projectId,
+        projectId,
         ownerUserId: project.rows[0].owner_user_id,
         reviewKind: 'registration',
       })
@@ -116,6 +114,42 @@ export function registerProposalRoutes<Logger extends FastifyBaseLogger>(
     return result.rows[0];
   };
 
+  app.get('/api/conversations/:id/proposals', async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    return browserTransaction(request, false, async (tx, identity) => {
+      const conversationId = identifier(request);
+      const options = proposalListOptionsSchema.safeParse(request.query);
+      if (!options.success)
+        throw new AppError(
+          400,
+          'PROPOSAL_LIST_INVALID',
+          '提案分页参数无效，请使用返回的续读编号。',
+        );
+      const conversation = (
+        await tx.query<{ project_id: string | null }>(
+          'SELECT project_id FROM conversation WHERE id=$1',
+          [conversationId],
+        )
+      ).rows[0];
+      if (!conversation?.project_id) throw missing();
+      await authorizeReview(tx, identity, conversation.project_id);
+      const { limit, cursor } = options.data;
+      const rows = (
+        await tx.query(
+          `SELECT id,status FROM proposal
+           WHERE project_id=$1 AND conversation_id=$2 AND ($3::uuid IS NULL OR id>$3::uuid)
+           ORDER BY id LIMIT $4`,
+          [conversation.project_id, conversationId, cursor ?? null, limit + 1],
+        )
+      ).rows;
+      const items = rows.slice(0, limit);
+      return proposalSummaryListSchema.parse({
+        items,
+        hasMore: rows.length > limit,
+        nextCursor: rows.length > limit ? items.at(-1)!.id : null,
+      });
+    });
+  });
   app.get('/api/proposals/:id', async (request, reply) => {
     reply.header('cache-control', 'no-store');
     return browserTransaction(request, false, async (tx, identity) => {
@@ -124,7 +158,7 @@ export function registerProposalRoutes<Logger extends FastifyBaseLogger>(
         [identifier(request)],
       );
       if (!result.rows[0]) throw missing();
-      await authorizeReview(tx, identity, result.rows[0]);
+      await authorizeReview(tx, identity, result.rows[0].projectId);
       return proposalDto(result.rows[0]);
     });
   });
@@ -155,7 +189,7 @@ export function registerProposalRoutes<Logger extends FastifyBaseLogger>(
         proposal.projectId !== targetGoal.project_id
       )
         throw missing();
-      await authorizeReview(tx, identity, proposal);
+      await authorizeReview(tx, identity, proposal.projectId);
       const prior = await tx.query<{
         id: string;
         proposal_id: string;
