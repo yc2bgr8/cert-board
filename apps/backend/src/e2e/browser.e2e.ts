@@ -714,6 +714,95 @@ async function main() {
     assert.equal(exported.length, 2);
     assert.equal(JSON.stringify(exported).includes('示例客户甲'), false);
     await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
+    stage = '首轮迟到时保留当前对话';
+    const createPattern = '**/api/external-model/conversations';
+    let markWaiting!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      markWaiting = resolve;
+    });
+    let deliver!: () => void;
+    const delivered = new Promise<void>((resolve) => {
+      deliver = resolve;
+    });
+    await page.route(createPattern, async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      markWaiting();
+      await delivered;
+      await route.fallback();
+    });
+    await page.getByRole('button', { name: '新建外部模型对话', exact: true }).click();
+    await input.fill('迟到的独立对话。');
+    await external.getByRole('button', { name: '发送给外部模型', exact: true }).click();
+    const late = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        /^\/api\/external-model\/conversations\/[^/]+\/messages$/.test(
+          new URL(response.url()).pathname,
+        ),
+    );
+    try {
+      await bounded(waiting);
+      await page
+        .getByRole('button', { name: `打开外部对话：${externalTitle}`, exact: true })
+        .click();
+      await input.fill('当前对话的新草稿。');
+    } finally {
+      deliver();
+    }
+    stage = '首轮迟到后的请求应完成';
+    assert.equal((await late).status(), 200);
+    stage = '首轮迟到后仍展示已选对话';
+    await external.getByRole('article').first().getByText(externalTitle, { exact: true }).waitFor();
+    await page
+      .getByRole('button', { name: '打开外部对话：迟到的独立对话。', exact: true })
+      .waitFor();
+    assert.equal(await input.inputValue(), '当前对话的新草稿。');
+    assert.equal(
+      await page
+        .getByRole('button', { name: `打开外部对话：${externalTitle}`, exact: true })
+        .getAttribute('aria-current'),
+      'page',
+    );
+    await page.unroute(createPattern);
+    stage = '首轮失败后复用对话及 Unicode 标题';
+    const sendPattern = '**/api/external-model/conversations/*/messages';
+    await page.route(sendPattern, async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      await route.fulfill({
+        status: 413,
+        json: {
+          error: {
+            code: 'TEST_ATTACHMENT_LIMIT',
+            message: '验收模拟附件受限。',
+            requestId: 'fixture',
+          },
+        },
+      });
+    });
+    const unicodeTitle = `${'段'.repeat(59)}😀`;
+    const thread = page.getByRole('button', { name: `打开外部对话：${unicodeTitle}`, exact: true });
+    await page.getByRole('button', { name: '新建外部模型对话', exact: true }).click();
+    await input.fill(`${unicodeTitle} 原问题`);
+    await external.getByRole('button', { name: '发送给外部模型', exact: true }).click();
+    await external.getByRole('alert').filter({ hasText: '验收模拟附件受限。' }).waitFor();
+    await thread.waitFor();
+    await page.unroute(sendPattern);
+    await input.fill('修正后继续原对话。');
+    await external.getByRole('button', { name: '发送给外部模型', exact: true }).click();
+    await external
+      .locator('.external-answer > p')
+      .filter({ hasText: /修正后继续原对话/u })
+      .waitFor();
+    assert.equal(await thread.getAttribute('aria-current'), 'page');
+    assert.equal(
+      (
+        await harness.pool.query(
+          "SELECT id FROM external_model_conversation WHERE title IN ($1,'修正后继续原对话。')",
+          [unicodeTitle],
+        )
+      ).rowCount,
+      1,
+    );
     stage = '维护对话和外发提案';
     await page.getByRole('button', { name: '维护Agent', exact: true }).click();
     await page.getByRole('button', { name: 'L08 年度注册（验收示例）', exact: true }).click();
@@ -844,7 +933,7 @@ async function main() {
     await management.getByText('管理权限已启用', { exact: false }).waitFor();
     await management
       .getByLabel('外部模型入口预算')
-      .filter({ hasText: /0\.020001/ })
+      .filter({ hasText: /0\.060001/ })
       .waitFor();
     assert.ok((await management.getByText('尚未接入', { exact: true }).count()) > 0);
     await captureWorkbench(page, output, 'pr-u4-16-management.png');
@@ -953,6 +1042,8 @@ async function main() {
             'external_model_reference_sent_to_agent',
             'external_model_project_attachment_selection',
             'external_model_archive_download_and_budget_line',
+            'external_model_late_create_preserves_current_draft',
+            'external_model_first_send_retry_preserves_unicode_thread',
             'width_1280',
           ],
           externalRequests,

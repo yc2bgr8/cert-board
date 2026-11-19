@@ -1462,6 +1462,10 @@ export const externalModelExchange = pgTable(
     requestFingerprint: varchar('request_fingerprint', { length: 64 }).notNull(),
     model: varchar('model', { length: 64 }).notNull(),
     originalText: text('original_text').notNull(),
+    attachments: jsonb('attachments')
+      .$type<{ versionId: string; path: string }[]>()
+      .notNull()
+      .default([]),
     search: boolean('search').notNull(),
     sent: jsonb('sent').$type<Record<string, unknown>>().notNull(),
     returned: jsonb('returned').$type<Record<string, unknown>>(),
@@ -1472,6 +1476,7 @@ export const externalModelExchange = pgTable(
     status: externalModelExchangeStatus('status').notNull().default('reserved'),
     reservedNano: bigint('reserved_nano', { mode: 'bigint' }).notNull(),
     actualNano: bigint('actual_nano', { mode: 'bigint' }),
+    dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
     ...timestamps(),
   },
   (table) => [
@@ -1488,7 +1493,7 @@ export const externalModelExchange = pgTable(
     check(
       'external_model_exchange_state',
       sql`
-      (${table.status}='settled' AND ${table.actualNano} IS NOT NULL AND ${table.returned} IS NOT NULL AND ${table.answer} IS NOT NULL)
+      (${table.status}='settled' AND ${table.actualNano} IS NOT NULL AND (${table.answer} IS NULL OR ${table.returned} IS NOT NULL))
       OR (${table.status} IN ('reserved','unknown') AND ${table.actualNano} IS NULL AND ${table.answer} IS NULL)
       OR (${table.status}='not_sent' AND ${table.actualNano} IS NOT NULL AND ${table.actualNano}=0 AND ${table.answer} IS NULL)`,
     ),

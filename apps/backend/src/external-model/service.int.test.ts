@@ -3,7 +3,9 @@ import { afterEach, beforeEach, expect, test } from 'vitest';
 import {
   externalModelArchiveSchema,
   externalModelArchivePageSchema,
+  externalModelConversationListSchema,
   externalModelConversationSchema,
+  externalModelExchangeListSchema,
   externalModelExchangeSchema,
   externalModelSetupSchema,
   workspaceRecordSchema,
@@ -192,6 +194,48 @@ test('当日档案跨过 50 条继续读取，其他成员不能使用同一游�
     (await app.inject({ url: nextUrl, headers: other.headers })).json(),
   );
   expect(denied.items).toEqual([]);
+
+  const threadUrl = `${prefix}/conversations/${conversationId}/messages`;
+  const recent = externalModelExchangeListSchema.parse(
+    (await app.inject({ url: threadUrl, headers })).json(),
+  );
+  expect(recent.items).toHaveLength(50);
+  const older = externalModelExchangeListSchema.parse(
+    (await app.inject({ url: `${threadUrl}?cursor=${recent.nextCursor}`, headers })).json(),
+  );
+  expect(older.items).toHaveLength(2);
+  expect(older.nextCursor).toBeNull();
+  expect(new Set([...recent.items, ...older.items].map(({ id }) => id)).size).toBe(52);
+  await context.pool.query(
+    `INSERT INTO external_model_conversation(user_id,title)
+     SELECT e.user_id,'合成对话 '||n FROM external_model_conversation e,generate_series(1,51) n WHERE e.id=$1`,
+    [conversationId],
+  );
+  const conversationsUrl = `${prefix}/conversations`;
+  const recentThreads = externalModelConversationListSchema.parse(
+    (await app.inject({ url: conversationsUrl, headers })).json(),
+  );
+  expect(recentThreads.items).toHaveLength(50);
+  const tail = externalModelConversationListSchema.parse(
+    (
+      await app.inject({
+        url: `${conversationsUrl}?cursor=${recentThreads.nextCursor}`,
+        headers,
+      })
+    ).json(),
+  );
+  expect(tail.items).toHaveLength(2);
+  expect(new Set([...recentThreads.items, ...tail.items].map(({ id }) => id)).size).toBe(52);
+  expect(
+    externalModelConversationListSchema.parse(
+      (
+        await app.inject({
+          url: `${conversationsUrl}?cursor=${recentThreads.nextCursor}`,
+          headers: other.headers,
+        })
+      ).json(),
+    ).items,
+  ).toEqual([]);
 });
 
 test('费用未知时保留实际返回和预占，只暂停外部模型', async () => {
@@ -218,6 +262,162 @@ test('费用未知时保留实际返回和预占，只暂停外部模型', async
     blockedReason: null,
     nightCostNano: '0',
   });
+});
+
+test.each(['保密词', '未知费用'])('等待本地复查时重新核对%s', async (change) => {
+  let markInspecting!: () => void;
+  const inspecting = new Promise<void>((resolve) => {
+    markInspecting = resolve;
+  });
+  let resume!: () => void;
+  const resumed = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  let inspections = 0;
+  fixture.runtime.checkLocally = async () => {
+    if (++inspections === 2) {
+      markInspecting();
+      await resumed;
+    }
+    return true;
+  };
+  const conversationId = await createConversation();
+  const otherId = await createConversation();
+  const result = app
+    .inject({
+      url: `${prefix}/conversations/${conversationId}/messages`,
+      method: 'POST',
+      headers,
+      payload: message('晚登记客户的核对事项。'),
+    })
+    .then((response) => response);
+  await inspecting;
+  try {
+    if (change === '保密词') {
+      const word = await app.inject({
+        url: `${prefix}/words`,
+        method: 'POST',
+        headers,
+        payload: { phrase: '晚登记客户', category: 'customer' },
+      });
+      expect(word.statusCode).toBe(200);
+    } else {
+      const other = await app.inject({
+        url: `${prefix}/conversations/${otherId}/messages`,
+        method: 'POST',
+        headers,
+        payload: message('费用不明样例'),
+      });
+      expect(externalModelExchangeSchema.parse(other.json()).status).toBe('unknown');
+    }
+  } finally {
+    resume();
+  }
+  expect(externalModelExchangeSchema.parse((await result).json()).status).toBe('not_sent');
+  expect(fixture.requests).toHaveLength(change === '保密词' ? 0 : 1);
+});
+
+test('恢复过期预占时区分未获派发许可和可能已发送', async () => {
+  const conversationId = await createConversation();
+  const ids = Array.from({ length: 2 }, () => randomUUID());
+  await context.pool.query(
+    `INSERT INTO external_model_exchange(id,conversation_id,request_key,request_fingerprint,model,original_text,search,sent,
+       replacement_count,month_key,reserved_nano,created_at,updated_at,dispatched_at)
+     SELECT id,$1,gen_random_uuid(),repeat('a',64),'external-fixture','合成档案',false,'{}'::jsonb,
+       0,to_char(now() AT TIME ZONE 'Asia/Shanghai','YYYY-MM'),2000,
+       now()-interval '3 minutes',now()-interval '3 minutes',
+       CASE WHEN position=2 THEN now()-interval '3 minutes' END
+     FROM unnest($2::uuid[]) WITH ORDINALITY AS expired(id,position)`,
+    [conversationId, ids],
+  );
+  const response = await app.inject({
+    url: `${prefix}/conversations/${conversationId}/messages`,
+    method: 'POST',
+    headers,
+    payload: message('发送新问题。'),
+  });
+  expect(response.json().error.code).toBe('EXTERNAL_BUDGET_BLOCKED');
+  expect(fixture.requests).toHaveLength(0);
+  expect(
+    (
+      await context.pool.query(
+        'SELECT id,status,actual_nano FROM external_model_exchange WHERE id=ANY($1)',
+        [ids],
+      )
+    ).rows,
+  ).toEqual(
+    expect.arrayContaining([
+      { id: ids[0], status: 'not_sent', actual_nano: '0' },
+      { id: ids[1], status: 'unknown', actual_nano: null },
+    ]),
+  );
+});
+
+test('答复和出处不合法时保留原始回执及已知费用', async () => {
+  const raw = {
+    content: {},
+    citations: [{ title: '外部链接', url: 'http://example.invalid/' }],
+    costNano: '80',
+  };
+  fixture.runtime.send = async () => raw;
+  const conversationId = await createConversation();
+  const response = await app.inject({
+    url: `${prefix}/conversations/${conversationId}/messages`,
+    method: 'POST',
+    headers,
+    payload: message('核对资料。'),
+  });
+  const exchange = externalModelExchangeSchema.parse(response.json());
+  expect(exchange).toMatchObject({
+    status: 'settled',
+    costNano: '80',
+    answer: null,
+    references: [],
+  });
+  const archive = await app.inject({ url: `${prefix}/exchanges/${exchange.id}/archive`, headers });
+  expect(externalModelArchiveSchema.parse(archive.json()).returned).toEqual(raw);
+  const setup = await app.inject({ url: `${prefix}/setup`, headers });
+  expect(externalModelSetupSchema.parse(setup.json()).budget).toMatchObject({
+    blocked: false,
+    usedNano: '80',
+  });
+  const valid = { title: '有效出处', url: 'https://example.invalid/source' };
+  fixture.runtime.send = async () => ({
+    content: '此答复可显示。',
+    citations: [...raw.citations, valid],
+    costNano: '100',
+  });
+  const answer = await app.inject({
+    url: `${prefix}/conversations/${conversationId}/messages`,
+    method: 'POST',
+    headers,
+    payload: message('继续核对。'),
+  });
+  expect(externalModelExchangeSchema.parse(answer.json())).toMatchObject({
+    status: 'settled',
+    costNano: '100',
+    answer: '此答复可显示。',
+    references: [valid],
+  });
+});
+
+test('太长的历史会裁去旧轮次，新消息仍可发送', async () => {
+  const conversationId = await createConversation();
+  await context.pool.query(
+    `INSERT INTO external_model_exchange(conversation_id,request_key,request_fingerprint,model,original_text,search,sent,returned,
+       answer,replacement_count,month_key,status,reserved_nano,actual_nano)
+     VALUES($1,gen_random_uuid(),repeat('a',64),'external-fixture','过长历史',false,'{}','{}',repeat('段',32000),
+       0,to_char(now() AT TIME ZONE 'Asia/Shanghai','YYYY-MM'),'settled',2000,1000)`,
+    [conversationId],
+  );
+  const response = await app.inject({
+    url: `${prefix}/conversations/${conversationId}/messages`,
+    method: 'POST',
+    headers,
+    payload: message('新问题。'),
+  });
+  expect(response.statusCode).toBe(200);
+  expect(fixture.requests[0]?.messages).toEqual([{ role: 'user', content: '新问题。' }]);
 });
 
 test('带入已保存附件，引用时只把脱敏回答交给目标 Agent', async () => {
@@ -253,6 +453,14 @@ test('带入已保存附件，引用时只把脱敏回答交给目标 Agent', as
   expect(external.statusCode).toBe(200);
   const exchange = externalModelExchangeSchema.parse(external.json());
   expect(fixture.requests[0]?.messages.at(-1)?.content).toContain('L08 510(k) 项目说明');
+  const continuation = await app.inject({
+    url: `${prefix}/conversations/${conversationId}/messages`,
+    method: 'POST',
+    headers,
+    payload: message('继续核对同一附件。'),
+  });
+  expect(continuation.statusCode).toBe(200);
+  expect(fixture.requests[1]?.messages[0]?.content).toContain('L08 510(k) 项目说明');
   const targetResponse = await app.inject({
     url: `/api/projects/${context.projectId}/conversations`,
     method: 'POST',

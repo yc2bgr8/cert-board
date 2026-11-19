@@ -10,7 +10,10 @@ const text = (maximum: number) =>
     .trim()
     .min(1, '请填写内容。')
     .max(maximum, '内容超出长度限制。')
-    .refine((value) => !value.includes('\0'), '内容含不支持的字符。');
+    .refine(
+      (value) => !/\p{Surrogate}/u.test(value) && !value.includes('\0'),
+      '内容含不支持的字符。',
+    );
 export const externalModelIdSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/);
 export const externalModelWordCategorySchema = z.enum([
   'customer',
@@ -53,7 +56,12 @@ export const externalModelConversationSchema = z
     updatedAt: instant,
   })
   .strict();
-export const externalModelConversationListSchema = z.array(externalModelConversationSchema).max(50);
+export const externalModelConversationListSchema = z
+  .object({
+    items: z.array(externalModelConversationSchema).max(50),
+    nextCursor: id.nullable(),
+  })
+  .strict();
 export const externalModelAttachmentSchema = z
   .object({ versionId: id, path: workspacePathSchema })
   .strict();
@@ -90,7 +98,12 @@ export const externalModelExchangeSchema = z
     createdAt: instant,
   })
   .strict();
-export const externalModelExchangeListSchema = z.array(externalModelExchangeSchema).max(50);
+export const externalModelExchangeListSchema = z
+  .object({
+    items: z.array(externalModelExchangeSchema).max(50),
+    nextCursor: id.nullable(),
+  })
+  .strict();
 export const externalModelArchiveSchema = z
   .object({
     id,

@@ -2959,6 +2959,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "attachments": {
+          "name": "attachments",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "search": {
           "name": "search",
           "type": "boolean",
@@ -3019,6 +3026,12 @@
         "actual_nano": {
           "name": "actual_nano",
           "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dispatched_at": {
+          "name": "dispatched_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -3116,7 +3129,7 @@
         },
         "external_model_exchange_state": {
           "name": "external_model_exchange_state",
-          "value": "\n      (\"external_model_exchange\".\"status\"='settled' AND \"external_model_exchange\".\"actual_nano\" IS NOT NULL AND \"external_model_exchange\".\"returned\" IS NOT NULL AND \"external_model_exchange\".\"answer\" IS NOT NULL)\n      OR (\"external_model_exchange\".\"status\" IN ('reserved','unknown') AND \"external_model_exchange\".\"actual_nano\" IS NULL AND \"external_model_exchange\".\"answer\" IS NULL)\n      OR (\"external_model_exchange\".\"status\"='not_sent' AND \"external_model_exchange\".\"actual_nano\" IS NOT NULL AND \"external_model_exchange\".\"actual_nano\"=0 AND \"external_model_exchange\".\"answer\" IS NULL)"
+          "value": "\n      (\"external_model_exchange\".\"status\"='settled' AND \"external_model_exchange\".\"actual_nano\" IS NOT NULL AND (\"external_model_exchange\".\"answer\" IS NULL OR \"external_model_exchange\".\"returned\" IS NOT NULL))\n      OR (\"external_model_exchange\".\"status\" IN ('reserved','unknown') AND \"external_model_exchange\".\"actual_nano\" IS NULL AND \"external_model_exchange\".\"answer\" IS NULL)\n      OR (\"external_model_exchange\".\"status\"='not_sent' AND \"external_model_exchange\".\"actual_nano\" IS NOT NULL AND \"external_model_exchange\".\"actual_nano\"=0 AND \"external_model_exchange\".\"answer\" IS NULL)"
         }
       },
       "isRLSEnabled": false

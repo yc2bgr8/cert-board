@@ -1,12 +1,16 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ExternalModelExchange, ProjectRecord } from '@cert-board/shared';
-import { api, errorMessage } from './api.js';
+import { api, createRequestKey, errorMessage } from './api.js';
 import { useBrowserCommand } from './ApprovalCard.js';
 import { ShellIcon } from './ShellIcon.js';
 import './external-model.css';
 
 type Attachment = { versionId: string; path: string };
+type ProjectOptions = {
+  projects: readonly ProjectRecord[];
+  loadMoreProjects: (() => void) | undefined;
+};
 const amount = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 7 });
 export const formatExternalUsd = (nano: string) => amount.format(Number(nano) / 1_000_000_000);
 const setupKey = (userId: string) => ['live', 'external-model-setup', userId];
@@ -37,37 +41,44 @@ function SentPreview({ exchange, userId }: { exchange: ExternalModelExchange; us
 
 function ProjectChoice({
   projects,
+  loadMoreProjects,
   value,
   onChange,
   label,
-}: {
-  projects: readonly ProjectRecord[];
+}: ProjectOptions & {
   value: string;
   onChange(id: string): void;
   label: string;
 }) {
   return (
-    <label>
-      {label}
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">选择项目</option>
-        {projects.map((project) => (
-          <option key={project.id} value={project.id}>
-            {project.name}
-          </option>
-        ))}
-      </select>
-    </label>
+    <>
+      <label>
+        {label}
+        <select value={value} onChange={(event) => onChange(event.target.value)}>
+          <option value="">选择项目</option>
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {loadMoreProjects && (
+        <button type="button" className="live-text-button" onClick={loadMoreProjects}>
+          加载更多项目
+        </button>
+      )}
+    </>
   );
 }
 
 function AttachmentPicker({
   projects,
+  loadMoreProjects,
   userId,
   onAttach,
   onClose,
-}: {
-  projects: readonly ProjectRecord[];
+}: ProjectOptions & {
   userId: string;
   onAttach(attachment: Attachment): void;
   onClose(): void;
@@ -80,10 +91,20 @@ function AttachmentPicker({
     retry: false,
   });
   const current = workspace.data;
-  const files = useQuery({
+  const files = useInfiniteQuery({
     queryKey: ['live', 'external-attachments', userId, current?.id, current?.currentVersionId],
-    queryFn: ({ signal }) =>
-      api.workspaceFiles(current!.id, { versionId: current!.currentVersionId, limit: 50 }, signal),
+    queryFn: ({ pageParam, signal }) =>
+      api.workspaceFiles(
+        current!.id,
+        {
+          versionId: current!.currentVersionId,
+          limit: 50,
+          ...(pageParam ? { cursor: pageParam } : {}),
+        },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
     enabled: !!current,
     retry: false,
   });
@@ -91,6 +112,7 @@ function AttachmentPicker({
     <section className="external-picker" aria-label="选择外部模型附件">
       <ProjectChoice
         projects={projects}
+        loadMoreProjects={loadMoreProjects}
         value={projectId}
         onChange={setProjectId}
         label="附件所属项目"
@@ -99,7 +121,8 @@ function AttachmentPicker({
         <p role="alert">{errorMessage(workspace.error ?? files.error)}</p>
       )}
       {current &&
-        files.data?.items
+        files.data?.pages
+          .flatMap((page) => page.items)
           .filter(
             (file) =>
               file.mediaType.toLowerCase().startsWith('text/') && file.dataLevel !== 'confidential',
@@ -114,6 +137,16 @@ function AttachmentPicker({
               {file.path}
             </button>
           ))}
+      {files.hasNextPage && (
+        <button
+          type="button"
+          className="live-text-button"
+          disabled={files.isFetchingNextPage}
+          onClick={() => void files.fetchNextPage()}
+        >
+          加载更多文件
+        </button>
+      )}
       <button type="button" className="live-secondary" onClick={onClose}>
         关闭附件选择
       </button>
@@ -124,11 +157,11 @@ function AttachmentPicker({
 function SharePicker({
   exchange,
   projects,
+  loadMoreProjects,
   userId,
   onClose,
-}: {
+}: ProjectOptions & {
   exchange: ExternalModelExchange;
-  projects: readonly ProjectRecord[];
   userId: string;
   onClose(): void;
 }) {
@@ -137,9 +170,15 @@ function SharePicker({
   const [sent, setSent] = useState(false);
   const command = useBrowserCommand();
   const client = useQueryClient();
-  const conversations = useQuery({
+  const conversations = useInfiniteQuery({
     queryKey: ['live', 'external-share-targets', userId, projectId],
-    queryFn: ({ signal }) => api.conversations({ projectId, scope: 'all', limit: 50 }, signal),
+    queryFn: ({ pageParam, signal }) =>
+      api.conversations(
+        { projectId, scope: 'all', limit: 50, ...(pageParam ? { cursor: pageParam } : {}) },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
     enabled: !!projectId,
     retry: false,
   });
@@ -147,6 +186,7 @@ function SharePicker({
     <section className="external-picker" aria-label="发给 Agent">
       <ProjectChoice
         projects={projects}
+        loadMoreProjects={loadMoreProjects}
         value={projectId}
         onChange={(id) => {
           setProjectId(id);
@@ -162,7 +202,8 @@ function SharePicker({
           disabled={!projectId || sent}
         >
           <option value="">选择对话</option>
-          {conversations.data?.items
+          {conversations.data?.pages
+            .flatMap((page) => page.items)
             .filter((item) => item.canWrite)
             .map((item) => (
               <option key={item.id} value={item.id}>
@@ -171,6 +212,16 @@ function SharePicker({
             ))}
         </select>
       </label>
+      {conversations.hasNextPage && (
+        <button
+          type="button"
+          className="live-text-button"
+          disabled={conversations.isFetchingNextPage}
+          onClick={() => void conversations.fetchNextPage()}
+        >
+          加载更多目标对话
+        </button>
+      )}
       <div className="external-actions">
         <button
           type="button"
@@ -206,11 +257,11 @@ function ExternalTurn({
   exchange,
   userId,
   projects,
+  loadMoreProjects,
   modelLabel,
-}: {
+}: ProjectOptions & {
   exchange: ExternalModelExchange;
   userId: string;
-  projects: readonly ProjectRecord[];
   modelLabel: string;
 }) {
   const [sharing, setSharing] = useState(false);
@@ -261,6 +312,7 @@ function ExternalTurn({
             <SharePicker
               exchange={exchange}
               projects={projects}
+              loadMoreProjects={loadMoreProjects}
               userId={userId}
               onClose={() => setSharing(false)}
             />
@@ -272,8 +324,8 @@ function ExternalTurn({
             {
               reserved: '正在处理…',
               unknown: '费用待核对，预占已保留。',
-              not_sent: '出网检查未通过，本次未发送。',
-              settled: '正在读取回答…',
+              not_sent: '本次请求未发送。',
+              settled: '费用已记录，答复不可读取。',
             }[exchange.status]
           }
         </p>
@@ -287,11 +339,11 @@ export function ExternalWorkbench({
   conversationId,
   onCreated,
   projects,
-}: {
+  loadMoreProjects,
+}: ProjectOptions & {
   userId: string;
   conversationId: string | null;
   onCreated(id: string): void;
-  projects: readonly ProjectRecord[];
 }) {
   const client = useQueryClient();
   const setup = useExternalModelSetup(userId);
@@ -303,16 +355,31 @@ export function ExternalWorkbench({
   const [attaching, setAttaching] = useState(false);
   const transcript = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
+  const mounted = useRef(false);
+  const createdId = useRef<string | null>(null);
+  const createDraft = useRef<{ title: string; requestKey: string } | null>(null);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const messagesKey = ['live', 'external-model-messages', userId, conversationId];
-  const history = useQuery({
+  const history = useInfiniteQuery({
     queryKey: messagesKey,
-    queryFn: ({ signal }) => api.externalMessages(conversationId!, signal),
+    queryFn: ({ pageParam, signal }) => api.externalMessages(conversationId!, pageParam, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
     enabled: !!conversationId,
     retry: false,
     refetchInterval: (query) =>
-      query.state.data?.some((item) => item.status === 'reserved') ? 1000 : false,
+      query.state.data?.pages[0]?.items.some((item) => item.status === 'reserved') ? 1000 : false,
   });
-  const search = searchOverride ?? history.data?.at(-1)?.search ?? true;
+  const turns = useMemo(
+    () => history.data?.pages.flatMap((page) => page.items).reverse() ?? [],
+    [history.data],
+  );
+  const search = searchOverride ?? turns.at(-1)?.search ?? true;
   useEffect(() => {
     const node = transcript.current;
     if (node && follow.current) node.scrollTop = node.scrollHeight;
@@ -320,31 +387,34 @@ export function ExternalWorkbench({
   const models = setup.data?.models ?? [];
   const model = models.find(({ id }) => id === chosenModel)?.id ?? models[0]?.id ?? '';
   const budget = setup.data?.budget;
-  const pending = history.data?.some((item) => item.status === 'reserved') ?? false;
+  const pending = turns.some((item) => item.status === 'reserved');
   const ready = !!model && !!budget && !budget.blocked && !pending && !command.busy;
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = text.trim();
     if (!ready || !value) return;
-    const result = await command.run(
-      [conversationId, model, value, search, attachments],
-      async (requestKey) => {
-        const id =
-          conversationId ??
-          (
-            await api.externalCreate({
-              title: value.replace(/\s+/gu, ' ').slice(0, 60),
-              requestKey,
-            })
-          ).id;
-        return api.externalSend(id, { requestKey, model, text: value, search, attachments });
-      },
-    );
+    const result = await command.run([model, value, search, attachments], async (requestKey) => {
+      let id = conversationId ?? createdId.current;
+      if (!id) {
+        createDraft.current ??= {
+          title: [...value.replace(/\s+/gu, ' ')].slice(0, 60).join(''),
+          requestKey: createRequestKey(),
+        };
+        const created = await api.externalCreate(createDraft.current);
+        id = createdId.current = created.id;
+        if (mounted.current) onCreated(id);
+        void client.invalidateQueries({
+          queryKey: ['live', 'external-model-conversations', userId],
+        });
+      }
+      return api.externalSend(id, { requestKey, model, text: value, search, attachments });
+    });
     if (!result) return;
-    setText((current) => (current.trim() === value ? '' : current));
-    setAttachments([]);
-    setAttaching(false);
-    if (!conversationId) onCreated(result.conversationId);
+    if (mounted.current) {
+      setText((current) => (current.trim() === value ? '' : current));
+      setAttachments([]);
+      setAttaching(false);
+    }
     void client.invalidateQueries({ queryKey: ['live', 'external-model-messages', userId] });
     void client.invalidateQueries({ queryKey: ['live', 'external-model-conversations', userId] });
     void client.invalidateQueries({ queryKey: setupKey(userId) });
@@ -365,18 +435,32 @@ export function ExternalWorkbench({
               本地出网检查及服务商策略尚未就绪。
             </p>
           )}
-          {setup.data?.readiness === 'fixture' && !history.data?.length && (
+          {setup.data?.readiness === 'fixture' && !turns.length && (
             <p className="external-notice">剧本模型</p>
           )}
           {(setup.isError || history.isError) && (
             <p role="alert">{errorMessage(setup.error ?? history.error)}</p>
           )}
-          {history.data?.map((exchange) => (
+          {history.hasNextPage && (
+            <button
+              type="button"
+              className="live-text-button"
+              disabled={history.isFetchingNextPage}
+              onClick={() => {
+                follow.current = false;
+                void history.fetchNextPage();
+              }}
+            >
+              加载较早消息
+            </button>
+          )}
+          {turns.map((exchange) => (
             <ExternalTurn
               key={exchange.id}
               exchange={exchange}
               userId={userId}
               projects={projects}
+              loadMoreProjects={loadMoreProjects}
               modelLabel={
                 models.find((profile) => profile.id === exchange.model)?.label ?? exchange.model
               }
@@ -466,6 +550,7 @@ export function ExternalWorkbench({
           {attaching && (
             <AttachmentPicker
               projects={projects}
+              loadMoreProjects={loadMoreProjects}
               userId={userId}
               onClose={() => setAttaching(false)}
               onAttach={(item) => {

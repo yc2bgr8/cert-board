@@ -38,6 +38,8 @@ function checked<T>(
   return parsed.data;
 }
 const id = (request: FastifyRequest) => checked(identifier, request.params).id;
+const cursor = (request: FastifyRequest) =>
+  checked(z.object({ cursor: z.uuid().optional() }).strict(), request.query).cursor;
 
 export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   app: FastifyInstance<
@@ -93,6 +95,18 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
     }
   };
   const bounds = { bodyLimit: 64 * 1024 };
+  if (runtime) {
+    let recovery: NodeJS.Timeout | undefined;
+    app.addHook('onReady', async () => {
+      await service.recoverExpired();
+      recovery = setInterval(() => {
+        void service.recoverExpired().catch(() => {
+          app.log.warn({ event: 'external_recovery_failed' }, '外部模型预占恢复失败。');
+        });
+      }, 15000).unref();
+    });
+    app.addHook('onClose', async () => clearInterval(recovery));
+  }
   app.get(`${prefix}/setup`, async (request, reply) => {
     reply.header('cache-control', 'no-store');
     await read(request);
@@ -101,7 +115,7 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   app.get(`${prefix}/conversations`, async (request, reply) => {
     reply.header('cache-control', 'no-store');
     return externalModelConversationListSchema.parse(
-      await service.conversations(await read(request)),
+      await service.conversations(await read(request), cursor(request)),
     );
   });
   app.post(`${prefix}/conversations`, bounds, async (request, reply) => {
@@ -113,11 +127,15 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   app.get(`${prefix}/conversations/:id/messages`, async (request, reply) => {
     reply.header('cache-control', 'no-store');
     return externalModelExchangeListSchema.parse(
-      await service.messages(await read(request), id(request)),
+      await service.messages(await read(request), id(request), cursor(request)),
     );
   });
   app.post(`${prefix}/conversations/:id/messages`, bounds, async (request, reply) => {
     reply.header('cache-control', 'no-store');
+    if (runtime) {
+      await requireBrowserIdentity(request, pool, config, { write: true });
+      await service.recoverExpired();
+    }
     const prepared = await write(request, (tx, actor) =>
       service.prepare(
         tx,

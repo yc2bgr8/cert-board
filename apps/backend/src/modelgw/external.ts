@@ -61,18 +61,12 @@ export type ExternalModelRuntime = {
   send(request: ExternalModelRequest): Promise<unknown>;
 };
 
-const gatewayResult = z
-  .object({
-    content: z
-      .string()
-      .min(1)
-      .max(32000)
-      .refine((content) => content.trim().length > 0),
-    citations: z.array(externalModelReferenceSchema).max(20),
-    costNano: nanoAmountSchema,
-  })
-  .passthrough();
 const gatewayArchive = z.record(z.string(), z.unknown());
+const displayableContent = z
+  .string()
+  .min(1)
+  .max(32000)
+  .refine((content) => content.trim().length > 0 && !content.includes('\0'));
 
 export async function callExternalModel(
   runtime: ExternalModelRuntime,
@@ -83,8 +77,20 @@ export async function callExternalModel(
     archive.success && Buffer.byteLength(JSON.stringify(archive.data), 'utf8') <= 256 * 1024
       ? archive.data
       : null;
-  const result = gatewayResult.safeParse(raw);
-  if (!result.success) return { kind: 'unknown' as const, raw };
-  const { content, citations, costNano } = result.data;
-  return { kind: 'settled' as const, content, citations, costNano, raw };
+  const cost = nanoAmountSchema.safeParse(archive.success ? archive.data.costNano : undefined);
+  if (!cost.success) return { kind: 'unknown' as const, raw };
+  const answer = displayableContent.safeParse(raw?.content);
+  const citations = Array.isArray(raw?.citations)
+    ? raw.citations.slice(0, 20).flatMap((value) => {
+        const parsed = externalModelReferenceSchema.safeParse(value);
+        return parsed.success ? [parsed.data] : [];
+      })
+    : [];
+  return {
+    kind: 'settled' as const,
+    content: answer.data ?? null,
+    citations,
+    costNano: cost.data,
+    raw,
+  };
 }

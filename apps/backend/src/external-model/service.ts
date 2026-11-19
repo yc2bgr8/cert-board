@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import {
+  externalModelAttachmentSchema,
   externalModelArchiveSchema,
   externalModelConversationSchema,
   externalModelExchangeSchema,
@@ -10,6 +11,7 @@ import {
   type ExternalModelMessageInput,
   type ExternalModelWordInput,
 } from '@cert-board/shared';
+import { z } from 'zod';
 import { AppError } from '../api/errors.js';
 import { estimateCostNano, pickBeijingMonth } from '../budget/meter.js';
 import { sendConversationMessageTx } from '../conversations/commands.js';
@@ -44,6 +46,8 @@ const exchangeColumns = `id,conversation_id AS "conversationId",model,original_t
 const archiveColumns = `e.id,e.conversation_id AS "conversationId",c.title,e.sent,e.returned,e.status,
   e.actual_nano AS "costNano",e.created_at AS "createdAt"`;
 const lock = (db: ExternalDb) => db.query('SELECT pg_advisory_xact_lock(20261119,6)');
+const contextLimit = 32000;
+const attachmentReferences = z.array(externalModelAttachmentSchema).max(3);
 const missing = () =>
   new AppError(404, 'EXTERNAL_CONVERSATION_MISSING', '没有找到可访问的外部对话。');
 const exchangeDto = (row: ExchangeRow) =>
@@ -78,12 +82,43 @@ export class ExternalModels {
     this.limit = runtime?.monthlyLimitNano ?? monthlyLimitNano;
   }
 
+  private async withLock<T>(operation: (db: PoolClient) => Promise<T>) {
+    const db = await this.pool.connect();
+    try {
+      await db.query('BEGIN');
+      await db.query("SET LOCAL statement_timeout='5000ms'");
+      await lock(db);
+      const result = await operation(db);
+      await db.query('COMMIT');
+      return result;
+    } catch (error) {
+      await db.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      db.release();
+    }
+  }
+
+  async recoverExpired() {
+    if (!this.runtime) return;
+    await this.withLock((db) =>
+      db.query(
+        `UPDATE external_model_exchange
+         SET status=CASE WHEN dispatched_at IS NULL THEN 'not_sent'::external_model_exchange_status
+                         ELSE 'unknown'::external_model_exchange_status END,
+             actual_nano=CASE WHEN dispatched_at IS NULL THEN 0 END,updated_at=clock_timestamp()
+         WHERE status='reserved' AND updated_at < clock_timestamp()-interval '2 minutes'`,
+      ),
+    );
+  }
+
   private async budget(db: ExternalDb, month: string) {
     const row = (
       await db.query<{ used: string; reserved: string; stopped: boolean }>(
         `SELECT COALESCE(SUM(actual_nano) FILTER (WHERE status='settled' AND month_key=$1),0)::text AS used,
          COALESCE(SUM(reserved_nano) FILTER (WHERE status IN ('reserved','unknown') AND month_key=$1),0)::text AS reserved,
-         COALESCE(BOOL_OR(status='unknown' OR (status='settled' AND actual_nano>reserved_nano AND month_key=$1)),false) AS stopped
+         COALESCE(BOOL_OR(status='unknown' OR (status='settled' AND actual_nano>reserved_nano AND month_key=$1)
+           OR (status='reserved' AND dispatched_at IS NOT NULL AND updated_at < clock_timestamp()-interval '2 minutes')),false) AS stopped
          FROM external_model_exchange`,
         [month],
       )
@@ -93,26 +128,33 @@ export class ExternalModels {
       limitNano: this.limit.toString(),
       usedNano: row.used,
       reservedNano: row.reserved,
+      stopped: row.stopped,
       blocked: row.stopped || BigInt(row.used) + BigInt(row.reserved) >= this.limit,
     };
   }
 
   async setup() {
+    const { stopped: _, ...budget } = await this.budget(this.pool, pickBeijingMonth(new Date()));
     return externalModelSetupSchema.parse({
       models: this.runtime?.profiles.map(({ id, label }) => ({ id, label })) ?? [],
       readiness: this.runtime ? 'fixture' : 'pending_local_policy',
-      budget: await this.budget(this.pool, pickBeijingMonth(new Date())),
+      budget,
     });
   }
 
-  async conversations(actor: BrowserIdentity) {
+  async conversations(actor: BrowserIdentity, cursor?: string) {
     const result = await this.pool.query<{ id: string; title: string; updated_at: Date }>(
-      'SELECT id,title,updated_at FROM external_model_conversation WHERE user_id=$1 ORDER BY updated_at DESC,id LIMIT 50',
-      [actor.userId],
+      `SELECT id,title,updated_at FROM external_model_conversation WHERE user_id=$1
+       AND ($2::uuid IS NULL OR (updated_at,id)<(SELECT updated_at,id FROM external_model_conversation WHERE id=$2 AND user_id=$1))
+       ORDER BY updated_at DESC,id DESC LIMIT 51`,
+      [actor.userId, cursor ?? null],
     );
-    return result.rows.map(({ id, title, updated_at }) =>
-      externalModelConversationSchema.parse({ id, title, updatedAt: updated_at.toISOString() }),
-    );
+    const items = result.rows
+      .slice(0, 50)
+      .map(({ id, title, updated_at }) =>
+        externalModelConversationSchema.parse({ id, title, updatedAt: updated_at.toISOString() }),
+      );
+    return { items, nextCursor: result.rows.length > 50 ? items.at(-1)!.id : null };
   }
 
   async create(
@@ -147,13 +189,16 @@ export class ExternalModels {
     if (!result.rowCount) throw missing();
   }
 
-  async messages(actor: BrowserIdentity, id: string) {
+  async messages(actor: BrowserIdentity, id: string, cursor?: string) {
     await this.own(this.pool, actor, id);
     const { rows } = await this.pool.query<ExchangeRow>(
-      `SELECT ${exchangeColumns} FROM external_model_exchange WHERE conversation_id=$1 ORDER BY created_at DESC,id DESC LIMIT 50`,
-      [id],
+      `SELECT ${exchangeColumns} FROM external_model_exchange WHERE conversation_id=$1
+       AND ($2::uuid IS NULL OR (created_at,id)<(SELECT created_at,id FROM external_model_exchange WHERE id=$2 AND conversation_id=$1))
+       ORDER BY created_at DESC,id DESC LIMIT 51`,
+      [id, cursor ?? null],
     );
-    return rows.reverse().map(exchangeDto);
+    const items = rows.slice(0, 50).map(exchangeDto);
+    return { items, nextCursor: rows.length > 50 ? items.at(-1)!.id : null };
   }
 
   async words(db: ExternalDb = this.pool) {
@@ -241,6 +286,36 @@ export class ExternalModels {
       );
   }
 
+  private async messageWithAttachments(
+    db: PoolClient,
+    actor: BrowserIdentity,
+    text: string,
+    attachments: ExternalModelMessageInput['attachments'],
+  ) {
+    let content = text;
+    for (const [index, attachment] of attachments.entries()) {
+      if (!this.store) throw new AppError(503, 'EXTERNAL_ATTACHMENT_STORAGE', '文件存储暂不可用。');
+      const file = await readVersionFile(
+        db,
+        this.store,
+        actor,
+        attachment.versionId,
+        attachment.path,
+        {
+          limit: 4000,
+        },
+      );
+      if (file.truncated || file.dataLevel === 'confidential')
+        throw new AppError(
+          403,
+          'EXTERNAL_ATTACHMENT_RESTRICTED',
+          '当前可附精简的非保密文本，请缩小范围。',
+        );
+      content += `\n\n附件 ${index + 1}\n${file.text}`;
+    }
+    return content;
+  }
+
   async prepare(
     db: PoolClient,
     actor: BrowserIdentity,
@@ -281,38 +356,34 @@ export class ExternalModels {
     );
     if (active.rowCount)
       throw new AppError(409, 'EXTERNAL_REQUEST_PENDING', '本对话还有请求在处理，请稍后再发。');
+    const content = await this.messageWithAttachments(db, actor, input.text, input.attachments);
+    if (content.length > contextLimit)
+      throw new AppError(413, 'EXTERNAL_CONTEXT_LIMIT', '本条消息和附件过长，请缩短材料。');
     const history = (
-      await db.query<{ original_text: string; answer: string }>(
-        "SELECT original_text,answer FROM external_model_exchange WHERE conversation_id=$1 AND status='settled' ORDER BY created_at DESC,id DESC LIMIT 8",
+      await db.query<{ original_text: string; answer: string; attachments: unknown }>(
+        "SELECT original_text,answer,attachments FROM external_model_exchange WHERE conversation_id=$1 AND status='settled' AND answer IS NOT NULL ORDER BY created_at DESC,id DESC LIMIT 8",
         [id],
       )
-    ).rows.reverse();
-    let content = input.text;
-    for (const [index, attachment] of input.attachments.entries()) {
-      if (!this.store) throw new AppError(503, 'EXTERNAL_ATTACHMENT_STORAGE', '文件存储暂不可用。');
-      const file = await readVersionFile(
-        db,
-        this.store,
-        actor,
-        attachment.versionId,
-        attachment.path,
-        { limit: 4000 },
+    ).rows;
+    const messages: ExternalModelMessage[] = [{ role: 'user', content }];
+    let remaining = contextLimit - content.length;
+    for (const row of history) {
+      if (row.original_text.length + row.answer.length > remaining) break;
+      const attachments = attachmentReferences.parse(row.attachments);
+      let previous: string;
+      try {
+        previous = await this.messageWithAttachments(db, actor, row.original_text, attachments);
+      } catch (error) {
+        if (error instanceof AppError && [403, 404].includes(error.statusCode)) break;
+        throw error;
+      }
+      if (previous.length + row.answer.length > remaining) break;
+      messages.unshift(
+        { role: 'user', content: previous },
+        { role: 'assistant', content: row.answer },
       );
-      if (file.truncated || file.dataLevel === 'confidential')
-        throw new AppError(
-          403,
-          'EXTERNAL_ATTACHMENT_RESTRICTED',
-          '当前可附精简的非保密文本，请缩小范围。',
-        );
-      content += `\n\n附件 ${index + 1}\n${file.text}`;
+      remaining -= previous.length + row.answer.length;
     }
-    const messages: ExternalModelMessage[] = history.flatMap(({ original_text, answer }) => [
-      { role: 'user', content: original_text },
-      { role: 'assistant', content: answer },
-    ]);
-    messages.push({ role: 'user', content });
-    if (messages.reduce((length, message) => length + message.content.length, 0) > 32000)
-      throw new AppError(413, 'EXTERNAL_CONTEXT_LIMIT', '外部对话过长，请缩短材料或新建对话。');
     const prepared = redactExternalMessages(
       messages,
       (await this.words(db)).map((word) => word.phrase),
@@ -339,8 +410,8 @@ export class ExternalModels {
     )
       throw new AppError(403, 'EXTERNAL_BUDGET_BLOCKED', '外部模型预算不足或待核对。');
     const created = await db.query<ExchangeRow>(
-      `INSERT INTO external_model_exchange(conversation_id,request_key,request_fingerprint,model,original_text,search,sent,replacement_count,month_key,reserved_nano)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING ${exchangeColumns}`,
+      `INSERT INTO external_model_exchange(conversation_id,request_key,request_fingerprint,model,original_text,search,sent,replacement_count,month_key,reserved_nano,attachments)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING ${exchangeColumns}`,
       [
         id,
         input.requestKey,
@@ -352,6 +423,7 @@ export class ExternalModels {
         prepared.replacementCount,
         month,
         estimate.toString(),
+        JSON.stringify(input.attachments),
       ],
     );
     await db.query(
@@ -371,55 +443,91 @@ export class ExternalModels {
     request: ExternalModelRequest;
     restore(value: string): string;
   }) {
-    if (!this.runtime) throw new Error('EXTERNAL_LOCAL_POLICY_PENDING');
-    let safe = false;
-    try {
-      const stopped = await this.pool.query(
-        `SELECT id FROM external_model_exchange WHERE status='unknown'
-         OR (status='settled' AND actual_nano>reserved_nano AND month_key=$1) LIMIT 1`,
-        [pickBeijingMonth(new Date())],
-      );
-      await this.checkConfidentialSources(this.pool, work.request.messages);
-      const current = redactExternalMessages(
-        work.request.messages,
-        (await this.words()).map((word) => word.phrase),
-      );
-      safe =
-        !stopped.rowCount &&
-        current.replacementCount === 0 &&
-        (await this.runtime.checkLocally(work.request.messages));
-    } catch {
-      // 派发权仍未授予，按未发送结束。
-    }
-    if (!safe) {
-      const { rows } = await this.pool.query<ExchangeRow>(
-        `UPDATE external_model_exchange SET status='not_sent',actual_nano=0,updated_at=clock_timestamp()
-         WHERE id=$1 AND status='reserved' RETURNING ${exchangeColumns}`,
+    const runtime = this.runtime;
+    if (!runtime) throw new Error('EXTERNAL_LOCAL_POLICY_PENDING');
+    const checked = await runtime.checkLocally(work.request.messages).catch(() => false);
+    const existing = await this.withLock(async (db) => {
+      const result = await db.query<
+        ExchangeRow & {
+          month_key: string;
+          dispatched_at: Date | null;
+          expired: boolean;
+        }
+      >(
+        `SELECT ${exchangeColumns},month_key,dispatched_at,
+           updated_at < clock_timestamp()-interval '2 minutes' AS expired
+         FROM external_model_exchange WHERE id=$1`,
         [work.exchange.id],
       );
-      return exchangeDto(rows[0]!);
-    }
-    let returned: string | null = null;
-    try {
-      const result = await callExternalModel(this.runtime, work.request);
-      returned = result.raw === null ? null : JSON.stringify(result.raw);
-      if (result.kind === 'unknown') throw new Error('EXTERNAL_USAGE_UNKNOWN');
-      const restored = work.restore(result.content);
-      if (restored.length > 32000) throw new Error('EXTERNAL_RESTORED_LIMIT');
-      const updated = await this.pool.query<ExchangeRow>(
-        `UPDATE external_model_exchange SET status='settled',actual_nano=$1,answer=$2,returned=$3,"references"=$4,updated_at=clock_timestamp()
-         WHERE id=$5 AND status='reserved' RETURNING ${exchangeColumns}`,
-        [result.costNano, restored, returned, JSON.stringify(result.citations), work.exchange.id],
+      const {
+        month_key: reservedMonth,
+        dispatched_at: dispatched,
+        expired,
+        ...row
+      } = result.rows[0]!;
+      if (row.status !== 'reserved' || dispatched !== null) return exchangeDto(row);
+      const month = pickBeijingMonth(new Date());
+      const budget = await this.budget(db, month);
+      let permitted = checked && !budget.stopped && !expired && reservedMonth === month;
+      if (permitted) {
+        try {
+          await this.checkConfidentialSources(db, work.request.messages);
+          permitted =
+            redactExternalMessages(
+              work.request.messages,
+              (await this.words(db)).map((word) => word.phrase),
+            ).replacementCount === 0;
+        } catch (error) {
+          if (!(error instanceof AppError)) throw error;
+          permitted = false;
+        }
+      }
+      if (permitted) {
+        // 持久化许可与词表维护和费用结算共用一把锁。已获许可的请求不自动重发。
+        await db.query(
+          'UPDATE external_model_exchange SET dispatched_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1',
+          [work.exchange.id],
+        );
+        return null;
+      }
+      const stopped = await db.query<ExchangeRow>(
+        `UPDATE external_model_exchange SET status='not_sent',actual_nano=0,updated_at=clock_timestamp()
+         WHERE id=$1 RETURNING ${exchangeColumns}`,
+        [work.exchange.id],
       );
-      return exchangeDto(updated.rows[0]!);
-    } catch {
-      const { rows } = await this.pool.query<ExchangeRow>(
-        `UPDATE external_model_exchange SET status='unknown',returned=$1,updated_at=clock_timestamp()
-         WHERE id=$2 AND status='reserved' RETURNING ${exchangeColumns}`,
-        [returned, work.exchange.id],
+      return exchangeDto(stopped.rows[0]!);
+    });
+    if (existing) return existing;
+
+    const result = await callExternalModel(runtime, work.request).catch(() => null);
+    const cost = result?.kind === 'settled' ? result.costNano : null;
+    const restored =
+      result?.kind === 'settled' && result.content !== null ? work.restore(result.content) : null;
+    const answer = restored !== null && restored.length <= contextLimit ? restored : null;
+    const citations = answer !== null && result?.kind === 'settled' ? result.citations : [];
+    return this.withLock(async (db) => {
+      const updated = await db.query<ExchangeRow>(
+        `UPDATE external_model_exchange SET status=$1,actual_nano=$2,answer=$3,returned=$4,"references"=$5,
+           updated_at=clock_timestamp() WHERE id=$6 AND status='reserved' RETURNING ${exchangeColumns}`,
+        [
+          cost === null ? 'unknown' : 'settled',
+          cost,
+          answer,
+          result?.raw ? JSON.stringify(result.raw) : null,
+          JSON.stringify(citations),
+          work.exchange.id,
+        ],
       );
-      return exchangeDto(rows[0]!);
-    }
+      const row =
+        updated.rows[0] ??
+        (
+          await db.query<ExchangeRow>(
+            `SELECT ${exchangeColumns} FROM external_model_exchange WHERE id=$1`,
+            [work.exchange.id],
+          )
+        ).rows[0]!;
+      return exchangeDto(row);
+    });
   }
 
   async archive(actor: BrowserIdentity, id: string) {
@@ -460,7 +568,7 @@ export class ExternalModels {
       await db.query<{ returned: { content?: unknown }; references: unknown }>(
         `SELECT e.returned,e."references" FROM external_model_exchange e
          JOIN external_model_conversation c ON c.id=e.conversation_id
-         WHERE e.id=$1 AND c.user_id=$2 AND e.status='settled'`,
+         WHERE e.id=$1 AND c.user_id=$2 AND e.status='settled' AND e.answer IS NOT NULL`,
         [exchangeId, actor.userId],
       )
     ).rows[0];

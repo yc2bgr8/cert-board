@@ -15,6 +15,7 @@ CREATE TABLE "external_model_exchange" (
 	"request_fingerprint" varchar(64) NOT NULL,
 	"model" varchar(64) NOT NULL,
 	"original_text" text NOT NULL,
+	"attachments" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"search" boolean NOT NULL,
 	"sent" jsonb NOT NULL,
 	"returned" jsonb,
@@ -25,6 +26,7 @@ CREATE TABLE "external_model_exchange" (
 	"status" "external_model_exchange_status" DEFAULT 'reserved' NOT NULL,
 	"reserved_nano" bigint NOT NULL,
 	"actual_nano" bigint,
+	"dispatched_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "external_model_exchange_request_key_unique" UNIQUE("request_key"),
@@ -33,7 +35,7 @@ CREATE TABLE "external_model_exchange" (
 	CONSTRAINT "external_model_exchange_amounts" CHECK ("external_model_exchange"."reserved_nano" >= 0 AND "external_model_exchange"."replacement_count" >= 0
       AND ("external_model_exchange"."actual_nano" IS NULL OR "external_model_exchange"."actual_nano" >= 0)),
 	CONSTRAINT "external_model_exchange_state" CHECK (
-      ("external_model_exchange"."status"='settled' AND "external_model_exchange"."actual_nano" IS NOT NULL AND "external_model_exchange"."returned" IS NOT NULL AND "external_model_exchange"."answer" IS NOT NULL)
+      ("external_model_exchange"."status"='settled' AND "external_model_exchange"."actual_nano" IS NOT NULL AND ("external_model_exchange"."answer" IS NULL OR "external_model_exchange"."returned" IS NOT NULL))
       OR ("external_model_exchange"."status" IN ('reserved','unknown') AND "external_model_exchange"."actual_nano" IS NULL AND "external_model_exchange"."answer" IS NULL)
       OR ("external_model_exchange"."status"='not_sent' AND "external_model_exchange"."actual_nano" IS NOT NULL AND "external_model_exchange"."actual_nano"=0 AND "external_model_exchange"."answer" IS NULL))
 );
@@ -63,14 +65,17 @@ CREATE FUNCTION public.guard_external_model_exchange()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog
 AS $external_exchange_guard$
 BEGIN
-    IF OLD.status<>'reserved' OR NEW.status='reserved' OR
+    IF OLD.status<>'reserved' OR
        ROW(NEW.id,NEW.conversation_id,NEW.request_key,NEW.request_fingerprint,NEW.model,
-           NEW.original_text,NEW.search,NEW.sent,NEW.replacement_count,NEW.month_key,
+           NEW.original_text,NEW.attachments,NEW.search,NEW.sent,NEW.replacement_count,NEW.month_key,
            NEW.reserved_nano,NEW.created_at)
        IS DISTINCT FROM
        ROW(OLD.id,OLD.conversation_id,OLD.request_key,OLD.request_fingerprint,OLD.model,
-           OLD.original_text,OLD.search,OLD.sent,OLD.replacement_count,OLD.month_key,
-           OLD.reserved_nano,OLD.created_at)
+           OLD.original_text,OLD.attachments,OLD.search,OLD.sent,OLD.replacement_count,OLD.month_key,
+           OLD.reserved_nano,OLD.created_at) OR
+       (NEW.status='reserved' AND (OLD.dispatched_at IS NOT NULL OR NEW.dispatched_at IS NULL OR
+           NEW.returned IS DISTINCT FROM OLD.returned OR NEW."references" IS DISTINCT FROM OLD."references")) OR
+       (NEW.status<>'reserved' AND NEW.dispatched_at IS DISTINCT FROM OLD.dispatched_at)
     THEN
         RAISE EXCEPTION '外部请求存档与已结算记录不可改写。' USING ERRCODE='42501';
     END IF;

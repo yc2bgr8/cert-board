@@ -36,6 +36,8 @@ type Props = {
   externalId: string | null;
   externalConversations: readonly ExternalModelConversation[];
   externalLoading: boolean;
+  externalHasMore: boolean;
+  externalLoadingMore: boolean;
   externalError: string | null;
   onProject(projectId: string): void;
   onAgent(agent: AgentCode): void;
@@ -47,6 +49,7 @@ type Props = {
   onExternal(): void;
   onExternalConversation(id: string): void;
   onExternalNew(): void;
+  onExternalMore(): void;
   onClose(): void;
 };
 export function Sidebar(props: Props) {
@@ -242,6 +245,16 @@ export function Sidebar(props: Props) {
                 {conversation.title}
               </button>
             ))}
+            {props.externalHasMore && (
+              <button
+                type="button"
+                className="live-text-button"
+                disabled={props.externalLoadingMore}
+                onClick={props.onExternalMore}
+              >
+                加载更多外部对话
+              </button>
+            )}
           </section>
         ) : (
           <>

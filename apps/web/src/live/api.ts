@@ -185,12 +185,14 @@ async function request<T>(
   }
 }
 const signalOption = (signal: AbortSignal | undefined) => (signal ? { signal } : {});
+const externalPage = (cursor: string | null) =>
+  cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
 export const api = {
   externalSetup: (signal?: AbortSignal) =>
     request('/api/external-model/setup', externalModelSetupSchema, signalOption(signal)),
-  externalConversations: (signal?: AbortSignal) =>
+  externalConversations: (cursor: string | null, signal?: AbortSignal) =>
     request(
-      '/api/external-model/conversations',
+      `/api/external-model/conversations${externalPage(cursor)}`,
       externalModelConversationListSchema,
       signalOption(signal),
     ),
@@ -199,9 +201,9 @@ export const api = {
       method: 'POST',
       body: checked(externalModelConversationInputSchema, data),
     }),
-  externalMessages: (id: string, signal?: AbortSignal) =>
+  externalMessages: (id: string, cursor: string | null, signal?: AbortSignal) =>
     request(
-      `/api/external-model/conversations/${identifier(id)}/messages`,
+      `/api/external-model/conversations/${identifier(id)}/messages${externalPage(cursor)}`,
       externalModelExchangeListSchema,
       signalOption(signal),
     ),

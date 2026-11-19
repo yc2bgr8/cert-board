@@ -131,12 +131,15 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const returnFocus = useRef<HTMLElement | null>(null);
   const sidebarVisible = narrow ? mobileOpen : !collapsed;
   const notifications = useMemberNotifications();
-  const externalConversations = useQuery({
+  const externalConversations = useInfiniteQuery({
     queryKey: ['live', 'external-model-conversations', userId],
-    queryFn: ({ signal }) => api.externalConversations(signal),
+    queryFn: ({ pageParam, signal }) => api.externalConversations(pageParam, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
     enabled: view === 'external',
     retry: false,
   });
+  const externalThreads = externalConversations.data?.pages.flatMap((page) => page.items) ?? [];
   const projectsQuery = useInfiniteQuery({
     queryKey: ['live', 'projects', userId],
     queryFn: ({ pageParam, signal }) =>
@@ -444,8 +447,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       : view === 'inbox'
         ? '待我处理'
         : view === 'external'
-          ? (externalConversations.data?.find((item) => item.id === externalId)?.title ??
-            '外部模型')
+          ? (externalThreads.find((item) => item.id === externalId)?.title ?? '外部模型')
           : hasConversationTitle
             ? current.title
             : projectId || conversationId
@@ -519,8 +521,11 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         displayName={user.displayName}
         external={view === 'external'}
         externalId={externalId}
-        externalConversations={externalConversations.data ?? []}
+        externalConversations={externalThreads}
         externalLoading={externalConversations.isPending}
+        externalHasMore={externalConversations.hasNextPage}
+        externalLoadingMore={externalConversations.isFetchingNextPage}
+        onExternalMore={() => void externalConversations.fetchNextPage()}
         externalError={
           externalConversations.isError ? errorMessage(externalConversations.error) : null
         }
@@ -608,6 +613,9 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               conversationId={externalId}
               onCreated={setExternalId}
               projects={availableProjects}
+              loadMoreProjects={
+                projectsQuery.hasNextPage ? () => void projectsQuery.fetchNextPage() : undefined
+              }
             />
           ) : view === 'inbox' ? (
             <Inbox
