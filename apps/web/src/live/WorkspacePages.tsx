@@ -88,7 +88,7 @@ export function Inbox({
               正在读取待处理事项…
             </p>
           )}
-          {snapshot && visible.length === 0 && (
+          {snapshot && !error && visible.length === 0 && (
             <p className="live-page-message live-muted">
               {filter === 'all' ? '暂时没有需要你处理的事项。' : '当前没有这个类型的待处理事项。'}
             </p>
@@ -188,13 +188,18 @@ export function ProjectHomeAside({
           <h2>需要你处理</h2>
           {items.length > 0 && <span className="live-notice-chip is-approval">{items.length}</span>}
         </header>
-        {items.length === 0 && (
+        {notificationError && (
+          <p className="live-page-message live-error" role="status">
+            {notificationError}
+          </p>
+        )}
+        {items.length === 0 && !notificationError && (
           <p className="live-page-message live-muted">
             {snapshot
               ? snapshot.truncated
                 ? '已读取的通知中没有当前项目的待处理事项。'
                 : '当前项目没有待处理事项。'
-              : (notificationError ?? '正在读取通知…')}
+              : '正在读取通知…'}
           </p>
         )}
         {items.map((item) => (
