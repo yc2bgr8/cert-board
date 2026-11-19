@@ -1,0 +1,57 @@
+name: cert-board-docsvc
+
+x-read-only: &read-only
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
+
+services:
+  docsvc:
+    <<: *read-only
+    image: cert-board-docsvc-runtime
+    build:
+      context: ./apps/docsvc
+      target: runtime
+    networks: [documents]
+    tmpfs: ['/tmp:size=512m,uid=65532,gid=65532,mode=1777']
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 128
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          'import urllib.request; urllib.request.urlopen("http://127.0.0.1:28082/health",timeout=2).close()',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  docsvc-relay:
+    <<: *read-only
+    image: nginxinc/nginx-unprivileged:1.30.6-alpine3.24@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+    entrypoint: ['nginx', '-g', 'daemon off;']
+    tmpfs: [/tmp]
+    depends_on:
+      docsvc:
+        condition: service_healthy
+    networks:
+      documents: {}
+      docsvc-ingress:
+        aliases: [docsvc-relay-entry]
+    ports: ['127.0.0.1:28082:28082']
+    volumes:
+      - ./deploy/relay/docsvc.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+
+networks:
+  documents:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+  docsvc-ingress:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
