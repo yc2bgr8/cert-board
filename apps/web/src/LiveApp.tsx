@@ -384,9 +384,9 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           ? projectTitle
           : '项目';
   const location = isNewConversation
-    ? sidebarAgent === 'registration'
-      ? '注册Agent'
-      : '维护Agent'
+    ? selectedProject?.projectType === 'maintenance'
+      ? '维护Agent'
+      : '注册Agent'
     : hasConversationTitle
       ? projectTitle
       : undefined;
@@ -720,8 +720,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           onOpenChange={(open) => {
             if (!open) setDialog(null);
           }}
-          initialProjectId={selectedProject?.projectType === sidebarAgent ? projectId : null}
-          initialAgent={sidebarAgent}
+          initialProjectId={projectId}
           projects={availableProjects}
           userId={userId}
           returnFocus={returnFocus}

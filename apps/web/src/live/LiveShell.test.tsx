@@ -468,6 +468,11 @@ test('项目外新对话可选择维护Agent，保存后明确尚不能运行', 
     expect.objectContaining({ agentCode: 'maintenance', permissionMode: 'full' }),
     undefined,
   );
+  fireEvent.click(screen.getByRole('button', { name: '新对话' }));
+  const repeated = screen.getByRole('dialog', { name: '新对话' });
+  expect(
+    (within(repeated).getByRole('radio', { name: '注册Agent' }) as HTMLInputElement).checked,
+  ).toBe(true);
 });
 
 test('待我处理用服务器快照替换，真实通知可打开对应对话', async () => {
@@ -503,7 +508,7 @@ test('Ctrl+K和Esc保持搜索焦点，设置为非模态且真实调用logout',
   searchButton.focus();
   const styles = document.querySelectorAll('style').length;
   fireEvent.keyDown(document, { key: 'k', ctrlKey: true });
-  const searchInput = screen.getByRole('textbox', { name: '搜索项目或对话' });
+  const searchInput = screen.getByRole('combobox', { name: '搜索项目或对话' });
   await waitFor(() => expect(document.activeElement).toBe(searchInput));
   expect(
     screen.getByRole('dialog', { name: '搜索项目或对话' }).getAttribute('aria-modal'),
@@ -547,7 +552,7 @@ test('搜索请求失败时明确提示重试，不把网络失败展示成没�
   await screen.findByRole('button', { name: 'L08 510(k)' });
   fireEvent.click(screen.getByRole('button', { name: '搜索' }));
   const dialog = screen.getByRole('dialog', { name: '搜索项目或对话' });
-  fireEvent.change(within(dialog).getByRole('textbox', { name: '搜索项目或对话' }), {
+  fireEvent.change(within(dialog).getByRole('combobox', { name: '搜索项目或对话' }), {
     target: { value: '尚未加载的标题' },
   });
   expect(await within(dialog).findByRole('alert')).toBeTruthy();

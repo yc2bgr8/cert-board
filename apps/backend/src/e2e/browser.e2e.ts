@@ -218,13 +218,23 @@ async function main() {
     stage = '新版搜索';
     await page.getByRole('button', { name: '搜索', exact: true }).click();
     const searchDialog = page.getByRole('dialog', { name: '搜索项目或对话', exact: true });
-    const searchBox = searchDialog.getByRole('textbox', { name: '搜索项目或对话', exact: true });
+    const searchBox = searchDialog.getByRole('combobox', { name: '搜索项目或对话', exact: true });
     await searchBox.fill('K123465');
-    await searchDialog.getByRole('button', { name: /K123465.*写法检查/ }).waitFor();
+    await searchDialog.getByRole('option', { name: /K123465.*写法检查/ }).waitFor();
     await captureWorkbench(page, output, 'pr-u1-13-search.png');
     await checkNarrowLayout(page);
+    await searchBox.fill('');
+    const projectOption = searchDialog.getByRole('option', { name: 'L08 510(k)', exact: true });
+    await projectOption.waitFor();
+    await searchBox.press('ArrowUp');
+    assert.equal(await projectOption.getAttribute('aria-selected'), 'true');
+    assert.equal(
+      await searchBox.getAttribute('aria-activedescendant'),
+      await projectOption.getAttribute('id'),
+    );
     await searchBox.press('Enter');
     await searchDialog.waitFor({ state: 'hidden' });
+    await page.getByRole('heading', { name: 'L08 510(k)', exact: true }).waitFor();
     stage = 'L08资料与安全Markdown';
     await createConversation(page, harness.projectId, 'read_only');
     const read = harness.plan('read');

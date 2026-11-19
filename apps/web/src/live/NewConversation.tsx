@@ -33,7 +33,6 @@ export function NewConversation({
   open,
   onOpenChange,
   initialProjectId,
-  initialAgent,
   projects,
   userId,
   returnFocus,
@@ -42,14 +41,13 @@ export function NewConversation({
   open: boolean;
   onOpenChange(open: boolean): void;
   initialProjectId: string | null;
-  initialAgent: AgentCode;
   projects: ProjectRecord[];
   userId: string;
   returnFocus: RefObject<HTMLElement | null>;
   onCreated(conversationId: string, projectId: string | null, agentCode: AgentCode): void;
 }) {
   const [projectId, setProjectId] = useState('');
-  const [agentCode, setAgentCode] = useState<AgentCode>(initialAgent);
+  const [agentCode, setAgentCode] = useState<AgentCode>('registration');
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(defaultPermissionMode);
   const [goalId, setGoalId] = useState('');
   const [title, setTitle] = useState('');
@@ -80,12 +78,12 @@ export function NewConversation({
     setProjectId(initialProjectId ?? '');
     setGoalId('');
     setTitle('');
-    setAgentCode(initialAgent);
+    setAgentCode('registration');
     setPermissionMode(defaultPermissionMode);
     setError(null);
     intent.current = null;
     completed.current = false;
-  }, [open, initialProjectId, initialAgent]);
+  }, [open, initialProjectId]);
   useEffect(() => {
     if (singleGoal && !goalId) setGoalId(singleGoal);
   }, [singleGoal, goalId]);

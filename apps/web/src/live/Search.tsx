@@ -1,4 +1,4 @@
-import { useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import type { ProjectRecord } from '@cert-board/shared';
 import type { ConversationDetail } from './api.js';
@@ -55,6 +55,11 @@ export function Search({
   );
   const resultCount = conversationMatches.length + projectMatches.length;
   const selected = Math.min(activeIndex, resultCount - 1);
+  const activeOptionId = selected >= 0 ? `live-search-option-${selected}` : undefined;
+  useEffect(() => {
+    if (open && activeOptionId)
+      document.getElementById(activeOptionId)?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, activeOptionId, query]);
   function choose(index: number) {
     const thread = conversationMatches[index];
     const project = projectMatches[index - conversationMatches.length];
@@ -87,9 +92,12 @@ export function Search({
             <ShellIcon name="search" />
             <input
               ref={input}
+              role="combobox"
               aria-label="搜索项目或对话"
+              aria-expanded={open}
+              aria-autocomplete="list"
               aria-controls="live-search-results"
-              aria-activedescendant={selected >= 0 ? `live-search-option-${selected}` : undefined}
+              aria-activedescendant={activeOptionId}
               placeholder="输入项目名或对话标题"
               value={query}
               onChange={(event) => {
@@ -113,56 +121,67 @@ export function Search({
               <kbd>Esc</kbd>
             </Dialog.Close>
           </div>
-          <div id="live-search-results" className="live-search-results">
-            {conversationMatches.length > 0 && (
-              <section aria-label="对话结果">
-                <h3>对话</h3>
-                {conversationMatches.map((conversation, index) => (
-                  <button
-                    id={`live-search-option-${index}`}
-                    className={
-                      selected === index ? 'live-search-result is-current' : 'live-search-result'
-                    }
-                    type="button"
-                    key={conversation.id}
-                    onFocus={() => setActiveIndex(index)}
-                    onClick={() => choose(index)}
-                  >
-                    <ShellIcon name="chat" />
-                    <span>
-                      {highlight(conversation.title, search)}
-                      <small>
-                        {projects.find((project) => project.id === conversation.projectId)?.name ??
-                          conversation.ownerName}
-                      </small>
-                    </span>
-                  </button>
-                ))}
-              </section>
-            )}
-            {projectMatches.length > 0 && (
-              <section aria-label="项目结果">
-                <h3>项目</h3>
-                {projectMatches.map((project, projectIndex) => {
-                  const index = conversationMatches.length + projectIndex;
-                  return (
+          <div className="live-search-results">
+            <div id="live-search-results" role="listbox" aria-label="搜索结果">
+              {conversationMatches.length > 0 && (
+                <section role="group" aria-label="对话结果">
+                  <h3 aria-hidden="true">对话</h3>
+                  {conversationMatches.map((conversation, index) => (
                     <button
                       id={`live-search-option-${index}`}
                       className={
                         selected === index ? 'live-search-result is-current' : 'live-search-result'
                       }
                       type="button"
-                      key={project.id}
+                      role="option"
+                      aria-selected={selected === index}
+                      tabIndex={-1}
+                      key={conversation.id}
                       onFocus={() => setActiveIndex(index)}
                       onClick={() => choose(index)}
                     >
-                      <ShellIcon name="folder" />
-                      <span>{highlight(project.name, search)}</span>
+                      <ShellIcon name="chat" />
+                      <span>
+                        {highlight(conversation.title, search)}
+                        <small>
+                          {projects.find((project) => project.id === conversation.projectId)
+                            ?.name ?? '未关联项目'}{' '}
+                          · {conversation.ownerName}
+                        </small>
+                      </span>
                     </button>
-                  );
-                })}
-              </section>
-            )}
+                  ))}
+                </section>
+              )}
+              {projectMatches.length > 0 && (
+                <section role="group" aria-label="项目结果">
+                  <h3 aria-hidden="true">项目</h3>
+                  {projectMatches.map((project, projectIndex) => {
+                    const index = conversationMatches.length + projectIndex;
+                    return (
+                      <button
+                        id={`live-search-option-${index}`}
+                        className={
+                          selected === index
+                            ? 'live-search-result is-current'
+                            : 'live-search-result'
+                        }
+                        type="button"
+                        role="option"
+                        aria-selected={selected === index}
+                        tabIndex={-1}
+                        key={project.id}
+                        onFocus={() => setActiveIndex(index)}
+                        onClick={() => choose(index)}
+                      >
+                        <ShellIcon name="folder" />
+                        <span>{highlight(project.name, search)}</span>
+                      </button>
+                    );
+                  })}
+                </section>
+              )}
+            </div>
             {loading && (
               <p className="live-muted" role="status">
                 正在加载对话…
