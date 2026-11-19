@@ -150,6 +150,25 @@
 .live-documents-page .live-asset-row:disabled {
   opacity: 1;
 }
+.live-intake-actions,
+.live-intake-report dl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 24px;
+}
+.live-intake-actions label {
+  display: grid;
+  gap: 6px;
+}
+.live-intake-report dd {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+.live-intake-report li {
+  overflow-wrap: anywhere;
+}
 .live-filter-pills {
   display: flex;
   flex-wrap: wrap;

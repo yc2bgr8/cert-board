@@ -4,7 +4,7 @@ const maximumConcurrentUploads = 2;
 const uploadIdleMs = 30_000;
 const uploadDeadlineMs = 12 * 60_000;
 
-export function createDocumentUploadGate<Key>() {
+export function createDocumentUploadGate<Key>(capacity = maximumConcurrentUploads) {
   const uploads = new Map<Key, { idle: NodeJS.Timeout; deadline: NodeJS.Timeout } | null>();
 
   function finishBody(key: Key) {
@@ -22,7 +22,7 @@ export function createDocumentUploadGate<Key>() {
 
   return {
     acquire(key: Key, abort: () => void) {
-      if (uploads.size >= maximumConcurrentUploads || uploads.has(key)) return false;
+      if (uploads.size >= capacity || uploads.has(key)) return false;
       const expire = () => {
         release(key);
         abort();

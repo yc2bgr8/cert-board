@@ -4,12 +4,18 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ProjectFiles } from './ProjectFiles.js';
 import { ProjectDocuments } from './ProjectDocuments.js';
+import { setSessionCredentials } from './api.js';
 
 const mocks = vi.hoisted(() => ({
   workspace: vi.fn(),
   workspaceVersions: vi.fn(),
   workspaceFiles: vi.fn(),
   documents: vi.fn(),
+  startIntake: vi.fn(),
+  intakeReport: vi.fn(),
+  intakeHistory: vi.fn(),
+  retryIntake: vi.fn(),
+  editIntakeCategory: vi.fn(),
 }));
 vi.mock('./api.js', async (original) => {
   const actual = await original<typeof import('./api.js')>();
@@ -28,6 +34,7 @@ function show(content: React.ReactNode) {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.intakeHistory.mockResolvedValue({ items: [], nextCursor: null });
   mocks.workspace.mockResolvedValue({ id: workspaceId, currentVersionId: currentId });
   mocks.workspaceVersions.mockResolvedValue({
     items: [
@@ -55,6 +62,63 @@ beforeEach(() => {
     hasMore: false,
     nextCursor: null,
   });
+});
+
+it('从资料页提交 ZIP 并展示导入报告', async () => {
+  mocks.startIntake.mockResolvedValue({ id: documentId, status: 'queued', created: true });
+  mocks.intakeReport.mockResolvedValue({
+    id: documentId,
+    name: 'test.zip',
+    status: 'complete',
+    totals: { outerFiles: 1, embeddedFiles: 0, duplicates: 0, ready: 1, failed: 0 },
+    categories: [{ category: 'predicate', count: 1 }],
+    items: [{ path: 'predicate.pdf', category: 'predicate', sourceNames: [], duplicate: false }],
+  });
+  show(<ProjectDocuments projectId={projectId} userId="member" onOpenEvidence={vi.fn()} />);
+  const zip = new File(['fictional'], 'test.zip', { type: 'application/zip' });
+  fireEvent.change(screen.getByLabelText('选择 ZIP 资料包'), { target: { files: [zip] } });
+  fireEvent.click(screen.getByRole('button', { name: '导入资料包' }));
+  await screen.findByText('导入完成');
+  expect(mocks.startIntake).toHaveBeenCalledWith(projectId, zip, 'internal');
+  expect(mocks.intakeReport).toHaveBeenCalledWith(documentId, expect.any(AbortSignal));
+  expect(screen.getByText('查看分类及资料路径')).toBeTruthy();
+});
+
+it('从项目历史打开已有报告', async () => {
+  mocks.intakeHistory.mockResolvedValue({ items: [{ id: documentId, name: '之前的资料包.zip' }] });
+  mocks.intakeReport.mockResolvedValue({
+    id: documentId,
+    name: '之前的资料包.zip',
+    status: 'failed',
+    canRetry: true,
+    totals: { outerFiles: 0, embeddedFiles: 0, duplicates: 0, ready: 0, failed: 0 },
+    categories: [],
+    items: [],
+  });
+  show(<ProjectDocuments projectId={projectId} userId="member" onOpenEvidence={vi.fn()} />);
+  await screen.findByRole('button', { name: '重试导入' });
+  expect(screen.getByLabelText('导入历史')).toHaveProperty('value', documentId);
+  expect(mocks.intakeReport).toHaveBeenCalledWith(documentId, expect.any(AbortSignal));
+});
+
+it('目录打包过程中会话变更时停止上传', async () => {
+  let release!: (bytes: ArrayBuffer) => void;
+  const content = new Promise<ArrayBuffer>((resolve) => {
+    release = resolve;
+  });
+  const read = vi.fn(() => content);
+  const item = Object.defineProperties(new File(['fixture'], 'a.pdf'), {
+    webkitRelativePath: { value: 'folder/a.pdf' },
+    arrayBuffer: { value: read },
+  });
+  show(<ProjectDocuments projectId={projectId} userId="member" onOpenEvidence={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText('选择资料目录'), { target: { files: [item] } });
+  fireEvent.click(screen.getByRole('button', { name: '导入资料包' }));
+  await waitFor(() => expect(read).toHaveBeenCalled());
+  setSessionCredentials(null);
+  release(new ArrayBuffer(1));
+  await screen.findByText(/登录会话已变更/);
+  expect(mocks.startIntake).not.toHaveBeenCalled();
 });
 afterEach(() => {
   cleanup();
@@ -193,7 +257,7 @@ it('资料按项目和游标分页，打开确切资料版本，不补造原页�
     expect.any(AbortSignal),
   );
   expect(screen.queryByText('解析成功')).toBeNull();
-  expect(screen.getByText(/原文件预览与上传暂未开放/)).toBeTruthy();
+  expect(screen.getByLabelText('选择 ZIP 资料包')).toBeTruthy();
 });
 
 it('读取失败显示重试而非空资料，重新加载使用同一项目', async () => {

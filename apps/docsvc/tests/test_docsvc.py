@@ -23,7 +23,8 @@ PDF_TEXT = "This fictional document contains more than forty readable characters
 DATASETS = b'<xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/"><xfa:data><sample>fixture</sample></xfa:data></xfa:datasets>'
 
 
-def sample_pdf(with_xfa=False, text_operator=None, field_value=None):
+def sample_pdf(with_xfa=False, text_operator=None, field_value=None,
+               xfa_template=None, xfa_envelope=None, compress_template=False):
     writer = PdfWriter()
     page = writer.add_blank_page(width=612, height=792)
     font = writer._add_object(DictionaryObject({
@@ -41,9 +42,21 @@ def sample_pdf(with_xfa=False, text_operator=None, field_value=None):
     if with_xfa:
         packet = DecodedStreamObject()
         packet.set_data(DATASETS)
+        parts = [TextStringObject("datasets"), writer._add_object(packet)]
+        if xfa_template is not None:
+            template = DecodedStreamObject()
+            template.set_data(xfa_template)
+            if compress_template:
+                template = template.flate_encode()
+            parts += [TextStringObject("template"), writer._add_object(template)]
+        value = ArrayObject(parts)
+        if xfa_envelope is not None:
+            envelope = DecodedStreamObject()
+            envelope.set_data(xfa_envelope)
+            value = writer._add_object(envelope)
         form = writer._add_object(DictionaryObject({
             NameObject("/Fields"): ArrayObject(),
-            NameObject("/XFA"): ArrayObject([TextStringObject("datasets"), writer._add_object(packet)]),
+            NameObject("/XFA"): value,
         }))
         writer.root_object[NameObject("/AcroForm")] = form
         writer.root_object[NameObject("/NeedsRendering")] = BooleanObject(True)
@@ -159,12 +172,90 @@ def test_encrypted_estar_extracts_xfa_and_deduplicates_attachments():
     assert len(data["attachments"]) == 1
     attachment = data["attachments"][0]
     assert attachment["name"] == "safe-name.txt"
+    assert "safe-name.txt" in attachment["sourceNames"] and len(attachment["sourceNames"]) == 2
     assert attachment["sha256"] == sha256(b"fictional attachment")
     assert base64.b64decode(attachment["bodyBase64"]) == b"fictional attachment"
     preview = client.get("/render", params={"kind": "estar", "sha256": sha256(original), "page": 1},
                          headers={"X-Docsvc-Preview": result.headers["X-Docsvc-Preview"]})
     assert preview.status_code == 422
     assert preview.json() == {"code": "DOC_XFA_PREVIEW_UNAVAILABLE"}
+
+
+def test_content_inspection_distinguishes_pdf_and_xfa_without_names():
+    fda = '<template><desc><b>FDA</b> eSTAR fictional fixture at fda.gov.</desc></template>'
+    ordinary = b"<template><desc>restart at fda.gov</desc></template>"
+    split_word = b"<template><desc><b>not</b>eSTAR at fda.gov</desc></template>"
+    separate_fields = b"<template><field>eSTAR</field><field>FDA at fda.gov</field></template>"
+    multiline_fda = b"<template><p>Food and Drug <br/>Administration eSTAR</p></template>"
+    samples = [
+        (sample_pdf(), "pdf"),
+        (sample_pdf(with_xfa=True), "pdf"),
+        (sample_pdf(with_xfa=True, xfa_template=ordinary), "pdf"),
+        (sample_pdf(with_xfa=True, xfa_template=split_word), "pdf"),
+        (sample_pdf(with_xfa=True, xfa_template=separate_fields), "estar"),
+        (sample_pdf(with_xfa=True, xfa_template=multiline_fda), "estar"),
+        (sample_pdf(with_xfa=True, xfa_template=fda.encode("utf-16")), "estar"),
+        (sample_pdf(with_xfa=True, xfa_template=fda.encode()), "estar"),
+    ]
+    for source, kind in samples:
+        result = upload(source, "pdf", endpoint="inspect")
+        assert result.status_code == 200
+        assert result.json() == {"kind": kind, "byteSize": len(source), "sha256": sha256(source)}
+
+
+def test_template_and_envelope_limits_are_independent_and_apply_during_decode(monkeypatch):
+    import parsers
+    import pytest
+
+    monkeypatch.setattr(parsers, "MAX_XFA_TEMPLATE_BYTES", 100)
+    template = b"<template><desc>eSTAR at fda.gov</desc></template>"
+    envelope = b"<form>" + template + b"<datasets>" + b"sample " * 20 + b"</datasets></form>"
+    nested = sample_pdf(with_xfa=True, xfa_envelope=envelope)
+    assert len(envelope) > 100 and parsers.inspect_pdf(nested)["kind"] == "estar"
+    long_template = sample_pdf(with_xfa=True, xfa_template=template + b" " * 150, compress_template=True)
+    with pytest.raises(parsers.DocError) as rejected:
+        parsers.inspect_pdf(long_template)
+    assert rejected.value.code == "DOC_XFA_TEMPLATE_LIMIT"
+
+
+def test_bounded_flate_decoding_applies_prediction():
+    import pytest
+    from pypdf.errors import PdfReadError
+    from pypdf.generic import IndirectObject
+    from parsers import DocError, bounded_xfa_data
+
+    class MissingReference(IndirectObject):
+        def get_object(self):
+            raise PdfReadError("synthetic missing object")
+
+    template = b"<template>fictional XML</template>"
+    stream = DecodedStreamObject()
+    stream.set_data(b"\0" + template)
+    encoded = stream.flate_encode()
+    writer = PdfWriter()
+    encoded[NameObject("/Filter")] = ArrayObject([writer._add_object(NameObject("/FlateDecode"))])
+    parameters = DictionaryObject({
+        NameObject("/Predictor"): NumberObject(12),
+        NameObject("/Columns"): NumberObject(len(template)),
+    })
+    encoded[NameObject("/DecodeParms")] = parameters
+    assert bounded_xfa_data(encoded, len(template)) == template
+    parameters[NameObject("/Predictor")] = TextStringObject("invalid fixture")
+    with pytest.raises(DocError) as invalid:
+        bounded_xfa_data(encoded, len(template))
+    assert invalid.value.code == "DOC_XFA_INVALID"
+    parameters[NameObject("/Predictor")] = NumberObject(12)
+    missing = MissingReference(999, 0, writer)
+    for reference in (missing, ArrayObject([missing])):
+        encoded[NameObject("/DecodeParms")] = reference
+        with pytest.raises(DocError) as broken:
+            bounded_xfa_data(encoded, len(template))
+        assert broken.value.code == "DOC_XFA_INVALID"
+    encoded[NameObject("/DecodeParms")] = parameters
+    encoded._data = encoded._data[:-2]
+    with pytest.raises(DocError) as truncated:
+        bounded_xfa_data(encoded, len(template))
+    assert truncated.value.code == "DOC_XFA_INVALID"
 
 
 def test_filled_pdf_form_is_drawn_in_page_preview():
@@ -320,6 +411,25 @@ def test_image_only_page_is_recognized_locally():
     assert page["method"] == "ocr"
     assert "DOCUMENT" in page["text"].upper()
     assert 0 < page["ocrScore"] <= 1
+
+
+def test_ocr_disables_runtime_telemetry_before_initializing_engine(monkeypatch):
+    import onnxruntime
+    import pypdfium2
+    import rapidocr_onnxruntime
+    from parsers import LocalOCR
+
+    order = []
+    monkeypatch.setattr(onnxruntime, "disable_telemetry_events", lambda: order.append("disabled"))
+
+    def make_engine(**_options):
+        order.append("engine")
+        return lambda _image: ([], 0)
+
+    monkeypatch.setattr(rapidocr_onnxruntime, "RapidOCR", make_engine)
+    with pypdfium2.PdfDocument(sample_pdf()) as document:
+        LocalOCR().recognize(document, 0)
+    assert order == ["disabled", "engine"]
 
 
 def test_request_limits_hash_and_document_errors_use_safe_codes():

@@ -21,10 +21,21 @@ const formats: Record<DocumentFormat, string> = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
+type IntakeRegistration = { kind: 'intake'; userId: string; jobId: string; leaseToken: string };
+const transientParseCodes = [
+  'DOCSVC_UNAVAILABLE',
+  'DOC_BUSY',
+  'DOC_PROCESSING_TIMEOUT',
+  'DOC_PARSER_INTERRUPTED',
+  'DOC_RESPONSE_INVALID',
+  'BLOB_READ_FAILED',
+  'BLOB_STORAGE_UNAVAILABLE',
+];
+
 export async function queueOriginalDocument(
   pool: Pool,
   store: DocumentBlobStore,
-  actor: ServiceIdentity,
+  actor: ServiceIdentity | IntakeRegistration,
   input: unknown,
   bytes: Buffer,
   earlierSnapshot?: string,
@@ -48,17 +59,70 @@ export async function queueOriginalDocument(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const project = await getProject(client, actor, data.projectId);
+    const project =
+      actor.kind === 'intake'
+        ? (
+            await client.query<{ id: string; ownerUserId: string }>(
+              `SELECT p.id,p.owner_user_id AS "ownerUserId"
+           FROM intake_job j JOIN cert_project p ON p.id=j.project_id JOIN app_user u ON u.id=j.requested_by
+           WHERE j.id=$1 AND j.project_id=$2 AND j.requested_by=$3 AND j.lease_token=$4
+             AND j.state='running' AND j.lease_until>clock_timestamp() AND u.status='active'
+           FOR SHARE OF j,u`,
+              [actor.jobId, data.projectId, actor.userId, actor.leaseToken],
+            )
+          ).rows[0]
+        : await getProject(client, actor, data.projectId);
     if (
-      !authorize(actor, 'document.write', {
-        projectId: project.id,
-        ownerUserId: project.ownerUserId,
-      })
+      !project ||
+      (actor.kind !== 'intake' &&
+        !authorize(actor, 'document.write', {
+          projectId: project.id,
+          ownerUserId: project.ownerUserId,
+        }))
     )
       throw new AppError(403, 'DOCUMENT_UPLOAD_FORBIDDEN', '没有权限向该项目写入资料。');
     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
       `${project.id}:${data.sourceKey}`,
     ]);
+    if (actor.kind === 'intake') {
+      const sameContent = (
+        await client.query<{
+          id: string;
+          document_id: string;
+          version_no: number;
+          state: string;
+          error_code: string | null;
+        }>(
+          `SELECT v.id,v.document_id,v.version_no,t.state,t.error_code
+         FROM document_version v JOIN document d ON d.id=v.document_id
+         JOIN document_parse_task t ON t.version_id=v.id
+         WHERE d.project_id=$1 AND NOT d.voided AND v.content_kind='original'
+           AND v.original_sha256=$2 AND v.data_level>=$3 AND t.format=$4
+         ORDER BY CASE t.state WHEN 'ready' THEN 0 WHEN 'failed' THEN 2 ELSE 1 END,v.created_at,v.id LIMIT 1`,
+          [project.id, sha256, data.dataLevel, data.format],
+        )
+      ).rows[0];
+      if (sameContent) {
+        if (
+          sameContent.state === 'failed' &&
+          sameContent.error_code &&
+          transientParseCodes.includes(sameContent.error_code)
+        )
+          await client.query(
+            `UPDATE document_parse_task SET state='queued',attempts=0,error_code=NULL,
+               available_at=clock_timestamp(),updated_at=clock_timestamp()
+             WHERE version_id=$1 AND state='failed'`,
+            [sameContent.id],
+          );
+        await client.query('COMMIT');
+        return {
+          documentId: sameContent.document_id,
+          versionId: sameContent.id,
+          version: sameContent.version_no,
+          created: false,
+        };
+      }
+    }
     const existing = (
       await client.query<{ id: string; voided: boolean }>(
         'SELECT id,voided FROM document WHERE project_id=$1 AND source_key=$2 FOR UPDATE',
@@ -139,7 +203,7 @@ export async function queueOriginalDocument(
     await client.query(
       `INSERT INTO audit_log (actor_kind,actor_user_id,action,target_type,target_id,after_hash)
        VALUES ($1,$2,'document.parse_queued','document_version',$3,$4)`,
-      [actor.kind, actor.userId, inserted.id, sha256],
+      [actor.kind === 'intake' ? 'system' : actor.kind, actor.userId, inserted.id, sha256],
     );
     await client.query('COMMIT');
     return { documentId, versionId: inserted.id, version: inserted.version_no, created: true };

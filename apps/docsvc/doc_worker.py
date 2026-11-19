@@ -3,7 +3,7 @@
 import json
 import sys
 
-from parsers import DocError, LocalOCR, parse_document, pdf_for_render, render_page
+from parsers import DocError, LocalOCR, inspect_pdf, parse_document, pdf_for_render, render_page
 
 
 def serialize(value):
@@ -16,6 +16,8 @@ def perform(action, kind, arguments, source):
         return count.to_bytes(4, "big") + image
     if action == "convert":
         return pdf_for_render(source, kind)
+    if action == "inspect":
+        return serialize(inspect_pdf(source))
     result = parse_document(source, kind, LocalOCR(), comparison=action == "text")
     if action == "text":
         return serialize({"sha256": result["sha256"], "pageCount": result["pageCount"],

@@ -12,6 +12,8 @@ import { registerProjectRoutes } from './projects/routes.js';
 import { registerDocumentRoutes } from './documents/routes.js';
 import { BlobStore, type DocumentBlobStore } from './documents/blob-store.js';
 import { maximumDocumentBytes } from './documents/docsvc-client.js';
+import { maximumIntakeBytes } from './intake/archive.js';
+import { registerIntakeRoutes } from './intake/routes.js';
 import { registerWorkspaceRoutes } from './workspace/routes.js';
 import { registerProposalRoutes } from './api/proposal-routes.js';
 import { registerReviewRoutes } from './api/review-routes.js';
@@ -75,6 +77,12 @@ export function createApp(
         ? new BlobStore(dependencies.storage, config.MINIO_BUCKET, maximumDocumentBytes)
         : undefined);
     registerDocumentRoutes(app, dependencies.database, config, blobStore, originals);
+    const intakeStore =
+      dependencies.blobStore ??
+      (dependencies.storage
+        ? new BlobStore(dependencies.storage, config.MINIO_BUCKET, maximumIntakeBytes)
+        : undefined);
+    registerIntakeRoutes(app, dependencies.database, config, intakeStore);
     registerProposalRoutes(app, dependencies.database, config);
     registerReviewRoutes(app, dependencies.database, config);
     registerRunControlRoutes(app, dependencies.database, config);

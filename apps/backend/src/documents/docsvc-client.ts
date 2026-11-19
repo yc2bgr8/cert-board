@@ -35,6 +35,19 @@ const parseResponse = z.object({
     .max(maximumPages),
 });
 const parserError = z.object({ code: z.string().regex(/^DOC_[A-Z0-9_]{1,60}$/u) });
+const attachmentResponse = z.object({
+  attachments: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(200),
+        sourceNames: z.array(z.string().max(200)).max(128).default([]),
+        sha256: sha256Schema,
+        byteSize: z.number().int().nonnegative().max(maximumDocumentBytes),
+        bodyBase64: z.string().max(128 * 1024 * 1024),
+      }),
+    )
+    .max(64),
+});
 const invalid = () =>
   new AppError(502, 'DOC_RESPONSE_INVALID', '解析结果校验失败，请联系维护人员检查文档服务。');
 
@@ -77,7 +90,13 @@ export class DocumentParserClient {
     this.#address = expected;
   }
 
-  async parse(content: Buffer, sha256: string, format: DocumentFormat, signal?: AbortSignal) {
+  async #request(
+    action: 'parse' | 'inspect',
+    content: Buffer,
+    sha256: string,
+    format: DocumentFormat,
+    signal?: AbortSignal,
+  ) {
     if (
       !content.length ||
       content.length > maximumDocumentBytes ||
@@ -88,9 +107,9 @@ export class DocumentParserClient {
         'DOC_SOURCE_INTEGRITY',
         '资料原件大小或哈希不符合已登记版本，无法解析。',
       );
-    const deadline = AbortSignal.timeout(400_000);
+    const deadline = AbortSignal.timeout(action === 'inspect' ? 40_000 : 400_000);
     try {
-      const url = new URL('parse', this.#address);
+      const url = new URL(action, this.#address);
       url.searchParams.set('kind', format);
       const response = await fetch(url, {
         method: 'POST',
@@ -99,7 +118,10 @@ export class DocumentParserClient {
         headers: { 'content-type': 'application/octet-stream', 'x-content-sha256': sha256 },
         body: Buffer.from(content),
       });
-      const raw = await readJson(response, response.ok ? maximumResponseBytes : 4_096);
+      const raw = await readJson(
+        response,
+        response.ok && action === 'parse' ? maximumResponseBytes : 4_096,
+      );
       if (!response.ok) {
         const error = parserError.safeParse(raw);
         throw new AppError(
@@ -108,41 +130,84 @@ export class DocumentParserClient {
           '解析服务暂未完成该资料。请检查资料版本的解析状态。',
         );
       }
-      const parsed = parseResponse.safeParse(raw);
-      if (
-        !parsed.success ||
-        parsed.data.sha256 !== sha256 ||
-        parsed.data.kind !== format ||
-        parsed.data.byteSize !== content.length ||
-        parsed.data.pageCount !== parsed.data.pages.length
-      )
-        throw invalid();
-      const method = format === 'xlsx' ? 'xlsx' : 'docx';
-      const physical = format === 'pdf' || format === 'estar';
-      return parsed.data.pages.map((page, index) => {
-        if (
-          page.page !== index + 1 ||
-          (physical
-            ? page.locatorKind !== 'physical_page' || !['text', 'ocr'].includes(page.method)
-            : page.locatorKind !== 'extraction_unit' || page.method !== method) ||
-          (page.method === 'ocr') !== (page.ocrScore !== undefined) ||
-          page.text.includes('\0')
-        )
-          throw invalid();
-        const result = documentPageSourceSchema.safeParse({
-          pageNumber: page.page,
-          method: page.method,
-          text: page.text,
-          locatorKind: page.locatorKind,
-          ocrScore: page.ocrScore ?? null,
-          isPlaceholder: physical && isPdfReaderPlaceholder(page.text),
-        });
-        if (!result.success) throw invalid();
-        return result.data;
-      });
+      return raw;
     } catch (error) {
       if (error instanceof AppError) throw error;
       throw new AppError(503, 'DOCSVC_UNAVAILABLE', '解析服务暂不可用，请检查本机解析服务后重试。');
     }
+  }
+
+  async #parsed(content: Buffer, sha256: string, format: DocumentFormat, signal?: AbortSignal) {
+    const raw = await this.#request('parse', content, sha256, format, signal);
+    const parsed = parseResponse.safeParse(raw);
+    if (
+      !parsed.success ||
+      parsed.data.sha256 !== sha256 ||
+      parsed.data.kind !== format ||
+      parsed.data.byteSize !== content.length ||
+      parsed.data.pageCount !== parsed.data.pages.length
+    )
+      throw invalid();
+    return { raw, document: parsed.data };
+  }
+
+  async inspectPdf(content: Buffer, sha256: string, signal?: AbortSignal) {
+    const raw = await this.#request('inspect', content, sha256, 'pdf', signal);
+    const result = z
+      .object({
+        sha256: sha256Schema,
+        byteSize: z.number().int(),
+        kind: z.enum(['pdf', 'estar']),
+      })
+      .safeParse(raw);
+    if (!result.success || result.data.sha256 !== sha256 || result.data.byteSize !== content.length)
+      throw invalid();
+    return result.data.kind;
+  }
+
+  async parse(content: Buffer, sha256: string, format: DocumentFormat, signal?: AbortSignal) {
+    const { document } = await this.#parsed(content, sha256, format, signal);
+    const method = format === 'xlsx' ? 'xlsx' : 'docx';
+    const physical = format === 'pdf' || format === 'estar';
+    return document.pages.map((page, index) => {
+      if (
+        page.page !== index + 1 ||
+        (physical
+          ? page.locatorKind !== 'physical_page' || !['text', 'ocr'].includes(page.method)
+          : page.locatorKind !== 'extraction_unit' || page.method !== method) ||
+        (page.method === 'ocr') !== (page.ocrScore !== undefined) ||
+        page.text.includes('\0')
+      )
+        throw invalid();
+      const result = documentPageSourceSchema.safeParse({
+        pageNumber: page.page,
+        method: page.method,
+        text: page.text,
+        locatorKind: page.locatorKind,
+        ocrScore: page.ocrScore ?? null,
+        isPlaceholder: physical && isPdfReaderPlaceholder(page.text),
+      });
+      if (!result.success) throw invalid();
+      return result.data;
+    });
+  }
+
+  async estarAttachments(content: Buffer, sha256: string, signal?: AbortSignal) {
+    const { raw } = await this.#parsed(content, sha256, 'estar', signal);
+    const result = attachmentResponse.safeParse(raw);
+    if (!result.success) throw invalid();
+    let total = 0;
+    return result.data.attachments.map((item) => {
+      total += item.byteSize;
+      if (total > 80 * 1024 * 1024 || item.bodyBase64.length !== Math.ceil(item.byteSize / 3) * 4)
+        throw invalid();
+      const bytes = Buffer.from(item.bodyBase64, 'base64');
+      if (
+        bytes.length !== item.byteSize ||
+        createHash('sha256').update(bytes).digest('hex') !== item.sha256
+      )
+        throw invalid();
+      return { name: item.name, sourceNames: item.sourceNames, sha256: item.sha256, bytes };
+    });
   }
 }

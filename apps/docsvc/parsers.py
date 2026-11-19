@@ -10,6 +10,7 @@ import signal
 import subprocess
 import tempfile
 import unicodedata
+import zlib
 from contextlib import ExitStack, closing, suppress
 from pathlib import Path
 from time import monotonic
@@ -21,10 +22,13 @@ import openpyxl
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_raw
 from defusedxml.ElementTree import fromstring
+from defusedxml.common import DefusedXmlException
 from docx.text.paragraph import Paragraph
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
-from pypdf import PdfReader, _page
-from pypdf.generic import ArrayObject, StreamObject
+from pypdf import PdfReader, _page, apply_configuration
+from pypdf.errors import LimitReachedError, PdfReadError
+from pypdf.filters import FlateDecode
+from pypdf.generic import ArrayObject, DictionaryObject, StreamObject
 
 
 KINDS = {"pdf", "estar", "doc", "docx", "xlsx"}
@@ -34,11 +38,21 @@ MAX_ATTACHMENT_BYTES = 80 * 1024 * 1024
 MAX_TEXT_BYTES = 6 * 1024 * 1024
 MAX_PAGES = 800
 MAX_XFA_BYTES = 5 * 1024 * 1024
+MAX_XFA_TEMPLATE_BYTES = 16 * 1024 * 1024
+MAX_XFA_ENVELOPE_BYTES = 32 * 1024 * 1024
 OCR_THRESHOLD = 40
 LONG_SIDE = 1600
 MAX_OCR_SIDE = 3600
 MAX_OPERATION_SECONDS = 360
 LEGACY_WORD = bytes.fromhex("d0cf11e0a1b11ae1")
+ESTAR_MARKER = re.compile(r"(?<![A-Za-z0-9_])estar(?![A-Za-z0-9_])", re.IGNORECASE)
+FDA_MARKER = re.compile(
+    r"(?<![A-Za-z0-9-])fda\.gov(?![A-Za-z0-9-]|\.[A-Za-z0-9])|food\s+and\s+drug\s+administration",
+    re.IGNORECASE,
+)
+INLINE_XFA_TEXT = {"a", "abbr", "acronym", "b", "big", "cite", "code", "del", "dfn", "em",
+                   "font", "i", "ins", "kbd", "label", "mark", "nobr", "q", "s", "samp",
+                   "small", "span", "strike", "strong", "sub", "sup", "time", "tt", "u", "var"}
 logging.getLogger("pypdf").disabled = True
 logging.getLogger("pypdf").propagate = False
 logging.getLogger("pypdf").addHandler(logging.NullHandler())
@@ -118,6 +132,9 @@ class LocalOCR:
 
     def recognize(self, pdf, index):
         if self.engine is None:
+            import onnxruntime
+
+            onnxruntime.disable_telemetry_events()
             from rapidocr_onnxruntime import RapidOCR
 
             self.engine = RapidOCR(intra_op_num_threads=1, inter_op_num_threads=1)
@@ -143,6 +160,106 @@ def pdf_reader(data):
     if len(reader.pages) > MAX_PAGES:
         raise DocError("DOC_PAGE_LIMIT", 413)
     return reader
+
+
+def bounded_xfa_data(stream, limit):
+    try:
+        reference = stream.get("/Filter")
+        value = reference.get_object() if reference is not None else None
+        filters = [str(item.get_object()) for item in value] if isinstance(value, ArrayObject) else [str(value)] if value is not None else []
+        if filters and filters not in (["/FlateDecode"], ["/Fl"]):
+            raise DocError("DOC_XFA_TEMPLATE_FILTER")
+        raw = stream._data  # pypdf 7.1.1 的 PDF 流此处已解密。
+        if not isinstance(raw, bytes):
+            raise DocError("DOC_XFA_INVALID")
+        if not filters:
+            if len(raw) > limit:
+                raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
+            return raw
+        reference = stream.get("/DecodeParms")
+        parameters = reference.get_object() if reference is not None else None
+        if isinstance(parameters, ArrayObject):
+            parameters = parameters[0].get_object() if parameters else None
+        predictor = parameters.get("/Predictor", 1) if isinstance(parameters, DictionaryObject) else 1
+        if not isinstance(predictor, int) or predictor not in (1, 2, 10, 11, 12, 13, 14, 15):
+            raise DocError("DOC_XFA_INVALID")
+        # PNG Predictor 最多为每字节增加一个行标记。
+        intermediate_limit = 2 * limit if predictor >= 10 else limit
+        inflater = zlib.decompressobj()
+        data = inflater.decompress(raw, intermediate_limit + 1)
+        if len(data) > intermediate_limit or inflater.unconsumed_tail:
+            raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
+        if not inflater.eof:
+            raise DocError("DOC_XFA_INVALID")
+        if predictor != 1:
+            with apply_configuration(zlib_maximum_output_length=intermediate_limit + 1):
+                data = FlateDecode.decode(raw, parameters)
+    except LimitReachedError as error:
+        raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413) from error
+    except (PdfReadError, zlib.error, TypeError, ValueError, IndexError, ArithmeticError) as error:
+        raise DocError("DOC_XFA_INVALID") from error
+    if len(data) > limit:
+        raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
+    return data
+
+
+def xfa_template(form):
+    reference = form.get("/XFA") if isinstance(form, DictionaryObject) else None
+    value = reference.get_object() if reference is not None else None
+    with suppress(DefusedXmlException, ElementTree.ParseError):
+        if isinstance(value, ArrayObject):
+            for index in range(0, len(value) - 1, 2):
+                if str(value[index].get_object()) == "template":
+                    packet = value[index + 1].get_object()
+                    if isinstance(packet, StreamObject):
+                        root = fromstring(bounded_xfa_data(packet, MAX_XFA_TEMPLATE_BYTES), forbid_dtd=True)
+                        if root.tag.rsplit("}", 1)[-1] == "template":
+                            return root
+                    break
+        elif isinstance(value, StreamObject):
+            root = fromstring(bounded_xfa_data(value, MAX_XFA_ENVELOPE_BYTES), forbid_dtd=True)
+            for element in root.iter():
+                if element.tag.rsplit("}", 1)[-1] == "template":
+                    if len(ElementTree.tostring(element, encoding="utf-8")) > MAX_XFA_TEMPLATE_BYTES:
+                        raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
+                    return element
+    return None
+
+
+def xfa_text(root):
+    parts = []
+    stack = [(root, False)]
+    while stack:
+        element, leaving = stack.pop()
+        if element.tag.rsplit("}", 1)[-1] not in INLINE_XFA_TEXT:
+            parts.append(" ")
+        if leaving:
+            if element is not root and element.tail:
+                parts.append(element.tail)
+        else:
+            if element.text:
+                parts.append(element.text)
+            stack.append((element, True))
+            stack.extend((child, False) for child in reversed(element))
+    return "".join(parts)
+
+
+def inspect_pdf(data):
+    check_kind(data, "pdf")
+    reader = pdf_reader(data)
+    reference = reader.root_object.get("/AcroForm")
+    form = reference.get_object() if reference is not None else None
+    template = xfa_template(form)
+    has_estar = has_fda = False
+    if template is not None:
+        values = [xfa_text(template)]
+        values.extend(value for element in template.iter() for value in element.attrib.values())
+        for value in values:
+            has_estar = has_estar or bool(ESTAR_MARKER.search(value))
+            has_fda = has_fda or bool(FDA_MARKER.search(value))
+            if has_estar and has_fda:
+                break
+    return {"sha256": sha256(data), "byteSize": len(data), "kind": "estar" if has_estar and has_fda else "pdf"}
 
 
 def parse_pdf(data, kind, ocr, deadline):
@@ -206,6 +323,13 @@ def encoded(data):
     return base64.b64encode(data).decode("ascii")
 
 
+def attachment_name(value):
+    name = unicodedata.normalize("NFC", value or "attachment")
+    name = name.replace("\\", "/").rsplit("/", 1)[-1]
+    name = "".join(character for character in name if not unicodedata.category(character).startswith("C"))
+    return name.strip(" .")[:200] or "attachment"
+
+
 def document_attachments(reader, deadline):
     entries = {}
     available = 0
@@ -216,18 +340,18 @@ def document_attachments(reader, deadline):
         content = attachment.content
         digest = sha256(content)
         previous = entries.get(digest)
-        name = unicodedata.normalize("NFC", attachment.name or "attachment")
-        name = name.replace("\\", "/").rsplit("/", 1)[-1]
-        name = "".join(character for character in name if not unicodedata.category(character).startswith("C"))
-        name = name.strip(" .")[:200] or "attachment"
+        names = list(dict.fromkeys(attachment_name(value) for value in (attachment.name, attachment.alternative_name) if value))
+        name = next((value for value in names if not re.match(r"^\d{4}-\d{2}-\d{2}T", value)), names[0] if names else "attachment")
         if previous is not None:
             if re.match(r"^\d{4}-\d{2}-\d{2}T", previous["name"]) and not re.match(r"^\d{4}-\d{2}-\d{2}T", name):
                 previous["name"] = name
+            previous["sourceNames"] = list(dict.fromkeys([*previous["sourceNames"], *names]))
             continue
         available += len(content)
         if available > MAX_ATTACHMENT_BYTES:
             raise DocError("DOC_ATTACHMENT_LIMIT", 413)
-        entries[digest] = {"name": name, "sha256": digest, "byteSize": len(content), "bodyBase64": encoded(content)}
+        entries[digest] = {"name": name, "sourceNames": names, "sha256": digest,
+                           "byteSize": len(content), "bodyBase64": encoded(content)}
     return list(entries.values())
 
 
