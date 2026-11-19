@@ -3,7 +3,7 @@ name: cert-board-isolated
 x-backend-environment: &backend-environment
   NODE_ENV: development
   CONTAINER_RUNTIME: docker
-  WEB_ORIGIN: http://127.0.0.1:28080
+  WEB_ORIGIN: http://127.0.0.1:${CERT_ISOLATED_WEB_PORT:-28080}
   DATABASE_URL: postgresql://cert_board:${CERT_DB_PASSWORD_URI:?缺少数据库连接配置}@postgres:5432/cert_board
   TEST_DATABASE_URL: postgresql://cert_board:${CERT_DB_PASSWORD_URI:?缺少数据库连接配置}@postgres:5432/cert_board_test
   MINIO_ENDPOINT: minio
@@ -28,9 +28,6 @@ x-backend: &backend
 
 x-proxy: &proxy
   <<: *unprivileged
-  image: cert-board-isolated-egress
-  build:
-    context: ./deploy/egress
   healthcheck:
     test: ['CMD', 'squid', '-k', 'check', '-f', '/etc/squid/squid.conf']
     interval: 5s
@@ -147,17 +144,20 @@ services:
 
   egress:
     <<: *proxy
+    image: cert-board-isolated-egress
+    build:
+      context: ./deploy/egress
+      target: isolated-business
     networks: [internal, model-outbound]
-    volumes:
-      - ./deploy/egress/isolated-allowlist:/etc/squid/allowlist:ro
     restart: unless-stopped
 
   sandbox-egress:
     <<: *proxy
+    image: cert-board-isolated-sandbox-egress
+    build:
+      context: ./deploy/egress
+      target: isolated-sandbox
     networks: [sandbox, sandbox-outbound]
-    volumes:
-      - ./deploy/egress/sandbox-allowlist:/etc/squid/allowlist:ro
-      - ./deploy/egress/sandbox-hosts:/etc/squid/hosts:ro
     restart: unless-stopped
 
   doc-probe:

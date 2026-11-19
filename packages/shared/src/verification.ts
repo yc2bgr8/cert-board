@@ -47,6 +47,7 @@ export const verificationSettingsInputSchema = z
 export const verificationSettingsSchema = verificationSettingsInputSchema.extend({
   catalog: z.array(verificationModelSchema).max(8),
   channelStatus: verificationChannelStatusSchema,
+  unavailableReason: note(240).optional(),
   usage: z
     .array(z.object({ model: externalModelIdSchema, calls: z.number().int().nonnegative() }))
     .max(8),

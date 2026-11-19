@@ -48,7 +48,7 @@ function VerificationPreferences({
       className="verification-settings-form"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!management) return;
+        if (!management || settings.unavailableReason) return;
         const input = { autoRounds: Number(autoRounds), models };
         void command
           .run([input], () => api.verificationSaveSettings(input))
@@ -59,8 +59,8 @@ function VerificationPreferences({
           });
       }}
     >
-      <p role="status">{channelStates[settings.channelStatus]}</p>
-      <fieldset disabled={!management || command.busy}>
+      <p role="status">{settings.unavailableReason ?? channelStates[settings.channelStatus]}</p>
+      <fieldset disabled={!management || !!settings.unavailableReason || command.busy}>
         <legend>通道和默认参与模型</legend>
         {models.map((model) => {
           const catalog = settings.catalog.find(({ id }) => id === model.id);
@@ -135,26 +135,29 @@ function VerificationPreferences({
         </button>
       )}
       {saved && <p role="status">外部模型设置已保存。</p>}
-      {management && settings.channelStatus !== 'ready' && settings.channelStatus !== 'fixture' && (
-        <button
-          type="button"
-          className="live-secondary"
-          disabled={command.busy}
-          onClick={() => {
-            void command
-              .run(['verification-channel-recheck'], async () => {
-                await api.verificationRecheck();
-                void client.invalidateQueries({ queryKey: verificationSettingsKey(userId) });
-                return true;
-              })
-              .then((accepted) => {
-                if (accepted) setRechecking(true);
-              });
-          }}
-        >
-          复查 Cursor 通道
-        </button>
-      )}
+      {management &&
+        !settings.unavailableReason &&
+        settings.channelStatus !== 'ready' &&
+        settings.channelStatus !== 'fixture' && (
+          <button
+            type="button"
+            className="live-secondary"
+            disabled={command.busy}
+            onClick={() => {
+              void command
+                .run(['verification-channel-recheck'], async () => {
+                  await api.verificationRecheck();
+                  void client.invalidateQueries({ queryKey: verificationSettingsKey(userId) });
+                  return true;
+                })
+                .then((accepted) => {
+                  if (accepted) setRechecking(true);
+                });
+            }}
+          >
+            复查 Cursor 通道
+          </button>
+        )}
       {rechecking && <p role="status">已请求复查。通道状态会在检查后更新。</p>}
       {command.error && <p role="alert">{command.error}</p>}
     </form>
@@ -426,7 +429,7 @@ export function ExternalUsageSummary({
   if (view === 'alert')
     return data.channelStatus !== 'ready' && data.channelStatus !== 'fixture' ? (
       <p className="live-page-message" role="status">
-        外部核实 · {channelStates[data.channelStatus]}
+        外部核实 · {data.unavailableReason ?? channelStates[data.channelStatus]}
       </p>
     ) : null;
   if (view === 'models')

@@ -67,6 +67,11 @@ export const backendConfigSchema = z
     if (
       !defaultWebOrigins.has(config.WEB_ORIGIN) &&
       !(
+        config.CONTAINER_RUNTIME === 'docker' &&
+        config.NODE_ENV === 'development' &&
+        config.WEB_ORIGIN === 'http://127.0.0.1:28186'
+      ) &&
+      !(
         config.NODE_ENV === 'test' &&
         process.env.NODE_ENV === 'test' &&
         isolatedPort >= 1024 &&

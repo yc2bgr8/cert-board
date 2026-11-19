@@ -74,7 +74,12 @@ describe('本地依赖服务脚本', () => {
       CERT_ISOLATED_WEB_PORT: '28186',
     });
     expect(up.environment).not.toHaveProperty('COMPOSE_PROJECT_NAME');
-    for (const action of ['isolated-check', 'isolated-down', 'isolated-status']) {
+    for (const action of [
+      'isolated-check',
+      'isolated-down',
+      'isolated-status',
+      'isolated-accounts',
+    ]) {
       const invocation = composeInvocation(action, '/work/cert-board', 'linux', supplied, source);
       expect(invocation.args).toContain('cert-board-isolated');
       expect(invocation.args).not.toContain('--volumes');
@@ -144,6 +149,10 @@ describe('本地依赖服务脚本', () => {
     expect(compose).toMatch(/backend-worker:[\s\S]+?HTTPS_PROXY: http:\/\/egress:3128/u);
     expect(compose).toContain('networks: [internal, model-outbound]');
     expect(compose).toContain('networks: [sandbox, sandbox-outbound]');
+    expect(compose).toContain('WEB_ORIGIN: http://127.0.0.1:${CERT_ISOLATED_WEB_PORT:-28080}');
+    expect(compose).toContain('target: isolated-business');
+    expect(compose).toContain('target: isolated-sandbox');
+    expect(compose).not.toMatch(/- \.\/deploy\/egress\/.*allowlist:/u);
     expect(compose.match(/OPENROUTER_API_KEY: /gu)).toHaveLength(1);
     for (const line of compose.split('\n').filter((value) => /- '\S*:\d+:\d+'/u.test(value)))
       expect(line).toMatch(/127\.0\.0\.1:/u);

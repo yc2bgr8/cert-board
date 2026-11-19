@@ -4,6 +4,7 @@ import { connect as tlsConnect } from 'node:tls';
 import { Resolver } from 'node:dns/promises';
 
 const [action, role, databaseIp] = process.argv.slice(2);
+const probeEnvironment = new Set(['HOME', 'HOSTNAME', 'NODE_VERSION', 'PATH', 'YARN_VERSION']);
 
 function canConnect(host, port) {
   return new Promise((resolve) => {
@@ -62,16 +63,9 @@ async function trustedTunnel(proxy, hostname) {
   return false;
 }
 
-if (action === 'listen' && ['doc', 'sandbox', 'fetch'].includes(role)) {
-  createServer((request, response) => {
-    if (request.url !== '/health') return response.writeHead(404).end();
-    return response.writeHead(200, { 'content-type': 'text/plain' }).end(role);
-  }).listen(8080, '0.0.0.0');
-} else if (
-  action === 'check' &&
-  ['backend', 'sandbox', 'fetch'].includes(role) &&
-  isIP(databaseIp)
-) {
+async function checkNetwork() {
+  if (role !== 'backend' && !Object.keys(process.env).every((key) => probeEnvironment.has(key)))
+    return { keysAbsent: false };
   const direct = canConnect('104.18.2.115', 443);
   const database = canConnect(databaseIp, 5432);
   const resolver = new Resolver({ timeout: 1500, tries: 1 });
@@ -87,9 +81,7 @@ if (action === 'listen' && ['doc', 'sandbox', 'fetch'].includes(role)) {
   } else {
     checks.databaseBlocked = !(await database);
     checks.internalRelayBlocked = !(await canConnect('probe-relay', 28082));
-    checks.keysAbsent = !Object.keys(process.env).some((key) =>
-      /(?:KEY|TOKEN|SECRET|PASSWORD)$/u.test(key),
-    );
+    checks.keysAbsent = true;
     if (role === 'sandbox') {
       checks.proxyAllowed = await trustedTunnel('sandbox-egress', 'pypi.org');
       checks.filesAllowed = await trustedTunnel('sandbox-egress', 'files.pythonhosted.org');
@@ -98,6 +90,20 @@ if (action === 'listen' && ['doc', 'sandbox', 'fetch'].includes(role)) {
       checks.otherHostDenied = (await proxyStatus('sandbox-egress', 'fixture.invalid')) === 403;
     }
   }
+  return checks;
+}
+
+if (action === 'listen' && ['doc', 'sandbox', 'fetch'].includes(role)) {
+  createServer((request, response) => {
+    if (request.url !== '/health') return response.writeHead(404).end();
+    return response.writeHead(200, { 'content-type': 'text/plain' }).end(role);
+  }).listen(8080, '0.0.0.0');
+} else if (
+  action === 'check' &&
+  ['backend', 'sandbox', 'fetch'].includes(role) &&
+  isIP(databaseIp)
+) {
+  const checks = await checkNetwork();
   console.log(JSON.stringify(checks));
   if (Object.values(checks).some((passed) => !passed)) process.exitCode = 1;
 } else process.exitCode = 2;

@@ -17,12 +17,13 @@ export const verificationSettingsKey = (userId: string) => [
   'verification-settings',
   userId,
 ];
-export function useVerificationSettings(userId: string) {
+export function useVerificationSettings(userId: string, enabled = true) {
   return useQuery({
     queryKey: verificationSettingsKey(userId),
     queryFn: ({ signal }) => api.verificationSettings(signal),
+    enabled,
     retry: false,
-    refetchInterval: 5000,
+    refetchInterval: (query) => (query.state.data?.unavailableReason ? false : 5000),
   });
 }
 export const verificationRoomKey = (userId: string, roomId: string | null) => [
@@ -658,7 +659,9 @@ export function VerificationWorkbench({
             {!roomId &&
               settings.data?.channelStatus !== 'ready' &&
               settings.data?.channelStatus !== 'fixture' && (
-                <p role="status">核实通道暂不可用。问题可以先保存在本机。</p>
+                <p role="status">
+                  {settings.data?.unavailableReason ?? '核实通道暂不可用。问题可以先保存在本机。'}
+                </p>
               )}
             {settings.data?.channelStatus === 'fixture' && !roomId && <p>剧本通道</p>}
             {history.hasNextPage && (
@@ -736,7 +739,7 @@ export function VerificationWorkbench({
                 type="submit"
                 className="verification-send"
                 aria-label={roomId ? '发送群聊发言' : '发起核实'}
-                disabled={command.busy || !question.trim()}
+                disabled={!!settings.data?.unavailableReason || command.busy || !question.trim()}
               >
                 {roomId ? <ShellIcon name="arrowUp" /> : '发起核实'}
               </button>

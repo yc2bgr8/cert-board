@@ -5,6 +5,11 @@ import { parseEnv } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const requiredVariables = ['POSTGRES_PASSWORD', 'MINIO_ROOT_USER', 'MINIO_ROOT_PASSWORD'];
+const developmentPasswordFields = [
+  'DEV_ZHANGSAN_PASSWORD',
+  'DEV_WANGMIN_PASSWORD',
+  'DEV_ADMIN_PASSWORD',
+];
 const runtimeVariables = new Set([
   'PATH',
   'PATHEXT',
@@ -51,6 +56,16 @@ export function composeInvocation(
     'isolated-up': ['up', '--detach', '--build', '--wait', '--wait-timeout', '120'],
     'isolated-down': ['--profile', 'network-check', 'down'],
     'isolated-status': ['--profile', 'network-check', 'ps'],
+    'isolated-accounts': [
+      'exec',
+      '-T',
+      'backend-api',
+      'node',
+      '--import',
+      'tsx',
+      'apps/backend/src/db/cli.ts',
+      'isolated-accounts',
+    ],
     'isolated-check': [
       '--profile',
       'network-check',
@@ -138,6 +153,11 @@ export async function runDev(
   const invocation = composeInvocation(action, root, process.platform, credentials);
   if (action.startsWith('isolated-'))
     credentials.CERT_DB_PASSWORD_URI = invocation.environment.CERT_DB_PASSWORD_URI;
+  const accounts =
+    action === 'isolated-accounts'
+      ? Object.fromEntries(developmentPasswordFields.map((key) => [key, values[key]]))
+      : undefined;
+  const secrets = { ...credentials, ...accounts };
   console.log(`正在执行 cert-board 本地依赖服务操作：${action}。`);
   return await new Promise((resolve, reject) => {
     const child = spawn(invocation.executable, invocation.args, {
@@ -145,8 +165,12 @@ export async function runDev(
       env: invocation.environment,
       shell: false,
       windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [accounts ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
+    if (accounts && child.stdin) {
+      child.stdin.on('error', () => undefined);
+      child.stdin.end(JSON.stringify(accounts));
+    }
     // 保留未结束的行，避免凭据被流分块切断后绕过脱敏。
     const drain = (stream, destination) => {
       let pending = '';
@@ -155,12 +179,12 @@ export async function runDev(
         pending += chunk;
         const boundary = pending.lastIndexOf('\n');
         if (boundary !== -1) {
-          destination.write(redactOutput(pending.slice(0, boundary + 1), credentials));
+          destination.write(redactOutput(pending.slice(0, boundary + 1), secrets));
           pending = pending.slice(boundary + 1);
         }
       });
       stream.on('end', () => {
-        if (pending) destination.write(redactOutput(pending, credentials));
+        if (pending) destination.write(redactOutput(pending, secrets));
       });
     };
     drain(child.stdout, process.stdout);

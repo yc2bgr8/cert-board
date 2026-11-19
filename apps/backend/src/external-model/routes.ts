@@ -118,6 +118,19 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   };
   const bounds = { bodyLimit: 64 * 1024 };
   const verify = '/api/verification';
+  const unavailableReason =
+    config.CONTAINER_RUNTIME === 'docker'
+      ? '容器工作台尚未接入 Cursor 核实。请在 Windows 日常工作台发起核实。'
+      : undefined;
+  const verificationWrite = <T>(
+    request: FastifyRequest,
+    operation: (db: PoolClient, actor: BrowserIdentity) => Promise<T>,
+  ) =>
+    write(request, (db, actor) => {
+      if (unavailableReason)
+        throw new AppError(503, 'VERIFICATION_DEPLOYMENT_DISABLED', unavailableReason);
+      return operation(db, actor);
+    });
   const openRoomStreams = new Set<() => void>();
   app.addHook('preClose', async () => {
     for (const close of openRoomStreams) close();
@@ -194,7 +207,7 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   });
   app.post('/api/reviews/:id/verification', bounds, async (request, reply) => {
     reply.header('cache-control', 'no-store');
-    const room = await write(request, async (db, actor) => {
+    const room = await verificationWrite(request, async (db, actor) => {
       const input = checked(verificationReviewInputSchema, request.body);
       const reviewId = id(request);
       const review = await reviewScope(db, actor, reviewId, true);
@@ -230,18 +243,21 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   app.get(`${verify}/settings`, async (request, reply) => {
     reply.header('cache-control', 'no-store');
     await read(request);
-    return verification.settings();
+    const settings = await verification.settings();
+    return unavailableReason
+      ? { ...settings, channelStatus: 'unavailable', unavailableReason }
+      : settings;
   });
   app.put(`${verify}/settings`, bounds, async (request, reply) => {
     reply.header('cache-control', 'no-store');
-    await write(request, (db, actor) =>
+    await verificationWrite(request, (db, actor) =>
       verification.saveSettings(db, actor, checked(verificationSettingsInputSchema, request.body)),
     );
     return verification.settings();
   });
   app.post(`${verify}/settings/recheck`, bounds, async (request, reply) => {
     reply.header('cache-control', 'no-store');
-    await write(request, (db, actor) => verification.recheckChannel(db, actor));
+    await verificationWrite(request, (db, actor) => verification.recheckChannel(db, actor));
     return reply.code(204).send();
   });
   app.get(`${verify}/rooms`, async (request, reply) => {
@@ -262,7 +278,7 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   });
   app.post(`${verify}/rooms`, bounds, async (request, reply) => {
     reply.header('cache-control', 'no-store');
-    const room = await write(request, (db, actor) =>
+    const room = await verificationWrite(request, (db, actor) =>
       verification.create(db, actor, checked(verificationCreateSchema, request.body)),
     );
     schedule(room.id);
@@ -324,7 +340,7 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   app.post(`${verify}/rooms/:id/posts`, bounds, async (request, reply) => {
     reply.header('cache-control', 'no-store');
     const roomId = id(request);
-    await write(request, (db, actor) =>
+    await verificationWrite(request, (db, actor) =>
       verification.speak(db, actor, roomId, checked(verificationMessageInputSchema, request.body)),
     );
     schedule(roomId);
@@ -333,14 +349,14 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   app.post(`${verify}/rooms/:id/stop`, bounds, async (request, reply) => {
     reply.header('cache-control', 'no-store');
     const roomId = id(request);
-    await write(request, (db, actor) => verification.stop(db, actor, roomId));
+    await verificationWrite(request, (db, actor) => verification.stop(db, actor, roomId));
     schedule(roomId);
     return reply.code(204).send();
   });
   app.post(`${verify}/rooms/:id/models`, bounds, async (request, reply) => {
     reply.header('cache-control', 'no-store');
     const roomId = id(request);
-    await write(request, (db, actor) =>
+    await verificationWrite(request, (db, actor) =>
       verification.invite(db, actor, roomId, checked(verificationInviteSchema, request.body).model),
     );
     schedule(roomId);

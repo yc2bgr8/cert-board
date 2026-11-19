@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
+import { parseEnv } from 'node:util';
+import { chromium } from 'playwright-core';
 import { localProcessEnvironment, runDev } from './dev.mjs';
 
 const project = 'cert-board-isolated';
@@ -53,6 +56,78 @@ async function workbenchReady(url) {
   throw new Error('隔离工作台尚未通过回环入口健康检查');
 }
 
+async function verifyBrowser(url) {
+  let browser;
+  let stage = '开发账号';
+  try {
+    assert.equal(await runDev('isolated-accounts'), 0);
+    const { DEV_ZHANGSAN_PASSWORD: password } = parseEnv(
+      await readFile(new URL('../.env.local', import.meta.url), 'utf8'),
+    );
+    assert.ok(password);
+    stage = '浏览器登录';
+    browser = await chromium
+      .launch({ channel: 'chrome', headless: true })
+      .catch(() => chromium.launch({ channel: 'msedge', headless: true }));
+    const context = await browser.newContext({ serviceWorkers: 'block' });
+    await context.route('**/*', (route) =>
+      new URL(route.request().url()).origin === url ? route.continue() : route.abort(),
+    );
+    const page = await context.newPage();
+    page.setDefaultTimeout(15000);
+    await page.goto(url);
+    await page.getByRole('textbox', { name: '账号', exact: true }).fill('zhangsan');
+    await page.getByLabel('密码', { exact: true }).fill(password);
+    const loggedIn = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === '/api/auth/login' &&
+        response.request().method() === 'POST',
+    );
+    await page.getByRole('button', { name: '登录', exact: true }).click();
+    const session = await loggedIn;
+    assert.equal(session.status(), 200);
+    const { csrfToken } = await session.json();
+    assert.equal(typeof csrfToken, 'string');
+    stage = '会话写入和 Cursor 门禁';
+    const proof = await page.evaluate(async (csrf) => {
+      const list = async () => (await (await fetch('/api/verification/rooms')).json()).items.length;
+      const write = async (path, body) =>
+        fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+          body: JSON.stringify({ requestKey: globalThis.crypto.randomUUID(), ...body }),
+        });
+      const conversation = await write('/api/conversations', {
+        title: '隔离验收对话',
+        permissionMode: 'read_only',
+      });
+      const before = await list();
+      const verification = await write('/api/verification/rooms', { question: '隔离试验不派发' });
+      return {
+        conversation: conversation.status,
+        verification: verification.status,
+        unchanged: before === (await list()),
+      };
+    }, csrfToken);
+    assert.deepEqual(proof, { conversation: 200, verification: 503, unchanged: true });
+    await page.getByRole('button', { name: '外部模型', exact: true }).click();
+    await page
+      .getByText('容器工作台尚未接入 Cursor 核实。请在 Windows 日常工作台发起核实。', {
+        exact: true,
+      })
+      .waitFor();
+    await page.getByRole('textbox', { name: '核实问题', exact: true }).fill('隔离验收');
+    assert.equal(
+      await page.getByRole('button', { name: '发起核实', exact: true }).isDisabled(),
+      true,
+    );
+  } catch {
+    throw new Error(`隔离浏览器验收未通过 ${stage}`);
+  } finally {
+    await browser?.close();
+  }
+}
+
 async function main() {
   const port = Number(process.env.CERT_ISOLATED_WEB_PORT ?? '28080');
   assert.ok([28080, 28186].includes(port), '请使用容器工作台的固定回环端口');
@@ -62,6 +137,8 @@ async function main() {
   assert.equal(index.status, 200);
   assert.match(index.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/u);
   assert.match(await index.text(), /\/assets\//u);
+  await verifyBrowser(url);
+  console.log('浏览器登录、会话写入与隔离模式的 Cursor 门禁已验证。');
   assert.equal(await runDev('isolated-check'), 0);
 
   for (const service of ['backend-api', 'backend-worker']) {
@@ -118,6 +195,21 @@ async function main() {
       databaseIp,
     );
     console.log(`${service} ${result}`);
+  }
+  for (const field of ['DATABASE_URL', 'TEST_DATABASE_URL', 'CERT_DB_PASSWORD_URI']) {
+    const injected = dockerProcess(
+      'exec',
+      '-e',
+      `${field}=synthetic`,
+      container('sandbox-probe'),
+      'node',
+      'deploy/backend/network-probe.mjs',
+      'check',
+      'sandbox',
+      databaseIp,
+    );
+    assert.equal(injected.status, 1, `沙箱未拦截合成连接配置 ${field}`);
+    assert.deepEqual(JSON.parse(injected.stdout), { keysAbsent: false });
   }
 
   for (const [service, relayPort] of Object.entries(developmentPorts)) {

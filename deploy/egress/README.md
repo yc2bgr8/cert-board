@@ -24,7 +24,7 @@ GitHub CI 多次在 Ubuntu 原软件源连接失败。构建出网代理镜像�
 
 2026-11-18 **08:58:45（北京时间）** 已经通过同一代理建立 TLS，使用 `servername: openrouter.ai` 与 `rejectUnauthorized: true`；未带任何密钥的 `GET /api/v1/models` 返回 HTTP 200、JSON 内容类型。证书指纹 SHA-256 为 `FB:4A:8C:19:57:F0:41:2F:26:09:37:FA:C3:50:B1:2A:F4:2D:0C:84:AE:0E:7D:38:81:5D:1F:2E:EC:1B:30:A4`，证书到期时间为 `2027-02-10 23:06:03 UTC`。没有发出模型推理请求。
 
-2026-11-19 容器内观察到 `pypi.org`、`files.pythonhosted.org` 和 `api.fda.gov` 同样解析为 `198.18.0.0/16`。`sandbox-hosts` 只临时配置两个已经批准的 Python 包主机及其公共 A 记录。其他官方入口在实际接入时按同一方式核对。刷新地址时先查询公共 DNS。业务代理的 `hosts` 打包在镜像里，更新后运行 `pnpm dev:isolated:up`。沙箱的 `sandbox-hosts` 通过文件挂载，更新后运行 `wsl -d Ubuntu-24.04 -- docker restart cert-board-isolated-sandbox-egress-1`。最后用 `pnpm test:network` 核对对应 HTTPS 名称的受信证书和代理拒绝规则。运行时继续禁止保留地址。[PyPI DNS](https://dns.google/resolve?name=pypi.org&type=A) · [Python 文件站 DNS](https://dns.google/resolve?name=files.pythonhosted.org&type=A)
+2026-11-19 容器内观察到 `pypi.org`、`files.pythonhosted.org` 和 `api.fda.gov` 同样解析为 `198.18.0.0/16`。`sandbox-hosts` 只临时配置两个已经批准的 Python 包主机及其公共 A 记录。其他官方入口在实际接入时按同一方式核对。刷新地址时先查询公共 DNS。两个隔离代理的白名单和 `hosts_file` 分别打包到各自镜像。更新配置后运行 `pnpm dev:isolated:up`，Compose 会重建镜像并替换受影响的代理。最后用 `pnpm test:network` 核对对应 HTTPS 名称的受信证书和代理拒绝规则。运行时继续禁止保留地址。[PyPI DNS](https://dns.google/resolve?name=pypi.org&type=A) · [Python 文件站 DNS](https://dns.google/resolve?name=files.pythonhosted.org&type=A)
 
 ## 验证
 

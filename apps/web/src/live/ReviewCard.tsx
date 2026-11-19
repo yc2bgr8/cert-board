@@ -4,6 +4,7 @@ import type { DocumentCitation, ReviewCardView, ReviewDecisionInput } from '@cer
 import { SafeMarkdown } from '../SafeMarkdown.js';
 import { useBrowserCommand } from './ApprovalCard.js';
 import { api, errorMessage, isStaleError } from './api.js';
+import { verificationSettingsKey } from './VerificationWorkbench.js';
 import {
   LinkedVerificationHistoryActions,
   LinkedVerificationRows,
@@ -20,6 +21,7 @@ import './review.css';
 
 type Props = {
   reviewId: string;
+  userId?: string;
   onOpenEvidence(sources: EvidenceTarget[]): void;
   onOpenDiff(target: WorkspaceDiffTarget): void;
   onOpenFile(target: WorkspaceFileTarget): void;
@@ -69,6 +71,7 @@ export function ReviewCard(props: Props) {
 
 function ReviewCardContent({
   reviewId,
+  userId,
   onOpenEvidence,
   onOpenDiff,
   onOpenFile,
@@ -83,6 +86,13 @@ function ReviewCardContent({
   });
   const card = review.data;
   const linked = useLinkedVerifications(card && onOpenVerification ? reviewId : null, true);
+  const verificationSettings = useQuery({
+    queryKey: verificationSettingsKey(userId ?? ''),
+    queryFn: ({ signal }) => api.verificationSettings(signal),
+    enabled: Boolean(card && userId && onOpenVerification),
+    retry: false,
+  });
+  const verificationUnavailable = verificationSettings.data?.unavailableReason;
   const [askingVerification, setAskingVerification] = useState(false);
   const [verificationQuestion, setVerificationQuestion] = useState('');
   const verificationCommand = useBrowserCommand();
@@ -538,12 +548,19 @@ function ReviewCardContent({
                 <button
                   type="button"
                   className="live-review-neutral"
+                  disabled={!!verificationUnavailable}
+                  title={verificationUnavailable}
                   onClick={() => setAskingVerification(true)}
                 >
                   让Agent核实
                 </button>
               )}
             </div>
+            {verificationUnavailable && (
+              <p role="status" className="live-review-meta">
+                {verificationUnavailable}
+              </p>
+            )}
             {!workspace.data && !workspace.isError && (
               <p role="status" className="live-review-meta">
                 正在核对当前工作区版本…

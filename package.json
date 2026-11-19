@@ -39,6 +39,7 @@
     "dev:isolated:up": "node scripts/dev.mjs isolated-up",
     "dev:isolated:down": "node scripts/dev.mjs isolated-down",
     "dev:isolated:status": "node scripts/dev.mjs isolated-status",
+    "dev:isolated:accounts": "node scripts/dev.mjs isolated-accounts",
     "dev:api": "node scripts/start-backend.mjs api",
     "dev:worker": "node scripts/start-backend.mjs worker",
     "dev:verification": "node scripts/start-backend.mjs verification",

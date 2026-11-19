@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import pg from 'pg';
 import { ConfigurationError, parseBackendConfig, SeedConfigurationError } from '@cert-board/shared';
 import { migrateDatabase, MigrationError } from './migrate.js';
@@ -12,10 +13,31 @@ import { seedDevelopmentBudgetPolicy } from '../budget/service.js';
 
 async function main() {
   const action = process.argv[2];
-  if (!['migrate', 'seed', 'setup'].includes(action ?? '')) throw new Error('unknown_action');
+  if (!['migrate', 'seed', 'setup', 'isolated-accounts'].includes(action ?? ''))
+    throw new Error('unknown_action');
   const config = parseBackendConfig(process.env);
+  if (
+    action === 'isolated-accounts' &&
+    (config.CONTAINER_RUNTIME !== 'docker' ||
+      !existsSync('/.dockerenv') ||
+      new URL(config.DATABASE_URL).hostname !== 'postgres')
+  )
+    throw new Error('isolated_deployment_required');
   const pool = new pg.Pool({ connectionString: config.DATABASE_URL, max: 1 });
   try {
+    if (action === 'isolated-accounts') {
+      let input = '';
+      for await (const piece of process.stdin.setEncoding('utf8')) {
+        input += piece;
+        if (Buffer.byteLength(input) > 4096) throw new Error('seed_input_limit');
+      }
+      const environment = JSON.parse(input) as Record<string, unknown>;
+      const result = await seedDevelopmentAccounts(pool, {
+        ...environment,
+        NODE_ENV: config.NODE_ENV,
+      });
+      console.log(`隔离工作台账号已就绪，新增 ${result.created.length} 个。`);
+    }
     if (action === 'migrate' || action === 'setup') {
       const result = await migrateDatabase(pool);
       console.log(`数据库迁移完成：本次应用${result.applied.length}个版本。`);
