@@ -52,6 +52,19 @@ test('请求固定经过显式代理，NO_PROXY不能改为直连，也不自动
   await transport.close();
 });
 
+test('容器与宿主分别只接受自己的专用代理', async () => {
+  const proxyUrl = 'http://egress:3128';
+  expect(() => new RealGatewayTransport({ ...options, proxyUrl })).toThrow(GatewayTransportError);
+  expect(() => new RealGatewayTransport({ ...options, containerRuntime: 'docker' })).toThrow(
+    GatewayTransportError,
+  );
+  const transport = new RealGatewayTransport({ ...options, containerRuntime: 'docker', proxyUrl });
+  expect(stub.proxies).toEqual([
+    { uri: 'http://egress:3128/', requestTls: { rejectUnauthorized: true } },
+  ]);
+  await transport.close();
+});
+
 test('拒绝任意代理、非白名单主机、IP、非TLS和包含凭据的URL', async () => {
   for (const proxyUrl of [
     'http://remote.example:28085',

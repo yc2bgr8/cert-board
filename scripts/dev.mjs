@@ -5,6 +5,11 @@ import { parseEnv } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const requiredVariables = ['POSTGRES_PASSWORD', 'MINIO_ROOT_USER', 'MINIO_ROOT_PASSWORD'];
+const developmentPasswordFields = [
+  'DEV_ZHANGSAN_PASSWORD',
+  'DEV_WANGMIN_PASSWORD',
+  'DEV_ADMIN_PASSWORD',
+];
 const runtimeVariables = new Set([
   'PATH',
   'PATHEXT',
@@ -21,6 +26,12 @@ const runtimeVariables = new Set([
   'LANG',
   'LC_ALL',
 ]);
+
+export function localProcessEnvironment(inherited = process.env) {
+  return Object.fromEntries(
+    Object.entries(inherited).filter(([key]) => runtimeVariables.has(key.toUpperCase())),
+  );
+}
 
 export function toWslPath(windowsPath) {
   const match = /^([a-z]):[\\/](.*)$/i.exec(windowsPath);
@@ -42,23 +53,61 @@ export function composeInvocation(
     up: ['up', '--detach', '--wait', '--wait-timeout', '120'],
     down: ['down'],
     status: ['ps'],
+    'isolated-up': ['up', '--detach', '--build', '--wait', '--wait-timeout', '120'],
+    'isolated-down': ['--profile', 'network-check', 'down'],
+    'isolated-status': ['--profile', 'network-check', 'ps'],
+    'isolated-accounts': [
+      'exec',
+      '-T',
+      'backend-api',
+      'node',
+      '--import',
+      'tsx',
+      'apps/backend/src/db/cli.ts',
+      'isolated-accounts',
+    ],
+    'isolated-check': [
+      '--profile',
+      'network-check',
+      'up',
+      '--detach',
+      '--build',
+      '--wait',
+      '--wait-timeout',
+      '60',
+      'probe-relay',
+    ],
   };
   if (!Object.hasOwn(operations, action)) {
-    throw new Error('未知操作。请使用 up、down 或 status；脚本只管理 cert-board 项目。');
+    throw new Error('未知操作。请使用 up、down、status 或对应的 isolated 操作。');
   }
+  const isolated = action.startsWith('isolated-');
   const missing = requiredVariables.filter((key) => !credentials[key]);
   if (missing.length)
     throw new Error(`缺少配置：${missing.join('、')}。请补充仓库 .env.local 后重试。`);
-  const environment = Object.fromEntries(
-    Object.entries(inheritedEnvironment).filter(([key]) => runtimeVariables.has(key.toUpperCase())),
-  );
+  const environment = localProcessEnvironment(inheritedEnvironment);
   for (const key of requiredVariables) environment[key] = credentials[key];
+  const passedVariables = [...requiredVariables];
+  if (isolated) {
+    const port = inheritedEnvironment.CERT_ISOLATED_WEB_PORT ?? '28080';
+    if (!['28080', '28186'].includes(port))
+      throw new Error('容器部署仅使用回环端口 28080 或 28186。');
+    environment.CERT_ISOLATED_WEB_PORT = port;
+    environment.CERT_DB_PASSWORD_URI = encodeURIComponent(credentials.POSTGRES_PASSWORD);
+    passedVariables.push('CERT_ISOLATED_WEB_PORT', 'CERT_DB_PASSWORD_URI');
+    if (action === 'isolated-up' && credentials.OPENROUTER_API_KEY) {
+      environment.OPENROUTER_API_KEY = credentials.OPENROUTER_API_KEY;
+      passedVariables.push('OPENROUTER_API_KEY');
+    }
+  }
   const projectDirectory = platform === 'win32' ? toWslPath(root) : path.resolve(root);
-  const composeFile = `${projectDirectory.replace(/\/$/, '')}/deploy/compose.dev.yml`;
+  const profile = isolated ? 'isolated' : 'dev';
+  const composeFile = `${projectDirectory.replace(/\/$/, '')}/deploy/compose.${profile}.yml`;
   const args = [
+    ...(isolated ? ['--context', 'default'] : []),
     'compose',
     '--project-name',
-    'cert-board',
+    isolated ? 'cert-board-isolated' : 'cert-board',
     '--project-directory',
     projectDirectory,
     '--env-file',
@@ -68,8 +117,8 @@ export function composeInvocation(
     ...operations[action],
   ];
   if (platform === 'win32') {
-    // WSLENV 仅传递三个必需配置，密钥不进入命令行参数。
-    environment.WSLENV = requiredVariables.join(':');
+    // 只传递对应模式的配置，凭据不进入命令行参数。
+    environment.WSLENV = passedVariables.join(':');
     return {
       executable: 'wsl.exe',
       args: ['-d', 'Ubuntu-24.04', '--exec', 'docker', ...args],
@@ -100,7 +149,15 @@ export async function runDev(
     throw new Error('无法读取仓库 .env.local。请按 .env.example 配置本地依赖服务后重试。');
   }
   const credentials = Object.fromEntries(requiredVariables.map((key) => [key, values[key]]));
+  if (action === 'isolated-up') credentials.OPENROUTER_API_KEY = values.OPENROUTER_API_KEY;
   const invocation = composeInvocation(action, root, process.platform, credentials);
+  if (action.startsWith('isolated-'))
+    credentials.CERT_DB_PASSWORD_URI = invocation.environment.CERT_DB_PASSWORD_URI;
+  const accounts =
+    action === 'isolated-accounts'
+      ? Object.fromEntries(developmentPasswordFields.map((key) => [key, values[key]]))
+      : undefined;
+  const secrets = { ...credentials, ...accounts };
   console.log(`正在执行 cert-board 本地依赖服务操作：${action}。`);
   return await new Promise((resolve, reject) => {
     const child = spawn(invocation.executable, invocation.args, {
@@ -108,8 +165,12 @@ export async function runDev(
       env: invocation.environment,
       shell: false,
       windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [accounts ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
+    if (accounts && child.stdin) {
+      child.stdin.on('error', () => undefined);
+      child.stdin.end(JSON.stringify(accounts));
+    }
     // 保留未结束的行，避免凭据被流分块切断后绕过脱敏。
     const drain = (stream, destination) => {
       let pending = '';
@@ -118,12 +179,12 @@ export async function runDev(
         pending += chunk;
         const boundary = pending.lastIndexOf('\n');
         if (boundary !== -1) {
-          destination.write(redactOutput(pending.slice(0, boundary + 1), credentials));
+          destination.write(redactOutput(pending.slice(0, boundary + 1), secrets));
           pending = pending.slice(boundary + 1);
         }
       });
       stream.on('end', () => {
-        if (pending) destination.write(redactOutput(pending, credentials));
+        if (pending) destination.write(redactOutput(pending, secrets));
       });
     };
     drain(child.stdout, process.stdout);

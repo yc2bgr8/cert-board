@@ -17,6 +17,7 @@ import { ModelGateway, type GatewayTransport } from '../modelgw/service.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import type { ToolDefinition } from '../tools/registry.js';
 import { executeAgentRun } from './runtime.js';
+import { buildAgentTools } from './default-tools.js';
 import * as leaseService from '../runs/lease.js';
 import { queueInternalMessageTool } from '../tools/queue-internal-message.js';
 import { agentInteractionTools } from '../tools/agent-interaction.js';
@@ -85,6 +86,46 @@ afterEach(async () => {
   vi.restoreAllMocks();
   await close?.();
   close = undefined;
+});
+
+test('Agent 剧本在容器模式收不到核实工具，宿主模式仍能使用', async () => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  for (const containerRuntime of ['host', 'docker'] as const) {
+    const target = await queued(context, 'read_only');
+    const offered = vi.fn();
+    const gateway = new ModelGateway(
+      context.pool,
+      config,
+      {
+        kind: 'fixture',
+        async send(_model, request) {
+          offered(request.tools?.map((tool) => tool.function.name) ?? []);
+          return result({ role: 'assistant', content: '核对工具目录完成。' });
+        },
+      },
+      { environment: 'test' },
+    );
+    const outcome = await executeAgentRun(
+      {
+        pool: context.pool,
+        store,
+        gateway,
+        models: config,
+        definitions: (code) => buildAgentTools(store, code, context.pool, containerRuntime),
+      },
+      target.runId,
+    );
+    expect(outcome.status).toBe('completed');
+    expect(offered).toHaveBeenCalledTimes(1);
+    expect(offered.mock.calls[0]?.[0]).toContain('doc_search');
+    expect(offered.mock.calls[0]?.[0].includes('consult_external_model')).toBe(
+      containerRuntime === 'host',
+    );
+  }
 });
 
 test('收尾时租约已到期的旧执行者不能写入完成状态或发出终态事件', async () => {

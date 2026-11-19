@@ -6,12 +6,17 @@ import { buildDocumentTools } from '../tools/document-tools.js';
 import { buildWorkspaceTools } from '../tools/workspace-tools.js';
 import { agentInteractionTools } from '../tools/agent-interaction.js';
 import { loadAgentSkill } from './definitions.js';
-import type { AgentCode } from '@cert-board/shared';
+import type { AgentCode, BackendConfig } from '@cert-board/shared';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import type { Pool } from 'pg';
 import { consultExternalModelTool } from '../tools/consult-external-model.js';
 
-export async function buildAgentTools(store: DocumentBlobStore, agentCode: AgentCode, pool?: Pool) {
+export async function buildAgentTools(
+  store: DocumentBlobStore,
+  agentCode: AgentCode,
+  pool?: Pool,
+  containerRuntime: BackendConfig['CONTAINER_RUNTIME'] = 'host',
+) {
   const skill = await loadAgentSkill(agentCode, {
     id: agentCode === 'registration' ? 'R09' : 'M02',
   });
@@ -19,7 +24,7 @@ export async function buildAgentTools(store: DocumentBlobStore, agentCode: Agent
     ...buildDocumentTools(),
     ...buildWorkspaceTools(store),
     ...agentInteractionTools(),
-    ...(pool ? [consultExternalModelTool(pool)] : []),
+    ...(pool && containerRuntime === 'host' ? [consultExternalModelTool(pool)] : []),
     checkRunTool(),
     submitForReviewTool(skill.reviewPolicy),
     proposeExternalTool(),

@@ -1,8 +1,11 @@
+import { existsSync } from 'node:fs';
 import { ConfigurationError, parseBackendConfig } from '@cert-board/shared';
 import { createApp } from './app.js';
 
 async function startApi() {
   const config = parseBackendConfig(process.env);
+  if (config.HOST === '0.0.0.0' && !existsSync('/.dockerenv'))
+    throw new Error('接口仅在 Docker 内部可监听容器网卡');
   const app = createApp(config);
   let stopping = false;
   const stop = async () => {

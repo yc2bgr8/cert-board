@@ -82,12 +82,17 @@ export async function startWorker() {
     const allowedHosts = parseAllowedModelHosts(
       await readFile(new URL('../../../deploy/egress/allowlist', import.meta.url), 'utf8'),
     );
-    transport = new RealGatewayTransport({ proxyUrl: process.env.HTTPS_PROXY ?? '', allowedHosts });
+    transport = new RealGatewayTransport({
+      proxyUrl: process.env.HTTPS_PROXY ?? '',
+      containerRuntime: config.CONTAINER_RUNTIME,
+      allowedHosts,
+    });
     const gateway = new ModelGateway(resources.database, models, transport, {
       environment: config.NODE_ENV,
     });
     const store = new BlobStore(resources.storage, config.MINIO_BUCKET);
-    const definitions = (code: AgentCode) => buildAgentTools(store, code, resources.database);
+    const definitions = (code: AgentCode) =>
+      buildAgentTools(store, code, resources.database, config.CONTAINER_RUNTIME);
     const reconcile = async () => {
       await recoverAbandonedAgentRuns(resources.database);
       const orphaned = await resources.database.query<{

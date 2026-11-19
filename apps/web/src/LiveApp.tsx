@@ -297,6 +297,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       flush: true,
       content: (
         <ReviewCard
+          userId={userId}
           reviewId={reviewId}
           onOpenEvidence={openEvidence}
           onOpenDiff={openDiff}

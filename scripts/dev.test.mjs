@@ -52,6 +52,46 @@ describe('本地依赖服务脚本', () => {
     );
   });
 
+  it('容器部署使用独立项目，模型密钥只传给启动操作并在输出中脱敏', () => {
+    const supplied = {
+      ...credentials,
+      POSTGRES_PASSWORD: 'synthetic:value?',
+      OPENROUTER_API_KEY: 'synthetic-model-credential',
+    };
+    const source = {
+      PATH: 'tools',
+      CERT_ISOLATED_WEB_PORT: '28186',
+      COMPOSE_PROJECT_NAME: 'dc-idp',
+    };
+    const up = composeInvocation('isolated-up', 'C:\\work\\cert-board', 'win32', supplied, source);
+    expect(up.args).toContain('cert-board-isolated');
+    expect(up.args.slice(4, 7)).toEqual(['--context', 'default', 'compose']);
+    expect(up.args).toContain('/mnt/c/work/cert-board/deploy/compose.isolated.yml');
+    expect(up.args.join(' ')).not.toContain(supplied.OPENROUTER_API_KEY);
+    expect(up.environment).toMatchObject({
+      OPENROUTER_API_KEY: supplied.OPENROUTER_API_KEY,
+      CERT_DB_PASSWORD_URI: 'synthetic%3Avalue%3F',
+      CERT_ISOLATED_WEB_PORT: '28186',
+    });
+    expect(up.environment).not.toHaveProperty('COMPOSE_PROJECT_NAME');
+    for (const action of [
+      'isolated-check',
+      'isolated-down',
+      'isolated-status',
+      'isolated-accounts',
+    ]) {
+      const invocation = composeInvocation(action, '/work/cert-board', 'linux', supplied, source);
+      expect(invocation.args).toContain('cert-board-isolated');
+      expect(invocation.args).not.toContain('--volumes');
+      expect(invocation.environment).not.toHaveProperty('OPENROUTER_API_KEY');
+    }
+    expect(() =>
+      composeInvocation('isolated-up', '/work', 'linux', supplied, {
+        CERT_ISOLATED_WEB_PORT: '3100',
+      }),
+    ).toThrow('回环端口');
+  });
+
   it('Compose 端口只绑定回环、数据使用命名卷，初始化只建立测试库', () => {
     const compose = readFileSync(new URL('../deploy/compose.dev.yml', import.meta.url), 'utf8');
     const ports = [...compose.matchAll(/- '(127\.0\.0\.1:\d+:\d+)'/g)].map((match) => match[1]);
@@ -98,5 +138,28 @@ describe('本地依赖服务脚本', () => {
     expect(relaySection).not.toContain('environment:');
     expect(relaySection).toContain('read_only: true');
     expect(relaySection).toContain('cap_drop: [ALL]');
+  });
+
+  it('容器部署只发布回环入口，代理及三个隔离网段有独立配置', () => {
+    const compose = readFileSync(
+      new URL('../deploy/compose.isolated.yml', import.meta.url),
+      'utf8',
+    );
+    expect(compose).toContain('com.docker.network.bridge.gateway_mode_ipv4: isolated');
+    expect(compose).toMatch(/backend-worker:[\s\S]+?HTTPS_PROXY: http:\/\/egress:3128/u);
+    expect(compose).toContain('networks: [internal, model-outbound]');
+    expect(compose).toContain('networks: [sandbox, sandbox-outbound]');
+    expect(compose).toContain('WEB_ORIGIN: http://127.0.0.1:${CERT_ISOLATED_WEB_PORT:-28080}');
+    expect(compose).toContain('target: isolated-business');
+    expect(compose).toContain('target: isolated-sandbox');
+    expect(compose).not.toMatch(/- \.\/deploy\/egress\/.*allowlist:/u);
+    expect(compose.match(/OPENROUTER_API_KEY: /gu)).toHaveLength(1);
+    for (const line of compose.split('\n').filter((value) => /- '\S*:\d+:\d+'/u.test(value)))
+      expect(line).toMatch(/127\.0\.0\.1:/u);
+    const relay = readFileSync(new URL('../deploy/relay/probe.conf', import.meta.url), 'utf8');
+    expect(relay.match(/listen probe-relay-ingress:/gu)).toHaveLength(3);
+    const http = readFileSync(new URL('../deploy/backend/web.conf', import.meta.url), 'utf8');
+    expect(http).toContain('proxy_buffering off');
+    expect(http).toContain("frame-ancestors 'none'");
   });
 });

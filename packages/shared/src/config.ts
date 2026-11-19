@@ -29,7 +29,8 @@ const defaultWebOrigins = new Set([
 export const backendConfigSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-    HOST: z.literal('127.0.0.1').default('127.0.0.1'),
+    CONTAINER_RUNTIME: z.enum(['host', 'docker']).default('host'),
+    HOST: z.enum(['127.0.0.1', '0.0.0.0']).default('127.0.0.1'),
     PORT: z.coerce.number().int().min(1024).max(65535).default(28081),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'silent']).default('info'),
     WEB_ORIGIN: z.string().default('http://127.0.0.1:28080'),
@@ -54,11 +55,22 @@ export const backendConfigSchema = z
       .default('cert-board'),
   })
   .superRefine((config, context) => {
+    if (config.HOST === '0.0.0.0' && config.CONTAINER_RUNTIME !== 'docker')
+      context.addIssue({
+        code: 'custom',
+        path: ['HOST'],
+        message: '宿主开发接口只允许绑定回环地址',
+      });
     const isolatedPort = Number(
       /^http:\/\/127\.0\.0\.1:([1-9][0-9]{3,4})$/u.exec(config.WEB_ORIGIN)?.[1],
     );
     if (
       !defaultWebOrigins.has(config.WEB_ORIGIN) &&
+      !(
+        config.CONTAINER_RUNTIME === 'docker' &&
+        config.NODE_ENV === 'development' &&
+        config.WEB_ORIGIN === 'http://127.0.0.1:28186'
+      ) &&
       !(
         config.NODE_ENV === 'test' &&
         process.env.NODE_ENV === 'test' &&

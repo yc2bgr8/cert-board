@@ -28,6 +28,7 @@ async function main() {
   );
   const transport = new RealGatewayTransport({
     proxyUrl: process.env.HTTPS_PROXY ?? '',
+    containerRuntime: runtime.CONTAINER_RUNTIME,
     allowedHosts: hosts,
   });
   const pool = new pg.Pool({ connectionString: runtime.DATABASE_URL, max: 5 });

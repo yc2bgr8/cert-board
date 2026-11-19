@@ -3,6 +3,7 @@ import { ProxyAgent, request } from 'undici';
 type Target = { baseUrl: string; apiKeyEnv: string };
 type Options = {
   proxyUrl: string;
+  containerRuntime?: 'host' | 'docker';
   allowedHosts: readonly string[];
   environment?: Record<string, string | undefined>;
   timeoutMs?: number;
@@ -64,17 +65,9 @@ export class RealGatewayTransport {
     } catch {
       throw new GatewayTransportError('MODEL_PROXY_INVALID');
     }
-    if (
-      proxy.protocol !== 'http:' ||
-      proxy.hostname !== '127.0.0.1' ||
-      proxy.port !== '28085' ||
-      proxy.username ||
-      proxy.password ||
-      proxy.pathname !== '/' ||
-      proxy.search ||
-      proxy.hash
-    )
-      throw new GatewayTransportError('MODEL_PROXY_INVALID');
+    const expectedProxy =
+      options.containerRuntime === 'docker' ? 'http://egress:3128/' : 'http://127.0.0.1:28085/';
+    if (proxy.href !== expectedProxy) throw new GatewayTransportError('MODEL_PROXY_INVALID');
     if (
       !options.allowedHosts.length ||
       options.allowedHosts.some((host) => !/^[a-z0-9]+(?:[.-][a-z0-9]+)*\.[a-z]{2,}$/.test(host))

@@ -1,0 +1,212 @@
+name: cert-board-isolated
+
+x-backend-environment: &backend-environment
+  NODE_ENV: development
+  CONTAINER_RUNTIME: docker
+  WEB_ORIGIN: http://127.0.0.1:${CERT_ISOLATED_WEB_PORT:-28080}
+  DATABASE_URL: postgresql://cert_board:${CERT_DB_PASSWORD_URI:?缺少数据库连接配置}@postgres:5432/cert_board
+  TEST_DATABASE_URL: postgresql://cert_board:${CERT_DB_PASSWORD_URI:?缺少数据库连接配置}@postgres:5432/cert_board_test
+  MINIO_ENDPOINT: minio
+  MINIO_PORT: '9000'
+  MINIO_ROOT_USER: ${MINIO_ROOT_USER:?缺少存储账号配置}
+  MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?缺少存储密码配置}
+
+x-unprivileged: &unprivileged
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
+
+x-backend: &backend
+  <<: *unprivileged
+  image: cert-board-isolated-backend
+  build:
+    context: .
+    dockerfile: deploy/backend/Dockerfile
+    target: backend
+  networks: [internal]
+
+x-proxy: &proxy
+  <<: *unprivileged
+  healthcheck:
+    test: ['CMD', 'squid', '-k', 'check', '-f', '/etc/squid/squid.conf']
+    interval: 5s
+    timeout: 3s
+    retries: 10
+
+x-probe: &probe
+  <<: *unprivileged
+  image: cert-board-isolated-probe
+  build:
+    context: .
+    dockerfile: deploy/backend/Dockerfile
+    target: network-probe
+  profiles: [network-check]
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg16
+    environment:
+      POSTGRES_DB: cert_board
+      POSTGRES_USER: cert_board
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?缺少数据库密码配置}
+    networks: [internal]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/001-test-database.sql:/docker-entrypoint-initdb.d/001-test-database.sql:ro
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'cert_board', '-d', 'cert_board']
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  minio:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?缺少存储账号配置}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?缺少存储密码配置}
+      MINIO_UPDATE: 'off'
+    networks: [internal]
+    volumes: [minio_data:/data]
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:9000/minio/health/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  migrate:
+    <<: *backend
+    environment: *backend-environment
+    command: ['node', '--import', 'tsx', 'apps/backend/src/db/cli.ts', 'migrate']
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend-api:
+    <<: *backend
+    environment:
+      <<: *backend-environment
+      HOST: 0.0.0.0
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          'fetch("http://127.0.0.1:28081/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  backend-worker:
+    <<: *backend
+    environment:
+      <<: *backend-environment
+      HTTPS_PROXY: http://egress:3128
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    command: ['node', '--import', 'tsx', 'apps/backend/src/worker.ts']
+    depends_on:
+      backend-api:
+        condition: service_healthy
+      egress:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    <<: *unprivileged
+    image: cert-board-isolated-web
+    build:
+      context: .
+      dockerfile: deploy/backend/Dockerfile
+      target: web
+    depends_on:
+      backend-api:
+        condition: service_healthy
+    networks: [internal, ingress]
+    ports:
+      - '127.0.0.1:${CERT_ISOLATED_WEB_PORT:-28080}:8080'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/health']
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  egress:
+    <<: *proxy
+    image: cert-board-isolated-egress
+    build:
+      context: ./deploy/egress
+      target: isolated-business
+    networks: [internal, model-outbound]
+    restart: unless-stopped
+
+  sandbox-egress:
+    <<: *proxy
+    image: cert-board-isolated-sandbox-egress
+    build:
+      context: ./deploy/egress
+      target: isolated-sandbox
+    networks: [sandbox, sandbox-outbound]
+    restart: unless-stopped
+
+  doc-probe:
+    <<: *probe
+    networks: [internal]
+    command: ['node', 'deploy/backend/network-probe.mjs', 'listen', 'doc']
+
+  sandbox-probe:
+    <<: *probe
+    networks: [sandbox]
+    command: ['node', 'deploy/backend/network-probe.mjs', 'listen', 'sandbox']
+
+  fetch-probe:
+    <<: *probe
+    networks: [fetch]
+    command: ['node', 'deploy/backend/network-probe.mjs', 'listen', 'fetch']
+
+  probe-relay:
+    <<: *unprivileged
+    image: nginxinc/nginx-unprivileged:1.30.6-alpine3.24
+    profiles: [network-check]
+    entrypoint: ['nginx', '-g', 'daemon off;']
+    depends_on: [doc-probe, sandbox-probe, fetch-probe]
+    networks:
+      internal: {}
+      sandbox: {}
+      fetch: {}
+      ingress:
+        aliases: [probe-relay-ingress]
+    ports:
+      - '127.0.0.1:28187:28082'
+      - '127.0.0.1:28188:28083'
+      - '127.0.0.1:28189:28084'
+    volumes:
+      - ./deploy/relay/probe.conf:/etc/nginx/nginx.conf:ro
+
+networks:
+  internal: &isolated
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+  sandbox: *isolated
+  fetch: *isolated
+  ingress:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: 'false'
+  model-outbound: {}
+  sandbox-outbound: {}
+
+volumes:
+  postgres_data:
+  minio_data:
