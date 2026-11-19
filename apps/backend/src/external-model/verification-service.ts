@@ -42,6 +42,9 @@ import {
 type Executor = Pool | PoolClient;
 type Member = BrowserIdentity;
 const preferencesId = 'e78e2bd8-2e90-49a8-91c9-ba189c2746ab';
+const promptTextLimit = 24000;
+const hostTextReserve = 2000;
+const summaryTextReserve = 3800;
 export const verificationWorkerStateId = '18ee6c88-011a-4e58-a207-3c5ec90700d0';
 const roomAbsent = () => new AppError(404, 'VERIFICATION_ROOM_MISSING', '未找到可访问的核实。');
 const hostName = (host: VerificationRoom['host']) =>
@@ -211,7 +214,7 @@ export class VerificationRooms {
     const { rows } = await this.pool.query<{ model: string; calls: number }>(
       `SELECT model,COUNT(*)::integer AS calls FROM external_model_exchange
        WHERE channel='cursor' AND dispatched_at IS NOT NULL AND status<>'not_sent'
-         AND date_trunc('month',dispatched_at AT TIME ZONE 'Asia/Shanghai')=date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Shanghai')
+         AND date_trunc('month',dispatched_at AT TIME ZONE 'Asia/Shanghai')=date_trunc('month',statement_timestamp() AT TIME ZONE 'Asia/Shanghai')
        GROUP BY model ORDER BY model`,
     );
     return verificationSettingsSchema.parse({
@@ -686,11 +689,17 @@ export class VerificationRooms {
     const head = existing ? [publicPost(existing)] : [];
     const full = [...head, ...uncompacted.map(publicPost)];
     if (
-      full.reduce((size, message) => size + message.text.length, 0) <= 24000 &&
+      full.reduce((size, message) => size + message.text.length, 0) <
+        promptTextLimit - hostTextReserve &&
       history.length <= 500
     )
       return full;
-    let remaining = 21000 - required.reduce((length, post) => length + post.text.length, 0);
+    let remaining =
+      promptTextLimit -
+      hostTextReserve -
+      summaryTextReserve -
+      1 -
+      required.reduce((length, post) => length + post.text.length, 0);
     let cut = uncompacted.length;
     while (cut > 0) {
       const post = uncompacted[cut - 1]!;
@@ -702,7 +711,7 @@ export class VerificationRooms {
     const older = uncompacted.slice(0, cut);
     if (!older.length) return full;
     const text = (await runtime.compact([...head, ...older.map(publicPost)], scope))
-      .slice(0, 3800)
+      .slice(0, summaryTextReserve)
       .replace(/\p{Surrogate}$/u, '')
       .trim();
     const latest = Math.max(existing?.compactsThrough ?? 0, older.at(-1)!.position);
@@ -892,6 +901,10 @@ export class VerificationRooms {
         messages,
         (await this.protection.words(db)).map(({ phrase }) => phrase),
       );
+      if (
+        redacted.messages.reduce((size, item) => size + item.content.length, 0) >= promptTextLimit
+      )
+        throw new AppError(413, 'VERIFICATION_CONTEXT_LIMIT', '替换后的核实记录超过长度上限。');
       await this.protection.checkConfidentialSources(db, redacted.messages);
       const prompt: VerificationPrompt = {
         instructions:

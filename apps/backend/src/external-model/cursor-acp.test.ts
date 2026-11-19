@@ -2,7 +2,6 @@ import { fileURLToPath } from 'node:url';
 import { mkdtemp, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { setTimeout } from 'node:timers/promises';
 import { expect, test, vi } from 'vitest';
 import { callCursorAcp, cursorPermissions } from './cursor-acp.js';
 
@@ -10,13 +9,20 @@ test('ACP 在数据库复核期间退出时确认未发送', async () => {
   const profile = await mkdtemp(path.join(tmpdir(), 'cert-board-acp-test-'));
   const config = path.join(profile, 'cli-config.json');
   const mcp = path.join(profile, 'mcp.json');
+  const trigger = path.join(profile, 'exit-fixture');
   try {
     await Promise.all([
       writeFile(config, JSON.stringify(cursorPermissions)),
       writeFile(mcp, JSON.stringify({ mcpServers: {} })),
     ]);
-    const beforeDispatch = vi.fn(async () => {
-      await setTimeout(160);
+    const beforeDispatch = vi.fn(async (processClosed: AbortSignal) => {
+      const closed = processClosed.aborted
+        ? Promise.resolve()
+        : new Promise<void>((resolve) =>
+            processClosed.addEventListener('abort', () => resolve(), { once: true }),
+          );
+      await writeFile(trigger, '');
+      await closed;
     });
     const command = {
       executable: process.execPath,
@@ -39,7 +45,7 @@ test('ACP 在数据库复核期间退出时确认未发送', async () => {
     ).rejects.toMatchObject({ confirmedNotSent: true });
     expect(beforeDispatch).toHaveBeenCalledOnce();
   } finally {
-    await Promise.allSettled([unlink(config), unlink(mcp)]);
+    await Promise.allSettled([unlink(config), unlink(mcp), unlink(trigger)]);
     await rmdir(profile);
   }
 });

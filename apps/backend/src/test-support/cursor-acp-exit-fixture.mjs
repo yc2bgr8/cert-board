@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline';
+import { watch } from 'node:fs';
 
 const input = createInterface({ input: process.stdin });
 input.on('line', (line) => {
@@ -8,11 +9,15 @@ input.on('line', (line) => {
   if (method === 'initialize') reply({ protocolVersion: 1 });
   else if (method === 'session/new') reply({ sessionId: 'synthetic-session', configOptions: [] });
   else if (method === 'session/set_config_option') {
+    if (params.configId === 'model') {
+      watch(process.env.CURSOR_CONFIG_DIR, (_kind, filename) => {
+        if (String(filename) === 'exit-fixture') process.exit(0);
+      });
+    }
     reply({
       configOptions: [
         { id: params.configId, category: params.configId, currentValue: params.value },
       ],
     });
-    if (params.configId === 'model') setTimeout(() => process.exit(0), 20);
   }
 });

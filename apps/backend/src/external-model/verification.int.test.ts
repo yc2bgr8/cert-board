@@ -413,6 +413,7 @@ test('额度暂停时可在本地整理，通道复查需要管理员', async ()
 
 test('按长度整理旧答复，优先保留待处理发言，成功回应会清除旧超时的影响', async () => {
   await rounds(1);
+  fixture.runtime.compact = async () => '摘要'.repeat(1900);
   const calls: Array<{ model: string; prompt: VerificationPrompt }> = [];
   let gpt = 0;
   const moderate = fixture.runtime.moderate;

@@ -124,7 +124,7 @@ export async function callCursorAcp(
   config: CursorAcpConfig,
   modelId: string,
   prompt: VerificationPrompt,
-  beforeDispatch: () => Promise<void>,
+  beforeDispatch: (processClosed: AbortSignal) => Promise<void>,
 ) {
   const model = cursorModels[modelId as keyof typeof cursorModels];
   if (typeof model !== 'string') throw new VerificationChannelError('failed');
@@ -144,7 +144,13 @@ export async function callCursorAcp(
     stdio: ['pipe', 'pipe', 'ignore'],
   });
   const lines = createInterface({ input: child.stdout });
-  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+  const processClosed = new AbortController();
+  const closed = new Promise<void>((resolve) =>
+    child.once('close', () => {
+      processClosed.abort();
+      resolve();
+    }),
+  );
   const waits = new Map<number, { resolve(value: unknown): void; reject(reason: Error): void }>();
   let sequence = 0;
   let answer = '';
@@ -238,7 +244,7 @@ export async function callCursorAcp(
       value: model,
     });
     if (!allowedOption(configured, 'model', model)) throw new VerificationChannelError('failed');
-    await beforeDispatch();
+    await beforeDispatch(processClosed.signal);
     if (error || child.exitCode !== null || child.killed || !child.stdin.writable)
       throw new VerificationChannelError('failed', true);
     promptAttempted = true;
