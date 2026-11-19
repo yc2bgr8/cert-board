@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterEach, beforeEach, expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
   externalModelArchiveSchema,
   externalModelArchivePageSchema,
@@ -381,12 +381,16 @@ test('超时恢复已经冻结预占时仍结算同一次派发迟到的真实�
     .then((response) => response);
   await sending;
   try {
-    await new ExternalModels(
-      context.pool,
-      undefined,
-      fixture.runtime,
-      20_000_000_000n,
-    ).recoverExpired(new Date(Date.now() + 125_000));
+    const service = new ExternalModels(context.pool, undefined, fixture.runtime, 20_000_000_000n);
+    vi.setSystemTime(new Date(Date.now() + 125_000));
+    try {
+      await service.recoverExpired();
+    } finally {
+      vi.useRealTimers();
+    }
+    const fresh = await app.inject({ url, method: 'POST', headers, payload });
+    expect(externalModelExchangeSchema.parse(fresh.json()).status).toBe('reserved');
+    await service.recoverExpired(new Date(Date.now() + 125_000));
     const replay = await app.inject({ url, method: 'POST', headers, payload });
     expect(externalModelExchangeSchema.parse(replay.json()).status).toBe('unknown');
     expect((await app.inject({ url: `${prefix}/setup`, headers })).json().budget.blocked).toBe(

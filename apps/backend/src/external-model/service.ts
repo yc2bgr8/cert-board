@@ -102,7 +102,7 @@ export class ExternalModels {
     }
   }
 
-  async recoverExpired(now = new Date()) {
+  async recoverExpired(now?: Date) {
     if (!this.runtime) return;
     await this.withLock((db) =>
       db.query(
@@ -110,8 +110,8 @@ export class ExternalModels {
          SET status=CASE WHEN dispatched_at IS NULL THEN 'not_sent'::external_model_exchange_status
                          ELSE 'awaiting_receipt'::external_model_exchange_status END,
              actual_nano=CASE WHEN dispatched_at IS NULL THEN 0 END,updated_at=clock_timestamp()
-         WHERE status='reserved' AND updated_at < $1::timestamptz-interval '2 minutes'`,
-        [now],
+         WHERE status='reserved' AND updated_at < COALESCE($1::timestamptz,clock_timestamp())-interval '2 minutes'`,
+        [now ?? null],
       ),
     );
   }
