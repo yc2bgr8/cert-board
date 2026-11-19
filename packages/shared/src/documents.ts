@@ -11,8 +11,15 @@ export const documentDataLevelSchema = z.enum(['public', 'internal', 'confidenti
 });
 export const documentAuthorTypeSchema = z.enum(['ai', 'human', 'external']);
 export const documentContentKindSchema = z.enum(['parsed_text', 'original']);
-export const documentPageMethodSchema = z.enum(['text', 'ocr', 'docx']);
+export const documentPageMethodSchema = z.enum(['text', 'ocr', 'docx', 'xlsx']);
 export const documentLocatorKindSchema = z.enum(['physical_page', 'extraction_unit']);
+export const documentFormatSchema = z.enum(['pdf', 'estar', 'doc', 'docx', 'xlsx']);
+export type DocumentFormat = z.infer<typeof documentFormatSchema>;
+export const documentParseStateSchema = z.enum(['queued', 'running', 'ready', 'failed']);
+
+export function isPdfReaderPlaceholder(text: string) {
+  return text.trimStart().startsWith('Please wait...') && /Adobe/i.test(text);
+}
 const wellFormedText = (value: string) => /^[^\uD800-\uDFFF]*$/u.test(value);
 
 const normalizedNameSchema = z
@@ -74,6 +81,11 @@ export const documentCreateSchema = z
   .strict();
 export type DocumentCreate = z.infer<typeof documentCreateSchema>;
 
+export const documentOriginalInputSchema = documentCreateSchema.extend({
+  format: documentFormatSchema,
+  sourceSnapshot: sha256Schema,
+});
+
 export const documentImportSchema = documentCreateSchema
   .extend({
     sourceSnapshot: sha256Schema,
@@ -112,6 +124,12 @@ export const documentRecordSchema = z
     version: positiveIntegerSchema,
     createdAt: instantSchema,
     updatedAt: instantSchema,
+    parseState: documentParseStateSchema.optional(),
+    readablePage: z
+      .object({ version: positiveIntegerSchema, page: positiveIntegerSchema })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 export type DocumentRecord = z.infer<typeof documentRecordSchema>;
@@ -132,6 +150,15 @@ export const documentVersionRecordSchema = z
     importedBy: uuidSchema.nullable(),
     pageCount: nonnegativeIntegerSchema,
     createdAt: instantSchema,
+    parseStatus: z
+      .object({
+        state: documentParseStateSchema,
+        attempts: nonnegativeIntegerSchema,
+        lowConfidencePages: nonnegativeIntegerSchema,
+        errorCode: z.string().min(1).max(64).nullable(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type DocumentVersionRecord = z.infer<typeof documentVersionRecordSchema>;

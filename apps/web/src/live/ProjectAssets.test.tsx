@@ -207,3 +207,82 @@ it('读取失败显示重试而非空资料，重新加载使用同一项目', a
   await waitFor(() => expect(screen.getByText('这个项目还没有可查看的资料。')).toBeTruthy());
   expect(mocks.documents).toHaveBeenCalledTimes(2);
 });
+
+it('资料解析期间轮询进度，完成后才打开新版本的原文', async () => {
+  const onOpenEvidence = vi.fn();
+  const document = {
+    id: documentId,
+    name: '合成解析资料',
+    sourceKey: 'RAW-01',
+    currentVersion: 1,
+    dataLevel: 'internal',
+  };
+  mocks.documents
+    .mockResolvedValueOnce({
+      items: [{ ...document, parseState: 'running' }],
+      hasMore: false,
+      nextCursor: null,
+    })
+    .mockResolvedValue({
+      items: [{ ...document, parseState: 'ready', readablePage: { version: 1, page: 1 } }],
+      hasMore: false,
+      nextCursor: null,
+    });
+  show(<ProjectDocuments projectId={projectId} userId="member" onOpenEvidence={onOpenEvidence} />);
+  const row = (await screen.findByRole('button', {
+    name: '打开资料：合成解析资料',
+  })) as HTMLButtonElement;
+  expect(row.disabled).toBe(true);
+  expect(row.textContent).toContain('解析中');
+  await screen.findByText('已解析', {}, { timeout: 4_000 });
+  expect(row.disabled).toBe(false);
+  fireEvent.click(row);
+  expect(onOpenEvidence).toHaveBeenCalledWith([{ documentId, version: 1, page: 1 }]);
+});
+
+it('新版排队时，资料库仍可打开上一可读版本的实际页码', async () => {
+  const onOpenEvidence = vi.fn();
+  mocks.documents.mockResolvedValue({
+    items: [
+      {
+        id: documentId,
+        name: '新版文件',
+        sourceKey: 'RAW-RUN',
+        dataLevel: 'internal',
+        currentVersion: 3,
+        parseState: 'queued',
+        readablePage: { version: 2, page: 4 },
+      },
+    ],
+    hasMore: false,
+    nextCursor: null,
+  });
+  show(<ProjectDocuments projectId={projectId} userId="member" onOpenEvidence={onOpenEvidence} />);
+  fireEvent.click(await screen.findByRole('button', { name: '打开资料：新版文件' }));
+  expect(screen.getByText(/可查看第 2 版/)).toBeTruthy();
+  expect(onOpenEvidence).toHaveBeenCalledWith([{ documentId, version: 2, page: 4 }]);
+});
+
+it('兼容旧接口的已解析状态，并识别新接口明确报告的无可读页', async () => {
+  const onOpenEvidence = vi.fn();
+  const common = {
+    sourceKey: 'RAW-READY',
+    dataLevel: 'internal',
+    currentVersion: 3,
+    parseState: 'ready',
+  };
+  mocks.documents.mockResolvedValue({
+    items: [
+      { ...common, id: documentId, name: '旧接口资料' },
+      { ...common, id: workspaceId, name: '暂无正文资料', readablePage: null },
+    ],
+    hasMore: false,
+    nextCursor: null,
+  });
+  show(<ProjectDocuments projectId={projectId} userId="member" onOpenEvidence={onOpenEvidence} />);
+  fireEvent.click(await screen.findByRole('button', { name: '打开资料：旧接口资料' }));
+  expect(onOpenEvidence).toHaveBeenCalledWith([{ documentId, version: 3, page: 1 }]);
+  expect(
+    (screen.getByRole('button', { name: '打开资料：暂无正文资料' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+});

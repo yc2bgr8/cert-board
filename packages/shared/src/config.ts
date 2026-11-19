@@ -26,6 +26,10 @@ const defaultWebOrigins = new Set([
   'https://localhost:28080',
 ]);
 
+export function docsvcBaseUrl(runtime: 'host' | 'docker') {
+  return runtime === 'docker' ? 'http://docsvc-relay:28082/' : 'http://127.0.0.1:28082/';
+}
+
 export const backendConfigSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -36,6 +40,10 @@ export const backendConfigSchema = z
     WEB_ORIGIN: z.string().default('http://127.0.0.1:28080'),
     SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(24).default(12),
     EXTERNAL_MODEL_MONTHLY_USD: decimalUsdSchema.default('20'),
+    CERT_DOCSVC_URL: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
     DATABASE_URL: databaseUrl,
     TEST_DATABASE_URL: databaseUrl,
     MINIO_ENDPOINT: z
@@ -55,6 +63,16 @@ export const backendConfigSchema = z
       .default('cert-board'),
   })
   .superRefine((config, context) => {
+    if (
+      config.CERT_DOCSVC_URL !== undefined &&
+      (!URL.canParse(config.CERT_DOCSVC_URL) ||
+        new URL(config.CERT_DOCSVC_URL).href !== docsvcBaseUrl(config.CONTAINER_RUNTIME))
+    )
+      context.addIssue({
+        code: 'custom',
+        path: ['CERT_DOCSVC_URL'],
+        message: '解析服务只能使用固定内部地址',
+      });
     if (config.HOST === '0.0.0.0' && config.CONTAINER_RUNTIME !== 'docker')
       context.addIssue({
         code: 'custom',

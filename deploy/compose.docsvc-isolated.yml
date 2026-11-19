@@ -1,0 +1,18 @@
+services:
+  backend-api:
+    environment:
+      CERT_DOCSVC_URL: http://docsvc-relay:28082
+
+  backend-worker:
+    environment:
+      CERT_DOCSVC_URL: http://docsvc-relay:28082
+    depends_on:
+      docsvc-relay:
+        condition: service_started
+
+  docsvc-relay:
+    networks: !override
+      documents: {}
+      internal:
+        aliases: [docsvc-relay-entry]
+    ports: !reset []

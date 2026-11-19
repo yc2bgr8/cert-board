@@ -135,6 +135,21 @@
   background: var(--color-cb-warn-bg);
   color: var(--color-cb-warn);
 }
+.live-notice-chip[data-parse-state='running'] {
+  background: var(--color-cb-info-bg);
+  color: var(--color-cb-info);
+}
+.live-notice-chip[data-parse-state='ready'] {
+  background: var(--color-cb-good-bg);
+  color: var(--color-cb-good);
+}
+.live-notice-chip[data-parse-state='failed'] {
+  background: var(--color-cb-bad-bg);
+  color: var(--color-cb-bad);
+}
+.live-documents-page .live-asset-row:disabled {
+  opacity: 1;
+}
 .live-filter-pills {
   display: flex;
   flex-wrap: wrap;

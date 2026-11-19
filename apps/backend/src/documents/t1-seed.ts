@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type pg from 'pg';
 import {
   developmentProjectSeedConfigSchema,
+  isPdfReaderPlaceholder,
   t1DocumentsSchema,
   t1PageSchema,
 } from '@cert-board/shared';
@@ -84,8 +85,7 @@ export async function seedT1Documents(
         method: page.method,
         locatorKind: page.method === 'docx' ? 'extraction_unit' : 'physical_page',
         ocrScore: page.ocr_score ?? null,
-        isPlaceholder:
-          page.text.trimStart().startsWith('Please wait...') && /Adobe/i.test(page.text),
+        isPlaceholder: isPdfReaderPlaceholder(page.text),
       }));
     await ingestParsedDocument(pool, store, {
       projectId: developmentProjectId,

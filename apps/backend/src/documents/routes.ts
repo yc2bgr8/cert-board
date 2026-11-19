@@ -1,14 +1,17 @@
 import type {
   FastifyInstance,
   FastifyBaseLogger,
+  FastifyRequest,
   RawServerDefault,
   RawRequestDefaultExpression,
   RawReplyDefaultExpression,
 } from 'fastify';
 import type { Pool } from 'pg';
+import { createHash } from 'node:crypto';
 import {
   documentParamsSchema,
   documentPageParamsSchema,
+  documentOriginalInputSchema,
   projectParamsSchema,
   type BackendConfig,
 } from '@cert-board/shared';
@@ -23,8 +26,17 @@ import {
   searchDocuments,
 } from './service.js';
 import type { DocumentBlobStore } from './blob-store.js';
+import { maximumDocumentBytes } from './docsvc-client.js';
+import { queueOriginalDocument } from './parse-tasks.js';
+import { createDocumentUploadGate, monitorDocumentUpload } from './upload-gate.js';
 
 const archiveParams = documentPageParamsSchema.pick({ id: true, version: true });
+const uploadQuery = documentOriginalInputSchema
+  .pick({ name: true, format: true, dataLevel: true, sourceKey: true })
+  .extend({
+    sourceKey: documentOriginalInputSchema.shape.sourceKey.optional(),
+    dataLevel: documentOriginalInputSchema.shape.dataLevel.default('internal'),
+  });
 
 function idFrom(params: unknown, project = false) {
   const result = (project ? projectParamsSchema : documentParamsSchema).safeParse(params);
@@ -43,7 +55,100 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
   pool: Pool,
   config: BackendConfig,
   store?: DocumentBlobStore,
+  originals?: DocumentBlobStore,
 ) {
+  if (originals)
+    app.register(async (upload) => {
+      const receiving = createDocumentUploadGate<FastifyRequest>();
+      const bodies = new WeakMap<FastifyRequest, ReturnType<typeof monitorDocumentUpload>>();
+      const release = async (request: FastifyRequest) => {
+        receiving.release(request);
+        bodies.get(request)?.destroy();
+        bodies.delete(request);
+      };
+      upload.addContentTypeParser(
+        'application/octet-stream',
+        { parseAs: 'buffer', bodyLimit: maximumDocumentBytes },
+        (_request, body, done) => done(null, body),
+      );
+      upload.post(
+        '/api/projects/:id/documents/original',
+        {
+          bodyLimit: maximumDocumentBytes,
+          onRequest: async (request) => {
+            await requireBrowserIdentity(request, pool, config, { write: true });
+            if (!config.CERT_DOCSVC_URL)
+              throw new AppError(
+                503,
+                'DOCUMENT_PARSER_DISABLED',
+                '资料解析未启用。请启动解析服务，并为 API 和后台进程配置 CERT_DOCSVC_URL。',
+              );
+            if (request.raw.aborted)
+              throw new AppError(400, 'DOCUMENT_UPLOAD_INCOMPLETE', '原件传输中断，请重新提交。');
+            if (!receiving.acquire(request, () => request.raw.destroy()))
+              throw new AppError(429, 'DOCUMENT_UPLOAD_BUSY', '当前有原件正在上传，请稍后重试。');
+          },
+          preParsing: (request, _reply, payload, done) => {
+            const monitored = monitorDocumentUpload(payload, () => receiving.receive(request));
+            bodies.set(request, monitored);
+            done(null, monitored);
+          },
+          preHandler: async (request) => {
+            receiving.finishBody(request);
+          },
+          onResponse: release,
+          onRequestAbort: release,
+        },
+        async (request, reply) => {
+          const actor = await requireBrowserIdentity(request, pool, config, { write: true });
+          const projectId = idFrom(request.params, true);
+          const input = uploadQuery.safeParse(request.query);
+          if (!input.success || !Buffer.isBuffer(request.body) || !request.body.length)
+            throw new AppError(
+              400,
+              'DOCUMENT_UPLOAD_INVALID',
+              '请选择支持的原件，并填写有效资料名。',
+            );
+          const { name, format, dataLevel } = input.data;
+          const defaultKey = `file-${createHash('sha256').update(name).digest('hex')}`;
+          const fields = {
+            name,
+            format,
+            dataLevel,
+            sourceKey: input.data.sourceKey ?? defaultKey,
+          };
+          const content = request.body;
+          const snapshot = (metadata: object) =>
+            createHash('sha256')
+              .update('cert-board-original-v1\0')
+              .update(JSON.stringify(metadata))
+              .update('\0')
+              .update(content)
+              .digest('hex');
+          const sourceSnapshot = snapshot(fields);
+          const earlierSnapshot =
+            fields.sourceKey === defaultKey ? snapshot({ name, format, dataLevel }) : undefined;
+          const saved = await queueOriginalDocument(
+            pool,
+            originals,
+            actor,
+            {
+              ...fields,
+              projectId,
+              sourceSnapshot,
+              sourcePath: fields.name,
+              authorType: 'human',
+            },
+            content,
+            earlierSnapshot,
+          );
+          return reply
+            .code(saved.created ? 202 : 200)
+            .header('cache-control', 'no-store')
+            .send(saved);
+        },
+      );
+    });
   app.get('/api/projects/:id/documents', async (request, reply) => {
     const actor = await requireBrowserIdentity(request, pool, config);
     reply.header('cache-control', 'no-store');

@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, expect, test } from 'vitest';
+import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import {
   browserIdentitySchema,
+  parseBackendConfig,
   type BrowserIdentity,
   type DocumentImport,
 } from '@cert-board/shared';
@@ -10,6 +11,9 @@ import { migrateDatabase } from '../db/migrate.js';
 import { seedDevelopmentAccounts } from '../db/seed.js';
 import { createProject } from '../projects/service.js';
 import { createTestBlobStore } from './test-blob-store.js';
+import { AppError } from '../api/errors.js';
+import { createApp } from '../app.js';
+import { processDocumentParseTask, queueOriginalDocument } from './parse-tasks.js';
 import {
   getDocument,
   ingestParsedDocument,
@@ -20,6 +24,7 @@ import {
 } from './service.js';
 
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
+const password = (role: string) => ['document', 'integration', role, 'example'].join('-');
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let blobs: Awaited<ReturnType<typeof createTestBlobStore>>;
 let ra: BrowserIdentity;
@@ -58,7 +63,6 @@ async function objectCount() {
 beforeAll(async () => {
   database = await createTestDatabase();
   await migrateDatabase(database.pool);
-  const password = (role: string) => ['document', 'integration', role, 'example'].join('-');
   await seedDevelopmentAccounts(database.pool, {
     NODE_ENV: 'test',
     DEV_ZHANGSAN_PASSWORD: password('zhangsan'),
@@ -95,6 +99,326 @@ afterAll(async () => {
   const results = await Promise.allSettled([blobs?.dispose(), database?.dispose()]);
   const failed = results.find((result) => result.status === 'rejected');
   if (failed?.status === 'rejected') throw failed.reason;
+});
+
+test('原件版本幂等入队，解析时保留旧检索，完成后暴露中英文与低置信页', async () => {
+  const previous = await ingestParsedDocument(
+    database.pool,
+    blobs.store,
+    source('RAW-01', '旧版本内容'),
+  );
+  const raw = Buffer.from('%PDF-1.4 fictional new source');
+  const input = {
+    projectId,
+    sourceKey: 'RAW-01',
+    name: '新版合成资料.pdf',
+    sourcePath: 'samples/new.pdf',
+    sourceSnapshot: digest('raw-01:version-2'),
+    format: 'pdf',
+    authorType: 'human',
+    dataLevel: 'internal',
+  };
+  const first = await queueOriginalDocument(database.pool, blobs.store, ra, input, raw);
+  expect(first).toMatchObject({ created: true, documentId: previous.documentId, version: 2 });
+  await expect(
+    queueOriginalDocument(database.pool, blobs.store, ra, input, raw),
+  ).resolves.toMatchObject({
+    created: false,
+    versionId: first.versionId,
+  });
+  await expect(
+    queueOriginalDocument(database.pool, blobs.store, ra, input, Buffer.from('different fixture')),
+  ).rejects.toMatchObject({ code: 'DOCUMENT_SNAPSHOT_CONFLICT' });
+  expect(await getDocument(database.pool, ra, first.documentId)).toMatchObject({
+    parseState: 'queued',
+    readablePage: { version: 1, page: 1 },
+  });
+  expect(
+    (await searchDocuments(database.pool, ra, projectId, { query: '旧版本内容' })).items[0]
+      ?.version,
+  ).toBe(1);
+  let notifyClaim!: () => void;
+  let allowCompletion!: () => void;
+  const called = new Promise<void>((resolve) => {
+    notifyClaim = resolve;
+  });
+  const proceed = new Promise<void>((resolve) => {
+    allowCompletion = resolve;
+  });
+  const parse = vi.fn(async () => {
+    notifyClaim();
+    await proceed;
+    return [
+      {
+        pageNumber: 1,
+        method: 'ocr' as const,
+        locatorKind: 'physical_page' as const,
+        text: '对比器械 fixture predicate',
+        ocrScore: 0.85,
+        isPlaceholder: false,
+      },
+    ];
+  });
+  const running = processDocumentParseTask(database.pool, blobs.store, { parse });
+  await called;
+  try {
+    expect((await getDocument(database.pool, ra, first.documentId)).parseState).toBe('running');
+    await expect(processDocumentParseTask(database.pool, blobs.store, { parse })).resolves.toBe(
+      false,
+    );
+  } finally {
+    allowCompletion();
+    await running;
+  }
+  expect(parse).toHaveBeenCalledExactlyOnceWith(raw, digest(raw.toString()), 'pdf', undefined);
+  for (const word of ['对比器械', 'PREDICATE']) {
+    expect((await searchDocuments(database.pool, ra, projectId, { query: word })).items).toEqual([
+      expect.objectContaining({
+        documentId: first.documentId,
+        version: 2,
+        page: 1,
+        dataLevel: 'internal',
+      }),
+    ]);
+  }
+  const page = await readDocumentPage(database.pool, ra, first.documentId, 2, 1);
+  expect(page.ocrScore).toBe(0.85);
+  expect(page.warning).toContain('置信度');
+  expect(
+    (await listDocumentVersions(database.pool, ra, first.documentId)).items[1]?.parseStatus,
+  ).toEqual({ state: 'ready', attempts: 1, lowConfidencePages: 1, errorCode: null });
+});
+
+test('暂时繁忙会重试，确定失败只记录安全错误码且不发布空资料页', async () => {
+  const original = await queueOriginalDocument(
+    database.pool,
+    blobs.store,
+    ra,
+    {
+      projectId,
+      sourceKey: 'RAW-02',
+      name: '合成格式错误.pdf',
+      sourcePath: 'samples/failure.pdf',
+      sourceSnapshot: digest('raw-02'),
+      format: 'pdf',
+      authorType: 'human',
+      dataLevel: 'internal',
+    },
+    Buffer.from('fictional input'),
+  );
+  const parse = vi
+    .fn()
+    .mockRejectedValueOnce(new AppError(429, 'DOC_BUSY', 'private fixture trace'))
+    .mockRejectedValueOnce(new AppError(422, 'DOC_FORMAT_MISMATCH', 'private fixture trace'));
+  await processDocumentParseTask(database.pool, blobs.store, { parse });
+  const queued = (await listDocumentVersions(database.pool, ra, original.documentId)).items[0]
+    ?.parseStatus;
+  expect(queued).toMatchObject({ state: 'queued', attempts: 1, errorCode: 'DOC_BUSY' });
+  await database.pool.query(
+    'UPDATE document_parse_task SET available_at=clock_timestamp() WHERE version_id=$1',
+    [original.versionId],
+  );
+  await processDocumentParseTask(database.pool, blobs.store, { parse });
+  expect(
+    (await listDocumentVersions(database.pool, ra, original.documentId)).items[0],
+  ).toMatchObject({
+    pageCount: 0,
+    parseStatus: { state: 'failed', attempts: 2, errorCode: 'DOC_FORMAT_MISMATCH' },
+  });
+  await expect(
+    readDocumentPage(database.pool, ra, original.documentId, 1, 1),
+  ).rejects.toMatchObject({ statusCode: 404 });
+});
+
+test('第三次领取时正常停机释放租约，后续可以继续解析', async () => {
+  const item = await queueOriginalDocument(
+    database.pool,
+    blobs.store,
+    ra,
+    {
+      projectId,
+      sourceKey: 'RAW-STOP',
+      name: '停机续跑样例.pdf',
+      sourcePath: 'stop.pdf',
+      sourceSnapshot: digest('raw-stop'),
+      format: 'pdf',
+      authorType: 'human',
+      dataLevel: 'internal',
+    },
+    Buffer.from('fictional stopped input'),
+  );
+  await database.pool.query('UPDATE document_parse_task SET attempts=2 WHERE version_id=$1', [
+    item.versionId,
+  ]);
+  const stopping = new AbortController();
+  await processDocumentParseTask(
+    database.pool,
+    blobs.store,
+    {
+      async parse() {
+        stopping.abort();
+        throw new AppError(503, 'DOCSVC_UNAVAILABLE', 'fictional stopped worker');
+      },
+    },
+    stopping.signal,
+  );
+  const status = async () =>
+    (await listDocumentVersions(database.pool, ra, item.documentId)).items[0]?.parseStatus;
+  expect(await status()).toMatchObject({ state: 'queued', attempts: 2, errorCode: null });
+  await processDocumentParseTask(database.pool, blobs.store, {
+    async parse() {
+      return [
+        {
+          pageNumber: 1,
+          method: 'text',
+          locatorKind: 'physical_page',
+          ocrScore: null,
+          text: '恢复后解析完成。',
+          isPlaceholder: false,
+        },
+      ];
+    },
+  });
+  expect(await status()).toMatchObject({ state: 'ready', attempts: 3, errorCode: null });
+});
+
+test('浏览器单原件入口需要会话和 CSRF，同一原件重传只领取一个版本', async () => {
+  const config = parseBackendConfig({
+    ...process.env,
+    NODE_ENV: 'test',
+    LOG_LEVEL: 'silent',
+    CERT_DOCSVC_URL: 'http://127.0.0.1:28082',
+  });
+  let holdUploads = false;
+  let activeStores = 0;
+  let notifyBoth!: () => void;
+  let releaseUploads!: () => void;
+  const bothStoring = new Promise<void>((resolve) => {
+    notifyBoth = resolve;
+  });
+  const canStore = new Promise<void>((resolve) => {
+    releaseUploads = resolve;
+  });
+  const app = createApp(config, {
+    database: database.pool,
+    blobStore: {
+      get: (sha256) => blobs.store.get(sha256),
+      async put(content) {
+        if (holdUploads) {
+          if (++activeStores === 2) notifyBoth();
+          await canStore;
+        }
+        return blobs.store.put(content);
+      },
+    },
+    checkDatabase: async () => undefined,
+    checkStorage: async () => undefined,
+    close: async () => undefined,
+  });
+  const disabled = createApp(
+    { ...config, CERT_DOCSVC_URL: undefined },
+    {
+      database: database.pool,
+      blobStore: blobs.store,
+      checkDatabase: async () => undefined,
+      checkStorage: async () => undefined,
+      close: async () => undefined,
+    },
+  );
+  try {
+    const sameOrigin = { origin: config.WEB_ORIGIN, 'sec-fetch-site': 'same-origin' };
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      headers: sameOrigin,
+      payload: { username: 'zhangsan', password: password('zhangsan') },
+    });
+    expect(login.statusCode).toBe(200);
+    const cookie = String(login.headers['set-cookie']).split(';')[0];
+    const payload = Buffer.from('%PDF-1.4 fictional upload');
+    const submit = (
+      authenticated: boolean,
+      csrf: boolean,
+      name = 'fixture-upload.pdf',
+      query = '',
+      target = app,
+    ) =>
+      target.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/documents/original?name=${name}&format=pdf${query}`,
+        headers: {
+          ...sameOrigin,
+          'content-type': 'application/octet-stream',
+          ...(authenticated ? { cookie } : {}),
+          ...(csrf ? { 'x-csrf-token': login.json().csrfToken } : {}),
+        },
+        payload,
+      });
+    expect((await submit(false, false)).statusCode).toBe(401);
+    expect((await submit(true, false)).statusCode).toBe(403);
+    const blocked = await submit(true, true, undefined, '', disabled);
+    expect(blocked.statusCode).toBe(503);
+    expect(blocked.json()).toMatchObject({ error: { code: 'DOCUMENT_PARSER_DISABLED' } });
+    const saved = await submit(true, true);
+    expect(saved.statusCode).toBe(202);
+    const replay = await submit(true, true);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toMatchObject({ ...saved.json(), created: false });
+    const explicitKey = `&sourceKey=file-${digest('fixture-upload.pdf')}&dataLevel=internal`;
+    const explicit = await submit(true, true, undefined, explicitKey);
+    expect(explicit.statusCode).toBe(200);
+    expect(explicit.json()).toEqual(replay.json());
+    const legacyName = 'fixture-legacy-default.pdf';
+    const legacySnapshot = createHash('sha256')
+      .update('cert-board-original-v1\0')
+      .update(JSON.stringify({ name: legacyName, format: 'pdf', dataLevel: 'internal' }))
+      .update('\0')
+      .update(payload)
+      .digest('hex');
+    const legacy = await queueOriginalDocument(
+      database.pool,
+      blobs.store,
+      ra,
+      {
+        projectId,
+        name: legacyName,
+        sourcePath: legacyName,
+        format: 'pdf',
+        dataLevel: 'internal',
+        authorType: 'human',
+        sourceKey: `file-${digest(legacyName)}`,
+        sourceSnapshot: legacySnapshot,
+      },
+      payload,
+    );
+    const legacyReplay = await submit(
+      true,
+      true,
+      legacyName,
+      `&sourceKey=file-${digest(legacyName)}`,
+    );
+    expect(legacyReplay.statusCode).toBe(200);
+    expect(legacyReplay.json()).toMatchObject({ ...legacy, created: false });
+    const versions = await listDocumentVersions(database.pool, ra, saved.json().documentId);
+    expect(versions.items).toHaveLength(1);
+    expect(versions.items[0]).toMatchObject({
+      dataLevel: 'internal',
+      parseStatus: { state: 'queued' },
+    });
+    holdUploads = true;
+    const pending = ['fixture-2.pdf', 'fixture-3.pdf'].map((name) => submit(true, true, name));
+    await bothStoring;
+    try {
+      expect((await submit(true, true, 'fixture-busy.pdf')).statusCode).toBe(429);
+    } finally {
+      releaseUploads();
+      await Promise.all(pending);
+    }
+    holdUploads = false;
+    expect((await submit(true, true, 'fixture-busy.pdf')).statusCode).toBe(202);
+  } finally {
+    await Promise.all([app.close(), disabled.close()]);
+  }
 });
 
 test('真实MinIO按内容去重，来源身份保留，原始文件hash与解析内容hash分开', async () => {
