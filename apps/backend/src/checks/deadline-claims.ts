@@ -22,11 +22,10 @@ const deadlineFields = new Set([
 const plainDateFields = new Set(['日', '日期', '时间', '时点', '时刻', 'date', 'time']);
 const namedDeadline = (object: string) => {
   const label = object.normalize('NFKC').trim().toLowerCase();
-  return Array.from(deadlineFields).some((suffix) =>
-    /^[a-z]/u.test(suffix)
-      ? label === suffix || label.endsWith(` ${suffix}`)
-      : label.endsWith(suffix),
-  );
+  return Array.from(deadlineFields).some((suffix) => {
+    if (!label.endsWith(suffix)) return false;
+    return !/^[a-z]/u.test(suffix) || !/\w/u.test(label.at(-(suffix.length + 1)) ?? '');
+  });
 };
 
 export function checkDeadlineClaims(submission: StructuredSubmission) {

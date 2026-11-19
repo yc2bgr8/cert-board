@@ -201,21 +201,16 @@ test('V6 重算声明期限并比较实际时间点，历史报告保持两项�
     status: 'failed',
     issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
   });
-  const byEnglishObject = await checkSubmission(context.pool, caller, {
-    ...base,
-    claims: [
-      {
-        ...base.claims[0],
-        object: 'L08 certificate expiration date',
-        field: 'date',
-        value: '2026-05-01',
-      },
-    ],
-  });
-  expect(byEnglishObject.checks.at(-1)).toMatchObject({
-    status: 'failed',
-    issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
-  });
+  for (const object of ['L08 certificate expiration date', 'L08:deadline']) {
+    const byEnglishObject = await checkSubmission(context.pool, caller, {
+      ...base,
+      claims: [{ ...base.claims[0], object, field: 'date', value: '2026-05-01' }],
+    });
+    expect(byEnglishObject.checks.at(-1)).toMatchObject({
+      status: 'failed',
+      issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
+    });
+  }
   const issueDate = await checkSubmission(context.pool, caller, {
     ...base,
     claims: [{ ...base.claims[0], object: '续证期限核对', field: '签发日期', value: '2026-04-01' }],
