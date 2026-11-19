@@ -132,13 +132,27 @@ function ConversationView({
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     retry: false,
   });
-  const observedNotices = useRef(proposalNoticeKey);
+  const noticeRefresh = useRef({ key: proposalNoticeKey, pending: false });
   const refreshProposals = proposals.refetch;
   useEffect(() => {
-    if (observedNotices.current === proposalNoticeKey) return;
-    observedNotices.current = proposalNoticeKey;
-    if (onProposal && detail.data?.projectId) void refreshProposals();
-  }, [proposalNoticeKey, onProposal, detail.data?.projectId, refreshProposals]);
+    if (noticeRefresh.current.key !== proposalNoticeKey)
+      noticeRefresh.current = { key: proposalNoticeKey, pending: true };
+    if (
+      !noticeRefresh.current.pending ||
+      proposals.isFetching ||
+      !onProposal ||
+      !detail.data?.projectId
+    )
+      return;
+    noticeRefresh.current.pending = false;
+    void refreshProposals({ cancelRefetch: false });
+  }, [
+    proposalNoticeKey,
+    proposals.isFetching,
+    onProposal,
+    detail.data?.projectId,
+    refreshProposals,
+  ]);
   const { state } = stream;
   const messagesByRun = useMemo(() => {
     const groups = new Map<string, LiveMessage[]>();
@@ -336,8 +350,8 @@ function ConversationView({
             <button
               type="button"
               className="live-text-button"
-              disabled={proposals.isFetchingNextPage}
-              onClick={() => void proposals.fetchNextPage()}
+              disabled={proposals.isFetching}
+              onClick={() => void proposals.fetchNextPage({ cancelRefetch: false })}
             >
               继续读取提案
             </button>

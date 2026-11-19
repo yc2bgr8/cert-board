@@ -22,4 +22,4 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="接口与参考">接口与参考</h2>
 <ul><li>审核卡和提案决定沿用现有浏览器会话与版本检查。对话中的提案历史分页返回编号与状态。正文和联系人在单条提案中查阅。</li><li>证据布局参考 VisaFlow 的 <code>MaterialRecognitionDialog.tsx</code>。文件对比按 Craft <code>UnifiedDiffViewer.tsx</code> 的统一行布局适配已经分页的行数据。源码附出处，仓库内保留 Apache-2.0 LICENSE 和 NOTICE。</li><li>暂未实现的反馈、审批变体、原件与台账对比逐项记录在<a href="../待办.html">待办</a>。</li></ul>
 <h2 id="验收">验收</h2>
-<ul><li>lint、类型检查、396 项单元和构建通过。</li><li>41 项隔离库浏览器验收通过。L08 两处原文逐字核对、高亮可见、浏览器审核冻结、重复打开和重提差异均通过。提案拒绝后没有队列项，批准后产生一条 <code>local_test</code> 待处理记录。处理完的提案从待办移除，原对话仍可回看。浏览器真实外部请求、页面错误、内容安全策略违规和真实模型费用均为 0。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
+<ul><li>lint、类型检查、397 项单元和构建通过。提案列表首次读取期间收到的状态变化会在请求完成后补刷，补刷期间暂停分页。</li><li>41 项隔离库浏览器验收通过。L08 两处原文逐字核对、高亮可见、浏览器审核冻结、重复打开和重提差异均通过。提案拒绝后没有队列项，批准后产生一条 <code>local_test</code> 待处理记录。处理完的提案从待办移除，原对话仍可回看。浏览器真实外部请求、页面错误、内容安全策略违规和真实模型费用均为 0。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
