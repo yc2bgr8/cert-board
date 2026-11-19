@@ -417,7 +417,7 @@ export class ModelGateway {
     }
     if (signal?.aborted) {
       await this.releaseUnsent(context, signal);
-      throw rejected('MODEL_ABORTED', '运行已停止。模型请求未派发，已释放预占。', 409);
+      throw rejected('MODEL_ABORTED', '运行已停止。模型请求未派发。', 409);
     }
     let raw: unknown;
     const estimatedLocalUsage = {

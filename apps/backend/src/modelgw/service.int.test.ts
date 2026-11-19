@@ -460,7 +460,7 @@ test('最终路由检查期间取消时按未发送释放预占，保留计量�
   try {
     await expect(
       gateway.complete(request, caller, controller.signal, async () => undefined),
-    ).rejects.toMatchObject({ code: 'MODEL_ABORTED' });
+    ).rejects.toMatchObject({ code: 'MODEL_ABORTED', message: '运行已停止。模型请求未派发。' });
     expect(routeChecks).toBe(3);
     expect(source.calls()).toBe(0);
     expect(

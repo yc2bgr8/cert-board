@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { isAlias, isNode, parseAllDocuments, visit } from 'yaml';
-import { modelGatewayConfigSchema, type ModelGatewayConfig } from '@cert-board/shared';
+import {
+  modelGatewayConfigSchema,
+  selectGatewayModel,
+  type ModelGatewayConfig,
+} from '@cert-board/shared';
 
 export type {
   GatewayModelConfig,
@@ -140,12 +144,13 @@ export async function loadModelGatewayConfig(
   }
 }
 
-export function loadVerificationModelGatewayConfig(options: ModelConfigLoadOptions = {}) {
+export async function loadVerificationModelGatewayConfig(options: ModelConfigLoadOptions = {}) {
   const sourceEnv = options.sourceEnv ?? process.env;
-  if (
-    !sourceEnv.CERT_LOCAL_MODEL_BASE_URL?.trim() &&
-    !(sourceEnv.HTTPS_PROXY && sourceEnv.OPENROUTER_API_KEY)
-  )
-    return Promise.resolve(undefined);
-  return loadModelGatewayConfig({ ...options, sourceEnv });
+  const explicitlyConfigured =
+    sourceEnv.CERT_LOCAL_MODEL_BASE_URL?.trim() ||
+    (sourceEnv.HTTPS_PROXY && sourceEnv.OPENROUTER_API_KEY);
+  const configured = loadModelGatewayConfig({ ...options, sourceEnv });
+  if (explicitlyConfigured) return configured;
+  const models = await configured.catch(() => undefined);
+  return models && selectGatewayModel(models, 'agent')?.transport === 'local' ? models : undefined;
 }

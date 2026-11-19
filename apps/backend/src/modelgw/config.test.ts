@@ -1,4 +1,7 @@
 import { readFileSync } from 'node:fs';
+import { mkdtemp, rmdir, unlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { selectGatewayModel } from '@cert-board/shared';
 import {
@@ -105,7 +108,7 @@ describe('唯一YAML模型配置来源', () => {
     expect(production).not.toHaveProperty('developmentDefault');
   });
 
-  it('只使用 Cursor 的宿主进程无需加载远端或本地模型配置', async () => {
+  it('只使用 Cursor 的宿主进程在模型配置缺失时继续使用程序主持', async () => {
     const configPath = 'nonexistent-model-config-fixture';
     await expect(
       loadVerificationModelGatewayConfig({ configPath, environment: 'development', sourceEnv: {} }),
@@ -117,6 +120,27 @@ describe('唯一YAML模型配置来源', () => {
         sourceEnv: { CERT_LOCAL_MODEL_BASE_URL: 'http://127.0.0.1:3001/v1' },
       }),
     ).rejects.toBeInstanceOf(ModelConfigError);
+  });
+
+  it('核实主持识别只在 YAML 中设置的本地模型地址', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'cert-board-local-model-'));
+    const configPath = join(directory, 'models.yaml');
+    try {
+      await writeFile(
+        configPath,
+        source.replace('baseUrl: null', 'baseUrl: http://127.0.0.1:6451/v1'),
+        'utf8',
+      );
+      const config = await loadVerificationModelGatewayConfig({
+        configPath,
+        environment: 'development',
+        sourceEnv: {},
+      });
+      expect(config && selectGatewayModel(config, 'agent')?.id).toBe('deepseek-local');
+    } finally {
+      await unlink(configPath).catch(() => undefined);
+      await rmdir(directory);
+    }
   });
   it('拒绝重复键、别名、锚点、标签、多文档及未知字段', () => {
     for (const invalid of [
