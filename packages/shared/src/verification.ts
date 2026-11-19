@@ -52,6 +52,14 @@ export const verificationSettingsSchema = verificationSettingsInputSchema.extend
     .max(8),
 });
 export const verificationRoomStatusSchema = z.enum(['discussing', 'completed', 'paused']);
+export const verificationOriginSchema = z
+  .object({
+    kind: z.enum(['agent', 'review']),
+    conversationId: id,
+    runId: id,
+    reviewId: id.nullable(),
+  })
+  .strict();
 export const verificationRoomSchema = z
   .object({
     id,
@@ -65,6 +73,7 @@ export const verificationRoomSchema = z
     stoppedBy: note(120).nullable(),
     humanJoined: z.boolean(),
     updatedAt: instant,
+    origin: verificationOriginSchema.nullable().default(null),
   })
   .strict();
 export const verificationRoomPageSchema = z
@@ -168,6 +177,40 @@ export const verificationDetailSchema = z
   })
   .strict();
 export const verificationShareSchema = z.object({ conversationId: id, requestKey: id }).strict();
+export const verificationConsultInputSchema = z.object({ question: note(3000) }).strict();
+export const verificationReviewInputSchema = verificationConsultInputSchema.extend({
+  requestKey: id,
+});
+export const verificationTicketSchema = z
+  .object({
+    roomId: id,
+    status: z.enum(['waiting', 'unavailable']),
+    reason: note(240).nullable(),
+  })
+  .strict();
+export const verificationLinkListSchema = z
+  .array(
+    z
+      .object({
+        room: verificationRoomSchema,
+        result: z.enum(['pending', 'available', 'unavailable']),
+        summary: note(2000).nullable(),
+        sources: z.array(verificationSourceSchema).max(6),
+        counts: z
+          .object({
+            trusted: z.number().int().nonnegative(),
+            disputed: z.number().int().nonnegative(),
+            unverified: z.number().int().nonnegative(),
+            human: z.number().int().nonnegative(),
+          })
+          .strict(),
+      })
+      .strict(),
+  )
+  .max(20);
+export const verificationLinkPageSchema = z
+  .object({ items: verificationLinkListSchema, nextCursor: id.nullable() })
+  .strict();
 
 export type VerificationModel = z.infer<typeof verificationModelSchema>;
 export type VerificationMessage = z.infer<typeof verificationMessageSchema>;
@@ -180,3 +223,6 @@ export type VerificationSettings = z.infer<typeof verificationSettingsSchema>;
 export type VerificationSettingsInput = z.infer<typeof verificationSettingsInputSchema>;
 export type VerificationCreate = z.infer<typeof verificationCreateSchema>;
 export type VerificationMessageInput = z.infer<typeof verificationMessageInputSchema>;
+export type VerificationOrigin = z.infer<typeof verificationOriginSchema>;
+export type VerificationTicket = z.infer<typeof verificationTicketSchema>;
+export type VerificationLinkView = z.infer<typeof verificationLinkListSchema>[number];

@@ -7,7 +7,10 @@ import {
   type ModelGatewayConfig,
 } from '@cert-board/shared';
 import type { GatewayTransport } from '../modelgw/service.js';
-import { createBrowserReviewScript } from './browser-review-fixture.js';
+import {
+  browserVerificationUncertainty,
+  createBrowserReviewScript,
+} from './browser-review-fixture.js';
 
 export type BrowserScenario =
   | 'read'
@@ -19,7 +22,9 @@ export type BrowserScenario =
   | 'revision'
   | 'approval_text'
   | 'proposal'
-  | 'external_quote';
+  | 'external_quote'
+  | 'consult_verification'
+  | 'consult_verification_unavailable';
 export const browserModels: ModelGatewayConfig = {
   version: 1,
   models: [
@@ -68,8 +73,11 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
   if (process.env.NODE_ENV !== 'test') throw new Error('BROWSER_FIXTURE_TEST_ONLY');
   let phase = 0;
   const reviewScript =
-    kind === 'review' || kind === 'revision'
-      ? createBrowserReviewScript(kind === 'revision')
+    kind === 'review' || kind === 'revision' || kind === 'consult_verification_unavailable'
+      ? createBrowserReviewScript(
+          kind !== 'review',
+          kind === 'consult_verification_unavailable' ? browserVerificationUncertainty : undefined,
+        )
       : undefined;
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -83,6 +91,7 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
     calls: 0,
     toolNames: [] as string[][],
     latestUser: '',
+    reviewVerificationReceived: false,
     readPage: 0,
     failed: false,
   };
@@ -118,13 +127,36 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
           request.messages.filter((message) => message.role === 'user').at(-1)?.content ?? '';
         const latest = request.messages.at(-1);
         const previous: unknown = latest?.role === 'tool' ? JSON.parse(latest.content) : null;
-        if (kind === 'approval_text')
+        if (kind === 'approval_text') {
+          observed.reviewVerificationReceived = request.messages.some(
+            (message) =>
+              message.role === 'user' &&
+              message.content.startsWith('审核发起的外部核实资料（系统附加）') &&
+              message.content.includes('合成核实资料'),
+          );
           return response({
             role: 'assistant',
             content: '对话文字不能代替审批，请在审核卡上点击通过或退回修改。',
           });
+        }
         if (kind === 'external_quote')
           return response({ role: 'assistant', content: '已收到外部资料，待用项目资料核对。' });
+        if (kind === 'consult_verification') {
+          if (observed.calls === 1)
+            return call('consult_external_model', { question: '核实合成清单中的版本编号要求。' });
+          if (!JSON.stringify(previous).includes('人工补充：检查页码与版本。'))
+            throw new Error('BROWSER_VERIFICATION_HUMAN_INPUT_MISSING');
+          return response({
+            role: 'assistant',
+            content: '收到核实结论及人工补充，继续核查页码与版本。',
+          });
+        }
+        if (kind === 'consult_verification_unavailable') {
+          if (observed.calls === 1)
+            return call('consult_external_model', { question: '核实合成的对比器械编号。' });
+          if (observed.calls === 2 && !JSON.stringify(previous).includes('不确定事项'))
+            throw new Error('BROWSER_VERIFICATION_UNCERTAINTY_MISSING');
+        }
         if (reviewScript) {
           const action = reviewScript(previous);
           return call(action.name, action.input);

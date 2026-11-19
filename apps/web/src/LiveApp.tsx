@@ -130,7 +130,11 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const [collapsed, setCollapsed] = useState(false);
   const returnFocus = useRef<HTMLElement | null>(null);
   const sidebarVisible = narrow ? mobileOpen : !collapsed;
-  const notifications = useMemberNotifications();
+  const refreshVerification = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['live', 'linked-verifications'] });
+    void queryClient.invalidateQueries({ queryKey: ['live', 'review-verifications'] });
+  }, [queryClient]);
+  const notifications = useMemberNotifications(true, refreshVerification);
   const externalConversations = useInfiniteQuery({
     queryKey: ['live', 'verification-rooms', userId],
     queryFn: ({ pageParam, signal }) => api.verificationRooms(pageParam, '', signal),
@@ -297,6 +301,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           onOpenEvidence={openEvidence}
           onOpenDiff={openDiff}
           onOpenFile={openFile}
+          onOpenVerification={openVerification}
         />
       ),
     });
@@ -615,6 +620,12 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               userId={userId}
               roomId={externalId}
               onCreated={setExternalId}
+              onOpenOrigin={(id) => {
+                void api
+                  .conversation(id)
+                  .then(openConversation)
+                  .catch(() => undefined);
+              }}
               projects={availableProjects}
               loadMoreProjects={
                 projectsQuery.hasNextPage ? () => void projectsQuery.fetchNextPage() : undefined
@@ -886,6 +897,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               onReview={openReview}
               proposalNoticeKey={proposalNoticeKey}
               onProposal={openProposal}
+              onVerification={openVerification}
             />
           </div>
         )}

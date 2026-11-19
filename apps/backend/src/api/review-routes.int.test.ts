@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import { reviewSubmitResultSchema, reviewSections } from '@cert-board/shared';
+import {
+  reviewSubmitResultSchema,
+  reviewSections,
+  verificationLinkPageSchema,
+  verificationRoomSchema,
+} from '@cert-board/shared';
 import { createReviewTestContext } from '../reviews/test-support.js';
 import { checkSubmission } from '../checks/service.js';
 import { reviewContentHash } from '../reviews/content.js';
@@ -29,6 +34,41 @@ async function waitingCard() {
   });
   return { ...review, conversationId: run.conversation_id };
 }
+
+test('另一成员能发起核实，审核决定后只可读取和重放既有请求', async () => {
+  const review = await waitingCard();
+  const member = await context.login('MEMBER_B');
+  const url = `/api/reviews/${review.reviewId}/verification`;
+  const payload = { requestKey: randomUUID(), question: '核实合成版本编号。' };
+  const post = (body: typeof payload) =>
+    context.app.inject({ method: 'POST', url, headers: member.headers, payload: body });
+  const created = await post(payload);
+  expect(created.statusCode).toBe(200);
+  expect(verificationRoomSchema.parse(created.json()).origin).toEqual({
+    kind: 'review',
+    reviewId: review.reviewId,
+    conversationId: review.conversationId,
+    runId: context.caller.runId,
+  });
+  expect(
+    (
+      await context.app.inject({
+        method: 'POST',
+        url: `/api/reviews/${review.reviewId}/decision`,
+        headers: member.headers,
+        payload: decision(review),
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect((await post({ ...payload, requestKey: randomUUID() })).statusCode).toBe(409);
+  expect((await post(payload)).statusCode).toBe(200);
+  expect((await post({ ...payload, question: '改变原问题。' })).statusCode).toBe(409);
+  const history = await context.app.inject({ url: `${url}s`, headers: member.headers });
+  expect(history.statusCode).toBe(200);
+  expect(verificationLinkPageSchema.parse(history.json()).items.map(({ room }) => room.id)).toEqual(
+    [payload.requestKey],
+  );
+});
 
 test.each(['approved', 'rejected'] as const)(
   '另一成员%s审核后原子追加原run终态，通知可回放且重复决定不增序号',

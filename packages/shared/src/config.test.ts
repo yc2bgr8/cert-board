@@ -63,3 +63,19 @@ test('会话配置限制可信来源，生产环境必须使用HTTPS', () => {
     }).SESSION_TTL_HOURS,
   ).toBe(12);
 });
+test('隔离浏览器验收可用单独的回环端口，开发与生产继续校验原有来源', () => {
+  expect(
+    parseBackendConfig({ ...environment, NODE_ENV: 'test', WEB_ORIGIN: 'http://127.0.0.1:28180' })
+      .WEB_ORIGIN,
+  ).toBe('http://127.0.0.1:28180');
+  expect(() =>
+    parseBackendConfig({ ...environment, WEB_ORIGIN: 'http://127.0.0.1:28180' }),
+  ).toThrow('WEB_ORIGIN');
+  expect(() =>
+    parseBackendConfig({
+      ...environment,
+      NODE_ENV: 'test',
+      WEB_ORIGIN: 'http://example.invalid:28180',
+    }),
+  ).toThrow('WEB_ORIGIN');
+});

@@ -4,6 +4,13 @@ import type { DocumentCitation, ReviewCardView, ReviewDecisionInput } from '@cer
 import { SafeMarkdown } from '../SafeMarkdown.js';
 import { useBrowserCommand } from './ApprovalCard.js';
 import { api, errorMessage, isStaleError } from './api.js';
+import {
+  LinkedVerificationHistoryActions,
+  LinkedVerificationRows,
+  linkedVerificationsKey,
+  reviewVerificationsKey,
+  useLinkedVerifications,
+} from './LinkedVerifications.js';
 import type {
   EvidenceTarget,
   WorkspaceDiffTarget,
@@ -16,6 +23,7 @@ type Props = {
   onOpenEvidence(sources: EvidenceTarget[]): void;
   onOpenDiff(target: WorkspaceDiffTarget): void;
   onOpenFile(target: WorkspaceFileTarget): void;
+  onOpenVerification?(roomId: string): void;
 };
 
 const statusLabels = {
@@ -59,7 +67,13 @@ export function ReviewCard(props: Props) {
   return <ReviewCardContent key={props.reviewId} {...props} />;
 }
 
-function ReviewCardContent({ reviewId, onOpenEvidence, onOpenDiff, onOpenFile }: Props) {
+function ReviewCardContent({
+  reviewId,
+  onOpenEvidence,
+  onOpenDiff,
+  onOpenFile,
+  onOpenVerification,
+}: Props) {
   const client = useQueryClient();
   const reviewKey = ['live', 'review', reviewId];
   const review = useQuery({
@@ -68,6 +82,27 @@ function ReviewCardContent({ reviewId, onOpenEvidence, onOpenDiff, onOpenFile }:
     retry: false,
   });
   const card = review.data;
+  const linked = useLinkedVerifications(card && onOpenVerification ? reviewId : null, true);
+  const [askingVerification, setAskingVerification] = useState(false);
+  const [verificationQuestion, setVerificationQuestion] = useState('');
+  const verificationCommand = useBrowserCommand();
+  const unavailableVerification = linked.items.some(({ result }) => result === 'unavailable');
+
+  async function askVerification(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const question = verificationQuestion.trim();
+    if (!card || !question) return;
+    const result = await verificationCommand.run([reviewId, question], (requestKey) =>
+      api.verificationFromReview(reviewId, { question, requestKey }),
+    );
+    if (!result) return;
+    setAskingVerification(false);
+    setVerificationQuestion('');
+    await Promise.all([
+      client.invalidateQueries({ queryKey: reviewVerificationsKey(reviewId) }),
+      client.invalidateQueries({ queryKey: linkedVerificationsKey(card.conversationId) }),
+    ]);
+  }
   const projectId = card?.projectId ?? null;
   const workspace = useQuery({
     queryKey: ['live', 'review-workspace', projectId],
@@ -357,7 +392,9 @@ function ReviewCardContent({ reviewId, onOpenEvidence, onOpenDiff, onOpenFile }:
               并排查看两处依据
             </button>
           )}
-          {sources.length === 0 && <p className="live-review-meta">这份提交没有列出来源。</p>}
+          {sources.length === 0 && !linked.items.length && (
+            <p className="live-review-meta">这份提交没有列出来源。</p>
+          )}
           <ul className="live-review-evidence-list">
             {sources.map((ref) => (
               <li key={evidenceKey(ref)}>
@@ -373,6 +410,12 @@ function ReviewCardContent({ reviewId, onOpenEvidence, onOpenDiff, onOpenFile }:
               </li>
             ))}
           </ul>
+          {onOpenVerification && (
+            <>
+              <LinkedVerificationRows items={linked.items} open={onOpenVerification} inReview />
+              <LinkedVerificationHistoryActions query={linked} />
+            </>
+          )}
         </ReviewSection>
         <ReviewSection title="自检">
           <ul className="live-review-check-list">
@@ -405,7 +448,11 @@ function ReviewCardContent({ reviewId, onOpenEvidence, onOpenDiff, onOpenFile }:
           </details>
         </ReviewSection>
         <ReviewSection title="不确定事项">
-          {submission.uncertain.length + submission.missing.length === 0 ? (
+          {unavailableVerification && (
+            <p className="live-review-meta">外部核实暂不可用，相关事项保留待核实。</p>
+          )}
+          {submission.uncertain.length + submission.missing.length === 0 &&
+          !unavailableVerification ? (
             <p className="live-review-meta">未列出不确定事项。</p>
           ) : (
             <>
@@ -429,6 +476,42 @@ function ReviewCardContent({ reviewId, onOpenEvidence, onOpenDiff, onOpenFile }:
             </>
           )}
         </ReviewSection>
+        {askingVerification && onOpenVerification && (
+          <form
+            className="verification-review-form"
+            onSubmit={(event) => void askVerification(event)}
+          >
+            <label>
+              让Agent核实
+              <textarea
+                aria-label="需要核实的疑问"
+                value={verificationQuestion}
+                maxLength={3000}
+                required
+                onChange={(event) => setVerificationQuestion(event.target.value)}
+                placeholder="写下要核实的疑问…"
+              />
+            </label>
+            <div className="live-review-actions">
+              <button
+                className="live-review-primary"
+                type="submit"
+                disabled={!verificationQuestion.trim() || verificationCommand.busy}
+              >
+                发起核实
+              </button>
+              <button
+                className="live-review-neutral"
+                type="button"
+                onClick={() => setAskingVerification(false)}
+              >
+                取消
+              </button>
+            </div>
+            <small>结论会回到这条对话。</small>
+            {verificationCommand.error && <p role="alert">{verificationCommand.error}</p>}
+          </form>
+        )}
       </div>
       <footer className="live-review-footer">
         <h3 className="sr-only">操作</h3>
@@ -451,6 +534,15 @@ function ReviewCardContent({ reviewId, onOpenEvidence, onOpenDiff, onOpenFile }:
               >
                 退回修改
               </button>
+              {onOpenVerification && (
+                <button
+                  type="button"
+                  className="live-review-neutral"
+                  onClick={() => setAskingVerification(true)}
+                >
+                  让Agent核实
+                </button>
+              )}
             </div>
             {!workspace.data && !workspace.isError && (
               <p role="status" className="live-review-meta">

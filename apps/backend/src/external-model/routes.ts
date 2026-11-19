@@ -24,16 +24,19 @@ import {
   verificationRoomPageSchema,
   verificationSettingsInputSchema,
   verificationShareSchema,
+  verificationLinkPageSchema,
+  verificationReviewInputSchema,
   type BackendConfig,
   type BrowserIdentity,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { requireBrowserIdentity } from '../auth/session.js';
+import { authorize } from '../auth/authorization.js';
 import { usdToNano } from '../budget/meter.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import type { ExternalModelRuntime } from '../modelgw/external.js';
 import { ExternalModels } from './service.js';
-import { VerificationRooms } from './verification-service.js';
+import { VerificationRooms, verificationWorkerStateId } from './verification-service.js';
 import type { VerificationRuntime } from './verification-runtime.js';
 
 const identifier = z.object({ id: z.string().uuid() }).strict();
@@ -62,6 +65,7 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   blobStore?: DocumentBlobStore,
   runtime?: ExternalModelRuntime,
   verificationRuntime?: VerificationRuntime,
+  verificationPolling = false,
 ) {
   if (
     runtime &&
@@ -122,7 +126,107 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
     verification.kick(roomId, () => {
       app.log.warn({ event: 'verification_unavailable' }, '核实暂时暂停，请核对本地通道。');
     });
+  if (verificationRuntime && verificationPolling) {
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const pulse = async () => {
+      await pool.query(
+        `INSERT INTO verification_worker_state(id,worker_id,status) VALUES($1,$1,$2)
+         ON CONFLICT(id) DO UPDATE SET status=EXCLUDED.status,updated_at=clock_timestamp()`,
+        [verificationWorkerStateId, verificationRuntime.status],
+      );
+      await verification.wakeReady(() => undefined);
+    };
+    app.addHook('onReady', async () => {
+      await pulse();
+      timer = setInterval(() => {
+        void pulse().catch(() => undefined);
+      }, 500).unref();
+    });
+    app.addHook('preClose', async () => clearInterval(timer));
+  }
   app.addHook('onClose', async () => verification.close());
+  app.get('/api/conversations/:id/verifications', async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    return verificationLinkPageSchema.parse(
+      await verification.linkedRooms(await read(request), id(request), cursor(request)),
+    );
+  });
+  const reviewScope = async (
+    db: Pool | PoolClient,
+    actor: BrowserIdentity,
+    reviewId: string,
+    lock = false,
+  ) => {
+    const { rows } = await db.query<{
+      project_id: string;
+      run_id: string;
+      conversation_id: string;
+      owner_user_id: string;
+      status: string;
+    }>(
+      `SELECT c.project_id,c.run_id,c.conversation_id,c.status,p.owner_user_id
+       FROM review_card c JOIN cert_project p ON p.id=c.project_id WHERE c.id=$1${lock ? ' FOR UPDATE OF c' : ''}`,
+      [reviewId],
+    );
+    const review = rows[0];
+    if (
+      !review ||
+      !authorize(actor, 'review.decide', {
+        projectId: review.project_id,
+        ownerUserId: review.owner_user_id,
+        reviewKind: 'registration',
+      })
+    )
+      throw new AppError(404, 'REVIEW_NOT_FOUND', '没有找到可访问的审核卡。');
+    return review;
+  };
+  app.get('/api/reviews/:id/verifications', async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const actor = await read(request);
+    const reviewId = id(request);
+    const scope = await reviewScope(pool, actor, reviewId);
+    return verificationLinkPageSchema.parse(
+      await verification.linkedRooms(actor, scope.conversation_id, cursor(request), {
+        id: reviewId,
+        runId: scope.run_id,
+      }),
+    );
+  });
+  app.post('/api/reviews/:id/verification', bounds, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const room = await write(request, async (db, actor) => {
+      const input = checked(verificationReviewInputSchema, request.body);
+      const reviewId = id(request);
+      const review = await reviewScope(db, actor, reviewId, true);
+      if (
+        review.status !== 'pending' &&
+        !(
+          await db.query(
+            'SELECT room_id FROM verification_link WHERE review_id=$1 AND room_id=$2 AND requester=$3',
+            [reviewId, input.requestKey, actor.userId],
+          )
+        ).rowCount
+      )
+        throw new AppError(409, 'REVIEW_ALREADY_DECIDED', '该审核卡已处理，请刷新后查看核实历史。');
+      return verification.create(
+        db,
+        actor,
+        {
+          question: input.question,
+          requestKey: input.requestKey,
+          projectId: review.project_id,
+        },
+        {
+          kind: 'review',
+          conversationId: review.conversation_id,
+          runId: review.run_id,
+          reviewId,
+        },
+      );
+    });
+    schedule(room.id);
+    return room;
+  });
   app.get(`${verify}/settings`, async (request, reply) => {
     reply.header('cache-control', 'no-store');
     await read(request);

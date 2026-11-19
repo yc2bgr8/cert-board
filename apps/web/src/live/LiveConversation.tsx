@@ -19,6 +19,11 @@ import { runStateNames } from './RunDetails.js';
 import { ShellIcon } from './ShellIcon.js';
 import { ReferencePicker } from './ReferencePicker.js';
 import { proposalStatusLabels } from './ProposalCard.js';
+import {
+  LinkedVerificationHistoryActions,
+  LinkedVerificationRows,
+  useLinkedVerifications,
+} from './LinkedVerifications.js';
 import './conversation.css';
 
 const modes: Record<PermissionMode, { label: string; description: string }> = {
@@ -99,6 +104,7 @@ type ConversationProps = {
   onReview?: (id: string) => void;
   proposalNoticeKey?: string;
   onProposal?: (id: string) => void;
+  onVerification?: (id: string) => void;
 };
 
 export function LiveConversation(props: ConversationProps) {
@@ -113,7 +119,9 @@ function ConversationView({
   onReview,
   proposalNoticeKey = '',
   onProposal,
+  onVerification,
 }: ConversationProps) {
+  const linked = useLinkedVerifications(onVerification ? conversationId : null);
   const detail = useQuery({
     queryKey: ['live', 'conversation', conversationId],
     queryFn: ({ signal }) => api.conversation(conversationId, signal),
@@ -292,6 +300,12 @@ function ConversationView({
                   </Fragment>
                 ))}
                 {processIndex === -1 && <InlineExecution activities={entry.tools} />}
+                {onVerification && (
+                  <LinkedVerificationRows
+                    items={linked.items.filter(({ room }) => room.origin?.runId === id)}
+                    open={onVerification}
+                  />
+                )}
                 {(entry.status === 'stopped' || entry.status === 'budget_exhausted') && (
                   <section className="live-stop-report" aria-label="中途停止汇报">
                     <h2>运行已停止</h2>
@@ -321,6 +335,17 @@ function ConversationView({
               </div>
             );
           })}
+          {onVerification && (
+            <>
+              <LinkedVerificationRows
+                items={linked.items.filter(
+                  ({ room }) => !room.origin || !state.runOrder.includes(room.origin.runId),
+                )}
+                open={onVerification}
+              />
+              <LinkedVerificationHistoryActions query={linked} />
+            </>
+          )}
           {onProposal &&
             proposals.data?.pages
               .flatMap((result) => result.items)

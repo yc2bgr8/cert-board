@@ -47,6 +47,19 @@ export async function notifyRunStop(pool: Pool, runId: string, userId: string) {
   await pool.query('SELECT pg_notify($1,$2)', [RUN_CONTROL_CHANNEL, JSON.stringify(payload)]);
 }
 
+export async function stopRunVerifications(
+  db: Database,
+  { runId, conversationId, userId }: { runId: string; conversationId: string; userId: string },
+) {
+  await db.query(
+    `UPDATE external_model_conversation c SET stopped_by=$3,state='discussing',updated_at=clock_timestamp()
+     FROM verification_link l WHERE l.room_id=c.id AND l.kind='agent'
+       AND l.run_id=$1 AND l.conversation_id=$2 AND l.requester=$3
+       AND c.state<>'completed' AND c.stopped_by IS NULL`,
+    [runId, conversationId, userId],
+  );
+}
+
 export async function stopOwnedRun(tx: PoolClient, actor: BrowserIdentity, runId: string) {
   const run = await lockOwnedRun(tx, runId, actor.userId);
   await authorizeRunStop(tx, actor, runId);
@@ -57,6 +70,11 @@ export async function stopOwnedRun(tx: PoolClient, actor: BrowserIdentity, runId
      lease_owner=NULL,lease_expires_at=NULL,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$1`,
     [runId],
   );
+  await stopRunVerifications(tx, {
+    runId,
+    conversationId: run.conversation_id,
+    userId: actor.userId,
+  });
   await tx.query(
     `UPDATE run_continuation SET state='blocked',reason_code='CONTINUATION_STOPPED',
      version=version+1,finished_at=clock_timestamp(),updated_at=clock_timestamp()

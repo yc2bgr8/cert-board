@@ -316,7 +316,13 @@ function VerificationMembers({
         </section>
         <section>
           <h4>来源</h4>
-          <p>{room.startedBy} 发起</p>
+          <p>
+            {room.origin?.kind === 'agent'
+              ? `${hostLabel(room.host)} 自己发起`
+              : room.origin?.kind === 'review'
+                ? `${room.startedBy} 在审核时发起`
+                : `${room.startedBy} 发起`}
+          </p>
           {room.projectName && <p>{room.projectName}</p>}
         </section>
         <section>
@@ -459,7 +465,13 @@ export function VerificationWorkbench({
   projects,
   loadMoreProjects,
   onCreated,
-}: ProjectSelection & { userId: string; roomId: string | null; onCreated(id: string): void }) {
+  onOpenOrigin,
+}: ProjectSelection & {
+  userId: string;
+  roomId: string | null;
+  onCreated(id: string): void;
+  onOpenOrigin?(id: string): void;
+}) {
   const client = useQueryClient();
   const command = useBrowserCommand();
   const stop = useBrowserCommand();
@@ -577,6 +589,15 @@ export function VerificationWorkbench({
       <div className="verification-discussion">
         {room && (
           <div className="verification-toolbar">
+            {room.origin && onOpenOrigin && (
+              <button
+                type="button"
+                className="live-text-button"
+                onClick={() => onOpenOrigin(room.origin!.conversationId)}
+              >
+                打开原对话
+              </button>
+            )}
             <span
               className={`verification-badge ${room.status === 'paused' ? 'disputed' : 'host'}`}
             >

@@ -19,20 +19,20 @@ const databaseUrl = z
     }
   });
 
+const defaultWebOrigins = new Set([
+  'http://127.0.0.1:28080',
+  'http://localhost:28080',
+  'https://127.0.0.1:28080',
+  'https://localhost:28080',
+]);
+
 export const backendConfigSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     HOST: z.literal('127.0.0.1').default('127.0.0.1'),
     PORT: z.coerce.number().int().min(1024).max(65535).default(28081),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'silent']).default('info'),
-    WEB_ORIGIN: z
-      .enum([
-        'http://127.0.0.1:28080',
-        'http://localhost:28080',
-        'https://127.0.0.1:28080',
-        'https://localhost:28080',
-      ])
-      .default('http://127.0.0.1:28080'),
+    WEB_ORIGIN: z.string().default('http://127.0.0.1:28080'),
     SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(24).default(12),
     EXTERNAL_MODEL_MONTHLY_USD: decimalUsdSchema.default('20'),
     DATABASE_URL: databaseUrl,
@@ -54,6 +54,19 @@ export const backendConfigSchema = z
       .default('cert-board'),
   })
   .superRefine((config, context) => {
+    const isolatedPort = Number(
+      /^http:\/\/127\.0\.0\.1:([1-9][0-9]{3,4})$/u.exec(config.WEB_ORIGIN)?.[1],
+    );
+    if (
+      !defaultWebOrigins.has(config.WEB_ORIGIN) &&
+      !(
+        config.NODE_ENV === 'test' &&
+        process.env.NODE_ENV === 'test' &&
+        isolatedPort >= 1024 &&
+        isolatedPort <= 65535
+      )
+    )
+      context.addIssue({ code: 'custom', path: ['WEB_ORIGIN'], message: '浏览器来源不在允许范围' });
     if (config.NODE_ENV === 'production' && !config.WEB_ORIGIN.startsWith('https://')) {
       context.addIssue({ code: 'custom', path: ['WEB_ORIGIN'], message: '生产环境必须使用HTTPS' });
     }
