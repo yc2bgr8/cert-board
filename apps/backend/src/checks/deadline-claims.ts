@@ -16,18 +16,24 @@ const explicitDeadlineObject =
   /(?:截止(?:日(?:期)?|时间|点)?|到期(?:日(?:期)?|时间)?|最后期限|\bdeadline|\bdue date)\s*$/iu;
 const genericDateField = /^(?:日|日期|时间|时点|时刻|date|time)$/iu;
 const earlySubmissionDirective =
-  /(?:请于|应于|须于|必须在)([^，。；！？,;!?\n]{0,60})提前(?:提交|申报|办理)/iu;
+  /(?:请于|应于|须于|必须在)([^，。；！？,;!?\n]{0,60}?)提前(?:提交|申报|办理)/giu;
+const acceptanceCutoff = new RegExp(
+  `(?:${datedLanguage.source})\\s*(?:之后|以后|起)\\s*(?:将\\s*)?不再受理`,
+  'iu',
+);
 
 export function checkDeadlineClaims(submission: StructuredSubmission) {
   const issues: Issue[] = [];
   let ran = false;
   const assertsDeadline = (text: string) => {
-    const normalized = text.normalize('NFKC');
+    const normalized = text.normalize('NFKC').replace(/:\s*\n\s*/gu, ': ');
     return normalized.split(/[，。；！？,;!?\n]/u).some((clause) => {
-      const early = earlySubmissionDirective.exec(clause);
       return (
         (deadlineLanguage.test(clause) && datedLanguage.test(clause)) ||
-        Boolean(early?.[1] && datedLanguage.test(early[1]))
+        acceptanceCutoff.test(clause) ||
+        Array.from(clause.matchAll(earlySubmissionDirective)).some((match) =>
+          datedLanguage.test(match[1] ?? ''),
+        )
       );
     });
   };
