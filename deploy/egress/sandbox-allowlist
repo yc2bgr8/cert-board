@@ -1,0 +1,11 @@
+# v2 第 1.4 节批准的官方站点和 Python 包下载源。仅允许精确主机名。
+fda.gov
+www.fda.gov
+accessdata.fda.gov
+api.fda.gov
+ecfr.gov
+federalregister.gov
+regulations.gov
+accessgudid.nlm.nih.gov
+pypi.org
+files.pythonhosted.org

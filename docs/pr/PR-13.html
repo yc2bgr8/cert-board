@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-13 出网代理与网络分段</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#在独立环境验证">在独立环境验证</a><a class="level-2" href="#没做什么">没做什么</a><a class="level-2" href="#资料">资料</a></nav><main><h1 id="pr-13-出网代理与网络分段">PR-13 出网代理与网络分段</h1>
+<p>按执行方案 v0.4 的 PR-13、技术方案第 2.2、10.1 节，以及 v2 变更单第 1.4、1.5 节和附录 B.3 实施。容器部署使用独立的 <code>cert-board-isolated</code> Compose 项目和命名卷。</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>API、Agent worker、数据库和对象存储在隔离的内部网段。浏览器只经过发布到回环地址的 Nginx 入口。API 与 worker 没有宿主端口，模型网关在容器内只接受 <code>http://egress:3128</code>。</li><li>内部业务和沙箱分别连接独立的 Squid 入口。业务代理允许执行方案的四个主机；沙箱代理允许 v2 列出的官方域名和 Python 包下载源。两个代理仅接受白名单域名的 HTTPS CONNECT，拒绝私网、回环和保留地址。主模型仍使用自己的精确模型白名单。代理无业务凭据。</li><li>解析、沙箱与抓取的测试容器分别加入各自网段。开发中继只在入口网卡监听，转发至三个固定测试目标。默认启动容器工作台时没有这些测试入口。</li><li>Docker 构建仅复制应用、依赖清单、已登记 Agent 和技能以及部署配置。开发密钥、原始资料、测试快照及本机构建产物从上下文排除。</li><li>Windows 日常开发继续使用回环 API 和 <code>127.0.0.1:28085</code> 代理。Windows 上的 Cursor 核实仍沿用 v4 的受限宿主进程。Windows 开发模式的直接出网约束来自程序和代理配置，容器模式另外用网络结构隔离。</li></ul>
+<h2 id="在独立环境验证">在独立环境验证</h2>
+<pre><code>$env:CERT_ISOLATED_WEB_PORT=&#39;28186&#39;
+pnpm dev:isolated:up
+pnpm test:network</code></pre>
+<p><code>pnpm test:network</code> 启动单用途的无凭据探针与开发中继。它核对实际 Docker 网络和端口，验证 API 与 worker 直连公网失败、通过 Squid 可建立已验证证书的 TLS、非白名单被拒、沙箱和抓取网段无法直连 PostgreSQL、其他网段无法利用探针中继访问内部服务，以及本机经三个固定端口可访问对应探针。不会触发模型推理。</p>
+<p>本机 Docker 29.9.3 实测通过。API 和 worker 经业务代理验证 OpenRouter 证书；沙箱经专用代理验证 <code>pypi.org</code> 和 <code>files.pythonhosted.org</code> 的证书，并确认模型代理、未列入的主机、数据库 IP 与中继的内部监听均被阻断。解析、沙箱和抓取的三条固定回环转发返回各自的健康响应。外部 DNS 探针也在三个隔离网段失败。</p>
+<p>本地 <code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code>、<code>pnpm test:int</code>、<code>pnpm eval:agent</code>、隔离端口 <code>pnpm test:e2e</code> 和 <code>pnpm docs:html</code> 通过。覆盖 421 项单元测试、435 项集成测试、59 项浏览器检查和 30 项 Agent 剧本。新增真实模型调用 0 次，新增模型费用 0 美元。</p>
+<pre><code>wsl -d Ubuntu-24.04 -- docker logs cert-board-isolated-egress-1
+wsl -d Ubuntu-24.04 -- docker logs cert-board-isolated-sandbox-egress-1</code></pre>
+<p>代理日志可导出，仅含时间、方法、域名、端口、状态和结果码。依赖状态用 <code>pnpm dev:isolated:status</code> 查看，<code>pnpm dev:isolated:down</code> 只关闭隔离项目并保留卷。Windows 日常入口为 28080，隔离测网入口为 28186。浏览器受信任来源沿用 28080，隔离端口用于部署和网络验收。</p>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>解析、沙箱执行与抓取服务分别由 PR-17、PR-22 和 PR-40 接入。PR-13 用无凭据的测试服务验收网段和固定中继。</li><li>本机 Fake-IP 会让部分已批准官方域名暂时触发保留地址拦截。仅临时映射已核实的 OpenRouter 和 Python 下载源。官方站点在接入实际工具时再按各自的真实 DNS 与 TLS 核对。<a href="../../deploy/egress/README.html">代理排查</a></li><li>公司内的真实本地模型地址按 v2 X4 留空。PR-D3 先用模拟的 OpenAI 兼容端点验收，真实地址到位后登记。</li><li>容器部署当前用于本机回环，正式内网 HTTPS 入口依部署决定 D16 接入。新的隔离库执行迁移，L08 日常库和浏览器入口由当前开发环境继续提供。</li></ul>
+<h2 id="资料">资料</h2>
+<ul><li><a href="https://docs.docker.com/reference/compose-file/networks/#internal" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">Docker Compose 网络（外部链接）</a>和<a href="https://docs.docker.com/engine/network/port-publishing/" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">端口发布（外部链接）</a></li><li><a href="../../deploy/egress/README.html">PR-12 代理配置与 Fake-IP 排查</a></li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

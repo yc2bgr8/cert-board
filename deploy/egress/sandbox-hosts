@@ -1,0 +1,5 @@
+# 2026-11-19 本机 Fake-IP 环境的临时映射，仅用于已批准的 Python 包下载源。
+151.101.0.223 pypi.org files.pythonhosted.org
+151.101.64.223 pypi.org files.pythonhosted.org
+151.101.128.223 pypi.org files.pythonhosted.org
+151.101.192.223 pypi.org files.pythonhosted.org

@@ -82,7 +82,11 @@ export async function startWorker() {
     const allowedHosts = parseAllowedModelHosts(
       await readFile(new URL('../../../deploy/egress/allowlist', import.meta.url), 'utf8'),
     );
-    transport = new RealGatewayTransport({ proxyUrl: process.env.HTTPS_PROXY ?? '', allowedHosts });
+    transport = new RealGatewayTransport({
+      proxyUrl: process.env.HTTPS_PROXY ?? '',
+      containerRuntime: config.CONTAINER_RUNTIME,
+      allowedHosts,
+    });
     const gateway = new ModelGateway(resources.database, models, transport, {
       environment: config.NODE_ENV,
     });

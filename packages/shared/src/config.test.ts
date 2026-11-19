@@ -48,6 +48,15 @@ test('数据库主机别名和编码差异不能绕过测试库隔离', () => {
   ).toThrow(ConfigurationError);
 });
 
+test('仅明确的容器运行配置可申请绑定容器网卡', () => {
+  expect(
+    parseBackendConfig({ ...environment, CONTAINER_RUNTIME: 'docker', HOST: '0.0.0.0' }),
+  ).toMatchObject({ CONTAINER_RUNTIME: 'docker', HOST: '0.0.0.0' });
+  expect(() =>
+    parseBackendConfig({ ...environment, CONTAINER_RUNTIME: 'docker', HOST: '192.0.2.5' }),
+  ).toThrow('HOST');
+});
+
 test('会话配置限制可信来源，生产环境必须使用HTTPS', () => {
   expect(() =>
     parseBackendConfig({ ...environment, WEB_ORIGIN: 'http://untrusted.example' }),
