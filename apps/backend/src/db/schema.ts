@@ -131,6 +131,7 @@ export const auditLog = pgTable(
     targetId: varchar('target_id', { length: 255 }).notNull(),
     beforeHash: varchar('before_hash', { length: 64 }),
     afterHash: varchar('after_hash', { length: 64 }),
+    budgetReconciliationXid: varchar('budget_reconciliation_xid', { length: 20 }),
     ...timestamps(),
   },
   (table) => [
@@ -141,6 +142,10 @@ export const auditLog = pgTable(
     check('audit_log_action_not_blank', sql`length(btrim(${table.action})) > 0`),
     check('audit_log_target_type_not_blank', sql`length(btrim(${table.targetType})) > 0`),
     check('audit_log_target_id_not_blank', sql`length(btrim(${table.targetId})) > 0`),
+    check(
+      'audit_log_budget_reconciliation_xid_format',
+      sql`${table.budgetReconciliationXid} IS NULL OR (${table.action} = 'budget.reconciled' AND ${table.budgetReconciliationXid} ~ '^[0-9]{1,20}$')`,
+    ),
     check(
       'audit_log_before_hash_format',
       sql`${table.beforeHash} IS NULL OR ${table.beforeHash} ~ '^[0-9a-f]{64}$'`,

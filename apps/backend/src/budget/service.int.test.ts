@@ -354,7 +354,7 @@ test('还有在途预占时保留停机，重复原核账仅复核门禁', async
   );
 });
 
-test('提交核账必须在本事务写审计，不能借用原有的同指纹记录', async () => {
+test('核账拒绝旧事务审计，并接受本事务保存点内的审计', async () => {
   const input = await request();
   const reserved = await reserveUsage(context.pool, input);
   await markUsageIncomplete(context.pool, {
@@ -369,8 +369,7 @@ test('提交核账必须在本事务写审计，不能借用原有的同指纹�
     [reserved.id, auditHash],
   );
   const client = await context.pool.connect();
-  try {
-    await client.query('BEGIN');
+  const writeReconciliation = async () => {
     await client.query(
       "INSERT INTO budget_reconciliation(ledger_id,outcome,evidence,fingerprint) VALUES($1,'not_sent','旧审计隔离测试',$2)",
       [reserved.id, auditHash],
@@ -378,14 +377,32 @@ test('提交核账必须在本事务写审计，不能借用原有的同指纹�
     await client.query("UPDATE usage_ledger SET status='not_sent',actual_nano=0 WHERE id=$1", [
       reserved.id,
     ]);
+  };
+  try {
+    await client.query('BEGIN');
+    await writeReconciliation();
     await expect(client.query('COMMIT')).rejects.toMatchObject({ code: '23514' });
+    const summary = await getBudgetSummary(context.pool);
+    expect(summary.counts.unknown).toBe(1);
+    expect(summary.blockedReason).toBe('metering_incomplete');
+
+    await client.query('BEGIN');
+    await writeReconciliation();
+    await client.query('SAVEPOINT audit_write');
+    await client.query(
+      "INSERT INTO audit_log(actor_kind,action,target_type,target_id,after_hash) VALUES('system','budget.reconciled','usage_ledger',$1,$2)",
+      [reserved.id, auditHash],
+    );
+    await client.query('RELEASE SAVEPOINT audit_write');
+    await client.query('COMMIT');
   } finally {
     await client.query('ROLLBACK');
     client.release();
   }
-  const summary = await getBudgetSummary(context.pool);
-  expect(summary.counts.unknown).toBe(1);
-  expect(summary.blockedReason).toBe('metering_incomplete');
+  expect(
+    (await context.pool.query('SELECT status FROM usage_ledger WHERE id=$1', [reserved.id])).rows[0]
+      ?.status,
+  ).toBe('not_sent');
 });
 
 test.each(['manual_check', 'reservation_exceeded'] as const)(

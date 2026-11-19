@@ -164,6 +164,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "budget_reconciliation_xid": {
+          "name": "budget_reconciliation_xid",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -263,6 +269,10 @@
         "audit_log_target_id_not_blank": {
           "name": "audit_log_target_id_not_blank",
           "value": "length(btrim(\"audit_log\".\"target_id\")) > 0"
+        },
+        "audit_log_budget_reconciliation_xid_format": {
+          "name": "audit_log_budget_reconciliation_xid_format",
+          "value": "\"audit_log\".\"budget_reconciliation_xid\" IS NULL OR (\"audit_log\".\"action\" = 'budget.reconciled' AND \"audit_log\".\"budget_reconciliation_xid\" ~ '^[0-9]{1,20}$')"
         },
         "audit_log_before_hash_format": {
           "name": "audit_log_before_hash_format",

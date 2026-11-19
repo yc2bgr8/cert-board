@@ -1,3 +1,6 @@
+ALTER TABLE "audit_log" ADD COLUMN "budget_reconciliation_xid" varchar(20);--> statement-breakpoint
+ALTER TABLE "audit_log" ADD CONSTRAINT "audit_log_budget_reconciliation_xid_format" CHECK ("audit_log"."budget_reconciliation_xid" IS NULL OR ("audit_log"."action" = 'budget.reconciled' AND "audit_log"."budget_reconciliation_xid" ~ '^[0-9]{1,20}$'));
+--> statement-breakpoint
 CREATE TABLE "budget_reconciliation" (
 	"ledger_id" uuid PRIMARY KEY NOT NULL,
 	"outcome" varchar(24) NOT NULL,
@@ -44,6 +47,24 @@ BEFORE INSERT ON public.budget_reconciliation
 FOR EACH ROW EXECUTE FUNCTION public.require_unknown_budget_reconciliation();
 --> statement-breakpoint
 ALTER TABLE public.budget_reconciliation ENABLE ALWAYS TRIGGER budget_reconciliation_requires_unknown;
+--> statement-breakpoint
+
+CREATE FUNCTION public.stamp_budget_reconciliation_audit()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog
+AS $reconciliation_stamp$
+BEGIN
+    -- 保存点内的审计也属于当前顶层事务。
+    NEW.budget_reconciliation_xid := pg_current_xact_id()::text;
+    RETURN NEW;
+END;
+$reconciliation_stamp$;
+--> statement-breakpoint
+CREATE TRIGGER budget_reconciliation_audit_stamp
+BEFORE INSERT ON public.audit_log
+FOR EACH ROW WHEN (NEW.action='budget.reconciled')
+EXECUTE FUNCTION public.stamp_budget_reconciliation_audit();
+--> statement-breakpoint
+ALTER TABLE public.audit_log ENABLE ALWAYS TRIGGER budget_reconciliation_audit_stamp;
 --> statement-breakpoint
 
 CREATE OR REPLACE FUNCTION public.guard_usage_ledger()
@@ -122,7 +143,7 @@ BEGIN
         SELECT 1 FROM public.audit_log AS audit
         WHERE audit.actor_kind='system' AND audit.action='budget.reconciled' AND audit.target_type='usage_ledger'
           AND audit.target_id=NEW.ledger_id::text AND audit.after_hash=NEW.fingerprint
-          AND audit.xmin=pg_current_xact_id()::xid
+          AND audit.budget_reconciliation_xid=pg_current_xact_id()::text
     ) THEN
         RAISE EXCEPTION '核账依据必须与同一事务中的最终账目一致。' USING ERRCODE='23514';
     END IF;
