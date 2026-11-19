@@ -348,9 +348,9 @@ export const api = {
   },
   intakeReport: (id: string, signal?: AbortSignal) =>
     request('/api/intake/' + identifier(id), intakeReportSchema, signalOption(signal)),
-  intakeHistory: (projectId: string, signal?: AbortSignal) =>
+  intakeHistory: (projectId: string, cursor?: string, signal?: AbortSignal) =>
     request(
-      `/api/projects/${identifier(projectId)}/intakes`,
+      `/api/projects/${identifier(projectId)}/intakes` + search({ cursor }),
       intakeHistorySchema,
       signalOption(signal),
     ),

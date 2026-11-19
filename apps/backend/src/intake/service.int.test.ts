@@ -38,6 +38,7 @@ test('真实数据库接收浏览器资料包，保存重复路径及 eSTAR 子�
   try {
     const actor = await context.login();
     const content = Buffer.from('fictional content');
+    const nestedForm = Buffer.from('fictional embedded container');
     const zip = fixtureZip([
       { name: 'duplicate-without-extension.bin', bytes: content },
       { name: '目录/predicate.pdf', bytes: content },
@@ -76,6 +77,12 @@ test('真实数据库接收浏览器资料包，保存重复路径及 eSTAR 子�
             sha256: sha(content),
             bytes: content,
           },
+          {
+            name: 'unnamed-child.pdf',
+            sourceNames: [],
+            sha256: sha(nestedForm),
+            bytes: nestedForm,
+          },
         ],
       }),
     ).toBe(true);
@@ -83,8 +90,8 @@ test('真实数据库接收浏览器资料包，保存重复路径及 eSTAR 子�
     expect(pending.status).toBe('parsing');
     expect(pending.totals).toMatchObject({
       outerFiles: 3,
-      embeddedFiles: 1,
-      uniqueFiles: 2,
+      embeddedFiles: 2,
+      uniqueFiles: 3,
       duplicates: 2,
     });
     expect(pending.items.find((item) => item.embedded)).toMatchObject({
@@ -104,9 +111,18 @@ test('真实数据库接收浏览器资料包，保存重复路径及 eSTAR 子�
     ];
     expect(await processDocumentParseTask(context.pool, store, { parse })).toBe(true);
     expect(await processDocumentParseTask(context.pool, store, { parse })).toBe(true);
+    expect(await processDocumentParseTask(context.pool, store, { parse })).toBe(true);
     const ready = await get();
     expect(ready.status).toBe('complete');
-    expect(ready.totals).toMatchObject({ ready: 4, failed: 0 });
+    expect(ready.totals).toMatchObject({ ready: 5, failed: 0 });
+    expect(
+      (
+        await context.pool.query(
+          'SELECT t.format FROM document_parse_task t JOIN document_version v ON v.id=t.version_id WHERE v.original_sha256=$1',
+          [sha(nestedForm)],
+        )
+      ).rows[0],
+    ).toEqual({ format: 'estar' });
     const changed = await app.inject({
       method: 'PATCH',
       url: `/api/intake/${id}/category`,
@@ -122,7 +138,7 @@ test('真实数据库接收浏览器资料包，保存重复路径及 eSTAR 子�
     expect(
       (await context.pool.query('SELECT count(*)::int AS total FROM document_version')).rows[0]
         ?.total,
-    ).toBe(2);
+    ).toBe(3);
     const repeated = Buffer.from('fictional shared across separate packs');
     for (const suffix of ['one', 'two']) {
       const pending = await app.inject({
@@ -200,6 +216,21 @@ test('真实数据库接收浏览器资料包，保存重复路径及 eSTAR 子�
         expect.objectContaining({ path: 'usable.pdf', parseStatus: 'queued', errorCode: null }),
       ]),
     );
+    await context.pool.query(
+      `INSERT INTO intake_job(project_id,requested_by,name,sha256,byte_size,data_level)
+       SELECT $1,$2,'历史'||entry||'.zip',lpad(to_hex(entry),64,'0'),1,'internal'
+       FROM generate_series(1,51) entry`,
+      [context.projectId, context.userId('MEMBER_A')],
+    );
+    const history = `/api/projects/${context.projectId}/intakes`;
+    const firstPage = (await app.inject({ url: history, headers: actor.headers })).json();
+    expect(firstPage.items).toHaveLength(50);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+    const earlier = (
+      await app.inject({ url: history + '?cursor=' + firstPage.nextCursor, headers: actor.headers })
+    ).json();
+    expect(earlier.items).toEqual(expect.arrayContaining([{ id, name: 'demo.zip' }]));
+    expect(earlier.nextCursor).toBeNull();
   } finally {
     await app.close();
     await context.close();

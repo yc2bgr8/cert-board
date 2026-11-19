@@ -23,7 +23,7 @@ PDF_TEXT = "This fictional document contains more than forty readable characters
 DATASETS = b'<xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/"><xfa:data><sample>fixture</sample></xfa:data></xfa:datasets>'
 
 
-def sample_pdf(with_xfa=False, text_operator=None, field_value=None):
+def sample_pdf(with_xfa=False, text_operator=None, field_value=None, with_fda=False):
     writer = PdfWriter()
     page = writer.add_blank_page(width=612, height=792)
     font = writer._add_object(DictionaryObject({
@@ -41,9 +41,14 @@ def sample_pdf(with_xfa=False, text_operator=None, field_value=None):
     if with_xfa:
         packet = DecodedStreamObject()
         packet.set_data(DATASETS)
+        parts = [TextStringObject("datasets"), writer._add_object(packet)]
+        if with_fda:
+            template = DecodedStreamObject()
+            template.set_data(b"<template><desc>FDA eSTAR fictional fixture at fda.gov</desc></template>")
+            parts += [TextStringObject("template"), writer._add_object(template)]
         form = writer._add_object(DictionaryObject({
             NameObject("/Fields"): ArrayObject(),
-            NameObject("/XFA"): ArrayObject([TextStringObject("datasets"), writer._add_object(packet)]),
+            NameObject("/XFA"): ArrayObject(parts),
         }))
         writer.root_object[NameObject("/AcroForm")] = form
         writer.root_object[NameObject("/NeedsRendering")] = BooleanObject(True)
@@ -169,8 +174,8 @@ def test_encrypted_estar_extracts_xfa_and_deduplicates_attachments():
 
 
 def test_content_inspection_distinguishes_pdf_and_xfa_without_names():
-    for with_xfa, kind in [(False, "pdf"), (True, "estar")]:
-        source = sample_pdf(with_xfa=with_xfa)
+    for with_xfa, with_fda, kind in [(False, False, "pdf"), (True, False, "pdf"), (True, True, "estar")]:
+        source = sample_pdf(with_xfa=with_xfa, with_fda=with_fda)
         result = upload(source, "pdf", endpoint="inspect")
         assert result.status_code == 200
         assert result.json() == {"kind": kind, "byteSize": len(source), "sha256": sha256(source)}
@@ -329,6 +334,25 @@ def test_image_only_page_is_recognized_locally():
     assert page["method"] == "ocr"
     assert "DOCUMENT" in page["text"].upper()
     assert 0 < page["ocrScore"] <= 1
+
+
+def test_ocr_disables_runtime_telemetry_before_initializing_engine(monkeypatch):
+    import onnxruntime
+    import pypdfium2
+    import rapidocr_onnxruntime
+    from parsers import LocalOCR
+
+    order = []
+    monkeypatch.setattr(onnxruntime, "disable_telemetry_events", lambda: order.append("disabled"))
+
+    def make_engine(**_options):
+        order.append("engine")
+        return lambda _image: ([], 0)
+
+    monkeypatch.setattr(rapidocr_onnxruntime, "RapidOCR", make_engine)
+    with pypdfium2.PdfDocument(sample_pdf()) as document:
+        LocalOCR().recognize(document, 0)
+    assert order == ["disabled", "engine"]
 
 
 def test_request_limits_hash_and_document_errors_use_safe_codes():

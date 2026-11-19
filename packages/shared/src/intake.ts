@@ -45,6 +45,7 @@ const intakeName = z
 export const intakeHistorySchema = z
   .object({
     items: z.array(z.object({ id: z.string().uuid(), name: intakeName }).strict()).max(50),
+    nextCursor: z.string().uuid().nullable(),
   })
   .strict();
 const nonnegative = z.number().int().nonnegative().safe();

@@ -21,6 +21,7 @@ import openpyxl
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_raw
 from defusedxml.ElementTree import fromstring
+from defusedxml.common import DefusedXmlException
 from docx.text.paragraph import Paragraph
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from pypdf import PdfReader, _page
@@ -34,6 +35,7 @@ MAX_ATTACHMENT_BYTES = 80 * 1024 * 1024
 MAX_TEXT_BYTES = 6 * 1024 * 1024
 MAX_PAGES = 800
 MAX_XFA_BYTES = 5 * 1024 * 1024
+MAX_XFA_TEMPLATE_BYTES = 16 * 1024 * 1024
 OCR_THRESHOLD = 40
 LONG_SIDE = 1600
 MAX_OCR_SIDE = 3600
@@ -118,6 +120,9 @@ class LocalOCR:
 
     def recognize(self, pdf, index):
         if self.engine is None:
+            import onnxruntime
+
+            onnxruntime.disable_telemetry_events()
             from rapidocr_onnxruntime import RapidOCR
 
             self.engine = RapidOCR(intra_op_num_threads=1, inter_op_num_threads=1)
@@ -150,8 +155,28 @@ def inspect_pdf(data):
     reader = pdf_reader(data)
     reference = reader.root_object.get("/AcroForm")
     form = reference.get_object() if reference is not None else None
-    return {"sha256": sha256(data), "byteSize": len(data),
-            "kind": "estar" if isinstance(form, DictionaryObject) and "/XFA" in form else "pdf"}
+    template = b""
+    reference = form.get("/XFA") if isinstance(form, DictionaryObject) else None
+    value = reference.get_object() if reference is not None else None
+    if isinstance(value, ArrayObject):
+        for index in range(0, len(value) - 1, 2):
+            if str(value[index].get_object()) == "template":
+                packet = value[index + 1].get_object()
+                if isinstance(packet, StreamObject):
+                    template = packet.get_data()
+                break
+    elif isinstance(value, StreamObject):
+        content = value.get_data()
+        if len(content) <= MAX_XFA_TEMPLATE_BYTES:
+            with suppress(DefusedXmlException, ElementTree.ParseError):
+                root = fromstring(content, forbid_dtd=True)
+                for element in root.iter():
+                    if element.tag.rsplit("}", 1)[-1] == "template":
+                        template = ElementTree.tostring(element, encoding="utf-8")
+                        break
+    template = template.lower() if len(template) <= MAX_XFA_TEMPLATE_BYTES else b""
+    fda_template = b"estar" in template and (b"fda.gov" in template or b"food and drug administration" in template)
+    return {"sha256": sha256(data), "byteSize": len(data), "kind": "estar" if fda_template else "pdf"}
 
 
 def parse_pdf(data, kind, ocr, deadline):

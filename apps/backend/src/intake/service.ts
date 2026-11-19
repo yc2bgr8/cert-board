@@ -182,7 +182,7 @@ async function expandedFiles(
       attachments: Awaited<ReturnType<IntakeParser['estarAttachments']>>;
     }
   >();
-  for (const file of [...files]) {
+  for (const file of files) {
     signal?.throwIfAborted();
     if (file.format !== 'pdf' || !file.bytes.length) continue;
     const digest = hash(file.bytes);
@@ -192,7 +192,7 @@ async function expandedFiles(
       await renew(pool, job);
       try {
         result.format = await parser.inspectPdf(file.bytes, digest, signal);
-        if (result.format === 'estar')
+        if (result.format === 'estar' && file.parentPath === null)
           result.attachments = await parser.estarAttachments(file.bytes, digest, signal);
       } catch (error) {
         if (!(error instanceof AppError) || error.statusCode === 429 || error.statusCode >= 500)
@@ -203,6 +203,7 @@ async function expandedFiles(
     }
     file.format = result.format;
     file.errorCode = result.errorCode;
+    if (file.parentPath !== null) continue;
     for (const attachment of result.attachments) {
       expandedBytes += attachment.bytes.length;
       if (expandedBytes > maximumExpandedBytes || files.length >= maximumIntakeItems)
@@ -433,13 +434,25 @@ export async function readIntakeReport(
   });
 }
 
-export async function listIntakes(pool: Pool, actor: ServiceIdentity, projectId: string) {
+export async function listIntakes(
+  pool: Pool,
+  actor: ServiceIdentity,
+  projectId: string,
+  cursor?: string,
+) {
   await getProject(pool, actor, projectId);
-  const result = await pool.query(
-    'SELECT id,name FROM intake_job WHERE project_id=$1 ORDER BY created_at DESC,id DESC LIMIT 50',
-    [projectId],
+  const result = await pool.query<{ id: string; name: string }>(
+    `SELECT j.id,j.name FROM intake_job j WHERE j.project_id=$1
+     AND ($2::uuid IS NULL OR (j.created_at,j.id)<(
+       SELECT marker.created_at,marker.id FROM intake_job marker WHERE marker.id=$2 AND marker.project_id=$1
+     )) ORDER BY j.created_at DESC,j.id DESC LIMIT 51`,
+    [projectId, cursor ?? null],
   );
-  return intakeHistorySchema.parse({ items: result.rows });
+  const items = result.rows.slice(0, 50);
+  return intakeHistorySchema.parse({
+    items,
+    nextCursor: result.rows.length > 50 ? items.at(-1)!.id : null,
+  });
 }
 
 export async function retryIntake(pool: Pool, actor: ServiceIdentity, id: string) {

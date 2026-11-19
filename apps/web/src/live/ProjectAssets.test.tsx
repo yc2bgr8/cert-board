@@ -34,7 +34,7 @@ function show(content: React.ReactNode) {
 }
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.intakeHistory.mockResolvedValue({ items: [] });
+  mocks.intakeHistory.mockResolvedValue({ items: [], nextCursor: null });
   mocks.workspace.mockResolvedValue({ id: workspaceId, currentVersionId: currentId });
   mocks.workspaceVersions.mockResolvedValue({
     items: [

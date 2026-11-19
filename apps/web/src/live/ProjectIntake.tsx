@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DataLevel, IntakeCategory } from '@cert-board/shared';
 import { api, ApiError, currentSessionGeneration, errorMessage } from './api.js';
 import { packageIntakeFolder } from './intake-folder.js';
@@ -34,12 +34,14 @@ export function ProjectIntake({ projectId, userId }: { projectId: string; userId
   const [selection, setSelection] = useState<{ file: File } | { folder: File[] }>();
   const [selectedJob, setSelectedJob] = useState<string>();
   const historyKey = ['live', 'intake-history', userId, projectId];
-  const history = useQuery({
+  const history = useInfiniteQuery({
     queryKey: historyKey,
-    queryFn: ({ signal }) => api.intakeHistory(projectId, signal),
+    queryFn: ({ pageParam, signal }) => api.intakeHistory(projectId, pageParam, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     retry: false,
   });
-  const jobs = history.data?.items ?? [];
+  const jobs = history.data?.pages.flatMap((page) => page.items) ?? [];
   const jobId = selectedJob ?? jobs[0]?.id;
   const upload = useMutation({
     mutationFn: async ({
@@ -171,6 +173,16 @@ export function ProjectIntake({ projectId, userId }: { projectId: string; userId
             </select>
           </label>
         </p>
+      )}
+      {history.hasNextPage && (
+        <button
+          type="button"
+          className="live-secondary"
+          disabled={history.isFetchingNextPage}
+          onClick={() => void history.fetchNextPage()}
+        >
+          加载更早报告
+        </button>
       )}
       {(upload.error || report.error || edit.error || history.error || retry.error) && (
         <p className="live-error live-page-message" role="alert">

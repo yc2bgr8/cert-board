@@ -23,6 +23,7 @@ import {
 } from './service.js';
 
 const idParams = z.object({ id: z.string().uuid() });
+const historyQuery = z.object({ cursor: z.string().uuid().optional() }).strict();
 function idFrom(parameters: unknown) {
   const id = idParams.safeParse(parameters);
   if (!id.success) throw new AppError(400, 'INTAKE_ID_INVALID', '导入任务或项目编号无效。');
@@ -47,8 +48,11 @@ export function registerIntakeRoutes<Logger extends FastifyBaseLogger>(
   });
   app.get('/api/projects/:id/intakes', async (request, reply) => {
     const actor = await requireBrowserIdentity(request, pool, config);
+    const query = historyQuery.safeParse(request.query);
+    if (!query.success)
+      throw new AppError(400, 'INTAKE_CURSOR_INVALID', '历史分页位置无效，请刷新列表。');
     reply.header('cache-control', 'no-store');
-    return listIntakes(pool, actor, idFrom(request.params));
+    return listIntakes(pool, actor, idFrom(request.params), query.data.cursor);
   });
   app.post('/api/intake/:id/retry', async (request, reply) => {
     const actor = await requireBrowserIdentity(request, pool, config, { write: true });
