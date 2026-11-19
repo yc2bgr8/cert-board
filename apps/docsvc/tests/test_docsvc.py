@@ -184,10 +184,12 @@ def test_encrypted_estar_extracts_xfa_and_deduplicates_attachments():
 def test_content_inspection_distinguishes_pdf_and_xfa_without_names():
     fda = '<template><desc><b>FDA</b> eSTAR fictional fixture at fda.gov.</desc></template>'
     ordinary = b"<template><desc>restart at fda.gov</desc></template>"
+    split_word = b"<template><desc><b>not</b>eSTAR at fda.gov</desc></template>"
     samples = [
         (sample_pdf(), "pdf"),
         (sample_pdf(with_xfa=True), "pdf"),
         (sample_pdf(with_xfa=True, xfa_template=ordinary), "pdf"),
+        (sample_pdf(with_xfa=True, xfa_template=split_word), "pdf"),
         (sample_pdf(with_xfa=True, xfa_template=fda.encode("utf-16")), "estar"),
         (sample_pdf(with_xfa=True, xfa_template=fda.encode()), "estar"),
     ]
@@ -213,17 +215,30 @@ def test_template_and_envelope_limits_are_independent_and_apply_during_decode(mo
 
 
 def test_bounded_flate_decoding_applies_prediction():
-    from parsers import bounded_xfa_data
+    import pytest
+    from parsers import DocError, bounded_xfa_data
 
     template = b"<template>fictional XML</template>"
     stream = DecodedStreamObject()
     stream.set_data(b"\0" + template)
     encoded = stream.flate_encode()
-    encoded[NameObject("/DecodeParms")] = DictionaryObject({
+    writer = PdfWriter()
+    encoded[NameObject("/Filter")] = ArrayObject([writer._add_object(NameObject("/FlateDecode"))])
+    parameters = DictionaryObject({
         NameObject("/Predictor"): NumberObject(12),
         NameObject("/Columns"): NumberObject(len(template)),
     })
-    assert bounded_xfa_data(encoded, 100) == template
+    encoded[NameObject("/DecodeParms")] = parameters
+    assert bounded_xfa_data(encoded, len(template)) == template
+    parameters[NameObject("/Predictor")] = TextStringObject("invalid fixture")
+    with pytest.raises(DocError) as invalid:
+        bounded_xfa_data(encoded, len(template))
+    assert invalid.value.code == "DOC_XFA_INVALID"
+    parameters[NameObject("/Predictor")] = NumberObject(12)
+    encoded._data = encoded._data[:-2]
+    with pytest.raises(DocError) as truncated:
+        bounded_xfa_data(encoded, len(template))
+    assert truncated.value.code == "DOC_XFA_INVALID"
 
 
 def test_filled_pdf_form_is_drawn_in_page_preview():

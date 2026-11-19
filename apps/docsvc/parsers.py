@@ -10,6 +10,7 @@ import signal
 import subprocess
 import tempfile
 import unicodedata
+import zlib
 from contextlib import ExitStack, closing, suppress
 from pathlib import Path
 from time import monotonic
@@ -26,6 +27,7 @@ from docx.text.paragraph import Paragraph
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from pypdf import PdfReader, _page, apply_configuration
 from pypdf.errors import LimitReachedError, PdfReadError
+from pypdf.filters import FlateDecode
 from pypdf.generic import ArrayObject, DictionaryObject, StreamObject
 
 
@@ -160,12 +162,35 @@ def bounded_xfa_data(stream, limit):
     filters = [str(item.get_object()) for item in value] if isinstance(value, ArrayObject) else [str(value)] if value is not None else []
     if filters and filters not in (["/FlateDecode"], ["/Fl"]):
         raise DocError("DOC_XFA_TEMPLATE_FILTER")
+    raw = stream._data  # pypdf 7.1.1 的 PDF 流此处已解密。
+    if not isinstance(raw, bytes):
+        raise DocError("DOC_XFA_INVALID")
+    if not filters:
+        if len(raw) > limit:
+            raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
+        return raw
+    reference = stream.get("/DecodeParms")
+    parameters = reference.get_object() if reference is not None else None
+    if isinstance(parameters, ArrayObject):
+        parameters = parameters[0].get_object() if parameters else None
+    predictor = parameters.get("/Predictor", 1) if isinstance(parameters, DictionaryObject) else 1
+    if not isinstance(predictor, int) or predictor not in (1, 2, 10, 11, 12, 13, 14, 15):
+        raise DocError("DOC_XFA_INVALID")
+    # PNG Predictor 最多为每字节增加一个行标记。
+    intermediate_limit = 2 * limit if predictor >= 10 else limit
     try:
-        with apply_configuration(zlib_maximum_output_length=limit):
-            data = stream.get_data()
+        inflater = zlib.decompressobj()
+        data = inflater.decompress(raw, intermediate_limit + 1)
+        if len(data) > intermediate_limit or inflater.unconsumed_tail:
+            raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
+        if not inflater.eof:
+            raise DocError("DOC_XFA_INVALID")
+        if predictor != 1:
+            with apply_configuration(zlib_maximum_output_length=intermediate_limit + 1):
+                data = FlateDecode.decode(raw, parameters)
     except LimitReachedError as error:
         raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413) from error
-    except PdfReadError as error:
+    except (PdfReadError, zlib.error, TypeError, ValueError, IndexError, ArithmeticError) as error:
         raise DocError("DOC_XFA_INVALID") from error
     if len(data) > limit:
         raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
@@ -203,10 +228,11 @@ def inspect_pdf(data):
     template = xfa_template(form)
     has_estar = has_fda = False
     if template is not None:
-        for element in template.iter():
-            for value in (element.text or "", element.tail or "", *element.attrib.values()):
-                has_estar = has_estar or bool(ESTAR_MARKER.search(value))
-                has_fda = has_fda or bool(FDA_MARKER.search(value))
+        values = ["".join(template.itertext())]
+        values.extend(value for element in template.iter() for value in element.attrib.values())
+        for value in values:
+            has_estar = has_estar or bool(ESTAR_MARKER.search(value))
+            has_fda = has_fda or bool(FDA_MARKER.search(value))
             if has_estar and has_fda:
                 break
     return {"sha256": sha256(data), "byteSize": len(data), "kind": "estar" if has_estar and has_fda else "pdf"}
