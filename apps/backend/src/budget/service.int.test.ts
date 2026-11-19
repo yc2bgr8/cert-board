@@ -6,6 +6,7 @@ import {
   reserveUsage,
   settleUsage,
   markUsageIncomplete,
+  reconcileUsage,
   recordCumulativeUsage,
   getBudgetSummary,
 } from './service.js';
@@ -87,6 +88,12 @@ test('实际缓存用量精确结算，重复回执和Pi累计快照不会重复
   };
   const first = await settleUsage(context.pool, usage);
   expect(first.actualNano).toBe('100000000');
+  await expect(
+    context.pool.query(
+      "INSERT INTO budget_reconciliation(ledger_id,outcome,evidence,fingerprint) VALUES($1,'charged','已结算记录追加依据测试',$2)",
+      [first.id, 'b'.repeat(64)],
+    ),
+  ).rejects.toMatchObject({ code: '42501' });
   expect((await settleUsage(context.pool, usage)).replayed).toBe(true);
   await expect(settleUsage(context.pool, { ...usage, outputTokens: 1001 })).rejects.toMatchObject({
     code: 'BUDGET_SETTLEMENT_CONFLICT',
@@ -201,6 +208,236 @@ test('发送后未知用量保留全部预占并全局停止，后补费用不�
   expect(summary.nightReservedNano).toBe('0');
   expect(summary.blockedReason).toBe('metering_incomplete');
 });
+
+test.each([
+  {
+    outcome: 'charged',
+    actualCostNano: '12000000',
+    inputTokens: 1000,
+    cacheReadTokens: 300,
+    outputTokens: 100,
+  },
+  { outcome: 'not_sent' },
+  { outcome: 'reserved_estimate' },
+] as const)('核账 $outcome 写入财务结果与审计，重复操作不改账', async (outcome) => {
+  const input = await request();
+  const reserved = await reserveUsage(context.pool, input);
+  await markUsageIncomplete(context.pool, {
+    requestKey: input.requestKey,
+    runId: input.runId,
+    userId: input.userId,
+    reasonCode: 'request_uncertain',
+  });
+  const command = { ledgerId: reserved.id, evidence: '隔离测试证据', ...outcome };
+  const expected =
+    outcome.outcome === 'charged'
+      ? '12000000'
+      : outcome.outcome === 'reserved_estimate'
+        ? '200000000'
+        : '0';
+  const result = await reconcileUsage(context.pool, command);
+  expect(result).toMatchObject({
+    ledgerId: reserved.id,
+    outcome: outcome.outcome,
+    costNano: expected,
+    blockedReason: null,
+    replayed: false,
+  });
+  expect(await reconcileUsage(context.pool, command)).toMatchObject({ ...result, replayed: true });
+  await expect(
+    reconcileUsage(context.pool, { ...command, evidence: '改写既有依据' }),
+  ).rejects.toMatchObject({ code: 'BUDGET_RECONCILIATION_CONFLICT' });
+  const stored = (
+    await context.pool.query(
+      'SELECT actual_nano,input_tokens,cache_read_tokens,output_tokens,settled_by_estimate,status FROM usage_ledger WHERE id=$1',
+      [reserved.id],
+    )
+  ).rows[0]!;
+  expect(stored.actual_nano).toBe(expected);
+  expect(stored.input_tokens).toBe(outcome.outcome === 'charged' ? '1000' : null);
+  expect(stored.cache_read_tokens).toBe(outcome.outcome === 'charged' ? '300' : null);
+  expect(stored.output_tokens).toBe(outcome.outcome === 'charged' ? '100' : null);
+  expect(stored.settled_by_estimate).toBe(outcome.outcome === 'reserved_estimate');
+  expect(stored.status).toBe(outcome.outcome === 'not_sent' ? 'not_sent' : 'settled');
+  expect(
+    (
+      await context.pool.query(
+        'SELECT outcome,evidence FROM budget_reconciliation WHERE ledger_id=$1',
+        [reserved.id],
+      )
+    ).rows,
+  ).toEqual([{ outcome: outcome.outcome, evidence: '隔离测试证据' }]);
+  expect(
+    (
+      await context.pool.query(
+        "SELECT id FROM audit_log WHERE target_id=$1 AND action='budget.reconciled'",
+        [reserved.id],
+      )
+    ).rowCount,
+  ).toBe(1);
+  await expect(
+    context.pool.query("UPDATE budget_reconciliation SET evidence='覆盖记录' WHERE ledger_id=$1", [
+      reserved.id,
+    ]),
+  ).rejects.toMatchObject({ code: '42501' });
+  const summary = await getBudgetSummary(context.pool);
+  expect(summary.nightReservedNano).toBe('0');
+  expect(summary.nightCostNano).toBe(expected);
+  expect(summary.nightEstimatedNano).toBe(outcome.outcome === 'reserved_estimate' ? expected : '0');
+});
+
+test('还有未知调用时保持计量停止，全部核对后只允许新运行', async () => {
+  const inputs = await Promise.all([request(), request()]);
+  const reserved = [];
+  for (const input of inputs) reserved.push(await reserveUsage(context.pool, input));
+  for (const input of inputs) {
+    await markUsageIncomplete(context.pool, {
+      requestKey: input.requestKey,
+      runId: input.runId,
+      userId: input.userId,
+      reasonCode: 'timeout',
+    });
+  }
+  const command = { outcome: 'not_sent', evidence: '隔离测试证据' };
+  expect(
+    await reconcileUsage(context.pool, { ...command, ledgerId: reserved[0]!.id }),
+  ).toMatchObject({ blockedReason: 'metering_incomplete' });
+  expect((await getBudgetSummary(context.pool)).counts.unknown).toBe(1);
+  expect(
+    await reconcileUsage(context.pool, { ...command, ledgerId: reserved[1]!.id }),
+  ).toMatchObject({ blockedReason: null });
+  const runs = await context.pool.query('SELECT status FROM run WHERE id=ANY($1::uuid[])', [
+    inputs.map((input) => input.runId),
+  ]);
+  expect(runs.rows.map((item) => item.status)).toEqual(['budget_exhausted', 'budget_exhausted']);
+  expect(await reserveUsage(context.pool, await request())).toMatchObject({
+    dispatchAllowed: true,
+  });
+});
+
+test('还有在途预占时保留停机，重复原核账仅复核门禁', async () => {
+  const missing = await request();
+  const inFlight = await request();
+  const reserved = await reserveUsage(context.pool, missing);
+  await reserveUsage(context.pool, inFlight);
+  await markUsageIncomplete(context.pool, {
+    requestKey: missing.requestKey,
+    runId: missing.runId,
+    userId: missing.userId,
+    reasonCode: 'missing_usage',
+  });
+  await expect(
+    context.pool.query(
+      "INSERT INTO budget_reconciliation(ledger_id,outcome,evidence,fingerprint) VALUES($1,'not_sent','独立写入测试',$2)",
+      [reserved.id, 'a'.repeat(64)],
+    ),
+  ).rejects.toMatchObject({ code: '23514' });
+  const command = { ledgerId: reserved.id, outcome: 'not_sent', evidence: '隔离测试未发送' };
+  await expect(reconcileUsage(context.pool, command)).resolves.toMatchObject({
+    blockedReason: 'metering_incomplete',
+  });
+  await settleUsage(context.pool, {
+    requestKey: inFlight.requestKey,
+    runId: inFlight.runId,
+    userId: inFlight.userId,
+    inputTokens: 1,
+    cacheReadTokens: 0,
+    outputTokens: 1,
+    actualCostNano: '50000',
+  });
+  await expect(reconcileUsage(context.pool, command)).resolves.toMatchObject({
+    blockedReason: null,
+    replayed: true,
+  });
+  expect((await context.pool.query('SELECT ledger_id FROM budget_reconciliation')).rowCount).toBe(
+    1,
+  );
+});
+
+test('核账拒绝旧事务审计，并接受本事务保存点内的审计', async () => {
+  const input = await request();
+  const reserved = await reserveUsage(context.pool, input);
+  await markUsageIncomplete(context.pool, {
+    requestKey: input.requestKey,
+    runId: input.runId,
+    userId: input.userId,
+    reasonCode: 'timeout',
+  });
+  const auditHash = 'd'.repeat(64);
+  await context.pool.query(
+    "INSERT INTO audit_log(actor_kind,action,target_type,target_id,after_hash) VALUES('system','budget.reconciled','usage_ledger',$1,$2)",
+    [reserved.id, auditHash],
+  );
+  const client = await context.pool.connect();
+  const writeReconciliation = async () => {
+    await client.query(
+      "INSERT INTO budget_reconciliation(ledger_id,outcome,evidence,fingerprint) VALUES($1,'not_sent','旧审计隔离测试',$2)",
+      [reserved.id, auditHash],
+    );
+    await client.query("UPDATE usage_ledger SET status='not_sent',actual_nano=0 WHERE id=$1", [
+      reserved.id,
+    ]);
+  };
+  try {
+    await client.query('BEGIN');
+    await writeReconciliation();
+    await expect(client.query('COMMIT')).rejects.toMatchObject({ code: '23514' });
+    const summary = await getBudgetSummary(context.pool);
+    expect(summary.counts.unknown).toBe(1);
+    expect(summary.blockedReason).toBe('metering_incomplete');
+
+    await client.query('BEGIN');
+    await writeReconciliation();
+    await client.query('SAVEPOINT audit_write');
+    await client.query(
+      "INSERT INTO audit_log(actor_kind,action,target_type,target_id,after_hash) VALUES('system','budget.reconciled','usage_ledger',$1,$2)",
+      [reserved.id, auditHash],
+    );
+    await client.query('RELEASE SAVEPOINT audit_write');
+    await client.query('COMMIT');
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
+  expect(
+    (await context.pool.query('SELECT status FROM usage_ledger WHERE id=$1', [reserved.id])).rows[0]
+      ?.status,
+  ).toBe('not_sent');
+});
+
+test.each(['manual_check', 'reservation_exceeded'] as const)(
+  '核账保留 %s 安全门并拒绝覆写已完成计量',
+  async (blocker) => {
+    const input = await request();
+    const reserved = await reserveUsage(context.pool, input);
+    await markUsageIncomplete(context.pool, {
+      requestKey: input.requestKey,
+      runId: input.runId,
+      userId: input.userId,
+      reasonCode: 'missing_usage',
+    });
+    if (blocker === 'manual_check')
+      await context.pool.query(
+        "UPDATE budget_policy SET blocked_reason='manual_check' WHERE id='default'",
+      );
+    const command = {
+      ledgerId: reserved.id,
+      outcome: 'charged',
+      actualCostNano: '250000000',
+      inputTokens: 1000,
+      cacheReadTokens: 0,
+      outputTokens: 100,
+      evidence: '隔离测试核对结果',
+    };
+    expect(await reconcileUsage(context.pool, command)).toMatchObject({
+      blockedReason: blocker,
+      costNano: '250000000',
+    });
+    await expect(
+      context.pool.query('UPDATE usage_ledger SET actual_nano=1 WHERE id=$1', [reserved.id]),
+    ).rejects.toMatchObject({ code: '42501' });
+  },
+);
 
 test('实际费用超预占仍如实入账并冻结，不因运行已停止丢账', async () => {
   const input = await request();

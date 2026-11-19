@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { GatewayContext, ModelGatewayConfig } from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
-import { seedDevelopmentBudgetPolicy, getBudgetSummary } from '../budget/service.js';
+import {
+  seedDevelopmentBudgetPolicy,
+  getBudgetSummary,
+  reconcileUsage,
+} from '../budget/service.js';
 import { ModelGateway, type GatewayTransport, type UpstreamChatRequest } from './service.js';
 
 let context: Awaited<ReturnType<typeof createIntegrationContext>>;
@@ -380,6 +384,156 @@ test('调用前已经取消不会预占或发出请求', async () => {
   expect((await getBudgetSummary(context.pool)).counts.reserved).toBe(0);
 });
 
+test('同一网关在持久核账完成后才能派发新运行', async () => {
+  let calls = 0;
+  const handler: GatewayTransport = {
+    kind: 'fixture',
+    async send() {
+      calls++;
+      return calls === 1 ? response({ usage: undefined }) : response();
+    },
+  };
+  const gateway = new ModelGateway(context.pool, configuration, handler, { environment: 'test' });
+  await expect(gateway.complete(request, caller)).rejects.toMatchObject({
+    code: 'MODEL_USAGE_INCOMPLETE',
+  });
+  const ledger = (
+    await context.pool.query<{ id: string }>('SELECT id FROM usage_ledger WHERE request_key=$1', [
+      caller.requestKey,
+    ])
+  ).rows[0]!;
+  await expect(
+    gateway.complete(request, { ...caller, requestKey: randomUUID() }),
+  ).rejects.toMatchObject({ code: 'MODEL_METERING_BLOCKED' });
+  expect(calls).toBe(1);
+  await reconcileUsage(context.pool, {
+    ledgerId: ledger.id,
+    outcome: 'reserved_estimate',
+    evidence: '隔离测试按预占核账',
+  });
+  const fresh = await context.run();
+  await expect(
+    gateway.complete(request, {
+      ...caller,
+      requestKey: randomUUID(),
+      runId: fresh.runId,
+      conversationId: fresh.conversationId,
+      userId: fresh.userId,
+    }),
+  ).resolves.toMatchObject({ usage: { costNano: '1000000' } });
+  expect(calls).toBe(2);
+  expect((await getBudgetSummary(context.pool)).settledEstimatedCount).toBe(1);
+});
+
+test('另一调用冻结网关后，已预占但尚未派发的请求以未发送入账', async () => {
+  let resumeFirst!: () => void;
+  let resumeSecond!: () => void;
+  let firstSending!: () => void;
+  let secondReady!: () => void;
+  const firstReached = new Promise<void>((resolve) => {
+    firstSending = resolve;
+  });
+  const secondReached = new Promise<void>((resolve) => {
+    secondReady = resolve;
+  });
+  const firstGate = new Promise<void>((resolve) => {
+    resumeFirst = resolve;
+  });
+  const secondGate = new Promise<void>((resolve) => {
+    resumeSecond = resolve;
+  });
+  let calls = 0;
+  const handler: GatewayTransport = {
+    kind: 'fixture',
+    async send() {
+      calls++;
+      if (calls === 1) {
+        firstSending();
+        await firstGate;
+        return response({ usage: undefined });
+      }
+      return response();
+    },
+  };
+  const gateway = new ModelGateway(context.pool, configuration, handler, { environment: 'test' });
+  const run = await context.run();
+  const secondCaller: GatewayContext = {
+    ...caller,
+    requestKey: randomUUID(),
+    runId: run.runId,
+    conversationId: run.conversationId,
+    userId: run.userId,
+  };
+  const code = (promise: Promise<unknown>) =>
+    promise.then(
+      () => 'succeeded',
+      (error: { code?: string }) => error.code,
+    );
+  const first = code(gateway.complete(request, caller));
+  let second: Promise<string | undefined> | undefined;
+  try {
+    await firstReached;
+    second = code(
+      gateway.complete(request, secondCaller, undefined, async () => {
+        secondReady();
+        await secondGate;
+      }),
+    );
+    await secondReached;
+    resumeFirst();
+    expect(await first).toBe('MODEL_USAGE_INCOMPLETE');
+    resumeSecond();
+    expect(await second).toBe('MODEL_METERING_BLOCKED');
+    expect(calls).toBe(1);
+    const {
+      id,
+      status,
+      actual_nano: cost,
+    } = (
+      await context.pool.query<{ id: string; status: string; actual_nano: string }>(
+        'SELECT id,status,actual_nano FROM usage_ledger WHERE request_key=$1',
+        [secondCaller.requestKey],
+      )
+    ).rows[0]!;
+    expect({ status, cost }).toEqual({ status: 'not_sent', cost: '0' });
+    expect(
+      (
+        await context.pool.query(
+          "SELECT id FROM audit_log WHERE target_id=$1 AND action='budget.not_dispatched'",
+          [id],
+        )
+      ).rowCount,
+    ).toBe(1);
+    const ledgerId = (
+      await context.pool.query<{ id: string }>('SELECT id FROM usage_ledger WHERE request_key=$1', [
+        caller.requestKey,
+      ])
+    ).rows[0]!.id;
+    await expect(
+      reconcileUsage(context.pool, {
+        ledgerId,
+        outcome: 'reserved_estimate',
+        evidence: '隔离测试按预占核账',
+      }),
+    ).resolves.toMatchObject({ blockedReason: null });
+    const fresh = await context.run();
+    await expect(
+      gateway.complete(request, {
+        ...caller,
+        requestKey: randomUUID(),
+        runId: fresh.runId,
+        conversationId: fresh.conversationId,
+        userId: fresh.userId,
+      }),
+    ).resolves.toMatchObject({ usage: { costNano: '1000000' } });
+    expect(calls).toBe(2);
+  } finally {
+    resumeFirst();
+    resumeSecond();
+    await Promise.all([first, second]);
+  }
+});
+
 test.each([false, true])(
   '结算存储失败时拒绝再派发，即使unknown登记也失败=%s',
   async (blockUnknown) => {
@@ -492,14 +646,22 @@ test('另一请求已预占并通过路由时，计量双重存储失败仍阻�
     releaseRouting();
     expect(await second).toBe('MODEL_METERING_BLOCKED');
     expect(calls).toBe(1);
-    const rows = await context.pool.query<{ status: string; actual_nano: string | null }>(
-      'SELECT status,actual_nano FROM usage_ledger WHERE request_key=ANY($1::uuid[])',
+    const rows = await context.pool.query<{
+      request_key: string;
+      status: string;
+      actual_nano: string | null;
+    }>(
+      'SELECT request_key,status,actual_nano FROM usage_ledger WHERE request_key=ANY($1::uuid[])',
       [[caller.requestKey, secondCaller.requestKey]],
     );
-    expect(rows.rows).toEqual([
-      { status: 'reserved', actual_nano: null },
-      { status: 'reserved', actual_nano: null },
-    ]);
+    expect(rows.rows.find((row) => row.request_key === caller.requestKey)).toMatchObject({
+      status: 'reserved',
+      actual_nano: null,
+    });
+    expect(rows.rows.find((row) => row.request_key === secondCaller.requestKey)).toMatchObject({
+      status: 'not_sent',
+      actual_nano: '0',
+    });
   } finally {
     releaseResponse();
     releaseRouting();

@@ -76,6 +76,42 @@ export const budgetSettleSchema = z
   .strict()
   .refine((value) => value.cacheReadTokens <= value.inputTokens, '缓存 token 不能多于输入 token。');
 export type BudgetSettle = z.infer<typeof budgetSettleSchema>;
+const reconciliationIdentity = {
+  ledgerId: id,
+  evidence: z
+    .string()
+    .trim()
+    .min(1, '请填写核账依据。')
+    .max(500, '核账依据不能超过 500 字。')
+    .refine(
+      (value) =>
+        [...value].every((character) => {
+          const code = character.codePointAt(0)!;
+          return code >= 32 && (code < 127 || code >= 160) && code !== 0x2028 && code !== 0x2029;
+        }),
+      '核账依据必须为一行说明。',
+    ),
+};
+export const budgetReconcileSchema = z
+  .discriminatedUnion('outcome', [
+    z
+      .object({
+        ...reconciliationIdentity,
+        outcome: z.literal('charged'),
+        actualCostNano: nanoAmountSchema,
+        inputTokens: count,
+        cacheReadTokens: count,
+        outputTokens: count,
+      })
+      .strict(),
+    z.object({ ...reconciliationIdentity, outcome: z.literal('not_sent') }).strict(),
+    z.object({ ...reconciliationIdentity, outcome: z.literal('reserved_estimate') }).strict(),
+  ])
+  .refine(
+    (value) => value.outcome !== 'charged' || value.cacheReadTokens <= value.inputTokens,
+    '缓存 token 不能多于输入 token。',
+  );
+export type BudgetReconciliationInput = z.infer<typeof budgetReconcileSchema>;
 export const budgetIncompleteSchema = z
   .object({ ...requestIdentity, reasonCode: budgetIncompleteReasonSchema })
   .strict();

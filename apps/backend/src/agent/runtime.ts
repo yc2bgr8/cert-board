@@ -165,7 +165,8 @@ export async function readRunUsage(pool: Pool, runId: string) {
   const row = (
     await pool.query<{ calls: string; tokens: string; cost: string; pending: string }>(
       `SELECT COUNT(*)::text AS calls,
-    COALESCE(SUM(input_tokens+output_tokens) FILTER(WHERE status='settled'),0)::text AS tokens,
+    COALESCE(SUM(COALESCE(input_tokens+output_tokens,estimated_input_tokens+max_output_tokens))
+      FILTER(WHERE status='settled'),0)::text AS tokens,
     COALESCE(SUM(actual_nano) FILTER(WHERE status='settled'),0)::text AS cost,
     COUNT(*) FILTER(WHERE status IN ('reserved','unknown'))::text AS pending FROM usage_ledger WHERE run_id=$1`,
       [runId],

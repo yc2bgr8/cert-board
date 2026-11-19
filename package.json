@@ -30,6 +30,7 @@
     "db:seed": "node --env-file=.env.local --import tsx apps/backend/src/db/cli.ts seed",
     "db:setup": "node --env-file=.env.local --import tsx apps/backend/src/db/cli.ts setup",
     "budget:status": "node --import tsx apps/backend/src/budget/cli.ts",
+    "budget:reconcile": "node --import tsx apps/backend/src/budget/cli.ts reconcile",
     "requests:purge": "node --import tsx apps/backend/src/runs/purge-cli.ts",
     "dev:up": "node scripts/dev.mjs up",
     "dev:down": "node scripts/dev.mjs down",

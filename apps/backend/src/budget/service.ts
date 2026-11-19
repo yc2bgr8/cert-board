@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from 'pg';
 import {
   budgetReserveSchema,
   budgetSettleSchema,
+  budgetReconcileSchema,
   budgetIncompleteSchema,
   budgetPricesSchema,
   budgetReservationSchema,
@@ -295,9 +296,11 @@ async function recordHandoffFailure(pool: Pool, runId?: string) {
 export async function handoffBlockedBudgetRuns(pool: Pool) {
   const outcome = { stopped: 0, failed: 0, hasMore: false };
   try {
-    const found = await pool.query<{ blocked_reason: string | null; environment: string }>(
-      "SELECT blocked_reason,environment FROM budget_policy WHERE id='default'",
-    );
+    const found = await pool.query<{
+      blocked_reason: string | null;
+      environment: string;
+      version: number;
+    }>("SELECT blocked_reason,environment,version FROM budget_policy WHERE id='default'");
     const configured = found.rows[0];
     if (!configured?.blocked_reason) return outcome;
     if (configured.environment !== (process.env.NODE_ENV ?? 'production')) {
@@ -329,6 +332,11 @@ export async function handoffBlockedBudgetRuns(pool: Pool) {
           async (tx) => {
             await tx.query("SET LOCAL lock_timeout='500ms'");
             await tx.query("SET LOCAL statement_timeout='2000ms'");
+            const stillBlocked = await tx.query(
+              "SELECT id FROM budget_policy WHERE id='default' AND version=$1 AND blocked_reason=$2 FOR SHARE",
+              [configured.version, configured.blocked_reason],
+            );
+            if (!stillBlocked.rowCount) return 0;
             // 逐个新事务按 user→goal→conversation→run 加锁，不带入任何前一运行的锁。
             await runContext(tx, { runId: candidate.id, userId: candidate.user_id }, false);
             return stop(tx, candidate.id, reason);
@@ -360,8 +368,8 @@ async function totals(
   }>(
     `SELECT COALESCE(SUM(CASE WHEN status='settled' THEN actual_nano ELSE 0 END),0)::text AS charged,
     COALESCE(SUM(CASE WHEN status IN ('reserved','unknown') THEN reserved_nano ELSE 0 END),0)::text AS reserved,
-    COALESCE(SUM(CASE WHEN status='settled' THEN input_tokens+output_tokens WHEN status IN ('reserved','unknown') THEN estimated_input_tokens+max_output_tokens ELSE 0 END),0)::text AS tokens,
-    COALESCE(SUM(CASE WHEN status='settled' THEN input_tokens+output_tokens ELSE 0 END),0)::text AS settled_tokens,
+    COALESCE(SUM(CASE WHEN status='settled' THEN COALESCE(input_tokens+output_tokens,estimated_input_tokens+max_output_tokens) WHEN status IN ('reserved','unknown') THEN estimated_input_tokens+max_output_tokens ELSE 0 END),0)::text AS tokens,
+    COALESCE(SUM(CASE WHEN status='settled' THEN COALESCE(input_tokens+output_tokens,estimated_input_tokens+max_output_tokens) ELSE 0 END),0)::text AS settled_tokens,
     COALESCE(SUM(CASE WHEN status IN ('reserved','unknown') THEN estimated_input_tokens+max_output_tokens ELSE 0 END),0)::text AS reserved_tokens
     FROM usage_ledger WHERE policy_id='default' AND ${column}=$1`,
     [value],
@@ -667,6 +675,161 @@ export async function markUsageIncomplete(pool: Pool, input: unknown) {
   });
 }
 
+export async function markUsageNotDispatched(pool: Pool, input: unknown) {
+  const reference = referenceSchema.safeParse(input);
+  if (!reference.success) throw invalid();
+  return transaction(pool, async (tx) => {
+    await policy(tx);
+    await runContext(tx, reference.data, false);
+    const row = await ledger(tx, reference.data);
+    if (row.status === 'not_sent') return;
+    if (row.status !== 'reserved')
+      throw fail(409, 'BUDGET_STATE_CONFLICT', '无法确认预占仍未发送，请核对账本。');
+    await tx.query(
+      "UPDATE usage_ledger SET status='not_sent',actual_nano=0,updated_at=CURRENT_TIMESTAMP WHERE id=$1",
+      [row.id],
+    );
+    await tx.query(
+      "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system','budget.not_dispatched','usage_ledger',$1)",
+      [row.id],
+    );
+  });
+}
+
+export async function meteringCanResume(pool: Pool, ledgerIds: string[], environment: string) {
+  const result = await pool.query<{ resolved: number }>(
+    `SELECT COUNT(*)::integer AS resolved FROM usage_ledger u
+     JOIN budget_policy p ON p.id=u.policy_id
+     WHERE p.id='default' AND p.environment=$2 AND p.blocked_reason IS NULL
+       AND u.id=ANY($1::uuid[]) AND u.status IN ('settled','not_sent')`,
+    [ledgerIds, environment],
+  );
+  return result.rows[0]?.resolved === ledgerIds.length;
+}
+
+async function resolveMeteringStop(tx: PoolClient, configured: Policy) {
+  if (configured.blocked_reason !== 'metering_incomplete') return configured.blocked_reason;
+  const pending = await tx.query(
+    "SELECT id FROM usage_ledger WHERE policy_id=$1 AND status IN ('unknown','reserved') LIMIT 1",
+    [configured.id],
+  );
+  if (pending.rowCount) return configured.blocked_reason;
+
+  const month = await currentMonth(tx);
+  const overage = await tx.query(
+    `SELECT id FROM usage_ledger WHERE policy_id=$1 AND status='settled'
+     AND (month_key=$2 OR night_key=$3) AND actual_nano>reserved_nano LIMIT 1`,
+    [configured.id, month, configured.night_key],
+  );
+  const monthly = await totals(tx, 'month_key', month);
+  const nightly = await totals(tx, 'night_key', configured.night_key);
+  let reason: string | null = null;
+  if (overage.rowCount) reason = 'reservation_exceeded';
+  else if (monthly.occupied >= BigInt(configured.month_limit_nano)) reason = 'month_limit';
+  else if (nightly.occupied >= BigInt(configured.night_limit_nano)) reason = 'night_limit';
+
+  await tx.query(
+    'UPDATE budget_policy SET blocked_reason=$1,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$2',
+    [reason, configured.id],
+  );
+  await tx.query(
+    "INSERT INTO audit_log(actor_kind,action,target_type,target_id,before_hash,after_hash) VALUES('system','budget.reconciliation_policy_changed','budget_policy',$1,$2,$3)",
+    [
+      configured.id,
+      fingerprint({ blockedReason: configured.blocked_reason }),
+      fingerprint({ blockedReason: reason }),
+    ],
+  );
+  return reason;
+}
+
+export async function reconcileUsage(pool: Pool, input: unknown) {
+  const parsed = budgetReconcileSchema.safeParse(input);
+  if (!parsed.success)
+    throw fail(400, 'BUDGET_RECONCILIATION_INVALID', '核账参数无效，请检查账本编号、结果和依据。');
+  const data = parsed.data;
+  const commandFingerprint = fingerprint(data);
+  return transaction(pool, async (tx) => {
+    const configured = await policy(tx);
+    const row = (
+      await tx.query<Ledger>('SELECT * FROM usage_ledger WHERE id=$1 AND policy_id=$2 FOR UPDATE', [
+        data.ledgerId,
+        configured.id,
+      ])
+    ).rows[0];
+    if (!row) throw fail(404, 'BUDGET_LEDGER_NOT_FOUND', '找不到该预算账本记录，请核对编号。');
+    const previous = (
+      await tx.query<{ fingerprint: string }>(
+        'SELECT fingerprint FROM budget_reconciliation WHERE ledger_id=$1',
+        [row.id],
+      )
+    ).rows[0];
+    if (previous?.fingerprint === commandFingerprint) {
+      const blockedReason = await resolveMeteringStop(tx, configured);
+      return {
+        ledgerId: row.id,
+        outcome: data.outcome,
+        costNano: row.actual_nano!,
+        blockedReason,
+        replayed: true,
+      };
+    }
+    if (previous || row.status !== 'unknown')
+      throw fail(
+        409,
+        'BUDGET_RECONCILIATION_CONFLICT',
+        '只能核对未知用量，已经结算的记录不能改写。请核对账本编号和原核账依据。',
+      );
+
+    const costNano =
+      data.outcome === 'charged'
+        ? data.actualCostNano
+        : data.outcome === 'reserved_estimate'
+          ? row.reserved_nano
+          : '0';
+    const usage =
+      data.outcome === 'charged'
+        ? {
+            inputTokens: data.inputTokens,
+            cacheReadTokens: data.cacheReadTokens,
+            outputTokens: data.outputTokens,
+          }
+        : { inputTokens: null, cacheReadTokens: null, outputTokens: null };
+    const settlementFingerprint =
+      data.outcome === 'charged'
+        ? fingerprint({ ...usage, actualCostNano: costNano })
+        : commandFingerprint;
+    await tx.query(
+      'INSERT INTO budget_reconciliation(ledger_id,outcome,evidence,fingerprint) VALUES($1,$2,$3,$4)',
+      [row.id, data.outcome, data.evidence, commandFingerprint],
+    );
+    await tx.query(
+      `UPDATE usage_ledger SET status=$1,actual_nano=$2,input_tokens=$3,cache_read_tokens=$4,
+       output_tokens=$5,settlement_fingerprint=$6,settled_by_estimate=$7,updated_at=CURRENT_TIMESTAMP WHERE id=$8`,
+      [
+        data.outcome === 'not_sent' ? 'not_sent' : 'settled',
+        costNano,
+        usage.inputTokens,
+        usage.cacheReadTokens,
+        usage.outputTokens,
+        settlementFingerprint,
+        data.outcome === 'reserved_estimate',
+        row.id,
+      ],
+    );
+    await tx.query(
+      "INSERT INTO audit_log(actor_kind,action,target_type,target_id,before_hash,after_hash) VALUES('system','budget.reconciled','usage_ledger',$1,$2,$3)",
+      [
+        row.id,
+        fingerprint({ status: row.status, reservedNano: row.reserved_nano }),
+        commandFingerprint,
+      ],
+    );
+    const blockedReason = await resolveMeteringStop(tx, configured);
+    return { ledgerId: row.id, outcome: data.outcome, costNano, blockedReason, replayed: false };
+  });
+}
+
 export async function recordCumulativeUsage(pool: Pool, reference: unknown, snapshot: unknown) {
   const identity = contextSchema.safeParse(reference),
     parsed = cumulativeUsageSchema.safeParse(snapshot);
@@ -721,19 +884,28 @@ export async function getBudgetSummary(pool: Pool) {
   const rows = await pool.query<{
     month_cost: string;
     month_reserved: string;
+    month_estimated: string;
     night_cost: string;
     night_reserved: string;
+    night_estimated: string;
     reserved: string;
     settled: string;
     unknown: string;
     not_sent: string;
+    settled_estimated: string;
   }>(
     `SELECT
     COALESCE(SUM(actual_nano) FILTER(WHERE status='settled' AND month_key=$1),0)::text AS month_cost,
     COALESCE(SUM(reserved_nano) FILTER(WHERE status IN ('reserved','unknown') AND month_key=$1),0)::text AS month_reserved,
+    COALESCE(SUM(actual_nano) FILTER(WHERE settled_by_estimate AND month_key=$1),0)::text AS month_estimated,
     COALESCE(SUM(actual_nano) FILTER(WHERE status='settled' AND night_key=$2),0)::text AS night_cost,
     COALESCE(SUM(reserved_nano) FILTER(WHERE status IN ('reserved','unknown') AND night_key=$2),0)::text AS night_reserved,
-    COUNT(*) FILTER(WHERE status='reserved')::text AS reserved,COUNT(*) FILTER(WHERE status='settled')::text AS settled,COUNT(*) FILTER(WHERE status='unknown')::text AS unknown,COUNT(*) FILTER(WHERE status='not_sent')::text AS not_sent
+    COALESCE(SUM(actual_nano) FILTER(WHERE settled_by_estimate AND night_key=$2),0)::text AS night_estimated,
+    COUNT(*) FILTER(WHERE status='reserved')::text AS reserved,
+    COUNT(*) FILTER(WHERE status='settled')::text AS settled,
+    COUNT(*) FILTER(WHERE status='unknown')::text AS unknown,
+    COUNT(*) FILTER(WHERE status='not_sent')::text AS not_sent,
+    COUNT(*) FILTER(WHERE settled_by_estimate)::text AS settled_estimated
     FROM usage_ledger WHERE policy_id='default'`,
     [monthKey, configured.night_key],
   );
@@ -746,8 +918,11 @@ export async function getBudgetSummary(pool: Pool) {
     nightLimitNano: configured.night_limit_nano,
     monthCostNano: row.month_cost,
     monthReservedNano: row.month_reserved,
+    monthEstimatedNano: row.month_estimated,
     nightCostNano: row.night_cost,
     nightReservedNano: row.night_reserved,
+    nightEstimatedNano: row.night_estimated,
+    settledEstimatedCount: Number(row.settled_estimated),
     blockedReason: configured.blocked_reason,
     counts: {
       reserved: Number(row.reserved),
