@@ -675,6 +675,17 @@ export async function markUsageIncomplete(pool: Pool, input: unknown) {
   });
 }
 
+export async function meteringCanResume(pool: Pool, ledgerIds: string[], environment: string) {
+  const result = await pool.query<{ resolved: number }>(
+    `SELECT COUNT(*)::integer AS resolved FROM usage_ledger u
+     JOIN budget_policy p ON p.id=u.policy_id
+     WHERE p.id='default' AND p.environment=$2 AND p.blocked_reason IS NULL
+       AND u.id=ANY($1::uuid[]) AND u.status IN ('settled','not_sent')`,
+    [ledgerIds, environment],
+  );
+  return result.rows[0]?.resolved === ledgerIds.length;
+}
+
 async function resolveMeteringStop(tx: PoolClient, configured: Policy) {
   if (configured.blocked_reason !== 'metering_incomplete') return configured.blocked_reason;
   const pending = await tx.query(

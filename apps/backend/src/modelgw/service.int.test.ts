@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { GatewayContext, ModelGatewayConfig } from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
-import { seedDevelopmentBudgetPolicy, getBudgetSummary } from '../budget/service.js';
+import {
+  seedDevelopmentBudgetPolicy,
+  getBudgetSummary,
+  reconcileUsage,
+} from '../budget/service.js';
 import { ModelGateway, type GatewayTransport, type UpstreamChatRequest } from './service.js';
 
 let context: Awaited<ReturnType<typeof createIntegrationContext>>;
@@ -378,6 +382,47 @@ test('调用前已经取消不会预占或发出请求', async () => {
   ).rejects.toMatchObject({ code: 'MODEL_ABORTED' });
   expect(source.calls()).toBe(0);
   expect((await getBudgetSummary(context.pool)).counts.reserved).toBe(0);
+});
+
+test('同一网关在持久核账完成后才能派发新运行', async () => {
+  let calls = 0;
+  const handler: GatewayTransport = {
+    kind: 'fixture',
+    async send() {
+      calls++;
+      return calls === 1 ? response({ usage: undefined }) : response();
+    },
+  };
+  const gateway = new ModelGateway(context.pool, configuration, handler, { environment: 'test' });
+  await expect(gateway.complete(request, caller)).rejects.toMatchObject({
+    code: 'MODEL_USAGE_INCOMPLETE',
+  });
+  const ledger = (
+    await context.pool.query<{ id: string }>('SELECT id FROM usage_ledger WHERE request_key=$1', [
+      caller.requestKey,
+    ])
+  ).rows[0]!;
+  await expect(
+    gateway.complete(request, { ...caller, requestKey: randomUUID() }),
+  ).rejects.toMatchObject({ code: 'MODEL_METERING_BLOCKED' });
+  expect(calls).toBe(1);
+  await reconcileUsage(context.pool, {
+    ledgerId: ledger.id,
+    outcome: 'reserved_estimate',
+    evidence: '隔离测试按预占核账',
+  });
+  const fresh = await context.run();
+  await expect(
+    gateway.complete(request, {
+      ...caller,
+      requestKey: randomUUID(),
+      runId: fresh.runId,
+      conversationId: fresh.conversationId,
+      userId: fresh.userId,
+    }),
+  ).resolves.toMatchObject({ usage: { costNano: '1000000' } });
+  expect(calls).toBe(2);
+  expect((await getBudgetSummary(context.pool)).settledEstimatedCount).toBe(1);
 });
 
 test.each([false, true])(

@@ -13,9 +13,15 @@ import {
   type GatewayResponse,
   type DataLevel,
   type UpstreamUsage,
+  type BudgetIncomplete,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
-import { reserveUsage, settleUsage, markUsageIncomplete } from '../budget/service.js';
+import {
+  reserveUsage,
+  settleUsage,
+  markUsageIncomplete,
+  meteringCanResume,
+} from '../budget/service.js';
 
 export type UpstreamChatRequest = Omit<ChatRequest, 'model' | 'stream'> & {
   model: string;
@@ -76,7 +82,7 @@ function providerCostNano(value: unknown): string | undefined {
 export class ModelGateway {
   private readonly config: ModelGatewayConfig;
   private readonly environment: string;
-  private meteringBlocked = false;
+  private readonly meteringBlocks = new Map<string, string | null>();
   constructor(
     private readonly pool: Pool,
     config: unknown,
@@ -202,13 +208,7 @@ export class ModelGateway {
       });
       return settled.actualNano;
     } catch {
-      this.meteringBlocked = true;
-      await markUsageIncomplete(this.pool, {
-        requestKey: context.requestKey,
-        runId: context.runId,
-        userId: context.userId,
-        reasonCode: 'provider_error',
-      }).catch(() => undefined);
+      await this.recordIncomplete(context, 'provider_error').catch(() => undefined);
       throw rejected(
         'MODEL_METERING_FAILED',
         '费用登记未完成，本网关已停止继续派发；请核对持久账本，不要重发模型请求。',
@@ -216,18 +216,38 @@ export class ModelGateway {
       );
     }
   }
+  private async recordIncomplete(
+    context: GatewayContext,
+    reasonCode: BudgetIncomplete['reasonCode'],
+  ) {
+    this.meteringBlocks.set(context.requestKey, null);
+    const recorded = await markUsageIncomplete(this.pool, {
+      requestKey: context.requestKey,
+      runId: context.runId,
+      userId: context.userId,
+      reasonCode,
+    });
+    this.meteringBlocks.set(context.requestKey, recorded.id);
+  }
+
+  private async refreshMeteringBlocks() {
+    if (!this.meteringBlocks.size) return;
+    const checked = [...this.meteringBlocks];
+    const ids = checked.map(([, id]) => id);
+    // 登记本身失效时，保留进程内拦截。
+    if (!ids.every((id): id is string => id !== null)) return;
+    if (!(await meteringCanResume(this.pool, ids, this.environment).catch(() => false))) return;
+    for (const [requestKey, ledgerId] of checked) {
+      if (this.meteringBlocks.get(requestKey) === ledgerId) this.meteringBlocks.delete(requestKey);
+    }
+  }
+
   private async incomplete(
     context: GatewayContext,
     reasonCode: 'missing_usage' | 'request_uncertain' | 'aborted',
   ) {
-    this.meteringBlocked = true;
     try {
-      await markUsageIncomplete(this.pool, {
-        requestKey: context.requestKey,
-        runId: context.runId,
-        userId: context.userId,
-        reasonCode,
-      });
+      await this.recordIncomplete(context, reasonCode);
     } catch {
       throw rejected(
         'MODEL_METERING_FAILED',
@@ -243,7 +263,8 @@ export class ModelGateway {
     signal?: AbortSignal,
     beforeDispatch?: () => Promise<void>,
   ): Promise<GatewayResponse> {
-    if (this.meteringBlocked)
+    if (this.meteringBlocks.size) await this.refreshMeteringBlocks();
+    if (this.meteringBlocks.size)
       throw rejected(
         'MODEL_METERING_BLOCKED',
         '本网关存在未完成计量，已禁止再次派发，请负责人核对账本后处理。',
@@ -332,7 +353,7 @@ export class ModelGateway {
         );
       }
     }
-    if (this.meteringBlocked)
+    if (this.meteringBlocks.size)
       throw rejected(
         'MODEL_METERING_BLOCKED',
         '本网关已因计量故障停止派发，当前预占保留，请先核对账本。',
