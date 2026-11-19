@@ -130,7 +130,11 @@ function VerificationPreferences({
         <small>有人在群里发言后，轮数上限解除。</small>
       </fieldset>
       {management && (
-        <button className="live-primary" type="submit" disabled={command.busy}>
+        <button
+          className="live-primary"
+          type="submit"
+          disabled={command.busy || !!settings.unavailableReason}
+        >
           保存外部模型设置
         </button>
       )}

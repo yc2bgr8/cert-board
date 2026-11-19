@@ -23,10 +23,10 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <pre><code>$env:CERT_ISOLATED_WEB_PORT=&#39;28186&#39;
 pnpm dev:isolated:up
 pnpm test:network</code></pre>
-<p><code>pnpm test:network</code> 启动单用途的无凭据探针和开发中继，并用 Chrome 或 Edge 验证 28186 的登录、带会话的对话写入及 Cursor 拦截。它核对实际 Docker 网络和端口，验证 API 与 worker 直连公网失败、通过 Squid 可建立验证了证书的 TLS、非白名单被拒、沙箱和抓取网段无法直连 PostgreSQL、其他网段无法利用探针中继访问内部服务，以及本机经三个固定端口可访问对应探针。不会触发模型推理。</p>
+<p><code>pnpm test:network</code> 启动单用途的无凭据探针和开发中继，并用 Chrome 或 Edge 验证 28186 的登录、带 CSRF 的会话注销及 Cursor 拦截。它核对实际 Docker 网络和端口，验证 API 与 worker 直连公网失败、通过 Squid 可建立验证了证书的 TLS、非白名单被拒、沙箱和抓取网段无法直连 PostgreSQL、其他网段无法利用探针中继访问内部服务，以及本机经三个固定端口可访问对应探针。不会触发模型推理。</p>
 <p>本机 Docker 29.9.3 实测通过。API 和 worker 经业务代理验证 OpenRouter 证书。沙箱经专用代理验证 <code>pypi.org</code> 和 <code>files.pythonhosted.org</code> 的证书，并确认模型代理、未列入的主机、数据库 IP 与中继的内部监听均被阻断。解析、沙箱和抓取的三条固定回环转发返回各自的健康响应。外部 DNS 探针在三个隔离网段均失败。探针故意携带模拟的数据库连接变量时也会拒绝运行。</p>
 <p>在隔离验收项目中临时撤销 <code>pypi.org</code> 后，用平时的启动命令重建代理。确认沙箱代理镜像更新，对原域名返回 403，然后还原白名单并重新验证。</p>
-<p>本地 <code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code>、<code>pnpm test:int</code>、<code>pnpm eval:agent</code>、隔离端口 <code>pnpm test:e2e</code> 和 <code>pnpm docs:html</code> 通过。覆盖 422 项单元测试、435 项集成测试、59 项浏览器检查和 30 项 Agent 剧本。新增真实模型调用 0 次，新增模型费用 0 美元。</p>
+<p>本地 <code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code>、<code>pnpm test:int</code>、<code>pnpm eval:agent</code>、隔离端口 <code>pnpm test:e2e</code> 和 <code>pnpm docs:html</code> 通过。包括 422 项单元、435 项全量集成、59 项浏览器检查、30 项 Agent 剧本和 1 项工具目录专项集成。专项剧本确认容器和宿主的核实工具权限。新增真实模型调用 0 次，新增模型费用 0 美元。</p>
 <pre><code>wsl -d Ubuntu-24.04 -- docker logs cert-board-isolated-egress-1
 wsl -d Ubuntu-24.04 -- docker logs cert-board-isolated-sandbox-egress-1</code></pre>
 <p>代理日志可导出，仅含时间、方法、域名、端口、状态和结果码。依赖状态用 <code>pnpm dev:isolated:status</code> 查看，<code>pnpm dev:isolated:down</code> 只关闭隔离项目并保留卷。Windows 日常入口为 28080，隔离验收使用 28186。可单独用 <code>pnpm dev:isolated:accounts</code> 初始化隔离库的开发账号。</p>

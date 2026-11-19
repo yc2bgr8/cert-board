@@ -61,7 +61,7 @@ async function verifyBrowser(url) {
   let stage = '开发账号';
   try {
     assert.equal(await runDev('isolated-accounts'), 0);
-    const { DEV_ZHANGSAN_PASSWORD: password } = parseEnv(
+    const { DEV_ADMIN_PASSWORD: password } = parseEnv(
       await readFile(new URL('../.env.local', import.meta.url), 'utf8'),
     );
     assert.ok(password);
@@ -76,7 +76,7 @@ async function verifyBrowser(url) {
     const page = await context.newPage();
     page.setDefaultTimeout(15000);
     await page.goto(url);
-    await page.getByRole('textbox', { name: '账号', exact: true }).fill('zhangsan');
+    await page.getByRole('textbox', { name: '账号', exact: true }).fill('admin');
     await page.getByLabel('密码', { exact: true }).fill(password);
     const loggedIn = page.waitForResponse(
       (response) =>
@@ -91,25 +91,21 @@ async function verifyBrowser(url) {
     stage = '会话写入和 Cursor 门禁';
     const proof = await page.evaluate(async (csrf) => {
       const list = async () => (await (await fetch('/api/verification/rooms')).json()).items.length;
-      const write = async (path, body) =>
-        fetch(path, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
-          body: JSON.stringify({ requestKey: globalThis.crypto.randomUUID(), ...body }),
-        });
-      const conversation = await write('/api/conversations', {
-        title: '隔离验收对话',
-        permissionMode: 'read_only',
-      });
       const before = await list();
-      const verification = await write('/api/verification/rooms', { question: '隔离试验不派发' });
+      const verification = await fetch('/api/verification/rooms', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
+        body: JSON.stringify({
+          requestKey: globalThis.crypto.randomUUID(),
+          question: '隔离试验不派发',
+        }),
+      });
       return {
-        conversation: conversation.status,
         verification: verification.status,
         unchanged: before === (await list()),
       };
     }, csrfToken);
-    assert.deepEqual(proof, { conversation: 200, verification: 503, unchanged: true });
+    assert.deepEqual(proof, { verification: 503, unchanged: true });
     await page.getByRole('button', { name: '外部模型', exact: true }).click();
     await page
       .getByText('容器工作台尚未接入 Cursor 核实。请在 Windows 日常工作台发起核实。', {
@@ -121,6 +117,26 @@ async function verifyBrowser(url) {
       await page.getByRole('button', { name: '发起核实', exact: true }).isDisabled(),
       true,
     );
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const settings = page.getByRole('region', { name: '外部模型设置', exact: true });
+    const save = settings.getByRole('button', { name: '保存外部模型设置', exact: true });
+    await save.waitFor();
+    assert.equal(await save.isDisabled(), true);
+    stage = '浏览器注销写入';
+    const loggedOut = await page.evaluate(async (csrf) => {
+      const missing = await fetch('/api/auth/logout', { method: 'POST' });
+      const revoke = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { 'x-csrf-token': csrf },
+      });
+      const authentication = await fetch('/api/auth/me');
+      return {
+        missing: missing.status,
+        revoke: revoke.status,
+        authentication: authentication.status,
+      };
+    }, csrfToken);
+    assert.deepEqual(loggedOut, { missing: 403, revoke: 204, authentication: 401 });
   } catch {
     throw new Error(`隔离浏览器验收未通过 ${stage}`);
   } finally {
@@ -138,7 +154,7 @@ async function main() {
   assert.match(index.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/u);
   assert.match(await index.text(), /\/assets\//u);
   await verifyBrowser(url);
-  console.log('浏览器登录、会话写入与隔离模式的 Cursor 门禁已验证。');
+  console.log('浏览器登录、注销会话与隔离模式的 Cursor 门禁已验证。');
   assert.equal(await runDev('isolated-check'), 0);
 
   for (const service of ['backend-api', 'backend-worker']) {

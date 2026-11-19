@@ -91,9 +91,8 @@ export async function startWorker() {
       environment: config.NODE_ENV,
     });
     const store = new BlobStore(resources.storage, config.MINIO_BUCKET);
-    const verificationDatabase =
-      config.CONTAINER_RUNTIME === 'docker' ? undefined : resources.database;
-    const definitions = (code: AgentCode) => buildAgentTools(store, code, verificationDatabase);
+    const definitions = (code: AgentCode) =>
+      buildAgentTools(store, code, resources.database, config.CONTAINER_RUNTIME);
     const reconcile = async () => {
       await recoverAbandonedAgentRuns(resources.database);
       const orphaned = await resources.database.query<{
