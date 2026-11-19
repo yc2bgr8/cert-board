@@ -8,6 +8,7 @@ import {
 import { AppError } from '../api/errors.js';
 import type { ToolExecutionContext, ToolUndoRecord } from '../tools/registry.js';
 import { calculateDeadline } from './calendar.js';
+import { preserveLegacyNoticeScope } from './notice-compat.js';
 
 type TimerRow = {
   id: string;
@@ -159,6 +160,7 @@ export async function setReminder(ctx: ToolExecutionContext, input: unknown, bef
     saved.plan.profile === profile &&
     saved.plan.dueAt === deadline.dueAt &&
     saved.plan.calculation.jurisdictionTz === deadline.calculation.jurisdictionTz;
+  if (saved) await preserveLegacyNoticeScope(ctx.tx, goal.id);
   const { rows } = await ctx.tx.query<{ version: number }>(
     `INSERT INTO timer(id,goal_id,project_id,conversation_id,title,profile,calculation,due_on,due_at,jurisdiction_tz,last_stage)
      VALUES($1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
@@ -212,6 +214,7 @@ export async function undoReminder(ctx: ToolExecutionContext, record: ToolUndoRe
     saved.plan.profile === current.plan.profile &&
     saved.plan.dueAt === current.plan.dueAt &&
     saved.plan.calculation.jurisdictionTz === current.plan.calculation.jurisdictionTz;
+  await preserveLegacyNoticeScope(ctx.tx, goal.id);
   const result = saved
     ? await ctx.tx.query<{ version: number }>(
         `UPDATE timer SET title=$4,profile=$5,calculation=$6,due_on=$7,due_at=$8,jurisdiction_tz=$9,

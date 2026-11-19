@@ -237,6 +237,22 @@ test('V6 重算声明期限并比较实际时间点，历史报告保持两项�
     claims: [{ ...deadline, field: '最晚续证日' }],
   });
   expect(customField.checks.at(-1)).toMatchObject({ code: 'V6', status: 'passed' });
+  const byObject = await checkSubmission(context.pool, caller, {
+    ...base,
+    claims: [
+      { ...base.claims[0], object: 'L08 续证申请截止日', field: '日期', value: '2026-05-01' },
+    ],
+  });
+  expect(byObject.checks.at(-1)).toMatchObject({
+    status: 'failed',
+    issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
+  });
+  const submitted = await checkSubmission(context.pool, caller, {
+    ...base,
+    conclusion: '合成申请已于 2026-05-01 提前提交。',
+  });
+  expect(submitted.passed).toBe(true);
+  expect(submitted.notRun).toContain('V6');
 });
 
 test.each(['other_project', 'placeholder', 'voided'] as const)(

@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { preserveLegacyNoticeScope } from './notice-compat.js';
 
 const service = 'deadline-scan';
 const staleAfterMs = 15 * 60 * 1000;
@@ -17,6 +18,7 @@ export async function scanDeadlineReminders(pool: Pool, asOf = new Date()) {
       await tx.query('COMMIT');
       return 0;
     }
+    await preserveLegacyNoticeScope(tx);
     const rows = await tx.query<{ changed: number }>(
       `WITH calendar AS (
          SELECT t.*,g.owner_user_id AS recipient_id,
@@ -38,14 +40,14 @@ export async function scanDeadlineReminders(pool: Pool, asOf = new Date()) {
          SELECT s.*, existing.id AS pending_id, (existing.notice->>'remainingDays')::int AS prior_days,
            NOT EXISTS (
              SELECT 1 FROM notification n WHERE n.timer_id=s.id AND n.recipient_id=s.recipient_id
-               AND (n.notice->>'dueAt')::timestamptz=s.due_at AND COALESCE(n.notice->>'profile',s.profile)=s.profile
-               AND COALESCE(n.notice->>'jurisdictionTz',s.jurisdiction_tz)=s.jurisdiction_tz AND n.notice->>'stage'=s.stage
+               AND (n.notice->>'dueAt')::timestamptz=s.due_at AND n.notice->>'profile'=s.profile
+               AND n.notice->>'jurisdictionTz'=s.jurisdiction_tz AND n.notice->>'stage'=s.stage
                AND n.status IN ('pending','acknowledged')
            ) AS emit
          FROM stages s LEFT JOIN notification existing ON existing.timer_id=s.id
             AND existing.recipient_id=s.recipient_id AND existing.status='pending'
-            AND (existing.notice->>'dueAt')::timestamptz=s.due_at AND COALESCE(existing.notice->>'profile',s.profile)=s.profile
-            AND COALESCE(existing.notice->>'jurisdictionTz',s.jurisdiction_tz)=s.jurisdiction_tz AND existing.notice->>'stage'=s.stage
+            AND (existing.notice->>'dueAt')::timestamptz=s.due_at AND existing.notice->>'profile'=s.profile
+            AND existing.notice->>'jurisdictionTz'=s.jurisdiction_tz AND existing.notice->>'stage'=s.stage
          WHERE s.stage IS NOT NULL
        ), due AS (
          SELECT s.* FROM marked s JOIN timer live ON live.id=s.id

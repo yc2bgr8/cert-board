@@ -224,6 +224,34 @@ test('保留数据库升级时，旧版提醒正常展示，历史确认不重�
   expect((await readMemberNotifications(context.pool, own)).items).toEqual([]);
 });
 
+test('改用同 UTC 偏移的不同法域时区时，旧确认保留在原时区', async () => {
+  const full = await tools();
+  const inZone = (jurisdictionTz: string) => ({
+    ...plan,
+    calculation: { ...plan.calculation, jurisdictionTz },
+  });
+  const original = await full.call('reminder_set', inZone('Asia/Shanghai'));
+  const day = new Date('2026-04-01T12:00:00Z');
+  await scanDeadlineReminders(context.pool, day);
+  await context.pool.query(
+    "UPDATE notification SET notice=notice-'profile'-'jurisdictionTz',status='acknowledged'",
+  );
+  const update = await full.call('reminder_set', inZone('Asia/Singapore'));
+  expect(reminderResultSchema.parse(update.data).dueAt).toBe(
+    reminderResultSchema.parse(original.data).dueAt,
+  );
+  expect(await scanDeadlineReminders(context.pool, day)).toBe(1);
+  const rows = (
+    await context.pool.query<{ status: string; zone: string }>(
+      "SELECT status,notice->>'jurisdictionTz' AS zone FROM notification ORDER BY status",
+    )
+  ).rows;
+  expect(rows).toEqual([
+    { status: 'acknowledged', zone: 'Asia/Shanghai' },
+    { status: 'pending', zone: 'Asia/Singapore' },
+  ]);
+});
+
 test('后台刷新剩余天数与确认并发，确认后的同阶段提醒不重建', async () => {
   const full = await tools();
   const created = await full.call('reminder_set', plan);
