@@ -546,6 +546,10 @@ test('项目待办区区分截断、连接失败和完整空列表', async () =>
   view.rerender(<LiveApp />);
   expect(screen.getByText('通知连接中断，正在重连。')).toBeTruthy();
   expect(screen.queryByText('当前项目没有待处理事项。')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: /待我处理/ }));
+  const inbox = within(screen.getByRole('region', { name: '待我处理事项' }));
+  expect(inbox.getByText('通知连接中断，正在重连。')).toBeTruthy();
+  expect(inbox.queryByText('暂时没有需要你处理的事项。')).toBeNull();
 });
 
 test('Ctrl+K和Esc保持搜索焦点，设置为非模态且真实调用logout', async () => {
