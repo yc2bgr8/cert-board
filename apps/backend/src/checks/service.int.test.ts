@@ -153,6 +153,38 @@ test('仅出现在判断中的资料也逐字核对并加入定位，错误落�
   expect(bad.passed).toBe(false);
 });
 
+test('V6 重算声明期限并比较实际时间点，历史报告保持两项检查', async () => {
+  const base = submission(await addSource());
+  const legacy = await checkSubmission(context.pool, caller, base);
+  expect(legacy.checks.map(({ code }) => code)).toEqual(['V1', 'V3']);
+  expect(legacy.notRun).toContain('V6');
+  const deadlineChecks = [
+    {
+      calculation: {
+        startDate: '2026-03-08',
+        quantity: 0,
+        unit: 'calendar_days',
+        jurisdictionTz: 'America/New_York',
+      },
+      statedDueAt: '2026-03-09T11:59:59.999+08:00',
+    },
+  ] as const;
+  const checked = await checkSubmission(context.pool, caller, { ...base, deadlineChecks });
+  expect(checked.passed).toBe(true);
+  expect(checked.checks.at(-1)).toEqual({ code: 'V6', status: 'passed', issues: [] });
+  expect(checked.notRun).not.toContain('V6');
+  const falseClaim = await checkSubmission(context.pool, caller, {
+    ...base,
+    deadlineChecks: [{ ...deadlineChecks[0], statedDueAt: '2026-03-08T23:59:59.999+08:00' }],
+  });
+  expect(falseClaim.passed).toBe(false);
+  expect(falseClaim.checks.at(-1)).toEqual({
+    code: 'V6',
+    status: 'failed',
+    issues: [{ code: 'deadline_mismatch', path: 'deadlineChecks[0]' }],
+  });
+});
+
 test.each(['other_project', 'placeholder', 'voided'] as const)(
   '判断独有的%s来源不能绕过引用边界',
   async (kind) => {

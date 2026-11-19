@@ -375,33 +375,43 @@ export async function readMemberNotifications(database: Database, actor: Browser
       conversationId: string;
       projectId: string | null;
       createdAt: Date;
+      deadline: unknown;
     }>(
       `WITH pending AS (
-       SELECT a.id,'approval'::text AS kind,a.conversation_id,a.project_id,a.created_at FROM tool_approval a
+       SELECT a.id,'approval'::text AS kind,a.conversation_id,a.project_id,a.created_at,NULL::jsonb AS deadline FROM tool_approval a
        JOIN run r ON r.id=a.run_id JOIN conversation c ON c.id=a.conversation_id
        WHERE a.user_id=$1 AND a.status='pending' AND c.status='active' AND r.status IN ('running','waiting')
        UNION ALL
-       SELECT v.id,'review',v.conversation_id,v.project_id,v.created_at FROM review_card v WHERE v.status='pending'
+       SELECT v.id,'review',v.conversation_id,v.project_id,v.created_at,NULL FROM review_card v WHERE v.status='pending'
        UNION ALL
-       SELECT p.id,'proposal',p.conversation_id,p.project_id,p.created_at FROM proposal p WHERE p.status='proposed'
+       SELECT p.id,'proposal',p.conversation_id,p.project_id,p.created_at,NULL FROM proposal p WHERE p.status='proposed'
        UNION ALL
-       SELECT i.id,'question',r.conversation_id,r.project_id,i.created_at FROM tool_invocation i
+       SELECT i.id,'question',r.conversation_id,r.project_id,i.created_at,NULL FROM tool_invocation i
        JOIN run r ON r.id=i.run_id JOIN conversation c ON c.id=r.conversation_id
        WHERE r.user_id=$1 AND r.status='waiting' AND c.status='active' AND c.current_run_id=r.id
          AND i.tool_name='ask_user' AND i.status='completed'
          AND NOT EXISTS(SELECT 1 FROM conversation_answer a WHERE a.question_invocation_id=i.id)
        UNION ALL
-       SELECT r.id,'blocked',r.conversation_id,r.project_id,r.updated_at FROM run r
+       SELECT r.id,'blocked',r.conversation_id,r.project_id,r.updated_at,NULL FROM run r
        JOIN conversation c ON c.id=r.conversation_id WHERE r.user_id=$1 AND c.status='active'
          AND c.current_run_id=r.id AND r.status IN ('failed','budget_exhausted')
-     ) SELECT id,kind,conversation_id AS "conversationId",project_id AS "projectId",created_at AS "createdAt"
+       UNION ALL
+       SELECT n.id,'deadline',t.conversation_id,t.project_id,n.updated_at,n.notice FROM notification n
+       JOIN timer t ON t.id=n.timer_id AND t.state='active'
+       JOIN goal g ON g.id=t.goal_id AND g.owner_user_id=n.recipient_id AND g.status='active'
+       WHERE n.recipient_id=$1 AND n.status='pending'
+     ) SELECT id,kind,conversation_id AS "conversationId",project_id AS "projectId",created_at AS "createdAt",deadline
        FROM pending ORDER BY created_at DESC,id DESC LIMIT 51`,
       [actor.userId],
     )
   ).rows;
   return memberNotificationSnapshotSchema.parse({
     generatedAt: new Date().toISOString(),
-    items: rows.slice(0, 50).map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
+    items: rows.slice(0, 50).map(({ createdAt, deadline, ...row }) => ({
+      ...row,
+      createdAt: createdAt.toISOString(),
+      ...(deadline ? { deadline } : {}),
+    })),
     truncated: rows.length > 50,
   });
 }

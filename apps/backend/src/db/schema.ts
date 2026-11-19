@@ -1,5 +1,9 @@
 import { sql } from 'drizzle-orm';
 import type {
+  DeadlineCalculation,
+  DeadlineNotice,
+  DeadlineStage,
+  ReminderProfile,
   VerificationClaim,
   VerificationConclusion,
   VerificationModel,
@@ -2360,3 +2364,79 @@ export const conversationAnswer = pgTable(
     ),
   ],
 );
+
+export const timer = pgTable(
+  'timer',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id').notNull(),
+    goalId: uuid('goal_id').notNull().unique(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversation.id, { onDelete: 'restrict' }),
+    title: varchar('title', { length: 200 }).notNull(),
+    profile: varchar('profile', { length: 20 }).$type<ReminderProfile>().notNull(),
+    calculation: jsonb('calculation').$type<DeadlineCalculation>().notNull(),
+    dueOn: date('due_on', { mode: 'string' }).notNull(),
+    dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
+    jurisdictionTz: varchar('jurisdiction_tz', { length: 100 }).notNull(),
+    state: varchar('state', { length: 20 })
+      .$type<'active' | 'cancelled'>()
+      .notNull()
+      .default('active'),
+    lastStage: varchar('last_stage', { length: 12 }).$type<DeadlineStage>(),
+    version: integer('version').notNull().default(1),
+    ...timestamps(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'timer_goal_project_fk',
+      columns: [table.goalId, table.projectId],
+      foreignColumns: [goal.id, goal.projectId],
+    }).onDelete('restrict'),
+    check('timer_profile_ok', sql`${table.profile} IN ('certificate','milestone')`),
+    check('timer_state_ok', sql`${table.state} IN ('active','cancelled')`),
+    check(
+      'timer_last_stage_ok',
+      sql`${table.lastStage} IN ('D-90','D-60','D-30','D-7','D-1','D-0','OVERDUE')`,
+    ),
+    check('timer_title_not_blank', sql`length(btrim(${table.title}))>0`),
+    check('timer_positive_version', sql`${table.version}>0`),
+    index('timer_active_due_idx')
+      .on(table.dueAt, table.id)
+      .where(sql`${table.state}='active'`),
+  ],
+);
+
+export const notification = pgTable(
+  'notification',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    timerId: uuid('timer_id')
+      .notNull()
+      .references(() => timer.id, { onDelete: 'restrict' }),
+    recipientId: uuid('recipient_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    notice: jsonb('notice').$type<DeadlineNotice>().notNull(),
+    status: varchar('status', { length: 20 })
+      .$type<'pending' | 'acknowledged' | 'cancelled'>()
+      .notNull()
+      .default('pending'),
+    ...timestamps(),
+  },
+  (table) => [
+    check('notification_status_ok', sql`${table.status} IN ('pending','acknowledged','cancelled')`),
+    uniqueIndex('notification_pending_timer_recipient')
+      .on(table.timerId, table.recipientId)
+      .where(sql`${table.status}='pending'`),
+    index('notification_recipient_pending_idx')
+      .on(table.recipientId, table.updatedAt, table.id)
+      .where(sql`${table.status}='pending'`),
+  ],
+);
+
+export const heartbeat = pgTable('heartbeat', {
+  service: varchar('service', { length: 80 }).primaryKey(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+});

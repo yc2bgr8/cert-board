@@ -10,6 +10,7 @@ import {
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
+import { calculateDeadline } from '../deadlines/calendar.js';
 import { quoteAppears } from './quotes.js';
 
 type Database = Pick<Pool, 'query'>;
@@ -148,7 +149,8 @@ export async function checkSubmission(
     });
   const submission = parsed.data;
   const v1: Issue[] = [],
-    v3: Issue[] = [];
+    v3: Issue[] = [],
+    v6: Issue[] = [];
   let dataLevel = context.dataLevel;
   const workspace = await db.query<{ data_level: DataLevel }>(
     `SELECT v.data_level FROM workspace_version v JOIN workspace w ON w.id=v.workspace_id
@@ -215,14 +217,28 @@ export async function checkSubmission(
   if (submission.evidence.length === 0) v1.push({ code: 'missing_evidence', path: 'evidence' });
   for (const [index, citation] of submission.evidence.entries())
     await checkCitation(citation, `evidence[${index}]`);
+  for (const [index, check] of (submission.deadlineChecks ?? []).entries()) {
+    const path = `deadlineChecks[${index}]`;
+    try {
+      const deadline = calculateDeadline(check.calculation);
+      if (Date.parse(check.statedDueAt) !== Date.parse(deadline.dueAt))
+        v6.push({ code: 'deadline_mismatch', path });
+    } catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      v6.push({ code: 'deadline_invalid', path });
+    }
+  }
   return checkReportSchema.parse({
-    passed: v1.length === 0 && v3.length === 0,
+    passed: v1.length === 0 && v3.length === 0 && v6.length === 0,
     dataLevel,
     checks: [
       { code: 'V1', status: v1.length ? 'failed' : 'passed', issues: v1 },
       { code: 'V3', status: v3.length ? 'failed' : 'passed', issues: v3 },
+      ...(submission.deadlineChecks
+        ? [{ code: 'V6', status: v6.length ? 'failed' : 'passed', issues: v6 }]
+        : []),
     ],
-    notRun,
+    notRun: submission.deadlineChecks ? ['V2', 'V4', 'V5', 'V7', 'V8'] : notRun,
     citations: [...citations.values()],
   });
 }

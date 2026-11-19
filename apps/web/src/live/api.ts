@@ -194,6 +194,11 @@ const signalOption = (signal: AbortSignal | undefined) => (signal ? { signal } :
 const externalPage = (cursor: string | null) =>
   cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
 export const api = {
+  acknowledgeDeadline: (id: string, seenAt: string) =>
+    request(`/api/deadline-notifications/${encodeURIComponent(id)}/acknowledge`, null, {
+      method: 'POST',
+      body: { seenAt },
+    }),
   verificationRooms: (cursor: string | null, query: string, signal?: AbortSignal) =>
     request(
       `/api/verification/rooms${search({ cursor: cursor ?? undefined, query })}`,

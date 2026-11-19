@@ -13,6 +13,7 @@ import { createWorkerModelTransport, type RealGatewayTransport } from './modelgw
 import { buildAgentTools } from './agent/default-tools.js';
 import { buildWebTools } from './tools/web-tools.js';
 import { executeAgentRun } from './agent/runtime.js';
+import { startDeadlineQueue } from './deadlines/queue.js';
 import { getContinuationTicket, listContinuationsForDispatch } from './approvals/continuation.js';
 import {
   AGENT_QUEUE,
@@ -128,10 +129,13 @@ export async function startWorker() {
       await handoffBlockedBudgetRuns(resources.database);
     };
     await reconcile();
-    boss = await createAgentQueue(config.DATABASE_URL, () =>
-      logger.error({ event: 'queue_error' }, '任务队列暂不可用，请核对本地服务。'),
+    boss = await createAgentQueue(
+      config.DATABASE_URL,
+      () => logger.error({ event: 'queue_error' }, '任务队列暂不可用，请核对本地服务。'),
+      true,
     );
     const queue = boss;
+    await startDeadlineQueue(queue, resources.database);
     const dispatchQueued = async () => {
       const queued = await resources.database.query<{ id: string }>(
         "SELECT id FROM run WHERE status='queued' AND trigger_type<>'evaluation' AND lease_generation=0 AND lease_owner IS NULL ORDER BY created_at,id LIMIT 100",
