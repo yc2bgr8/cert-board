@@ -97,7 +97,11 @@ test('公开网页原件可用浏览器会话下载，页码原文与缓存稳�
   expect(client.fetchPage).toHaveBeenCalledTimes(1);
   expect(
     (await invoke('doc_read', { id: saved.documentId, version: 1, page: 1 })).data,
-  ).toMatchObject({ text, webArchive: { sha256: digest(raw) } });
+  ).toMatchObject({
+    text,
+    warning: '当前提供网页存档提取文本。 此段对应网页文本提取单元。',
+    webArchive: { sha256: digest(raw) },
+  });
 
   const app = createApp(context.config, {
     database: context.pool,

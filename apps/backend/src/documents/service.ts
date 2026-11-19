@@ -401,16 +401,20 @@ export async function readDocumentPage(
   }
   const { webArchive: rawArchive, ...pageFields } = row;
   const archive = webArchiveInfoSchema.safeParse(rawArchive);
+  const webArchive =
+    archive.success && archive.data.sha256 === row.originalSha256 ? archive.data : undefined;
   const warning = [
-    archive.success ? '当前提供网页存档提取文本。' : '当前提供解析文本，原始文件尚未导入。',
+    webArchive ? '当前提供网页存档提取文本。' : '当前提供解析文本，原始文件尚未导入。',
   ];
   if (row.locatorKind === 'extraction_unit')
-    warning.push('此页为文本提取单元，不代表Word物理页码。');
+    warning.push(
+      webArchive ? '此段对应网页文本提取单元。' : '此页为文本提取单元，不代表Word物理页码。',
+    );
   if (typeof row.ocrScore === 'number' && row.ocrScore < 0.9)
     warning.push('文字识别置信度较低，请核对原始资料。');
   return documentPageReadSchema.parse({
     ...pageFields,
-    ...(archive.success ? { webArchive: archive.data } : {}),
+    ...(webArchive ? { webArchive } : {}),
     text: text.slice(offset, end),
     warning: warning.join(' '),
     offset,
