@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计稿：对话：审核卡（cert-board）</title>
+<!-- cert-board 界面设计稿。说明见同目录 README.md，共用样式见 cb.css，截图见同名 png（1440 宽）。
+     字体以 Inter 为准（应用内用 @fontsource/inter 打包）；本机没有 Inter 时会回落到系统字体。 -->
+<link rel="stylesheet" href="cb.css">
+<style>
+body{margin:0}
+a{color:#146b62}a:hover{color:#0f554e}
+</style>
+</head>
+<body>
+<div class="app" style="font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #142b2e">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.89 6.18A7.6 7.6 0 1 0 15.89 17.82" stroke-width="1.9"></path><path d="M7.9 12.9L10.9 15.9L20.4 6.4" stroke-width="2.1"></path></svg></div>
+      <div><div class="wordmark">cert<span class="hy">-</span>board</div><small>器械认证工作台</small></div>
+    </div>
+    <div class="side-actions">
+      <button type="button" class="btn-new"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新对话</button>
+      <button type="button" class="btn-sq" aria-label="搜索（Ctrl+K）"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+    </div>
+    <a class="nav" href="#inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>待我处理<span class="count">3</span></a>
+    <div class="side-group">
+      <div class="side-cap">助手</div>
+      <a class="agent active" href="#reg"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span>注册Agent</a>
+      <a class="agent" href="#mnt"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>维护Agent</a>
+      <a class="agent" href="#ext"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path><path d="M19 16v4M17 18h4"></path></svg></span>外部模型<span class="tag">外部</span></a>
+    </div>
+    <div class="side-group">
+      <div class="side-cap">注册项目<button type="button" class="cap-btn" aria-label="新建注册项目"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button></div>
+      <div class="tree">
+        <a class="proj open" href="#p1"><span class="chev"></span>L08 510(k)<span class="dot"></span></a>
+        <a class="convi active" href="#c1">K号写法检查</a>
+        <a class="convi" href="#c2">申报包一致性检查</a>
+        <a class="convi" href="#c3">来函：FDA 补充资料请求</a>
+        <a class="proj" href="#p2"><span class="chev"></span>CPAP 510(k)<span class="dot warn"></span></a>
+        <a class="proj" href="#p3"><span class="chev"></span>JB-C1 加拿大 MDL</a>
+      </div>
+    </div>
+    <div class="side-foot"><span class="avatar">张</span>张三<a class="foot-btn" href="#settings"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>设置</a></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="tb-left">
+        <div><div class="crumb">L08 510(k)</div><div class="ttl">K号写法检查</div></div>
+        <nav class="tabs" aria-label="项目内容"><a class="on" href="#chat">对话</a><a href="#files">文件</a><a href="#library">资料</a></nav>
+      </div>
+      <div class="tb-right"><button type="button" class="btn ghost sm"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>运行详情</button></div>
+    </div>
+
+    <div class="body">
+      <div class="conv">
+        <div class="thread">
+          <div class="m-user">检查L08申报资料中对比器械K号的写法</div>
+          <div class="m-agent">
+            <div class="m-head"><span class="m-ava"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span><span class="who">注册Agent</span><span>10:31</span></div>
+            <button type="button" class="steps" aria-expanded="false"><span class="chev"></span>已执行 4 步</button>
+            <div class="prose"><p>两处K号写法不一致：对比器械对照表第2页写作 <span class="mono">K123456</span><a class="cite" href="#e1">1</a>，510(k)摘要第4页写作 <span class="mono">K123465</span><a class="cite" href="#e2">2</a>。我判断后者是笔误，写入前已请你确认。</p></div>
+          </div>
+          <div class="row small muted"><svg class="i sm ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>张三在 10:36 允许了「写入台账并记录判断」</div>
+          <div class="m-agent">
+            <button type="button" class="steps" aria-expanded="false"><span class="chev"></span>已执行 5 步</button>
+            <div class="prose"><p>已写入台账，并在核查记录中写明判断、两处原文和备选做法。自检全部通过，结果已提交审核。</p></div>
+            <div class="rowcard"><div class="lead"><svg class="i muted" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg><span>改动：2 个文件 <span class="plus">+19</span> <span class="minus">−1</span>，1 条台账记录</span><span class="chip line">已保存为第3版</span></div><button type="button" class="btn sm">查看改动</button></div>
+            <div class="rowcard teal"><div class="lead"><svg class="i" viewBox="0 0 24 24" aria-hidden="true" style="color: #146b62"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg><span>结果已提交审核：对比器械K号核查</span></div><button type="button" class="btn primary sm">审核</button></div>
+            <div class="feedback"><button type="button" class="fb">有用</button><button type="button" class="fb">没用</button></div>
+          </div>
+        </div>
+        <div class="dock">
+          <div class="status"><span class="state"><span class="dot"></span>已提交审核</span><span>用时 4分02秒</span></div>
+          <div class="composer">
+            <textarea rows="2" aria-label="回复注册Agent" placeholder="哪里要改可以直接说，Agent修改后会重新提交审核"></textarea>
+            <div class="tools">
+              <button type="button" class="ibtn" aria-label="添加附件"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg></button>
+              <span class="pill fixed">注册Agent</span>
+              <button type="button" class="pill"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>请求批准<svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+              <button type="button" class="send" aria-label="发送"><svg class="i lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"></path><path d="m5 12 7-7 7 7"></path></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section class="panel" aria-label="审核">
+        <div class="panel-head">
+          <div class="row"><h2>审核</h2><span class="chip line">工作区第3版</span></div>
+          <button type="button" class="btn ghost sm" aria-label="关闭右栏"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+        </div>
+        <div class="panel-body">
+          <div class="rv-meta">注册Agent 提交于今天 10:42，针对工作区第3版</div>
+          <p class="rv-conc">两处K号写法不一致：将 K123465 作为笔误记录，候选统一为 K123456。</p>
+
+          <div class="rv-sec">
+            <h4>需要你做什么</h4>
+            <div class="todo">确认 K123465 是笔误后点「通过」。如果认为两个编号都可能正确，点「退回修改」并说明原因。</div>
+          </div>
+
+          <div class="rv-sec">
+            <h4>过程中作出的判断<span class="chip">1 条</span></h4>
+            <div class="decision">
+              <dl class="kv">
+                <dt>事项</dt><dd>两处K号以哪一个为准</dd>
+                <dt>选择</dt><dd>以 <span class="mono">K123456</span> 为准，<span class="mono">K123465</span> 记为笔误</dd>
+                <dt>备选</dt><dd>保留差异交你选择；以摘要中的 <span class="mono">K123465</span> 为准</dd>
+                <dt>理由</dt><dd>对照表中的K号和对比器械名称、型号在同一行；摘要中只出现这一次，没有其他字段印证</dd>
+                <dt>依据</dt><dd><a class="cite" href="#e1">1</a><a class="cite" href="#e2">2</a></dd>
+                <dt>风险</dt><dd><span class="chip warn">中</span></dd>
+              </dl>
+            </div>
+          </div>
+
+          <div class="rv-sec">
+            <h4>改动</h4>
+            <div class="flist">
+              <div class="frow"><svg class="i muted" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg><span class="mono grow">核查记录/对比器械K号核查记录.md</span><span class="chip">新文件</span><span class="plus">+18</span><button type="button" class="btn sm">对比</button></div>
+              <div class="frow"><svg class="i muted" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg><span class="mono grow">检查清单/申报一致性检查清单.md</span><span class="plus">+1</span><span class="minus">−1</span><button type="button" class="btn sm">对比</button></div>
+              <div class="frow"><svg class="i muted" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path><path d="M9 10v10"></path></svg><span class="grow">台账：L08 510(k)，对比器械K号</span><span class="old mono">K123456 / K123465</span><span class="new mono">K123456</span></div>
+            </div>
+            <div class="muted small">原始资料保持不变。台账改动可以一键撤销。</div>
+          </div>
+
+          <div class="rv-sec">
+            <h4>依据</h4>
+            <div class="evid">
+              <p class="quote"><a class="cite" href="#e1">1</a> Predicate device 510(k) number: K123456.</p>
+              <div class="src"><span>对比器械对照表</span><span class="chip line">第1版</span><span>第2页</span><a href="#e1" style="margin-left: auto">打开原文与原页</a></div>
+            </div>
+            <div class="evid">
+              <p class="quote"><a class="cite" href="#e2">2</a> Predicate device 510(k) number: K123465.</p>
+              <div class="src"><span>510(k)摘要</span><span class="chip line">第2版</span><span>第4页</span><a href="#e2" style="margin-left: auto">打开原文与原页</a></div>
+            </div>
+          </div>
+
+          <div class="rv-sec">
+            <h4>自检<span class="chip good">4 项全部通过</span></h4>
+            <ul class="checks">
+              <li><svg class="i ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>引用逐字核对：2 处原文与资料一致</li>
+              <li><svg class="i ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>K号格式检查：K 加 6 位数字</li>
+              <li><svg class="i ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>改动范围：只涉及核查记录、检查清单和 1 条台账字段</li>
+              <li><svg class="i ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>R09 评测回归：12 / 12 通过</li>
+            </ul>
+          </div>
+
+          <div class="rv-sec">
+            <h4>不确定事项</h4>
+            <ul class="checks">
+              <li><svg class="i wait" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>摘要是第2版、比对照表新。如果摘要是按新资料改的，这个判断需要重看。</li>
+            </ul>
+          </div>
+
+          <div class="row small muted">这张审核卡<button type="button" class="fb">有用</button><button type="button" class="fb">没用</button></div>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="btn primary">通过</button>
+          <button type="button" class="btn">退回修改</button>
+          <button type="button" class="btn ghost">更多操作<svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+          <span class="hint" style="margin-left: auto">修改后通过、追问、转交他人在更多操作中</span>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

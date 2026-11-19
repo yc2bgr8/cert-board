@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计稿：中途停止与运行详情（cert-board）</title>
+<!-- cert-board 界面设计稿。说明见同目录 README.md，共用样式见 cb.css，截图见同名 png（1440 宽）。
+     字体以 Inter 为准（应用内用 @fontsource/inter 打包）；本机没有 Inter 时会回落到系统字体。 -->
+<link rel="stylesheet" href="cb.css">
+<style>
+body{margin:0}
+a{color:#146b62}a:hover{color:#0f554e}
+</style>
+</head>
+<body>
+<div class="app" style="font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #142b2e">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.89 6.18A7.6 7.6 0 1 0 15.89 17.82" stroke-width="1.9"></path><path d="M7.9 12.9L10.9 15.9L20.4 6.4" stroke-width="2.1"></path></svg></div>
+      <div><div class="wordmark">cert<span class="hy">-</span>board</div><small>器械认证工作台</small></div>
+    </div>
+    <div class="side-actions">
+      <button type="button" class="btn-new"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新对话</button>
+      <button type="button" class="btn-sq" aria-label="搜索（Ctrl+K）"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+    </div>
+    <a class="nav" href="#inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>待我处理<span class="count">4</span></a>
+    <div class="side-group">
+      <div class="side-cap">助手</div>
+      <a class="agent active" href="#reg"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span>注册Agent</a>
+      <a class="agent" href="#mnt"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>维护Agent</a>
+      <a class="agent" href="#ext"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path><path d="M19 16v4M17 18h4"></path></svg></span>外部模型<span class="tag">外部</span></a>
+    </div>
+    <div class="side-group">
+      <div class="side-cap">注册项目<button type="button" class="cap-btn" aria-label="新建注册项目"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button></div>
+      <div class="tree">
+        <a class="proj" href="#p1"><span class="chev"></span>L08 510(k)<span class="dot"></span></a>
+        <a class="proj open" href="#p2"><span class="chev"></span>CPAP 510(k)<span class="dot warn"></span></a>
+        <a class="convi active" href="#pc1">申报包检查</a>
+        <a class="convi" href="#pc2">生物相容性资料催办</a>
+        <a class="proj" href="#p3"><span class="chev"></span>JB-C1 加拿大 MDL</a>
+      </div>
+    </div>
+    <div class="side-foot"><span class="avatar">张</span>张三<a class="foot-btn" href="#settings"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>设置</a></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="tb-left">
+        <div><div class="crumb">CPAP 510(k)</div><div class="ttl">申报包检查</div></div>
+        <nav class="tabs" aria-label="项目内容"><a class="on" href="#chat">对话</a><a href="#files">文件</a><a href="#library">资料</a></nav>
+      </div>
+      <div class="tb-right"><button type="button" class="btn sm" aria-pressed="true" style="background: #eaf5f1; border-color: #bfe0d6; color: #146b62"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>运行详情</button></div>
+    </div>
+
+    <div class="body">
+      <div class="conv">
+        <div class="thread">
+          <div class="m-user">检查CPAP申报包，列出缺件和前后不一致的地方</div>
+          <div class="m-agent">
+            <div class="m-head"><span class="m-ava"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span><span class="who">注册Agent</span><span>10:02</span></div>
+            <button type="button" class="steps" aria-expanded="false"><span class="chev"></span>已执行 23 步</button>
+            <div class="prose"><p>第6章检查完成：生物相容性报告缺少细胞毒性部分，器械描述与标签中的型号写法有 2 处不一致。下一步检查第7章软件资料。</p></div>
+          </div>
+          <div class="sys" role="status">
+            <h3><svg class="i lg wait" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><rect x="9" y="9" width="6" height="6" rx="1"></rect></svg>运行已停止：本次运行达到预算上限<span class="chip line" style="margin-left: auto">系统生成</span></h3>
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px">
+              <div><h4>做了哪些步骤</h4><ul><li>读取 41 份资料</li><li>检查第1–6章</li><li>启动 2 个子Agent 分章节检查</li></ul></div>
+              <div><h4>已得到的结果</h4><ul><li>缺件 2 项、不一致 5 处</li><li>清单草稿已写入工作副本，尚未保存版本</li></ul></div>
+              <div><h4>没做完的</h4><ul><li>第7–9章（软件、网络安全、标签）未检查</li><li>结果未自检，未提交审核</li></ul></div>
+              <div><h4>建议的下一步</h4><ul><li>追加 0.30 美元预算，继续检查第7–9章</li><li>或者把第7–9章拆成单独的对话</li></ul></div>
+            </div>
+            <div class="row"><button type="button" class="btn primary sm">追加预算并继续</button><button type="button" class="btn sm">拆成单独的对话</button><button type="button" class="btn sm">先保存工作副本</button></div>
+          </div>
+        </div>
+        <div class="dock">
+          <div class="status"><span class="state"><span class="dot bad"></span>预算用尽</span><span>停在第14步，共20步</span><span>已用 18分06秒</span></div>
+          <div class="composer">
+            <textarea rows="2" aria-label="回复注册Agent" placeholder="告诉注册Agent接下来怎么做"></textarea>
+            <div class="tools">
+              <button type="button" class="ibtn" aria-label="添加附件"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg></button>
+              <span class="pill fixed">注册Agent</span>
+              <button type="button" class="pill on"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>完全允许<svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+              <button type="button" class="send" aria-label="发送"><svg class="i lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"></path><path d="m5 12 7-7 7 7"></path></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section class="panel" aria-label="运行详情">
+        <div class="panel-head">
+          <div class="row"><h2>运行详情</h2><span class="chip line">第2次运行</span></div>
+          <button type="button" class="btn ghost sm" aria-label="关闭右栏"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+        </div>
+        <div class="panel-body">
+          <div class="rv-sec" style="border-top: 0; padding-top: 0">
+            <h4>目标状态</h4>
+            <div class="row"><span>CPAP 510(k) 申报包检查</span><span class="chip warn">已停止：预算用尽</span></div>
+          </div>
+          <div class="rv-sec">
+            <h4>用量与费用</h4>
+            <dl class="kv" style="grid-template-columns: 110px minmax(0, 1fr)">
+              <dt>主模型</dt><dd>DeepSeek V4.1 Flash（本地）</dd>
+              <dt>模型调用</dt><dd>41 次</dd>
+              <dt>输入／输出</dt><dd>118 万／8.6 万 token</dd>
+              <dt>外部模型</dt><dd>0 次，0.00 美元</dd>
+              <dt>本次费用</dt><dd><div class="row"><span>0.50 美元，上限 0.50 美元</span></div><div class="bar warn" style="margin-top: 6px"><span style="width: 100%"></span></div></dd>
+            </dl>
+          </div>
+          <div class="rv-sec">
+            <h4>子Agent</h4>
+            <div class="flist">
+              <div class="frow"><span class="grow">第1–3章检查</span><span class="muted small">11 步</span><span class="chip good">完成</span></div>
+              <div class="frow"><span class="grow">第4–6章检查</span><span class="muted small">9 步</span><span class="chip good">完成</span></div>
+              <div class="frow"><span class="grow">第7–9章检查</span><span class="muted small">未开始</span><span class="chip">未运行</span></div>
+            </div>
+          </div>
+          <div class="rv-sec">
+            <h4>提案与评测</h4>
+            <div class="small">外发提案：无。评测：未运行（结果尚未提交审核）。</div>
+          </div>
+          <div class="rv-sec">
+            <h4>完整事件<button type="button" class="btn ghost sm" style="margin-left: auto">下载</button></h4>
+            <ul class="timeline">
+              <li><time>10:02</time>运行开始，权限模式：完全允许</li>
+              <li><time>10:03</time>计划更新：按 9 章检查</li>
+              <li><time>10:05</time>启动子Agent 2 个</li>
+              <li><time>10:14</time>工作副本写入「缺件与不一致清单」</li>
+              <li><time>10:17</time>费用达到上限的 80%</li>
+              <li><time>10:20</time>运行停止：预算用尽，生成中途停止汇报</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

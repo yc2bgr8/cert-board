@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计稿：搜索（cert-board）</title>
+<!-- cert-board 界面设计稿。说明见同目录 README.md，共用样式见 cb.css，截图见同名 png（1440 宽）。
+     字体以 Inter 为准（应用内用 @fontsource/inter 打包）；本机没有 Inter 时会回落到系统字体。 -->
+<link rel="stylesheet" href="cb.css">
+<style>
+body{margin:0}
+a{color:#146b62}a:hover{color:#0f554e}
+</style>
+</head>
+<body>
+<div class="app" style="font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #142b2e">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.89 6.18A7.6 7.6 0 1 0 15.89 17.82" stroke-width="1.9"></path><path d="M7.9 12.9L10.9 15.9L20.4 6.4" stroke-width="2.1"></path></svg></div>
+      <div><div class="wordmark">cert<span class="hy">-</span>board</div><small>器械认证工作台</small></div>
+    </div>
+    <div class="side-actions">
+      <button type="button" class="btn-new"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新对话</button>
+      <button type="button" class="btn-sq" aria-label="搜索（Ctrl+K）" style="border-color: #bfe0d6; background: #eaf5f1; color: #146b62"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+    </div>
+    <a class="nav" href="#inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>待我处理<span class="count">5</span></a>
+    <div class="side-group">
+      <div class="side-cap">助手</div>
+      <a class="agent active" href="#reg"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span>注册Agent</a>
+      <a class="agent" href="#mnt"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>维护Agent</a>
+      <a class="agent" href="#ext"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path><path d="M19 16v4M17 18h4"></path></svg></span>外部模型<span class="tag">外部</span></a>
+    </div>
+    <div class="side-group">
+      <div class="side-cap">注册项目<button type="button" class="cap-btn" aria-label="新建注册项目"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button></div>
+      <div class="tree">
+        <a class="proj open" href="#p1"><span class="chev"></span>L08 510(k)<span class="dot"></span></a>
+        <a class="convi active" href="#c1">K号写法检查</a>
+        <a class="convi" href="#c2">申报包一致性检查</a>
+        <a class="proj" href="#p2"><span class="chev"></span>CPAP 510(k)<span class="dot warn"></span></a>
+        <a class="proj" href="#p3"><span class="chev"></span>JB-C1 加拿大 MDL</a>
+      </div>
+    </div>
+    <div class="side-foot"><span class="avatar">张</span>张三<a class="foot-btn" href="#settings"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>设置</a></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="tb-left">
+        <div><div class="crumb">L08 510(k)</div><div class="ttl">K号写法检查</div></div>
+        <nav class="tabs" aria-label="项目内容"><a class="on" href="#chat">对话</a><a href="#files">文件</a><a href="#library">资料</a></nav>
+      </div>
+    </div>
+    <div class="thread">
+      <div class="m-user">检查L08申报资料中对比器械K号的写法</div>
+      <div class="m-agent"><div class="prose"><p>两处K号写法不一致：对比器械对照表第2页写作 K123456，510(k)摘要第4页写作 K123465。</p></div></div>
+    </div>
+  </main>
+
+  <div class="scrim">
+    <div class="modal" role="dialog" aria-label="搜索">
+      <div class="row" style="padding: 14px 16px; border-bottom: 1px solid #e3e9e8; flex-wrap: nowrap">
+        <svg class="i lg muted" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+        <input class="grow" aria-label="搜索对话、项目、资料和文件" value="K123465" style="border: 0; outline: none; font-size: 16px; background: transparent">
+        <span class="chip line">所有项目</span>
+        <span class="kbd">Esc</span>
+      </div>
+      <div style="padding: 8px; max-height: 520px; overflow: auto">
+        <div class="muted small" style="padding: 8px 10px 4px">对话</div>
+        <a href="#r1" style="display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: 9px; background: #eaf5f1; text-decoration: none; color: #142b2e">
+          <svg class="i" viewBox="0 0 24 24" aria-hidden="true" style="margin-top: 3px; color: #146b62"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          <span class="grow"><span style="display: block; font-weight: 600">K号写法检查</span><span class="muted small">L08 510(k)：……510(k)摘要第4页写作 <span class="mark-hl">K123465</span>……</span></span>
+          <span class="kbd">Enter</span>
+        </a>
+        <div class="muted small" style="padding: 12px 10px 4px">资料</div>
+        <a href="#r2" style="display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: 9px; text-decoration: none; color: #142b2e">
+          <svg class="i muted" viewBox="0 0 24 24" aria-hidden="true" style="margin-top: 3px"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"></path></svg>
+          <span class="grow"><span style="display: block; font-weight: 500">510(k)摘要 <span class="chip line">第2版</span> <span class="muted small">第4页</span></span><span class="muted small">Predicate device 510(k) number: <span class="mark-hl">K123465</span>.</span></span>
+        </a>
+        <div class="muted small" style="padding: 12px 10px 4px">文件</div>
+        <a href="#r3" style="display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: 9px; text-decoration: none; color: #142b2e">
+          <svg class="i muted" viewBox="0 0 24 24" aria-hidden="true" style="margin-top: 3px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
+          <span class="grow"><span style="display: block; font-weight: 500" class="mono">对比器械K号核查记录.md <span class="chip line">第3版</span></span><span class="muted small">……<span class="mark-hl">K123465</span> 记为笔误，候选统一为 K123456……</span></span>
+        </a>
+        <a href="#r4" style="display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: 9px; text-decoration: none; color: #142b2e">
+          <svg class="i muted" viewBox="0 0 24 24" aria-hidden="true" style="margin-top: 3px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
+          <span class="grow"><span style="display: block; font-weight: 500" class="mono">申报一致性检查清单.md <span class="chip line">第3版</span></span><span class="muted small">- [x] 对比器械K号一致（<span class="mark-hl">K123465</span> 记为笔误……）</span></span>
+        </a>
+        <div class="muted small" style="padding: 12px 10px 4px">业务记录</div>
+        <a href="#r5" style="display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: 9px; text-decoration: none; color: #142b2e">
+          <svg class="i muted" viewBox="0 0 24 24" aria-hidden="true" style="margin-top: 3px"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path><path d="M9 10v10"></path></svg>
+          <span class="grow"><span style="display: block; font-weight: 500">台账：L08 510(k)，对比器械K号</span><span class="muted small">改前值包含 <span class="mark-hl">K123465</span>，今天 10:37 已改</span></span>
+        </a>
+      </div>
+      <div class="row muted small" style="padding: 10px 16px; border-top: 1px solid #e3e9e8; background: #fafcfb">
+        <span class="kbd">↑</span><span class="kbd">↓</span>选择<span class="kbd" style="margin-left: 10px">Enter</span>打开<span class="kbd" style="margin-left: 10px">Ctrl K</span>随时打开搜索
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
