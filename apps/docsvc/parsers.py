@@ -10,7 +10,7 @@ import signal
 import subprocess
 import tempfile
 import unicodedata
-from contextlib import closing, suppress
+from contextlib import ExitStack, closing, suppress
 from pathlib import Path
 from time import monotonic
 from xml.etree import ElementTree
@@ -268,29 +268,53 @@ def spreadsheet_value(value):
     return str(value)
 
 
+def spreadsheet_cell(cell, saved):
+    value = spreadsheet_value(cell.value)
+    if cell.data_type == "f" and saved is not None:
+        return f"{value} [{spreadsheet_value(saved)}]"
+    return value
+
+
 def parse_xlsx(data, deadline, comparison=False):
-    workbook = openpyxl.load_workbook(io.BytesIO(data), data_only=not comparison, read_only=True, keep_links=False)
     pages = []
     cells = 0
     budget = TextBudget()
-    try:
+    with ExitStack() as files:
+        workbook = openpyxl.load_workbook(io.BytesIO(data), data_only=not comparison, read_only=True, keep_links=False)
+        files.callback(workbook.close)
         if len(workbook.worksheets) > MAX_PAGES:
             raise DocError("DOC_PAGE_LIMIT", 413)
+        saved_sheets = []
+        if comparison:
+            saved = openpyxl.load_workbook(io.BytesIO(data), data_only=True, read_only=True, keep_links=False)
+            files.callback(saved.close)
+            saved_sheets = saved.worksheets
         for index, sheet in enumerate(workbook.worksheets):
+            width = sheet.max_column or 0
+            if width > 256:
+                width = 0
             # Exporters may understate the actual dimensions in the worksheet header.
             sheet.reset_dimensions()
-            lines = []
-            for row_index, row in enumerate(sheet.iter_rows(values_only=True)):
+            saved_rows = iter(())
+            if saved_sheets:
+                saved_sheets[index].reset_dimensions()
+                saved_rows = saved_sheets[index].iter_rows(values_only=True)
+            rows = []
+            for row_index, row in enumerate(sheet.iter_rows()):
                 check_time(deadline)
-                cells += len(row)
-                if row_index >= 20000 or len(row) > 256 or cells > 250000:
+                columns = len(row)
+                cells += columns
+                if row_index >= 20000 or columns > 256 or cells > 250000:
                     raise DocError("DOC_SHEET_LIMIT", 413)
-                if any(item is not None for item in row):
-                    lines.append(budget.add(" | ".join(spreadsheet_value(item) for item in row)))
+                width = max(width, columns)
+                saved_values = next(saved_rows, ())
+                if any(cell.value is not None for cell in row):
+                    values = (spreadsheet_cell(cell, saved_values[k] if k < len(saved_values) else None)
+                              for k, cell in enumerate(row))
+                    rows.append((budget.add(" | ".join(values)), columns))
+            lines = [line + budget.add(" | " * (width - columns)) for line, columns in rows]
             pages.append({"page": index + 1, "method": "xlsx", "locatorKind": "extraction_unit",
                           "sheet": sheet.title, "text": "\n".join(lines)})
-    finally:
-        workbook.close()
     return pages
 
 

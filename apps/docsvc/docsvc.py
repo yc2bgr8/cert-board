@@ -12,6 +12,7 @@ import sys
 from collections import OrderedDict
 from contextlib import suppress
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from threading import Lock
 from typing import Literal
 
@@ -30,6 +31,7 @@ operation_lock = Lock()
 upload_lock = Lock()
 worker_file = Path(__file__).with_name("doc_worker.py")
 worker_timeouts = {"parse": 370, "text": 370, "convert": 100, "render": 30}
+worker_env_keys = ("PATH", "HOME", "LANG", "LC_ALL", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "PYTHONDONTWRITEBYTECODE")
 
 
 class CachedSource:
@@ -130,15 +132,19 @@ def run_operation(action, *arguments):
 
 def run_worker(action, data, kind, *arguments):
     command = [sys.executable, str(worker_file), action, kind, *arguments]
-    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL, start_new_session=True)
-    try:
-        output, _ = process.communicate(input=data, timeout=worker_timeouts[action])
-    except subprocess.TimeoutExpired as error:
-        with suppress(ProcessLookupError):
-            os.killpg(process.pid, signal.SIGKILL)
-        process.communicate()
-        raise DocError("DOC_PROCESSING_TIMEOUT", 504) from error
+    with TemporaryDirectory(prefix="cert-doc-operation-") as directory:
+        environment = {key: os.environ[key] for key in worker_env_keys if key in os.environ}
+        environment["TMPDIR"] = directory
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, start_new_session=True,
+                                   env=environment)
+        try:
+            output, _ = process.communicate(input=data, timeout=worker_timeouts[action])
+        except subprocess.TimeoutExpired as error:
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+            raise DocError("DOC_PROCESSING_TIMEOUT", 504) from error
     if process.returncode == 0:
         return output
     if process.returncode == 1 and len(output) <= 256:

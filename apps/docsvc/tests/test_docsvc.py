@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+from pathlib import Path
 from time import monotonic
 from zipfile import ZipFile
 
@@ -101,6 +102,18 @@ def sheet_bytes():
     return output.getvalue()
 
 
+def rewrite_sheet(data, old, new):
+    adjusted = io.BytesIO()
+    with ZipFile(io.BytesIO(data)) as source, ZipFile(adjusted, "w") as target:
+        for name in source.namelist():
+            entry = source.read(name)
+            if name == "xl/worksheets/sheet1.xml":
+                assert old in entry
+                entry = entry.replace(old, new)
+            target.writestr(name, entry)
+    return adjusted.getvalue()
+
+
 def assert_preview(data, kind, upload_response):
     params = {"kind": kind, "sha256": sha256(data), "page": 1}
     assert client.get("/render", params=params).status_code in {400, 404}
@@ -197,15 +210,27 @@ def test_spreadsheet_comparison_keeps_formulas_beyond_stale_dimensions():
     sheet["B2"] = "=1+2"
     output = io.BytesIO()
     workbook.save(output)
-    adjusted = io.BytesIO()
-    with ZipFile(output) as source, ZipFile(adjusted, "w") as target:
-        for name in source.namelist():
-            entry = source.read(name)
-            if name == "xl/worksheets/sheet1.xml":
-                entry = entry.replace(b'<dimension ref="A1:B2"', b'<dimension ref="A1:A1"')
-            target.writestr(name, entry)
-    result = upload(adjusted.getvalue(), "xlsx", endpoint="text")
+    adjusted = rewrite_sheet(output.getvalue(), b'<dimension ref="A1:B2"', b'<dimension ref="A1:A1"')
+    result = upload(adjusted, "xlsx", endpoint="text")
     assert "=1+2" in result.json()["text"]
+
+
+def test_spreadsheet_keeps_known_width_and_reports_changed_formula_cache():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet["A1"] = "清单"
+    sheet["B2"] = "=TODAY()"
+    output = io.BytesIO()
+    workbook.save(output)
+    raw = output.getvalue()
+    before = rewrite_sheet(raw, b"<v></v>", b"<v>47001</v>")
+    after = rewrite_sheet(raw, b"<v></v>", b"<v>47002</v>")
+    parsed = upload(before, "xlsx").json()["pages"][0]["text"]
+    assert parsed == "清单 | \n | 47001"
+    first = upload(before, "xlsx", endpoint="text").json()["text"]
+    second = upload(after, "xlsx", endpoint="text").json()["text"]
+    assert "=TODAY() [47001]" in first
+    assert "=TODAY() [47002]" in second
 
 
 def test_word_preview_reports_physical_count_separately_from_extraction_units():
@@ -241,14 +266,20 @@ def test_cached_preview_requires_fresh_proof_after_source_eviction(monkeypatch):
 
 def test_worker_is_terminated_at_deadline_and_next_request_recovers(monkeypatch, tmp_path):
     stalled_worker = tmp_path / "stalled_worker.py"
-    stalled_worker.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+    stalled_worker.write_text(
+        "import os, time\nfrom pathlib import Path\n"
+        "work = Path(os.environ['TMPDIR'])\n(work / 'synthetic.pdf').write_bytes(b'fixture')\n"
+        "Path(__file__).with_name('job-path').write_text(str(work))\ntime.sleep(60)\n",
+        encoding="utf-8",
+    )
     data = sample_pdf(text_operator=f"({PDF_TEXT} Timeout fixture.) Tj")
     with monkeypatch.context() as temporary:
         temporary.setattr(docsvc, "worker_file", stalled_worker)
-        temporary.setitem(docsvc.worker_timeouts, "parse", 0.1)
+        temporary.setitem(docsvc.worker_timeouts, "parse", 0.75)
         result = upload(data, "pdf")
         assert result.status_code == 504
         assert result.json() == {"code": "DOC_PROCESSING_TIMEOUT"}
+        assert not Path((tmp_path / "job-path").read_text()).exists()
     assert upload(data, "pdf").status_code == 200
 
 
