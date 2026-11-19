@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type RefObject,
+} from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import {
@@ -37,6 +44,7 @@ export function NewConversation({
   userId,
   returnFocus,
   onCreated,
+  onAgentChange,
 }: {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -45,6 +53,7 @@ export function NewConversation({
   userId: string;
   returnFocus: RefObject<HTMLElement | null>;
   onCreated(conversationId: string, projectId: string | null, agentCode: AgentCode): void;
+  onAgentChange(agentCode: AgentCode): void;
 }) {
   const [projectId, setProjectId] = useState('');
   const [agentCode, setAgentCode] = useState<AgentCode>('registration');
@@ -130,6 +139,9 @@ export function NewConversation({
     }
   }
   const selectedAgent = selected?.projectType ?? agentCode;
+  useLayoutEffect(() => {
+    if (open) onAgentChange(selectedAgent);
+  }, [open, onAgentChange, selectedAgent]);
   return (
     <Dialog.Root
       modal={false}

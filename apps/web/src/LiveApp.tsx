@@ -126,6 +126,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const panelOrigin = useRef<HTMLElement | null>(null);
   const [scope, setScope] = useState<'mine' | 'department'>('mine');
   const [sidebarAgent, setSidebarAgent] = useState<AgentCode>('registration');
+  const [newHeaderAgent, setNewHeaderAgent] = useState<AgentCode>('registration');
   const [dialog, setDialog] = useState<'new' | 'search' | 'settings' | null>(null);
   const [narrow, setNarrow] = useState(
     () => window.matchMedia?.('(max-width: 1023px)').matches ?? false,
@@ -384,7 +385,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           ? projectTitle
           : '项目';
   const location = isNewConversation
-    ? selectedProject?.projectType === 'maintenance'
+    ? newHeaderAgent === 'maintenance'
       ? '维护Agent'
       : '注册Agent'
     : hasConversationTitle
@@ -721,6 +722,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
             if (!open) setDialog(null);
           }}
           initialProjectId={projectId}
+          onAgentChange={setNewHeaderAgent}
           projects={availableProjects}
           userId={userId}
           returnFocus={returnFocus}

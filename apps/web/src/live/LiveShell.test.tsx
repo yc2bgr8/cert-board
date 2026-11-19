@@ -461,6 +461,7 @@ test('项目外新对话可选择维护Agent，保存后明确尚不能运行', 
   fireEvent.click(screen.getByRole('button', { name: '新对话' }));
   const dialog = screen.getByRole('dialog', { name: '新对话' });
   fireEvent.click(within(dialog).getByRole('radio', { name: '维护Agent' }));
+  expect(screen.getByText('维护Agent', { selector: '.live-crumb' })).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: '创建对话' }));
   await screen.findByText('对话已保存，尚未关联项目，暂不能启动任务。');
   expect(screen.queryByRole('region', { name: '已打开的真实对话' })).toBeNull();
@@ -558,4 +559,33 @@ test('搜索请求失败时明确提示重试，不把网络失败展示成没�
   expect(await within(dialog).findByRole('alert')).toBeTruthy();
   expect(within(dialog).queryByText('当前列表没有匹配结果。')).toBeNull();
   expect(within(dialog).getByRole('button', { name: '重新加载对话' })).toBeTruthy();
+});
+
+test('异步插入对话结果时按 ID 保留已选中的项目，回车打开原目标', async () => {
+  const page = { items: [own], hasMore: false, nextCursor: null };
+  let resolveSearch!: (value: typeof page) => void;
+  const response = new Promise<typeof page>((resolve) => {
+    resolveSearch = resolve;
+  });
+  mocks.api.conversations.mockImplementation(
+    async (options: { projectId?: string; scope?: string }) =>
+      options.scope === 'all' && !options.projectId
+        ? response
+        : { items: [], hasMore: false, nextCursor: null },
+  );
+  app();
+  await screen.findByRole('button', { name: 'L08 510(k)' });
+  fireEvent.click(screen.getByRole('button', { name: '搜索' }));
+  const dialog = screen.getByRole('dialog', { name: '搜索项目或对话' });
+  const input = within(dialog).getByRole('combobox', { name: '搜索项目或对话' });
+  const projectOption = within(dialog).getByRole('option', { name: 'L08 510(k)' });
+  fireEvent.keyDown(input, { key: 'ArrowDown' });
+  await act(async () => {
+    resolveSearch(page);
+  });
+  await within(dialog).findByRole('option', { name: /我的核对/ });
+  expect(input.getAttribute('aria-activedescendant')).toBe(projectOption.id);
+  expect(projectOption.getAttribute('aria-selected')).toBe('true');
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(await screen.findByRole('heading', { name: 'L08 510(k)' })).toBeTruthy();
 });

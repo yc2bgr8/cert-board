@@ -44,7 +44,7 @@ export function Search({
   onConversation(conversation: ConversationDetail): void;
 }) {
   const [query, setQuery] = useState('');
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeKey, setActiveKey] = useState<string>();
   const input = useRef<HTMLInputElement>(null);
   const search = query.trim().toLocaleLowerCase();
   const projectMatches = projects.filter((project) =>
@@ -53,13 +53,19 @@ export function Search({
   const conversationMatches = conversations.filter((conversation) =>
     conversation.title.toLocaleLowerCase().includes(search),
   );
-  const resultCount = conversationMatches.length + projectMatches.length;
-  const selected = Math.min(activeIndex, resultCount - 1);
-  const activeOptionId = selected >= 0 ? `live-search-option-${selected}` : undefined;
+  const optionKeys = [
+    ...conversationMatches.map((conversation) => `conversation-${conversation.id}`),
+    ...projectMatches.map((project) => `project-${project.id}`),
+  ];
+  const resultCount = optionKeys.length;
+  const selectedKey = activeKey && optionKeys.includes(activeKey) ? activeKey : optionKeys[0];
+  const selected = selectedKey ? optionKeys.indexOf(selectedKey) : -1;
+  const activeOptionId = selectedKey ? `live-search-option-${selectedKey}` : undefined;
   useEffect(() => {
-    if (open && activeOptionId)
-      document.getElementById(activeOptionId)?.scrollIntoView?.({ block: 'nearest' });
-  }, [open, activeOptionId, query]);
+    if (!open || !activeOptionId) return;
+    setActiveKey(selectedKey);
+    document.getElementById(activeOptionId)?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, activeOptionId, selectedKey, query]);
   function choose(index: number) {
     const thread = conversationMatches[index];
     const project = projectMatches[index - conversationMatches.length];
@@ -102,7 +108,7 @@ export function Search({
               value={query}
               onChange={(event) => {
                 setQuery(event.target.value);
-                setActiveIndex(0);
+                setActiveKey(undefined);
               }}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing || event.keyCode === 229 || resultCount === 0)
@@ -110,7 +116,7 @@ export function Search({
                 if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                   event.preventDefault();
                   const offset = event.key === 'ArrowDown' ? 1 : -1;
-                  setActiveIndex((selected + offset + resultCount) % resultCount);
+                  setActiveKey(optionKeys[(selected + offset + resultCount) % resultCount]);
                 } else if (event.key === 'Enter') {
                   event.preventDefault();
                   choose(selected);
@@ -128,7 +134,7 @@ export function Search({
                   <h3 aria-hidden="true">对话</h3>
                   {conversationMatches.map((conversation, index) => (
                     <button
-                      id={`live-search-option-${index}`}
+                      id={`live-search-option-${optionKeys[index]}`}
                       className={
                         selected === index ? 'live-search-result is-current' : 'live-search-result'
                       }
@@ -137,16 +143,22 @@ export function Search({
                       aria-selected={selected === index}
                       tabIndex={-1}
                       key={conversation.id}
-                      onFocus={() => setActiveIndex(index)}
+                      onFocus={() => setActiveKey(optionKeys[index])}
                       onClick={() => choose(index)}
                     >
                       <ShellIcon name="chat" />
                       <span>
                         {highlight(conversation.title, search)}
                         <small>
-                          {projects.find((project) => project.id === conversation.projectId)
-                            ?.name ?? '未关联项目'}{' '}
-                          · {conversation.ownerName}
+                          {[
+                            conversation.projectId
+                              ? projects.find((project) => project.id === conversation.projectId)
+                                  ?.name
+                              : '未关联项目',
+                            conversation.ownerName,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
                         </small>
                       </span>
                     </button>
@@ -160,7 +172,7 @@ export function Search({
                     const index = conversationMatches.length + projectIndex;
                     return (
                       <button
-                        id={`live-search-option-${index}`}
+                        id={`live-search-option-${optionKeys[index]}`}
                         className={
                           selected === index
                             ? 'live-search-result is-current'
@@ -171,7 +183,7 @@ export function Search({
                         aria-selected={selected === index}
                         tabIndex={-1}
                         key={project.id}
-                        onFocus={() => setActiveIndex(index)}
+                        onFocus={() => setActiveKey(optionKeys[index])}
                         onClick={() => choose(index)}
                       >
                         <ShellIcon name="folder" />
