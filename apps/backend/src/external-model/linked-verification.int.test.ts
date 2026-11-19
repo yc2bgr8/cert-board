@@ -204,8 +204,8 @@ test('较早核实留在原对话分页中，游标限定在对应对话', async
   const ids = Array.from({ length: 21 }, () => randomUUID());
   await context.pool.query(
     `INSERT INTO external_model_conversation(id,user_id,title,project_id,host_agent,state)
-     SELECT id,r.user_id,'合成历史核实',r.project_id,'registration','paused'
-     FROM unnest($1::uuid[]) AS id CROSS JOIN run r WHERE r.id=$2`,
+     SELECT rooms.room_id,r.user_id,'合成历史核实',r.project_id,'registration','paused'
+     FROM unnest($1::uuid[]) AS rooms(room_id) CROSS JOIN run r WHERE r.id=$2`,
     [ids, run.runId],
   );
   await context.pool.query(
