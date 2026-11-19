@@ -137,6 +137,14 @@ describe('唯一YAML模型配置来源', () => {
         sourceEnv: {},
       });
       expect(config && selectGatewayModel(config, 'agent')?.id).toBe('deepseek-local');
+      await writeFile(configPath, source.replace('version: 1', 'version: 1\nversion: 1'), 'utf8');
+      await expect(
+        loadVerificationModelGatewayConfig({
+          configPath,
+          environment: 'development',
+          sourceEnv: {},
+        }),
+      ).rejects.toMatchObject({ code: 'MODEL_CONFIG_INVALID', missingFile: false });
     } finally {
       await unlink(configPath).catch(() => undefined);
       await rmdir(directory);

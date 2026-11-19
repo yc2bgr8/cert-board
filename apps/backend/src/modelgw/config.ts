@@ -15,7 +15,7 @@ export type {
 
 export class ModelConfigError extends Error {
   readonly code = 'MODEL_CONFIG_INVALID';
-  constructor() {
+  constructor(readonly missingFile = false) {
     super('模型配置不可用，请检查模型设置、验收状态及精确出网白名单。');
     this.name = 'ModelConfigError';
   }
@@ -127,10 +127,11 @@ export async function loadModelGatewayConfig(
     const allowlistPath =
       options.allowlistPath ??
       fileURLToPath(new URL('../../../../deploy/egress/allowlist', import.meta.url));
-    const [source, allowlist] = await Promise.all([
-      readFile(configPath, 'utf8'),
-      readFile(allowlistPath, 'utf8'),
-    ]);
+    const source = await readFile(configPath, 'utf8').catch((error: unknown) => {
+      const missing = error instanceof Error && 'code' in error && error.code === 'ENOENT';
+      throw new ModelConfigError(missing);
+    });
+    const allowlist = await readFile(allowlistPath, 'utf8');
     const environment = options.environment ?? process.env.NODE_ENV ?? 'production';
     const sourceEnv = options.sourceEnv ?? (environment === 'test' ? {} : process.env);
     const localEndpoint = sourceEnv.CERT_LOCAL_MODEL_BASE_URL;
@@ -139,7 +140,8 @@ export async function loadModelGatewayConfig(
       ...(localEndpoint ? { localEndpoint } : {}),
       ...(developmentModel ? { developmentModel } : {}),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof ModelConfigError) throw error;
     throw new ModelConfigError();
   }
 }
@@ -149,8 +151,13 @@ export async function loadVerificationModelGatewayConfig(options: ModelConfigLoa
   const explicitlyConfigured =
     sourceEnv.CERT_LOCAL_MODEL_BASE_URL?.trim() ||
     (sourceEnv.HTTPS_PROXY && sourceEnv.OPENROUTER_API_KEY);
-  const configured = loadModelGatewayConfig({ ...options, sourceEnv });
-  if (explicitlyConfigured) return configured;
-  const models = await configured.catch(() => undefined);
-  return models && selectGatewayModel(models, 'agent')?.transport === 'local' ? models : undefined;
+  const models = await loadModelGatewayConfig({ ...options, sourceEnv }).catch((error: unknown) => {
+    if (!explicitlyConfigured && error instanceof ModelConfigError && error.missingFile)
+      return undefined;
+    throw error;
+  });
+  return models &&
+    (explicitlyConfigured || selectGatewayModel(models, 'agent')?.transport === 'local')
+    ? models
+    : undefined;
 }
