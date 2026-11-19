@@ -253,6 +253,14 @@ test('V6 重算声明期限并比较实际时间点，历史报告保持两项�
   });
   expect(submitted.passed).toBe(true);
   expect(submitted.notRun).toContain('V6');
+  const requiredEarly = await checkSubmission(context.pool, caller, {
+    ...base,
+    nextStep: '请于 2026-05-01 提前提交申请，之后不再受理。',
+  });
+  expect(requiredEarly.checks.at(-1)).toMatchObject({
+    status: 'failed',
+    issues: [{ code: 'deadline_unstructured', path: 'nextStep' }],
+  });
 });
 
 test.each(['other_project', 'placeholder', 'voided'] as const)(

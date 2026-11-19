@@ -205,7 +205,9 @@ test('保留数据库升级时，旧版提醒正常展示，历史确认不重�
   const full = await tools();
   await full.call('reminder_set', plan);
   await scanDeadlineReminders(context.pool, new Date('2026-04-01T12:00:00Z'));
-  await context.pool.query("UPDATE notification SET notice=notice-'profile'-'jurisdictionTz'");
+  await context.pool.query(
+    "UPDATE notification SET notice=jsonb_set(notice-'profile','{jurisdictionTz}','null'::jsonb)",
+  );
   const own = browser('MEMBER_A');
   const current = (await readMemberNotifications(context.pool, own)).items[0]!;
   expect(current.deadline).toMatchObject({

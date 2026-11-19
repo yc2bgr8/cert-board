@@ -15,13 +15,18 @@ const datedLanguage =
 const explicitDeadlineObject =
   /(?:截止(?:日(?:期)?|时间|点)?|到期(?:日(?:期)?|时间)?|最后期限|\bdeadline|\bdue date)\s*$/iu;
 const genericDateField = /^(?:日|日期|时间|时点|时刻|date|time)$/iu;
+const earlySubmissionDirective =
+  /(?:请于|应于|须于|必须在).{0,60}提前(?:提交|申报|办理)|(?:之后|此后|逾期)不再受理/iu;
 
 export function checkDeadlineClaims(submission: StructuredSubmission) {
   const issues: Issue[] = [];
   let ran = false;
   const assertsDeadline = (text: string) => {
     const normalized = text.normalize('NFKC');
-    return deadlineLanguage.test(normalized) && datedLanguage.test(normalized);
+    return (
+      (deadlineLanguage.test(normalized) || earlySubmissionDirective.test(normalized)) &&
+      datedLanguage.test(normalized)
+    );
   };
   const prose = (text: string, path: string) => {
     if (assertsDeadline(text)) {
