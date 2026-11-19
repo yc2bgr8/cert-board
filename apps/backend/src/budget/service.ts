@@ -675,6 +675,27 @@ export async function markUsageIncomplete(pool: Pool, input: unknown) {
   });
 }
 
+export async function markUsageNotDispatched(pool: Pool, input: unknown) {
+  const reference = referenceSchema.safeParse(input);
+  if (!reference.success) throw invalid();
+  return transaction(pool, async (tx) => {
+    await policy(tx);
+    await runContext(tx, reference.data, false);
+    const row = await ledger(tx, reference.data);
+    if (row.status === 'not_sent') return;
+    if (row.status !== 'reserved')
+      throw fail(409, 'BUDGET_STATE_CONFLICT', '无法确认预占仍未发送，请核对账本。');
+    await tx.query(
+      "UPDATE usage_ledger SET status='not_sent',actual_nano=0,updated_at=CURRENT_TIMESTAMP WHERE id=$1",
+      [row.id],
+    );
+    await tx.query(
+      "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system','budget.not_dispatched','usage_ledger',$1)",
+      [row.id],
+    );
+  });
+}
+
 export async function meteringCanResume(pool: Pool, ledgerIds: string[], environment: string) {
   const result = await pool.query<{ resolved: number }>(
     `SELECT COUNT(*)::integer AS resolved FROM usage_ledger u

@@ -20,6 +20,7 @@ import {
   reserveUsage,
   settleUsage,
   markUsageIncomplete,
+  markUsageNotDispatched,
   meteringCanResume,
 } from '../budget/service.js';
 
@@ -353,11 +354,18 @@ export class ModelGateway {
         );
       }
     }
-    if (this.meteringBlocks.size)
+    if (this.meteringBlocks.size) {
+      try {
+        // 仍在 transport.send 之前，可以确定本调用未发送。
+        await markUsageNotDispatched(this.pool, context);
+      } catch {
+        await this.recordIncomplete(context, 'provider_error').catch(() => undefined);
+      }
       throw rejected(
         'MODEL_METERING_BLOCKED',
-        '本网关已因计量故障停止派发，当前预占保留，请先核对账本。',
+        '本网关已因计量故障停止派发，本请求未发出，请先核对账本。',
       );
+    }
     let raw: unknown;
     try {
       raw = await this.transport.send(model, body, signal);

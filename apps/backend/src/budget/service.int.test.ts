@@ -88,6 +88,12 @@ test('实际缓存用量精确结算，重复回执和Pi累计快照不会重复
   };
   const first = await settleUsage(context.pool, usage);
   expect(first.actualNano).toBe('100000000');
+  await expect(
+    context.pool.query(
+      "INSERT INTO budget_reconciliation(ledger_id,outcome,evidence,fingerprint) VALUES($1,'charged','已结算记录追加依据测试',$2)",
+      [first.id, 'b'.repeat(64)],
+    ),
+  ).rejects.toMatchObject({ code: '42501' });
   expect((await settleUsage(context.pool, usage)).replayed).toBe(true);
   await expect(settleUsage(context.pool, { ...usage, outputTokens: 1001 })).rejects.toMatchObject({
     code: 'BUDGET_SETTLEMENT_CONFLICT',

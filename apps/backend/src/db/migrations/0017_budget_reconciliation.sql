@@ -25,6 +25,26 @@ FOR EACH STATEMENT EXECUTE FUNCTION public.reject_audit_log_mutation();
 --> statement-breakpoint
 ALTER TABLE public.budget_reconciliation ENABLE ALWAYS TRIGGER budget_reconciliation_append_only;
 --> statement-breakpoint
+CREATE FUNCTION public.require_unknown_budget_reconciliation()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog
+AS $reconciliation_start$
+DECLARE
+    previous public.usage_ledger_status;
+BEGIN
+    SELECT status INTO previous FROM public.usage_ledger WHERE id=NEW.ledger_id FOR UPDATE;
+    IF NOT FOUND OR previous<>'unknown' THEN
+        RAISE EXCEPTION '只有未知账目可以新增核账依据。' USING ERRCODE='42501';
+    END IF;
+    RETURN NEW;
+END;
+$reconciliation_start$;
+--> statement-breakpoint
+CREATE TRIGGER budget_reconciliation_requires_unknown
+BEFORE INSERT ON public.budget_reconciliation
+FOR EACH ROW EXECUTE FUNCTION public.require_unknown_budget_reconciliation();
+--> statement-breakpoint
+ALTER TABLE public.budget_reconciliation ENABLE ALWAYS TRIGGER budget_reconciliation_requires_unknown;
+--> statement-breakpoint
 
 CREATE OR REPLACE FUNCTION public.guard_usage_ledger()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog
@@ -98,6 +118,10 @@ BEGIN
             (NEW.outcome='charged' AND status='settled' AND NOT settled_by_estimate) OR
             (NEW.outcome='reserved_estimate' AND status='settled' AND settled_by_estimate)
         )
+    ) OR NOT EXISTS (
+        SELECT 1 FROM public.audit_log
+        WHERE actor_kind='system' AND action='budget.reconciled' AND target_type='usage_ledger'
+          AND target_id=NEW.ledger_id::text AND after_hash=NEW.fingerprint
     ) THEN
         RAISE EXCEPTION '核账依据必须与同一事务中的最终账目一致。' USING ERRCODE='23514';
     END IF;
