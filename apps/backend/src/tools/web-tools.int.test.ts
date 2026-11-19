@@ -4,11 +4,13 @@ import {
   fetcherSnapshotSchema,
   webFetchResultSchema,
   webSearchResultSchema,
+  type PermissionMode,
 } from '@cert-board/shared';
 import type { z } from 'zod';
 import { createApp } from '../app.js';
 import { AppError } from '../api/errors.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
+import { FetcherRedirect } from '../documents/fetcher-client.js';
 import { createIntegrationContext } from '../test-support/context.js';
 import { docReadTool } from './doc-read.js';
 import { ToolRegistry } from './registry.js';
@@ -56,8 +58,9 @@ afterEach(async () => {
   await context.close();
 });
 
-async function scenario(store = new MemoryStore()) {
-  const run = await context.run('MEMBER_A', 'read_only');
+async function scenario(mode: PermissionMode = 'full') {
+  const store = new MemoryStore();
+  const run = await context.run('MEMBER_A', mode);
   const client = {
     fetchPage: vi.fn(async () => snapshot()),
     search: vi.fn(async () => ({
@@ -82,7 +85,7 @@ test('公开网页原件可用浏览器会话下载，页码原文与缓存稳�
   const operation = randomUUID();
   const first = await invoke('web_fetch', { url }, operation);
   const saved = webFetchResultSchema.parse(first.data);
-  if ('status' in saved) throw new Error(saved.code);
+  if ('status' in saved) throw new Error(saved.status);
   expect(saved).toMatchObject({
     archive: { url, sha256: digest(raw), sourceType: 'official' },
     page: 1,
@@ -126,6 +129,36 @@ test('公开网页原件可用浏览器会话下载，页码原文与缓存稳�
   }
 });
 
+test('只读会话只取临时预览，不写入资料库或原件存储', async () => {
+  const { client, store, invoke } = await scenario('read_only');
+  const result = await invoke('web_fetch', { url });
+  expect(result.data).toMatchObject({ status: 'read_only', preview: text, url });
+  expect(result.data).not.toHaveProperty('documentId');
+  expect(result.data).not.toHaveProperty('archive');
+  expect(client.fetchPage).toHaveBeenCalledOnce();
+  expect(store.blobs.size).toBe(0);
+  expect(
+    (await context.pool.query("SELECT 1 FROM document WHERE source_key LIKE 'W-%'")).rowCount,
+  ).toBe(0);
+});
+
+test('请求批准模式可存档证据，跳转与提取上限给出不同的下一步', async () => {
+  const { client, invoke } = await scenario('ask');
+  const candidate = 'https://www.fda.gov/latest';
+  client.fetchPage.mockRejectedValueOnce(new FetcherRedirect(candidate));
+  expect((await invoke('web_fetch', { url })).data).toMatchObject({
+    status: 'unavailable',
+    code: 'FETCH_REDIRECT',
+    nextUrl: candidate,
+  });
+  expect(client.fetchPage).toHaveBeenCalledOnce();
+  client.fetchPage.mockResolvedValueOnce({ ...snapshot(), truncated: true });
+  expect(await invoke('web_fetch', { url })).toMatchObject({
+    status: 'completed',
+    data: { archive: { extractedTruncated: true }, guidance: expect.stringContaining('人工核对') },
+  });
+});
+
 test('检索词脱敏，来源政策只标记类别，含保密词的网址不派发', async () => {
   const { client, invoke } = await scenario();
   const actor = await context.login();
@@ -162,6 +195,9 @@ test('保密对话和私有地址均不触发外部请求', async () => {
   expect((await invoke('web_fetch', { url: 'https://127.0.0.1/' })).data).toMatchObject({
     code: 'WEB_URL_INVALID',
   });
+  expect(
+    (await invoke('web_fetch', { url: `${url}?%58-Amz-Signature=fixture-only` })).data,
+  ).toMatchObject({ code: 'WEB_URL_INVALID' });
   await context.pool.query("UPDATE conversation SET max_data_level='confidential' WHERE id=$1", [
     run.conversationId,
   ]);
@@ -180,7 +216,7 @@ test('快照到期后创建下一版本，原始证据保留', async () => {
     snapshot(new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()),
   );
   const first = webFetchResultSchema.parse((await invoke('web_fetch', { url })).data);
-  if ('status' in first) throw new Error(first.code);
+  if ('status' in first) throw new Error(first.status);
   expect((await invoke('web_fetch', { url })).data).toMatchObject({
     documentId: first.documentId,
     version: 2,
@@ -220,6 +256,12 @@ test('哈希校验失败不写资料，PDF 原件送存档时标为未解析', a
     status: 'unavailable',
     code: 'WEB_SNAPSHOT_INVALID',
   });
+  client.fetchPage.mockRejectedValueOnce(
+    new AppError(502, 'FETCH_BODY_INCOMPLETE', '响应不完整。'),
+  );
+  expect((await invoke('web_fetch', { url })).data).toMatchObject({
+    code: 'FETCH_BODY_INCOMPLETE',
+  });
   expect(
     (await context.pool.query("SELECT id FROM document WHERE source_key LIKE 'W-%'")).rowCount,
   ).toBe(0);
@@ -229,7 +271,7 @@ test('哈希校验失败不写资料，PDF 原件送存档时标为未解析', a
     text: '',
   });
   const archived = webFetchResultSchema.parse((await invoke('web_fetch', { url })).data);
-  if ('status' in archived) throw new Error(archived.code);
+  if ('status' in archived) throw new Error(archived.status);
   expect(archived.page).toBeNull();
   const actor = await context.login();
   const placeholder = await context.app.inject({

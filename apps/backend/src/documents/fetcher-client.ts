@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  canonicalPublicWebUrl,
   fetcherSearchResultSchema,
   fetcherSnapshotSchema,
   type BackendConfig,
@@ -12,12 +13,20 @@ const failureMessages: Record<string, string> = {
   FETCH_REDIRECT: '站点返回跳转。请先核对公开 HTTPS 最终网址，再重新提交。',
   FETCH_MEDIA_UNSUPPORTED: '当前可存档 HTML、纯文本、JSON 和 PDF。请改用页面正文或可下载原件。',
   FETCH_BODY_TOO_LARGE: '网页响应超过存档大小上限，请改用更小的公开页面或原件。',
+  FETCH_BODY_INCOMPLETE: '站点提前断开，未收到完整原件。请重新抓取或改用其他来源。',
+  FETCH_TIMEOUT: '网页请求超过总时限。请重试或改用其他公开来源。',
   FETCH_UPSTREAM_STATUS: '公开网站没有返回成功响应，请检查当前网址或换用可信来源。',
   FETCH_DESTINATION_REJECTED: '目标不是可访问的公开域名，请改用公开 HTTPS 地址。',
   FETCH_PROXY_UNAVAILABLE: '抓取代理未能建立公开连接，请核对域名、证书或代理状态。',
   SEARCH_PROVIDER_UNAVAILABLE: '检索服务暂不可用。已有公开地址时，可以使用 web_fetch。',
   SEARCH_PROVIDER_INVALID: '检索服务返回格式有误，请改用已知公开地址。',
 };
+
+export class FetcherRedirect extends AppError {
+  constructor(public readonly nextUrl: string | null) {
+    super(409, 'FETCH_REDIRECT', failureMessages.FETCH_REDIRECT!);
+  }
+}
 
 export class FetcherClient {
   private readonly address: string;
@@ -80,8 +89,14 @@ export class FetcherClient {
       }
       const raw: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (!response.ok) {
-        const failure = z.object({ code: z.string().max(80) }).safeParse(raw);
+        const failure = z
+          .object({ code: z.string().max(80), nextUrl: z.string().max(2048).nullable().optional() })
+          .safeParse(raw);
         const code = failure.success ? failure.data.code : '';
+        if (code === 'FETCH_REDIRECT') {
+          const candidate = failure.success ? failure.data.nextUrl : null;
+          throw new FetcherRedirect(candidate ? canonicalPublicWebUrl(candidate) : null);
+        }
         if (Object.hasOwn(failureMessages, code))
           throw new AppError(response.status, code, failureMessages[code]!);
         throw new AppError(

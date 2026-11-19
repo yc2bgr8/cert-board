@@ -11,6 +11,8 @@ const privateSuffixes = [
   '.home.arpa',
 ];
 const publicHostname = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}$/u;
+const credentialParameter =
+  /^(?:(?:xamz|xgoog|xoss|awsaccess|googleaccess).+|.*(?:apikey|token|credential|signature|password|sessionid|secret)|auth|authorization|bearer|code|key|policy|sig|session|jwt)$/u;
 const hash = z.string().regex(/^[a-f0-9]{64}$/u);
 const date = z.string().datetime({ offset: true });
 
@@ -34,6 +36,7 @@ export function canonicalPublicWebUrl(value: string) {
     url.username ||
     url.password ||
     url.port ||
+    url.hostname.length > 253 ||
     !publicHostname.test(url.hostname) ||
     privateSuffixes.some((suffix) => url.hostname.endsWith(suffix))
   )
@@ -41,10 +44,20 @@ export function canonicalPublicWebUrl(value: string) {
   try {
     const decoded = decodeURIComponent(url.pathname + url.search);
     if (hasWebControlCharacters(decoded) || decoded.includes('\\')) return null;
+    const parameters = Array.from(url.searchParams.keys());
+    if (
+      parameters.length > 64 ||
+      url.search.includes(';') ||
+      parameters.some((key) =>
+        credentialParameter.test(key.trim().toLowerCase().replace(/[-_]/gu, '')),
+      )
+    )
+      return null;
   } catch {
     return null;
   }
   url.hash = '';
+  if (!url.search) url.search = '';
   return url.href.length <= 2048 ? url.href : null;
 }
 
@@ -95,7 +108,16 @@ export const fetcherSnapshotSchema = z
   })
   .strict();
 const searchResult = z
-  .object({ title: z.string().min(1).max(255), url: webUrl, snippet: z.string().max(500) })
+  .object({
+    title: z.string().min(1).max(255),
+    url: z.string().transform((value, ctx) => {
+      const canonical = canonicalPublicWebUrl(value);
+      if (canonical !== null) return canonical;
+      ctx.addIssue({ code: 'custom', message: '需要可核对的公开 HTTPS 地址。' });
+      return z.NEVER;
+    }),
+    snippet: z.string().max(500),
+  })
   .strict();
 export const fetcherSearchResultSchema = z
   .object({ items: z.array(searchResult).max(10) })
@@ -105,6 +127,7 @@ const unavailable = z
     status: z.literal('unavailable'),
     code: z.string().regex(/^[A-Z0-9_]{1,80}$/u),
     message: z.string().min(1).max(400),
+    nextUrl: webUrl.optional(),
   })
   .strict();
 const searchSuccess = z
@@ -124,7 +147,18 @@ const fetchSuccess = z
     preview: z.string().max(4000),
     cached: z.boolean(),
     page: z.literal(1).nullable(),
+    guidance: z.string().max(400).optional(),
+  })
+  .strict();
+const readOnlyFetch = z
+  .object({
+    status: z.literal('read_only'),
+    url: webUrl,
+    sourceType: webSourceTypeSchema,
+    title: z.string().max(255),
+    preview: z.string().max(4000),
+    guidance: z.string().max(400),
   })
   .strict();
 export const webSearchResultSchema = z.union([searchSuccess, unavailable]);
-export const webFetchResultSchema = z.union([fetchSuccess, unavailable]);
+export const webFetchResultSchema = z.union([fetchSuccess, readOnlyFetch, unavailable]);

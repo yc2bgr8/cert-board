@@ -11,8 +11,9 @@ import {
   type WebArchiveInfo,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
+import { authorize } from '../auth/authorization.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
-import type { FetcherClient } from '../documents/fetcher-client.js';
+import { FetcherRedirect, type FetcherClient } from '../documents/fetcher-client.js';
 import { ingestParsedDocument } from '../documents/service.js';
 import { redactExternalMessages } from '../external-model/policy.js';
 import { ExternalModels } from '../external-model/service.js';
@@ -30,6 +31,12 @@ const cacheMs = 24 * 60 * 60 * 1000;
 const maxCalls = 8;
 const digest = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const preview = (value: string) => value.slice(0, 4000).replace(/[\uD800-\uDBFF]$/u, '');
+const archiveGuidance = (archive: WebArchiveInfo, placeholder: boolean) =>
+  placeholder
+    ? '原件已存档。解析文字暂不可用，请由人在证据页下载原件核对。'
+    : archive.extractedTruncated
+      ? '仅存入提取上限内的正文。doc_read 可分页读完已提取部分，剩余内容请人工核对存档原件。'
+      : undefined;
 
 async function webResult(action: () => Promise<unknown>) {
   try {
@@ -40,7 +47,12 @@ async function webResult(action: () => Promise<unknown>) {
       /^(?:WEB_|FETCH_|FETCHER_|SEARCH_|EXTERNAL_|DOCUMENT_VOIDED$)/u.test(error.code)
     )
       return {
-        data: { status: 'unavailable', code: error.code, message: error.message },
+        data: {
+          status: 'unavailable',
+          code: error.code,
+          message: error.message,
+          ...(error instanceof FetcherRedirect && error.nextUrl ? { nextUrl: error.nextUrl } : {}),
+        },
         dataLevel: 'public' as const,
       };
     throw error;
@@ -100,6 +112,23 @@ export function buildWebTools(
     };
   }
 
+  async function download(ctx: ToolExecutionContext, url: string) {
+    if (ctx.signal?.aborted) throw new AppError(409, 'WEB_STOPPED', '运行已停止，网页请求未发出。');
+    const snapshot = await fetcher.fetchPage(url, ctx.signal);
+    if (ctx.signal?.aborted)
+      throw new AppError(409, 'WEB_STOPPED', '运行已停止，本次抓取结果未保存。');
+    const bytes = Buffer.from(snapshot.bodyBase64, 'base64');
+    if (
+      snapshot.url !== url ||
+      bytes.length > 2 * 1024 * 1024 ||
+      bytes.toString('base64') !== snapshot.bodyBase64 ||
+      digest(bytes) !== snapshot.sha256 ||
+      Date.parse(snapshot.fetchedAt) > Date.now() + 5000
+    )
+      throw new AppError(502, 'WEB_SNAPSHOT_INVALID', '网页原件地址、内容哈希或抓取时间未能核对。');
+    return { snapshot, bytes };
+  }
+
   const search: ToolDefinition = {
     metadata: {
       name: 'web_search',
@@ -146,7 +175,7 @@ export function buildWebTools(
       outputDataLevel: 'public',
       authorizationAction: 'project.read',
       description: {
-        purpose: '读取公开 HTTPS 页面或原件并存档，返回资料编号、版本和有界摘要。',
+        purpose: '读取公开 HTTPS 页面或原件。可写会话返回存档定位，只读会话只返回临时预览。',
         whenToUse: '要核对公开原文或保存可追溯网页，已有公开 HTTPS 地址。',
         avoid:
           '没有公开网址时先用 web_search。引用时对返回的资料版本再调用 doc_read，不能把摘要或未解析 PDF 当作原文。',
@@ -162,6 +191,22 @@ export function buildWebTools(
         if (!url)
           throw new AppError(400, 'WEB_URL_INVALID', '请提供不含凭据的公开 HTTPS 域名地址。');
         const { projectId } = await protect(ctx, url, true);
+        if (ctx.permissionMode === 'read_only') {
+          const { snapshot } = await download(ctx, url);
+          return {
+            status: 'read_only',
+            url,
+            sourceType: classify(url),
+            title: snapshot.title,
+            preview: preview(snapshot.text),
+            guidance: '只读会话只提供临时预览。需要可引用的存档时，请切换到可写模式后重新抓取。',
+          };
+        }
+        if (
+          !authorize(ctx.actor, 'document.write', { projectId }) ||
+          (ctx.goalId && ctx.goalStatus !== 'active')
+        )
+          throw new AppError(403, 'WEB_ARCHIVE_FORBIDDEN', '当前项目或目标不允许登记网页存档。');
         const sourceKey = `W-${digest(url)}`;
         await ctx.tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
           `${projectId}:${sourceKey}`,
@@ -192,6 +237,7 @@ export function buildWebTools(
           cached.data.url === url &&
           Date.now() - Date.parse(cached.data.fetchedAt) <= cacheMs
         ) {
+          const guidance = archiveGuidance(cached.data, current.is_placeholder);
           return {
             archive: cached.data,
             documentId: current.document_id,
@@ -201,26 +247,11 @@ export function buildWebTools(
             preview: preview(current.text ?? ''),
             cached: true,
             page: current.is_placeholder ? null : 1,
+            ...(guidance ? { guidance } : {}),
           };
         }
-        if (ctx.signal?.aborted)
-          throw new AppError(409, 'WEB_STOPPED', '运行已停止，网页请求未发出。');
-        const snapshot = await fetcher.fetchPage(url, ctx.signal);
-        if (ctx.signal?.aborted)
-          throw new AppError(409, 'WEB_STOPPED', '运行已停止，网页存档未登记。');
-        const bytes = Buffer.from(snapshot.bodyBase64, 'base64');
-        if (
-          snapshot.url !== url ||
-          bytes.length > 2 * 1024 * 1024 ||
-          bytes.toString('base64') !== snapshot.bodyBase64 ||
-          digest(bytes) !== snapshot.sha256 ||
-          Date.parse(snapshot.fetchedAt) > Date.now() + 5000
-        )
-          throw new AppError(
-            502,
-            'WEB_SNAPSHOT_INVALID',
-            '网页原件地址、内容哈希或抓取时间未能核对。',
-          );
+        await protect(ctx, url, true);
+        const { snapshot, bytes } = await download(ctx, url);
         const archive = webArchiveInfoSchema.parse({
           url,
           fetchedAt: snapshot.fetchedAt,
@@ -261,6 +292,7 @@ export function buildWebTools(
             ctx.tx,
           );
           await ctx.tx.query('RELEASE SAVEPOINT web_archive_write');
+          const guidance = archiveGuidance(archive, placeholder);
           return {
             archive,
             documentId: saved.documentId,
@@ -270,6 +302,7 @@ export function buildWebTools(
             preview: preview(snapshot.text),
             cached: false,
             page: placeholder ? null : 1,
+            ...(guidance ? { guidance } : {}),
           };
         } catch (error) {
           await ctx.tx.query('ROLLBACK TO SAVEPOINT web_archive_write');
