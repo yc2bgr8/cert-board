@@ -8,7 +8,6 @@ import type {
 } from 'fastify';
 import type { Pool } from 'pg';
 import { createHash } from 'node:crypto';
-import { Transform } from 'node:stream';
 import {
   documentParamsSchema,
   documentPageParamsSchema,
@@ -29,6 +28,7 @@ import {
 import type { DocumentBlobStore } from './blob-store.js';
 import { maximumDocumentBytes } from './docsvc-client.js';
 import { queueOriginalDocument } from './parse-tasks.js';
+import { createDocumentUploadGate, monitorDocumentUpload } from './upload-gate.js';
 
 const archiveParams = documentPageParamsSchema.pick({ id: true, version: true });
 const uploadQuery = documentOriginalInputSchema
@@ -59,20 +59,12 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
 ) {
   if (originals)
     app.register(async (upload) => {
-      const receiving = new Map<
-        FastifyRequest,
-        { idle: NodeJS.Timeout; deadline: NodeJS.Timeout }
-      >();
-      const stopUploadTimers = (request: FastifyRequest) => {
-        const timers = receiving.get(request);
-        if (timers) {
-          clearTimeout(timers.idle);
-          clearTimeout(timers.deadline);
-        }
-      };
+      const receiving = createDocumentUploadGate<FastifyRequest>();
+      const bodies = new WeakMap<FastifyRequest, ReturnType<typeof monitorDocumentUpload>>();
       const release = async (request: FastifyRequest) => {
-        stopUploadTimers(request);
-        receiving.delete(request);
+        receiving.release(request);
+        bodies.get(request)?.destroy();
+        bodies.delete(request);
       };
       upload.addContentTypeParser(
         'application/octet-stream',
@@ -93,33 +85,16 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
               );
             if (request.raw.aborted)
               throw new AppError(400, 'DOCUMENT_UPLOAD_INCOMPLETE', '原件传输中断，请重新提交。');
-            if (receiving.size >= 2)
+            if (!receiving.acquire(request, () => request.raw.destroy()))
               throw new AppError(429, 'DOCUMENT_UPLOAD_BUSY', '当前有原件正在上传，请稍后重试。');
-            const abort = () => request.raw.destroy();
-            receiving.set(request, {
-              idle: setTimeout(abort, 30_000).unref(),
-              deadline: setTimeout(abort, 12 * 60_000).unref(),
-            });
           },
           preParsing: (request, _reply, payload, done) => {
-            const timers = receiving.get(request);
-            const monitored = Object.assign(
-              new Transform({
-                transform(chunk: Buffer, _encoding, callback) {
-                  timers?.idle.refresh();
-                  monitored.receivedEncodedLength += chunk.length;
-                  callback(null, chunk);
-                },
-              }),
-              { receivedEncodedLength: 0 },
-            );
-            payload.once('error', (error) => {
-              monitored.destroy(error);
-            });
-            done(null, payload.pipe(monitored));
+            const monitored = monitorDocumentUpload(payload, () => receiving.receive(request));
+            bodies.set(request, monitored);
+            done(null, monitored);
           },
           preHandler: async (request) => {
-            stopUploadTimers(request);
+            receiving.finishBody(request);
           },
           onResponse: release,
           onRequestAbort: release,
