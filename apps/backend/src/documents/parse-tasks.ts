@@ -205,9 +205,20 @@ export async function processDocumentParseTask(
   if (!task) return false;
   try {
     const content = await store.get(task.sha256);
+    signal?.throwIfAborted();
     const pages = await parser.parse(content, task.sha256, task.format, signal);
+    signal?.throwIfAborted();
     await finishTask(pool, task, pages);
   } catch (error) {
+    if (signal?.aborted) {
+      await pool.query(
+        `UPDATE document_parse_task SET state='queued',attempts=attempts-1,
+         lease_token=NULL,lease_until=NULL,available_at=clock_timestamp(),updated_at=clock_timestamp()
+         WHERE version_id=$1 AND state='running' AND lease_token=$2 AND lease_until>clock_timestamp()`,
+        [task.version_id, task.lease_token],
+      );
+      return true;
+    }
     const code =
       error instanceof AppError && /^[A-Z][A-Z0-9_]{1,63}$/u.test(error.code)
         ? error.code

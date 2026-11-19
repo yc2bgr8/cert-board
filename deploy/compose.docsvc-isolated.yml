@@ -1,4 +1,8 @@
 services:
+  backend-api:
+    environment:
+      CERT_DOCSVC_URL: http://docsvc-relay:28082
+
   backend-worker:
     environment:
       CERT_DOCSVC_URL: http://docsvc-relay:28082

@@ -129,7 +129,10 @@ test('原件版本幂等入队，解析时保留旧检索，完成后暴露中�
   await expect(
     queueOriginalDocument(database.pool, blobs.store, ra, input, Buffer.from('different fixture')),
   ).rejects.toMatchObject({ code: 'DOCUMENT_SNAPSHOT_CONFLICT' });
-  expect((await getDocument(database.pool, ra, first.documentId)).parseState).toBe('queued');
+  expect(await getDocument(database.pool, ra, first.documentId)).toMatchObject({
+    parseState: 'queued',
+    readablePage: { version: 1, page: 1 },
+  });
   expect(
     (await searchDocuments(database.pool, ra, projectId, { query: '旧版本内容' })).items[0]
       ?.version,
@@ -227,15 +230,101 @@ test('暂时繁忙会重试，确定失败只记录安全错误码且不发布�
   ).rejects.toMatchObject({ statusCode: 404 });
 });
 
+test('第三次领取时正常停机释放租约，后续可以继续解析', async () => {
+  const item = await queueOriginalDocument(
+    database.pool,
+    blobs.store,
+    ra,
+    {
+      projectId,
+      sourceKey: 'RAW-STOP',
+      name: '停机续跑样例.pdf',
+      sourcePath: 'stop.pdf',
+      sourceSnapshot: digest('raw-stop'),
+      format: 'pdf',
+      authorType: 'human',
+      dataLevel: 'internal',
+    },
+    Buffer.from('fictional stopped input'),
+  );
+  await database.pool.query('UPDATE document_parse_task SET attempts=2 WHERE version_id=$1', [
+    item.versionId,
+  ]);
+  const stopping = new AbortController();
+  await processDocumentParseTask(
+    database.pool,
+    blobs.store,
+    {
+      async parse() {
+        stopping.abort();
+        throw new AppError(503, 'DOCSVC_UNAVAILABLE', 'fictional stopped worker');
+      },
+    },
+    stopping.signal,
+  );
+  const status = async () =>
+    (await listDocumentVersions(database.pool, ra, item.documentId)).items[0]?.parseStatus;
+  expect(await status()).toMatchObject({ state: 'queued', attempts: 2, errorCode: null });
+  await processDocumentParseTask(database.pool, blobs.store, {
+    async parse() {
+      return [
+        {
+          pageNumber: 1,
+          method: 'text',
+          locatorKind: 'physical_page',
+          ocrScore: null,
+          text: '恢复后解析完成。',
+          isPlaceholder: false,
+        },
+      ];
+    },
+  });
+  expect(await status()).toMatchObject({ state: 'ready', attempts: 3, errorCode: null });
+});
+
 test('浏览器单原件入口需要会话和 CSRF，同一原件重传只领取一个版本', async () => {
-  const config = parseBackendConfig({ ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent' });
+  const config = parseBackendConfig({
+    ...process.env,
+    NODE_ENV: 'test',
+    LOG_LEVEL: 'silent',
+    CERT_DOCSVC_URL: 'http://127.0.0.1:28082',
+  });
+  let holdUploads = false;
+  let activeStores = 0;
+  let notifyBoth!: () => void;
+  let releaseUploads!: () => void;
+  const bothStoring = new Promise<void>((resolve) => {
+    notifyBoth = resolve;
+  });
+  const canStore = new Promise<void>((resolve) => {
+    releaseUploads = resolve;
+  });
   const app = createApp(config, {
     database: database.pool,
-    blobStore: blobs.store,
+    blobStore: {
+      get: (sha256) => blobs.store.get(sha256),
+      async put(content) {
+        if (holdUploads) {
+          if (++activeStores === 2) notifyBoth();
+          await canStore;
+        }
+        return blobs.store.put(content);
+      },
+    },
     checkDatabase: async () => undefined,
     checkStorage: async () => undefined,
     close: async () => undefined,
   });
+  const disabled = createApp(
+    { ...config, CERT_DOCSVC_URL: undefined },
+    {
+      database: database.pool,
+      blobStore: blobs.store,
+      checkDatabase: async () => undefined,
+      checkStorage: async () => undefined,
+      close: async () => undefined,
+    },
+  );
   try {
     const sameOrigin = { origin: config.WEB_ORIGIN, 'sec-fetch-site': 'same-origin' };
     const login = await app.inject({
@@ -247,10 +336,16 @@ test('浏览器单原件入口需要会话和 CSRF，同一原件重传只领取
     expect(login.statusCode).toBe(200);
     const cookie = String(login.headers['set-cookie']).split(';')[0];
     const payload = Buffer.from('%PDF-1.4 fictional upload');
-    const submit = (authenticated: boolean, csrf: boolean) =>
-      app.inject({
+    const submit = (
+      authenticated: boolean,
+      csrf: boolean,
+      name = 'fixture-upload.pdf',
+      query = '',
+      target = app,
+    ) =>
+      target.inject({
         method: 'POST',
-        url: `/api/projects/${projectId}/documents/original?name=fixture-upload.pdf&format=pdf`,
+        url: `/api/projects/${projectId}/documents/original?name=${name}&format=pdf${query}`,
         headers: {
           ...sameOrigin,
           'content-type': 'application/octet-stream',
@@ -261,19 +356,37 @@ test('浏览器单原件入口需要会话和 CSRF，同一原件重传只领取
       });
     expect((await submit(false, false)).statusCode).toBe(401);
     expect((await submit(true, false)).statusCode).toBe(403);
+    const blocked = await submit(true, true, undefined, '', disabled);
+    expect(blocked.statusCode).toBe(503);
+    expect(blocked.json()).toMatchObject({ error: { code: 'DOCUMENT_PARSER_DISABLED' } });
     const saved = await submit(true, true);
     expect(saved.statusCode).toBe(202);
     const replay = await submit(true, true);
     expect(replay.statusCode).toBe(200);
     expect(replay.json()).toMatchObject({ ...saved.json(), created: false });
+    const explicitKey = `&sourceKey=file-${digest('fixture-upload.pdf')}&dataLevel=internal`;
+    const explicit = await submit(true, true, undefined, explicitKey);
+    expect(explicit.statusCode).toBe(200);
+    expect(explicit.json()).toEqual(replay.json());
     const versions = await listDocumentVersions(database.pool, ra, saved.json().documentId);
     expect(versions.items).toHaveLength(1);
     expect(versions.items[0]).toMatchObject({
       dataLevel: 'internal',
       parseStatus: { state: 'queued' },
     });
+    holdUploads = true;
+    const pending = ['fixture-2.pdf', 'fixture-3.pdf'].map((name) => submit(true, true, name));
+    await bothStoring;
+    try {
+      expect((await submit(true, true, 'fixture-busy.pdf')).statusCode).toBe(429);
+    } finally {
+      releaseUploads();
+      await Promise.all(pending);
+    }
+    holdUploads = false;
+    expect((await submit(true, true, 'fixture-busy.pdf')).statusCode).toBe(202);
   } finally {
-    await app.close();
+    await Promise.all([app.close(), disabled.close()]);
   }
 });
 

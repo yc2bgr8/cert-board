@@ -101,7 +101,7 @@ export async function startWorker() {
       environment: config.NODE_ENV,
     });
     const store = new BlobStore(resources.storage, config.MINIO_BUCKET);
-    if (process.env.CERT_DOCSVC_URL) {
+    if (config.CERT_DOCSVC_URL) {
       const originalStore = new BlobStore(
         resources.storage,
         config.MINIO_BUCKET,
@@ -110,7 +110,7 @@ export async function startWorker() {
       stopDocumentWorker = startDocumentParseWorker(
         resources.database,
         originalStore,
-        new DocumentParserClient(process.env.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
+        new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
         () =>
           logger.warn({ event: 'document_parse_deferred' }, '暂未能处理资料解析任务，稍后再试。'),
       );

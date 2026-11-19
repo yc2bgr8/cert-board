@@ -37,6 +37,12 @@ const documentFields = `d.id, d.project_id AS "projectId", d.source_key AS "sour
   d.source_path AS "sourcePath", d.owner_user_id AS "ownerUserId", ${classification} AS "dataLevel",
   CASE WHEN d.voided THEN 'voided' ELSE 'active' END AS status,
   current.version_no AS "currentVersion", current.parse_state AS "parseState",
+  CASE WHEN current.parse_state IS NOT NULL THEN (
+    SELECT jsonb_build_object('version',v.version_no,'page',p.page_number)
+    FROM document_version v JOIN document_page p ON p.version_id=v.id
+    WHERE v.document_id=d.id AND NOT p.is_placeholder
+    ORDER BY v.version_no DESC,p.page_number LIMIT 1
+  ) END AS "readablePage",
   d.version, d.created_at AS "createdAt", d.updated_at AS "updatedAt"`;
 const versionFields = `v.id, v.document_id AS "documentId", v.version_no AS version,
   v.source_snapshot AS "sourceSnapshot", v.content_sha256 AS "contentSha256",
@@ -68,10 +74,10 @@ function canonicalValue(value: unknown): unknown {
 }
 const canonicalJson = (value: unknown) => JSON.stringify(canonicalValue(value));
 function toDocument(row: Record<string, unknown>) {
-  const { parseState, ...fields } = row;
+  const { parseState, readablePage, ...fields } = row;
   return documentRecordSchema.parse({
     ...fields,
-    ...(parseState == null ? {} : { parseState }),
+    ...(parseState == null ? {} : { parseState, readablePage }),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   });

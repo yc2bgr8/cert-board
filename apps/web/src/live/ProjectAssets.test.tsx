@@ -224,7 +224,7 @@ it('资料解析期间轮询进度，完成后才打开新版本的原文', asyn
       nextCursor: null,
     })
     .mockResolvedValue({
-      items: [{ ...document, parseState: 'ready' }],
+      items: [{ ...document, parseState: 'ready', readablePage: { version: 1, page: 1 } }],
       hasMore: false,
       nextCursor: null,
     });
@@ -238,4 +238,27 @@ it('资料解析期间轮询进度，完成后才打开新版本的原文', asyn
   expect(row.disabled).toBe(false);
   fireEvent.click(row);
   expect(onOpenEvidence).toHaveBeenCalledWith([{ documentId, version: 1, page: 1 }]);
+});
+
+it('新版排队时，资料库仍可打开上一可读版本的实际页码', async () => {
+  const onOpenEvidence = vi.fn();
+  mocks.documents.mockResolvedValue({
+    items: [
+      {
+        id: documentId,
+        name: '新版文件',
+        sourceKey: 'RAW-RUN',
+        dataLevel: 'internal',
+        currentVersion: 3,
+        parseState: 'queued',
+        readablePage: { version: 2, page: 4 },
+      },
+    ],
+    hasMore: false,
+    nextCursor: null,
+  });
+  show(<ProjectDocuments projectId={projectId} userId="member" onOpenEvidence={onOpenEvidence} />);
+  fireEvent.click(await screen.findByRole('button', { name: '打开资料：新版文件' }));
+  expect(screen.getByText(/可查看第 2 版/)).toBeTruthy();
+  expect(onOpenEvidence).toHaveBeenCalledWith([{ documentId, version: 2, page: 4 }]);
 });

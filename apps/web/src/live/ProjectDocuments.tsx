@@ -63,35 +63,39 @@ export function ProjectDocuments({
             </button>
           </p>
         )}
-        {items.map((document) => (
-          <button
-            className="live-asset-row"
-            type="button"
-            key={document.id}
-            disabled={document.parseState !== undefined && document.parseState !== 'ready'}
-            aria-label={`打开资料：${document.name}`}
-            onClick={() =>
-              onOpenEvidence([
-                { documentId: document.id, version: document.currentVersion, page: 1 },
-              ])
-            }
-          >
-            <span>
-              {document.name}
-              <small>
-                {document.sourceKey}，第 {document.currentVersion} 版，
-                {{ public: '公开', internal: '内部', confidential: '保密' }[document.dataLevel]}
-              </small>
-            </span>
-            {document.parseState ? (
-              <span className="live-notice-chip" data-parse-state={document.parseState}>
-                {parseLabels[document.parseState]}
+        {items.map((document) => {
+          const readable = document.parseState
+            ? document.readablePage
+            : { version: document.currentVersion, page: 1 };
+          return (
+            <button
+              className="live-asset-row"
+              type="button"
+              key={document.id}
+              disabled={!readable}
+              aria-label={`打开资料：${document.name}`}
+              onClick={() => readable && onOpenEvidence([{ documentId: document.id, ...readable }])}
+            >
+              <span>
+                {document.name}
+                <small>
+                  {document.sourceKey}，第 {document.currentVersion} 版，
+                  {{ public: '公开', internal: '内部', confidential: '保密' }[document.dataLevel]}
+                  {readable &&
+                    readable.version < document.currentVersion &&
+                    `，可查看第 ${readable.version} 版`}
+                </small>
               </span>
-            ) : (
-              <span className="live-row-action">打开解析页</span>
-            )}
-          </button>
-        ))}
+              {document.parseState ? (
+                <span className="live-notice-chip" data-parse-state={document.parseState}>
+                  {parseLabels[document.parseState]}
+                </span>
+              ) : (
+                <span className="live-row-action">打开解析页</span>
+              )}
+            </button>
+          );
+        })}
         {!query.isPending && !query.isError && items.length === 0 && (
           <p className="live-empty live-assets-message">这个项目还没有可查看的资料。</p>
         )}

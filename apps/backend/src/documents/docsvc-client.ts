@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
+  docsvcBaseUrl,
   documentFormatSchema,
   documentLocatorKindSchema,
   documentPageMethodSchema,
@@ -70,8 +71,7 @@ export class DocumentParserClient {
   readonly #address: string;
 
   constructor(address: string, runtime: BackendConfig['CONTAINER_RUNTIME']) {
-    const expected =
-      runtime === 'docker' ? 'http://docsvc-relay:28082/' : 'http://127.0.0.1:28082/';
+    const expected = docsvcBaseUrl(runtime);
     if (!URL.canParse(address) || new URL(address).href !== expected)
       throw new AppError(500, 'DOCSVC_CONFIG_INVALID', '解析服务只能使用本部署的固定内部地址。');
     this.#address = expected;

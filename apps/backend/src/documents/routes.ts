@@ -1,6 +1,7 @@
 import type {
   FastifyInstance,
   FastifyBaseLogger,
+  FastifyRequest,
   RawServerDefault,
   RawRequestDefaultExpression,
   RawReplyDefaultExpression,
@@ -57,6 +58,11 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
 ) {
   if (originals)
     app.register(async (upload) => {
+      const receiving = new Map<FastifyRequest, ReturnType<typeof setTimeout>>();
+      const release = async (request: FastifyRequest) => {
+        clearTimeout(receiving.get(request));
+        receiving.delete(request);
+      };
       upload.addContentTypeParser(
         'application/octet-stream',
         { parseAs: 'buffer', bodyLimit: maximumDocumentBytes },
@@ -68,7 +74,25 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
           bodyLimit: maximumDocumentBytes,
           onRequest: async (request) => {
             await requireBrowserIdentity(request, pool, config, { write: true });
+            if (!config.CERT_DOCSVC_URL)
+              throw new AppError(
+                503,
+                'DOCUMENT_PARSER_DISABLED',
+                '资料解析未启用。请启动解析服务，并为 API 和后台进程配置 CERT_DOCSVC_URL。',
+              );
+            if (request.raw.aborted)
+              throw new AppError(400, 'DOCUMENT_UPLOAD_INCOMPLETE', '原件传输中断，请重新提交。');
+            if (receiving.size >= 2)
+              throw new AppError(429, 'DOCUMENT_UPLOAD_BUSY', '当前有原件正在上传，请稍后重试。');
+            const timeout = setTimeout(() => request.raw.destroy(), 45_000);
+            timeout.unref();
+            receiving.set(request, timeout);
           },
+          preHandler: async (request) => {
+            clearTimeout(receiving.get(request));
+          },
+          onResponse: release,
+          onRequestAbort: release,
         },
         async (request, reply) => {
           const actor = await requireBrowserIdentity(request, pool, config, { write: true });
@@ -80,8 +104,14 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
               'DOCUMENT_UPLOAD_INVALID',
               '请选择支持的原件，并填写有效资料名。',
             );
-          const fields = input.data;
-          const nameHash = createHash('sha256').update(fields.name).digest('hex');
+          const { name, format, dataLevel } = input.data;
+          const nameHash = createHash('sha256').update(name).digest('hex');
+          const fields = {
+            name,
+            format,
+            dataLevel,
+            sourceKey: input.data.sourceKey ?? `file-${nameHash}`,
+          };
           const sourceSnapshot = createHash('sha256')
             .update('cert-board-original-v1\0')
             .update(JSON.stringify(fields))
@@ -98,7 +128,6 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
               sourceSnapshot,
               sourcePath: fields.name,
               authorType: 'human',
-              sourceKey: fields.sourceKey ?? `file-${nameHash}`,
             },
             request.body,
           );

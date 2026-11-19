@@ -125,6 +125,11 @@ export const documentRecordSchema = z
     createdAt: instantSchema,
     updatedAt: instantSchema,
     parseState: documentParseStateSchema.optional(),
+    readablePage: z
+      .object({ version: positiveIntegerSchema, page: positiveIntegerSchema })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 export type DocumentRecord = z.infer<typeof documentRecordSchema>;
