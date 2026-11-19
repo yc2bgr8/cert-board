@@ -125,9 +125,21 @@ export async function reviewBrowserFlow(
     const external = card.getByRole('list', { name: '外部核实依据', exact: true });
     await external.getByText('外部核实', { exact: true }).waitFor({ timeout: 12000 });
     assert.equal(interruptedVerificationReads, 2);
-    await external.getByRole('link', { name: '合成核实资料（外部网站）', exact: true }).waitFor();
+    const archived = external.getByRole('button', {
+      name: '合成核实资料 · 查看存档原文',
+      exact: true,
+    });
+    await archived.waitFor();
     await external.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: path.join(output, 'pr-d4-05-review-verification.png') });
+    await page.screenshot({ path: path.join(output, 'pr-d5-05-review-verification.png') });
+    await archived.click();
+    const evidence = page.getByRole('region', { name: '资料依据', exact: true });
+    await evidence.getByRole('link', { name: '下载原始网页存档', exact: true }).waitFor();
+    await evidence.locator('mark').filter({ hasText: '示例清单要求填写版本号。' }).waitFor();
+    await page.screenshot({ path: path.join(output, 'pr-d5-06-source-evidence.png') });
+    await page.keyboard.press('Escape');
+    if (!(await external.isVisible()))
+      await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
     await external.getByRole('button', { name: '查看核实群聊', exact: true }).click();
     const group = page.getByRole('region', { name: '外部核实群聊', exact: true });
     await group.getByRole('complementary', { name: '核实结论', exact: true }).waitFor();

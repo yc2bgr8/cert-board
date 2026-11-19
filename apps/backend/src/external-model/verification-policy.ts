@@ -1,8 +1,11 @@
 import {
+  sourceCheckKey,
   verificationConclusionSchema,
   type VerificationClaim,
+  type VerificationConclusion,
   type VerificationMessage,
   type VerificationModel,
+  type VerificationSourceCheck,
 } from '@cert-board/shared';
 
 export const verificationIssueKey = (text: string) =>
@@ -90,4 +93,44 @@ export function arrangeVerificationConclusion(
       earlierHistory,
     },
   });
+}
+
+export function applySourceChecks(
+  conclusion: VerificationConclusion,
+  checks?: ReadonlyMap<string, VerificationSourceCheck>,
+): VerificationConclusion {
+  const counts = { trusted: 0, disputed: 0, unverified: 0, human: 0 };
+  const items = conclusion.items.map((item) => {
+    const evidence = item.evidence.map((entry) => ({
+      ...entry,
+      sources: entry.sources.map((source) => ({
+        ...source,
+        check: checks?.get(sourceCheckKey(source)) ??
+          source.check ?? { status: 'source_unavailable' as const },
+      })),
+    }));
+    const cited = evidence.filter(({ sources }) => sources.length > 0);
+    const verified = cited.filter(({ sources }) =>
+      sources.some(({ check }) => check.status === 'verified'),
+    );
+    const category: VerificationConclusion['items'][number]['category'] =
+      item.category === 'human' || item.category === 'unverified'
+        ? item.category
+        : item.category === 'trusted' && verified.length >= 2 && verified.length === cited.length
+          ? 'trusted'
+          : item.category === 'disputed' && verified.length > 0
+            ? 'disputed'
+            : 'unverified';
+    counts[category]++;
+    return {
+      ...item,
+      category,
+      selection: category === 'trusted' || category === 'disputed' ? item.selection : null,
+      evidence,
+    };
+  });
+  const summary = items.length
+    ? `出处核对完成。可信 ${counts.trusted} 项，有分歧 ${counts.disputed} 项，待核实 ${counts.unverified} 项，人工补充 ${counts.human} 项。`
+    : '本轮没有可核对出处的结构化结论，事实性判断请保留待核实。';
+  return { ...conclusion, items, summary };
 }

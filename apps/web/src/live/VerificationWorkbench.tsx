@@ -184,15 +184,27 @@ function Conclusion({
                           {evidence.author}的发言
                         </button>
                         {item.category === 'disputed' && <span>{evidence.statement}</span>}
-                        {evidence.sources.map((source) => (
-                          <a
-                            key={source.url}
-                            href={source.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            {source.title}
-                          </a>
+                        {evidence.sources.map(({ url, title, excerpt, check }, index) => (
+                          <span key={`${url}:${index}`}>
+                            {check?.status === 'verified' ? (
+                              <a
+                                href={api.webArchiveHref(check.documentId, check.version)}
+                                download
+                              >
+                                {title} · 下载已核对存档
+                              </a>
+                            ) : (
+                              <span>
+                                {title} ·{' '}
+                                {check?.status === 'excerpt_mismatch'
+                                  ? '摘录不符'
+                                  : check?.status === 'excerpt_missing'
+                                    ? '缺少摘录'
+                                    : '待核实'}
+                              </span>
+                            )}
+                            {check?.status === 'verified' && excerpt && <q>{excerpt}</q>}
+                          </span>
                         ))}
                       </li>
                     ))}

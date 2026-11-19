@@ -1,6 +1,9 @@
-import { parseBackendConfig } from '@cert-board/shared';
+import { parseBackendConfig, selectGatewayModel } from '@cert-board/shared';
 import { readFile } from 'node:fs/promises';
 import { createDependencies } from './dependencies.js';
+import { BlobStore } from './documents/blob-store.js';
+import { FetcherClient } from './documents/fetcher-client.js';
+import { createVerificationSourceChecker } from './external-model/source-verification.js';
 import { startVerificationWorker } from './external-model/verification-worker.js';
 import { createLogger } from './logger.js';
 import { loadVerificationModelGatewayConfig, parseAllowedModelHosts } from './modelgw/config.js';
@@ -42,11 +45,25 @@ async function start() {
     transport && models
       ? new ModelGateway(dependencies.database, models, transport, { environment: config.NODE_ENV })
       : undefined;
+  const checker = process.env.CERT_FETCHER_URL
+    ? createVerificationSourceChecker(
+        dependencies.database,
+        new BlobStore(dependencies.storage, config.MINIO_BUCKET),
+        new FetcherClient(process.env.CERT_FETCHER_URL, config.CONTAINER_RUNTIME),
+        (process.env.CERT_WEB_EXTENDED_HOSTS ?? '')
+          .split(',')
+          .map((host) => host.trim().toLowerCase())
+          .filter(Boolean),
+      )
+    : undefined;
+  const selected = models && selectGatewayModel(models, 'agent');
   const dispose = await startVerificationWorker(
     dependencies.database,
     logger,
     process.env,
     gateway,
+    checker,
+    selected?.transport === 'local' ? selected.id : undefined,
   );
   let closed = false;
   function shutdown() {

@@ -8,6 +8,7 @@ import { callCursorAcp, checkCursorAccount } from './cursor-acp.js';
 import { ExternalModels } from './service.js';
 import { VerificationRooms, verificationWorkerStateId } from './verification-service.js';
 import { createVerificationModerator } from './verification-moderator.js';
+import type { VerificationSourceChecker } from './source-verification.js';
 import {
   verificationCatalog,
   VerificationChannelError,
@@ -20,6 +21,8 @@ export async function startVerificationWorker(
   logger: Pick<FastifyBaseLogger, 'warn'>,
   environment: NodeJS.ProcessEnv,
   gateway?: Pick<ModelGateway, 'complete'>,
+  checkSources?: VerificationSourceChecker,
+  localReviewModelId?: string,
 ) {
   const bundle = environment.CERT_CURSOR_BUNDLE;
   const profileDirectory = environment.CERT_CURSOR_PROFILE;
@@ -44,8 +47,14 @@ export async function startVerificationWorker(
     logger.warn({ event: 'cursor_verification_worker_error' }, '外部核实暂不可用。');
   const policy = new ExternalModels(pool, undefined, undefined, 20_000_000_000n);
   const moderator = gateway ? createVerificationModerator(pool, gateway, policy) : null;
+  const checkOutbound: VerificationRuntime['checkOutbound'] =
+    moderator && localReviewModelId
+      ? (scope, prompt) => moderator.checkOutbound(scope, prompt, localReviewModelId)
+      : undefined;
   const runtime: VerificationRuntime = {
     kind: 'cursor',
+    ...(checkSources ? { checkSources } : {}),
+    ...(checkOutbound ? { checkOutbound } : {}),
     get status() {
       return status;
     },

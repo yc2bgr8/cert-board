@@ -104,6 +104,30 @@ export const verificationInviteSchema = z.object({ model: externalModelIdSchema 
 export const verificationSourceSchema = externalModelReferenceSchema.extend({
   excerpt: note(1500).optional(),
 });
+export const verificationSourceCheckSchema = z.discriminatedUnion('status', [
+  z
+    .object({
+      status: z.literal('verified'),
+      documentId: id,
+      version: z.number().int().positive(),
+      page: z.literal(1),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.enum([
+        'excerpt_missing',
+        'excerpt_mismatch',
+        'source_unavailable',
+        'scope_unavailable',
+      ]),
+    })
+    .strict(),
+]);
+export const checkedVerificationSourceSchema = verificationSourceSchema.extend({
+  check: verificationSourceCheckSchema.optional(),
+});
 export const verificationClaimSchema = z
   .object({
     issue: note(160),
@@ -157,7 +181,7 @@ export const verificationConclusionSchema = z
                 messageId: id,
                 author: note(120),
                 statement: note(8000),
-                sources: z.array(verificationSourceSchema).max(8),
+                sources: z.array(checkedVerificationSourceSchema).max(8),
               }),
             )
             .max(24),
@@ -196,7 +220,7 @@ export const verificationLinkListSchema = z
         room: verificationRoomSchema,
         result: z.enum(['pending', 'available', 'unavailable']),
         summary: note(2000).nullable(),
-        sources: z.array(verificationSourceSchema).max(6),
+        sources: z.array(checkedVerificationSourceSchema).max(6),
         counts: z
           .object({
             trusted: z.number().int().nonnegative(),
@@ -216,6 +240,11 @@ export const verificationLinkPageSchema = z
 export type VerificationModel = z.infer<typeof verificationModelSchema>;
 export type VerificationMessage = z.infer<typeof verificationMessageSchema>;
 export type VerificationClaim = z.infer<typeof verificationClaimSchema>;
+export type VerificationSource = z.infer<typeof verificationSourceSchema>;
+export const sourceCheckKey = (source: VerificationSource) =>
+  JSON.stringify([source.url, source.excerpt ?? null]);
+export type CheckedVerificationSource = z.infer<typeof checkedVerificationSourceSchema>;
+export type VerificationSourceCheck = z.infer<typeof verificationSourceCheckSchema>;
 export type VerificationReply = z.infer<typeof verificationReplySchema>;
 export type VerificationConclusion = z.infer<typeof verificationConclusionSchema>;
 export type VerificationRoom = z.infer<typeof verificationRoomSchema>;

@@ -422,7 +422,12 @@ function ReviewCardContent({
           </ul>
           {onOpenVerification && (
             <>
-              <LinkedVerificationRows items={linked.items} open={onOpenVerification} inReview />
+              <LinkedVerificationRows
+                items={linked.items}
+                open={onOpenVerification}
+                openEvidence={onOpenEvidence}
+                inReview
+              />
               <LinkedVerificationHistoryActions query={linked} />
             </>
           )}
