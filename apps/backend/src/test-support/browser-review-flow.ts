@@ -91,10 +91,10 @@ export async function reviewBrowserFlow(
   actions.stage('审核卡发起外部核实并回到原对话');
   const moderate = harness.verification.runtime.moderate;
   const historyPath = `**/api/reviews/${firstCard.id}/verifications`;
-  let interruptedVerificationRead = false;
+  let interruptedVerificationReads = 0;
   await page.route(historyPath, async (route) => {
     if (
-      !interruptedVerificationRead &&
+      interruptedVerificationReads < 2 &&
       (
         await harness.pool.query(
           `SELECT 1 FROM verification_link l JOIN external_model_conversation c ON c.id=l.room_id
@@ -103,8 +103,10 @@ export async function reviewBrowserFlow(
         )
       ).rowCount
     ) {
-      interruptedVerificationRead = true;
-      await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+      interruptedVerificationReads++;
+      if (interruptedVerificationReads === 1)
+        await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+      else await route.abort('failed');
       return;
     }
     await route.fallback();
@@ -121,8 +123,8 @@ export async function reviewBrowserFlow(
       .fill('核实这条合成编号的出处。');
     await card.getByRole('button', { name: '发起核实', exact: true }).click();
     const external = card.getByRole('list', { name: '外部核实依据', exact: true });
-    await external.getByText('外部核实', { exact: true }).waitFor();
-    assert.equal(interruptedVerificationRead, true);
+    await external.getByText('外部核实', { exact: true }).waitFor({ timeout: 12000 });
+    assert.equal(interruptedVerificationReads, 2);
     await external.getByRole('link', { name: '合成核实资料（外部网站）', exact: true }).waitFor();
     await external.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(output, 'pr-d4-05-review-verification.png') });
