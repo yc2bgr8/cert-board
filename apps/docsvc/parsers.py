@@ -290,7 +290,7 @@ def parse_xlsx(data, deadline, comparison=False):
             files.callback(saved.close)
             saved_sheets = saved.worksheets
         for index, sheet in enumerate(workbook.worksheets):
-            width = sheet.max_column or 0
+            width = 0 if comparison else (sheet.max_column or 0)
             if width > 256:
                 width = 0
             # Exporters may understate the actual dimensions in the worksheet header.

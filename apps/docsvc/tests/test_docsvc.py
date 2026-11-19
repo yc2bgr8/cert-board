@@ -231,6 +231,8 @@ def test_spreadsheet_keeps_known_width_and_reports_changed_formula_cache():
     second = upload(after, "xlsx", endpoint="text").json()["text"]
     assert "=TODAY() [47001]" in first
     assert "=TODAY() [47002]" in second
+    inflated_dimensions = rewrite_sheet(before, b'<dimension ref="A1:B2"', b'<dimension ref="A1:D2"')
+    assert upload(inflated_dimensions, "xlsx", endpoint="text").json()["text"] == first
 
 
 def test_word_preview_reports_physical_count_separately_from_extraction_units():
