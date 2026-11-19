@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-D5 外部结论的出处核对</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#验收">验收</a><a class="level-2" href="#没做什么">没做什么</a></nav><main><h1 id="pr-d5-外部结论的出处核对">PR-D5 外部结论的出处核对</h1>
+<p>范围见 v2 附录 B.2、v4 附录 B.2 和 v4 §1.8。引用机制沿用技术方案 v0.4 的 V1 检查和网页存档。</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>外部模型应给出公开网址和逐字摘录。核实 worker 复用网页抓取和项目存档，检查摘录是否存在。核对通过保留资料编号、版本、提取单元和原件哈希。无法查证的意见保留待核实。</li><li>审核卡从核实结论打开站内证据查看，提供已核对原文高亮和原件下载。历史证据在打开结论时重新核对资料状态，无效资料不再提供审核依据。</li><li>有本地主模型时，Cursor 派发之前用模型网关执行本地检查，且仍沿用程序检查、保密字词替换和最终派发复核。</li></ul>
+<h2 id="验收">验收</h2>
+<ul><li>集成测试覆盖同一项目的原文匹配、找不到摘录、链接不可用和资料作废。另验证关联目标取消后不入库、单一归档失败继续检查其他地址、缓存中的其他摘录、本地检查不发送及本地检查的完整文字。</li><li>同一抓取服务实测已批准的公开模型目录。存在的摘录通过，合成假摘录拒绝，存档哈希一致。真实模型调用 0 次。</li><li>界面测试验证未核对出处没有审核证据入口。浏览器使用 1440×900，沿用设计稿 05 的核实卡布局和 06 的原文视图。网页单一出处用一栏，保留地址类别、北京时间、下载和原文高亮。完整资料编号可在短编号上查看。<a href="../evidence/pr-d5-05-review-verification.png">审核卡 05</a> · <a href="../evidence/pr-d5-06-source-evidence.png">证据查看 06</a></li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>独立群聊未选择项目时保留待核实，需要项目上下文才可归档。保密内容的本地改写、真实公司端点联调待本地服务，按 X4 留空。当前关联保密对话继续拒绝自动外发。</li><li>PDF 原件可归档，逐页文本核对待 PR-17。摘录核对不推断事实含义，业务结论仍由注册人员审核。</li><li>真实公司模型可用后再做本地出网检查的实机评测。本 PR 不新增模型或依赖。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

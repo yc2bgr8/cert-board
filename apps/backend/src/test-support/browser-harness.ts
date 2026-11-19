@@ -34,6 +34,7 @@ import { executeAgentRun } from '../agent/runtime.js';
 import { buildAgentTools } from '../agent/default-tools.js';
 import { setTestReminderClock } from './internal-reminder-clock.js';
 import { verificationFixture } from './verification-fixture.js';
+import { createVerificationSourceChecker } from '../external-model/source-verification.js';
 import {
   browserModels,
   browserScenario,
@@ -230,6 +231,24 @@ export async function startBrowserHarness({ useVerificationWorker = false } = {}
       LOG_LEVEL: 'silent',
     });
     const verification = verificationFixture();
+    const sourceUrl = 'https://www.fda.gov/cert-board-fixture/verification-source';
+    const sourceText = '示例清单要求填写版本号。';
+    const sourceBody = Buffer.from(`<p>${sourceText}</p>`);
+    verification.runtime.checkSources = createVerificationSourceChecker(pool, store, {
+      async fetchPage(url) {
+        if (url !== sourceUrl) throw new Error('BROWSER_VERIFICATION_SOURCE_NOT_FIXTURE');
+        return {
+          url,
+          text: sourceText,
+          title: '合成核实资料',
+          truncated: false,
+          fetchedAt: new Date().toISOString(),
+          mediaType: 'text/html',
+          sha256: createHash('sha256').update(sourceBody).digest('hex'),
+          bodyBase64: sourceBody.toString('base64'),
+        };
+      },
+    });
     app = createApp(config, {
       database: pool,
       blobStore: store,

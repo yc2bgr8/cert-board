@@ -184,7 +184,12 @@ it.each(['text/html', 'application/pdf'] as const)(
     const info = vi.spyOn(api, 'webArchiveInfo').mockResolvedValue(archive);
     if (mediaType === 'application/pdf')
       read.mockRejectedValue(new ApiError(422, 'DOCUMENT_PLACEHOLDER', '没有解析正文。'));
-    else read.mockResolvedValue({ ...docPage('可核对的原文'), webArchive: archive });
+    else
+      read.mockResolvedValue({
+        ...docPage('可核对的原文'),
+        sourceKey: `W-${'a'.repeat(64)}`,
+        webArchive: archive,
+      });
 
     view(<EvidencePanel sources={[{ documentId, version: 1, page: 1, quote: '原文' }]} />);
 
@@ -199,6 +204,7 @@ it.each(['text/html', 'application/pdf'] as const)(
       expect(document.querySelector('mark')).toBeNull();
     } else {
       expect(info).not.toHaveBeenCalled();
+      expect(screen.getByRole('heading', { name: /W-aaaaaaaa · 虚构资料/u })).toBeTruthy();
       expect(document.querySelector('mark')?.textContent).toBe('原文');
     }
   },

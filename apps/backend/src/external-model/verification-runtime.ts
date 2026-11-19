@@ -64,6 +64,11 @@ export type VerificationRuntime = {
   kind: 'fixture' | 'cursor';
   catalog: readonly VerificationModel[];
   status: VerificationChannelStatus;
+  checkSources?: import('./source-verification.js').VerificationSourceChecker;
+  checkOutbound?(
+    scope: Pick<ModeratorContext, 'room' | 'ownerId'>,
+    prompt: VerificationPrompt,
+  ): Promise<boolean>;
   moderate(context: ModeratorContext): Promise<unknown>;
   summarize(context: ModeratorContext): Promise<unknown>;
   compact(

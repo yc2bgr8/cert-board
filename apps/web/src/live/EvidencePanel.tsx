@@ -104,6 +104,10 @@ function EvidenceSource({ source, number }: { source: EvidenceTarget; number: nu
     retry: false,
   });
   const webArchive = first?.webArchive ?? archiveQuery.data;
+  const sourceLabel =
+    first?.sourceKey.startsWith('W-') && webArchive
+      ? first.sourceKey.slice(0, 10)
+      : first?.sourceKey;
   let combined: ReturnType<typeof joinTextPages> | undefined,
     failure: string | null = null;
   try {
@@ -136,13 +140,19 @@ function EvidenceSource({ source, number }: { source: EvidenceTarget; number: nu
       className="review-evidence-source"
       aria-label={
         first
-          ? `${first.sourceKey} 第 ${source.page} ${first.locatorKind === 'extraction_unit' ? '提取单元' : '页'}原文`
+          ? `${sourceLabel} 第 ${source.page} ${first.locatorKind === 'extraction_unit' ? '提取单元' : '页'}原文`
           : '资料原文'
       }
     >
       <h3>
         <span className="review-source-number">{number}</span>
-        {first ? `${first.sourceKey} · ${first.name}` : '资料原文'}
+        {first ? (
+          <span title={first.sourceKey}>
+            {sourceLabel} · {first.name}
+          </span>
+        ) : (
+          '资料原文'
+        )}
       </h3>
       <p className="review-panel-meta">
         第 {source.version} 版 · 第 {source.page}{' '}

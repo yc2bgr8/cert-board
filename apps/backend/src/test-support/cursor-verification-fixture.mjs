@@ -24,7 +24,7 @@ try {
 }
 const source = {
   title: '合成核实资料',
-  url: 'https://example.invalid/verification-source',
+  url: 'https://www.fda.gov/cert-board-fixture/verification-source',
   excerpt: '示例清单要求填写版本号。',
 };
 const [aliases] = content.match(/\[\[CB-[0-9a-f-]+-\d+\]\]/u) ?? [];

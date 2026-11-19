@@ -1,7 +1,8 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
-import type { VerificationLinkView } from '@cert-board/shared';
+import { verificationArchiveKey, type VerificationLinkView } from '@cert-board/shared';
 import { api, ApiError } from './api.js';
 import { ShellIcon } from './ShellIcon.js';
+import type { EvidenceTarget } from './review-navigation.js';
 
 const titles = {
   pending: '正在请外部模型核实…',
@@ -84,10 +85,12 @@ export function LinkedVerificationHistoryActions({
 export function LinkedVerificationRows({
   items,
   open,
+  openEvidence,
   inReview = false,
 }: {
   items: VerificationLinkView[];
   open(id: string): void;
+  openEvidence?(sources: EvidenceTarget[]): void;
   inReview?: boolean;
 }) {
   if (!items.length) return null;
@@ -113,23 +116,33 @@ export function LinkedVerificationRows({
               </span>
             )}
             {summary && <p>{summary}</p>}
-            {inReview && sources.length > 0 && (
-              <ul className="verification-sources" aria-label="外部核实出处">
-                {sources.map((source) => (
-                  <li key={source.url}>
-                    <a
-                      href={source.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="点击后打开外部网站"
-                    >
-                      {source.title}
-                      <span className="external-link-notice">（外部网站）</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            )}
+            {inReview &&
+              openEvidence &&
+              sources.some(({ check }) => check?.status === 'verified') && (
+                <ul className="verification-sources" aria-label="外部核实出处">
+                  {sources.map((source) => {
+                    const { check, excerpt, title } = source;
+                    if (check?.status !== 'verified') return null;
+                    const target = {
+                      documentId: check.documentId,
+                      version: check.version,
+                      page: check.page,
+                      ...(excerpt ? { quote: excerpt } : {}),
+                    };
+                    return (
+                      <li key={verificationArchiveKey(source)}>
+                        <button
+                          className="live-review-link"
+                          type="button"
+                          onClick={() => openEvidence([target])}
+                        >
+                          {title} · 查看存档原文
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             {result === 'unavailable' && <p>仍可按项目资料继续工作。</p>}
           </div>
           <button className="live-secondary" type="button" onClick={() => open(room.id)}>

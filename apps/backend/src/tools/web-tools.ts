@@ -1,9 +1,7 @@
-import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
 import {
   canonicalPublicWebUrl,
   hasWebControlCharacters,
-  webArchiveInfoSchema,
   webFetchInputSchema,
   webFetchResultSchema,
   webSearchInputSchema,
@@ -14,22 +12,18 @@ import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { FetcherRedirect, type FetcherClient } from '../documents/fetcher-client.js';
-import { ingestParsedDocument } from '../documents/service.js';
+import {
+  archivePublicWebSnapshot,
+  cachedPublicWebArchive,
+  classifyWebSource,
+  downloadPublicWebSnapshot,
+  webSourceKey,
+} from '../documents/public-web.js';
 import { redactExternalMessages } from '../external-model/policy.js';
 import { ExternalModels } from '../external-model/service.js';
 import type { ToolDefinition, ToolExecutionContext } from './registry.js';
 
-const officialHosts = [
-  'fda.gov',
-  'canada.ca',
-  'ecfr.gov',
-  'federalregister.gov',
-  'regulations.gov',
-  'accessgudid.nlm.nih.gov',
-];
-const cacheMs = 24 * 60 * 60 * 1000;
 const maxCalls = 8;
-const digest = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const preview = (value: string) => value.slice(0, 4000).replace(/[\uD800-\uDBFF]$/u, '');
 const archiveGuidance = (archive: WebArchiveInfo, placeholder: boolean) =>
   placeholder
@@ -66,12 +60,7 @@ export function buildWebTools(
   extendedHosts: readonly string[] = [],
 ): ToolDefinition[] {
   const protection = new ExternalModels(pool, undefined, undefined, 20_000_000_000n);
-  const classify = (url: string): WebArchiveInfo['sourceType'] => {
-    const host = new URL(url).hostname;
-    if (officialHosts.some((domain) => host === domain || host.endsWith(`.${domain}`)))
-      return 'official';
-    return extendedHosts.includes(host) ? 'extended' : 'general';
-  };
+  const classify = (url: string) => classifyWebSource(url, extendedHosts);
 
   function readOnlyPreview(url: string, title: string, text: string, extractedTruncated: boolean) {
     const truncated = extractedTruncated || text.length > 4000;
@@ -125,23 +114,6 @@ export function buildWebTools(
       content: address ? content : sanitized.messages[0]!.content,
       redactions: sanitized.replacementCount,
     };
-  }
-
-  async function download(ctx: ToolExecutionContext, url: string) {
-    if (ctx.signal?.aborted) throw new AppError(409, 'WEB_STOPPED', '运行已停止，网页请求未发出。');
-    const snapshot = await fetcher.fetchPage(url, ctx.signal);
-    if (ctx.signal?.aborted)
-      throw new AppError(409, 'WEB_STOPPED', '运行已停止，本次抓取结果未保存。');
-    const bytes = Buffer.from(snapshot.bodyBase64, 'base64');
-    if (
-      snapshot.url !== url ||
-      bytes.length > 2 * 1024 * 1024 ||
-      bytes.toString('base64') !== snapshot.bodyBase64 ||
-      digest(bytes) !== snapshot.sha256 ||
-      Date.parse(snapshot.fetchedAt) > Date.now() + 5000
-    )
-      throw new AppError(502, 'WEB_SNAPSHOT_INVALID', '网页原件地址、内容哈希或抓取时间未能核对。');
-    return { snapshot, bytes };
   }
 
   const search: ToolDefinition = {
@@ -213,99 +185,47 @@ export function buildWebTools(
             (ctx.goalId && ctx.goalStatus !== 'active'))
         )
           throw new AppError(403, 'WEB_ARCHIVE_FORBIDDEN', '当前项目或目标不允许登记网页存档。');
-        const sourceKey = `W-${digest(url)}`;
+        const sourceKey = webSourceKey(url);
         if (!readOnly)
           await ctx.tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
             `${projectId}:${sourceKey}`,
           ]);
-        const known = await ctx.tx.query<{
-          document_id: string;
-          version_no: number;
-          name: string;
-          voided: boolean;
-          archive: unknown;
-          text: string | null;
-          is_placeholder: boolean;
-        }>(
-          `SELECT d.id AS document_id,d.name,d.voided,v.version_no,v.source_metadata->'webArchive' AS archive,
-           p.text,p.is_placeholder
-         FROM document d JOIN document_version v ON v.document_id=d.id
-         LEFT JOIN document_page p ON p.version_id=v.id AND p.page_number=1
-         WHERE d.project_id=$1 AND d.source_key=$2 ORDER BY v.version_no DESC LIMIT 1`,
-          [projectId, sourceKey],
-        );
-        const current = known.rows[0];
-        if (current?.voided)
-          throw new AppError(409, 'DOCUMENT_VOIDED', '该网页资料已作废，请由负责人处理。');
-        const cached = webArchiveInfoSchema.safeParse(current?.archive);
-        if (
-          current &&
-          cached.success &&
-          cached.data.url === url &&
-          Date.now() - Date.parse(cached.data.fetchedAt) <= cacheMs
-        ) {
+        const current = await cachedPublicWebArchive(ctx.tx, projectId, url);
+        if (current) {
           if (readOnly)
             return readOnlyPreview(
               url,
-              current.name,
+              current.title,
               current.text ?? '',
-              cached.data.extractedTruncated,
+              current.archive.extractedTruncated,
             );
-          const guidance = archiveGuidance(cached.data, current.is_placeholder);
+          const guidance = archiveGuidance(current.archive, current.placeholder);
           return {
-            archive: cached.data,
-            documentId: current.document_id,
-            version: current.version_no,
+            archive: current.archive,
+            documentId: current.documentId,
+            version: current.version,
             sourceKey,
-            title: current.name,
+            title: current.title,
             preview: preview(current.text ?? ''),
             cached: true,
-            page: current.is_placeholder ? null : 1,
+            page: current.placeholder ? null : 1,
             ...(guidance ? { guidance } : {}),
           };
         }
         await protect(ctx, url, true);
-        const { snapshot, bytes } = await download(ctx, url);
+        const downloaded = await downloadPublicWebSnapshot(fetcher, url, ctx.signal);
+        const { snapshot } = downloaded;
         if (readOnly)
           return readOnlyPreview(url, snapshot.title, snapshot.text, snapshot.truncated);
-        const archive = webArchiveInfoSchema.parse({
-          url,
-          fetchedAt: snapshot.fetchedAt,
-          mediaType: snapshot.mediaType,
-          sha256: snapshot.sha256,
-          sourceType: classify(url),
-          extractedTruncated: snapshot.truncated,
-        });
-        const placeholder = !snapshot.text.trim();
         await ctx.tx.query('SAVEPOINT web_archive_write');
         try {
-          const original = await store.put(bytes);
-          if (original.sha256 !== snapshot.sha256 || original.byteSize !== bytes.byteLength)
-            throw new AppError(500, 'WEB_STORAGE_MISMATCH', '网页原件存储校验失败，未登记资料。');
-          const saved = await ingestParsedDocument(
+          const { archive, saved, placeholder } = await archivePublicWebSnapshot(
             pool,
             store,
-            {
-              projectId,
-              sourceKey,
-              name: snapshot.title,
-              sourcePath: url,
-              sourceSnapshot: digest(JSON.stringify(archive)),
-              originalSha256: snapshot.sha256,
-              dataLevel: 'public',
-              authorType: 'external',
-              sourceMetadata: { webArchive: archive },
-              pages: [
-                {
-                  pageNumber: 1,
-                  text: snapshot.text,
-                  method: 'text',
-                  locatorKind: 'extraction_unit',
-                  isPlaceholder: placeholder,
-                },
-              ],
-            },
             ctx.tx,
+            projectId,
+            downloaded,
+            classify(url),
           );
           await ctx.tx.query('RELEASE SAVEPOINT web_archive_write');
           const guidance = archiveGuidance(archive, placeholder);

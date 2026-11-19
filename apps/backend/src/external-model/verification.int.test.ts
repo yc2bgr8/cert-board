@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
   gatewayResponseSchema,
@@ -7,10 +7,12 @@ import {
   verificationSettingsSchema,
 } from '@cert-board/shared';
 import { createApp } from '../app.js';
+import { AppError } from '../api/errors.js';
 import { createIntegrationContext } from '../test-support/context.js';
 import { verificationFixture } from '../test-support/verification-fixture.js';
 import { createVerificationModerator } from './verification-moderator.js';
 import { ExternalModels } from './service.js';
+import { createVerificationSourceChecker } from './source-verification.js';
 import { VerificationRooms, verificationWorkerStateId } from './verification-service.js';
 import { VerificationChannelError, type VerificationPrompt } from './verification-runtime.js';
 
@@ -90,8 +92,8 @@ test('按默认 7 轮和管理员设置的 3 轮调度，通道只记次数', as
         Array.from({ length: cap }, (_, position) => position + 1),
       );
     expect(result.conclusion?.items.map(({ category }) => category)).toEqual([
-      'trusted',
-      'disputed',
+      'unverified',
+      'unverified',
       'unverified',
     ]);
   }
@@ -104,6 +106,138 @@ test('按默认 7 轮和管理员设置的 3 轮调度，通道只记次数', as
   );
   expect(ledger.rows).toEqual([]);
 }, 25000);
+
+test('带项目的正常核实验证引用，保留摘录不符和链接打不开两种待核实状态', async () => {
+  const knownUrl = 'https://www.fda.gov/verification-guide';
+  const unavailableUrl = 'https://www.fda.gov/unavailable-guide';
+  const sourceText = '示例清单明确要求填写版本号。';
+  const document = Buffer.from(`<p>${sourceText}</p>`);
+  const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+  const blobs = new Map<string, Buffer>();
+  const fetchPage = vi.fn(async (url: string) => {
+    if (url === unavailableUrl)
+      throw new AppError(502, 'FETCH_UPSTREAM_STATUS', '公开地址暂不可用。');
+    return {
+      url,
+      title: '合成网页资料',
+      text: sourceText,
+      truncated: false,
+      mediaType: 'text/html' as const,
+      fetchedAt: new Date().toISOString(),
+      sha256: digest(document),
+      bodyBase64: document.toString('base64'),
+    };
+  });
+  fixture.runtime.checkSources = createVerificationSourceChecker(
+    context.pool,
+    {
+      async put(body) {
+        const sha256 = digest(body);
+        blobs.set(sha256, Buffer.from(body));
+        return { sha256, byteSize: body.byteLength };
+      },
+      async get(hash) {
+        const body = blobs.get(hash);
+        if (body) return body;
+        throw new Error('TEST_ARCHIVE_MISSING');
+      },
+    },
+    { fetchPage },
+  );
+  fixture.runtime.send = async (_model, _prompt, dispatch) => {
+    await dispatch();
+    return {
+      text: '合成答复，附三个可区分的出处结果。',
+      claims: [
+        {
+          issue: '版本号',
+          statement: sourceText,
+          stance: 'supports',
+          sources: [{ title: '合成网页资料', url: knownUrl, excerpt: sourceText }],
+        },
+        {
+          issue: '虚构编号',
+          statement: '不应当采信的编号。',
+          stance: 'supports',
+          sources: [{ title: '合成网页资料', url: knownUrl, excerpt: '网页中没有该编号。' }],
+        },
+        {
+          issue: '无法打开',
+          statement: '不应当采信的期限。',
+          stance: 'supports',
+          sources: [{ title: '暂不可用的资料', url: unavailableUrl, excerpt: '未核实的期限。' }],
+        },
+      ],
+    };
+  };
+  await rounds(1);
+  const roomId = await start('核实合成版本号与两条待核实声明。', context.projectId);
+  await expect.poll(async () => (await detail(roomId)).room.status).toBe('completed');
+  const { conclusion } = await detail(roomId);
+  expect(conclusion?.items.map(({ category }) => category)).toEqual([
+    'trusted',
+    'unverified',
+    'unverified',
+  ]);
+  const checks = conclusion!.items.map((item) => item.evidence[0]?.sources[0]?.check);
+  expect(checks.map((check) => check?.status)).toEqual([
+    'verified',
+    'excerpt_mismatch',
+    'source_unavailable',
+  ]);
+  const verified = checks[0];
+  if (verified?.status !== 'verified') throw new Error('TEST_PROOF_MISSING');
+  const page = await app.inject({
+    url: `/api/documents/${verified.documentId}/versions/${verified.version}/pages/1`,
+    headers,
+  });
+  expect(page.json()).toMatchObject({
+    text: sourceText,
+    webArchive: { url: knownUrl, sha256: digest(document) },
+  });
+  expect(blobs.get(verified.sha256)).toEqual(document);
+  expect(fetchPage.mock.calls.map(([url]) => url)).toEqual([knownUrl, unavailableUrl]);
+  await context.pool.query(
+    "UPDATE document SET voided=true,void_reason='测试作废',version=version+1 WHERE id=$1",
+    [verified.documentId],
+  );
+  const revoked = (await detail(roomId)).conclusion;
+  expect(revoked?.items[0]).toMatchObject({ category: 'unverified' });
+  expect(revoked?.items[0]?.evidence[0]?.sources[0]?.check).toEqual({
+    status: 'source_unavailable',
+  });
+});
+
+test('本地模型出网检查拒绝后，已替换的内容仍不发给 Cursor', async () => {
+  const guard = vi.fn(async (_scope: unknown, _prompt: VerificationPrompt) => false);
+  const send = vi.fn(fixture.runtime.send);
+  fixture.runtime.checkOutbound = guard;
+  fixture.runtime.send = send;
+  expect(
+    (
+      await app.inject({
+        url: '/api/external-model/words',
+        method: 'POST',
+        headers,
+        payload: { phrase: '合成仅供内部研究', category: 'other' },
+      })
+    ).statusCode,
+  ).toBe(200);
+  await rounds(1);
+  const roomId = await start('检查合成仅供内部研究的假设。', context.projectId);
+  await expect.poll(async () => (await detail(roomId)).room.status).toBe('completed');
+  expect(guard).toHaveBeenCalled();
+  expect(JSON.stringify(guard.mock.calls[0]?.[1])).toContain('CB-');
+  expect(JSON.stringify(guard.mock.calls[0]?.[1])).not.toContain('合成仅供内部研究');
+  expect(send).not.toHaveBeenCalled();
+  const result = await detail(roomId);
+  expect(result.messages.some(({ text }) => text.includes('本地出网检查未通过'))).toBe(true);
+  const count = await context.pool.query(
+    'SELECT id FROM external_model_exchange WHERE conversation_id=$1 AND dispatched_at IS NOT NULL',
+    [roomId],
+  );
+  expect(count.rowCount).toBe(0);
+});
 
 test('群里直接插话和点名，当前回答照常完成，停止后继续并重新整理', async () => {
   let started!: () => void;
@@ -272,6 +406,44 @@ test('主模型主持使用已有本人目标和主网关，先替换保密词�
       )
     ).rows,
   ).toEqual([{ status: 'completed' }, { status: 'completed' }]);
+
+  const localResponse = gatewayResponseSchema.parse({
+    requestKey: randomUUID(),
+    model: 'deepseek-local',
+    upstreamModel: 'fixture/local',
+    message: { role: 'assistant', content: '{"allowed":true}' },
+    finishReason: 'stop',
+    usage: { inputTokens: 1, cacheReadTokens: 0, outputTokens: 1, totalTokens: 2, costNano: '0' },
+    dataLevel: 'internal',
+  });
+  complete.mockResolvedValueOnce(localResponse);
+  const pending = {
+    instructions: '合成检查',
+    transcript: [{ role: '注册人员', text: `${'合'.repeat(2000)}文末也检查` }],
+  };
+  expect(await moderator.checkOutbound(input, pending, 'deepseek-local')).toBe(true);
+  expect(complete.mock.lastCall?.[0]).toMatchObject({
+    model: 'deepseek-local',
+    tool_choice: 'none',
+  });
+  expect(JSON.stringify(complete.mock.lastCall?.[0])).toContain('文末也检查');
+  complete.mockResolvedValueOnce(localResponse);
+  expect(
+    await moderator.checkOutbound(
+      { ...input, room: { ...room, projectId: null } },
+      pending,
+      'deepseek-local',
+    ),
+  ).toBe(true);
+  expect(complete.mock.lastCall?.[1]).toMatchObject({
+    userId: review.userId,
+    conversationId: review.conversationId,
+  });
+  complete.mockResolvedValueOnce({
+    ...localResponse,
+    message: { role: 'assistant', content: '{"allowed":false}' },
+  });
+  expect(await moderator.checkOutbound(input, pending, 'deepseek-local')).toBe(false);
 });
 
 test('握手期间停用模型后不发送，计次和当日外发档案排除未发送', async () => {
