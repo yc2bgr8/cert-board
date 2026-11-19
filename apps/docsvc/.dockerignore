@@ -1,0 +1,9 @@
+*
+!docsvc.py
+!doc_worker.py
+!parsers.py
+!pyproject.toml
+!uv.lock
+!tests/
+!tests/**/*.py
+!compare_l08.py
