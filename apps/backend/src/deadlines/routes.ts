@@ -45,6 +45,9 @@ export function registerDeadlineRoutes<Logger extends FastifyBaseLogger>(
        FROM timer t JOIN goal g ON g.id=t.goal_id AND g.status='active'
        WHERE n.id=$1 AND n.timer_id=t.id AND t.state='active'
          AND n.recipient_id=$2 AND g.owner_user_id=$2
+         AND (n.notice->>'dueAt')::timestamptz=t.due_at
+         AND COALESCE(n.notice->>'profile',t.profile)=t.profile
+         AND COALESCE(n.notice->>'jurisdictionTz',t.jurisdiction_tz)=t.jurisdiction_tz
          AND n.status IN ('pending','acknowledged') AND date_trunc('milliseconds',n.updated_at)=$3::timestamptz`,
       [location.data.id, actor.userId, body.data.seenAt],
     );

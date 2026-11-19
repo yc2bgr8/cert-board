@@ -201,6 +201,29 @@ test('撤销改期后恢复对应期限的提醒，其他期限的历史确认�
   expect(pending[0]?.deadline).toMatchObject({ dueDate: '2026-05-01', stage: 'D-30' });
 });
 
+test('保留数据库升级时，旧版提醒正常展示，历史确认不重发', async () => {
+  const full = await tools();
+  await full.call('reminder_set', plan);
+  await scanDeadlineReminders(context.pool, new Date('2026-04-01T12:00:00Z'));
+  await context.pool.query("UPDATE notification SET notice=notice-'profile'-'jurisdictionTz'");
+  const own = browser('MEMBER_A');
+  const current = (await readMemberNotifications(context.pool, own)).items[0]!;
+  expect(current.deadline).toMatchObject({
+    profile: 'certificate',
+    jurisdictionTz: 'America/New_York',
+  });
+  const login = await context.login('MEMBER_A');
+  const response = await context.app.inject({
+    method: 'POST',
+    url: `/api/deadline-notifications/${current.id}/acknowledge`,
+    headers: login.headers,
+    payload: { seenAt: current.createdAt },
+  });
+  expect(response.statusCode).toBe(204);
+  expect(await scanDeadlineReminders(context.pool, new Date('2026-04-02T12:00:00Z'))).toBe(0);
+  expect((await readMemberNotifications(context.pool, own)).items).toEqual([]);
+});
+
 test('后台刷新剩余天数与确认并发，确认后的同阶段提醒不重建', async () => {
   const full = await tools();
   const created = await full.call('reminder_set', plan);

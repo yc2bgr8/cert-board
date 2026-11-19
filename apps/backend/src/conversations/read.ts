@@ -396,10 +396,13 @@ export async function readMemberNotifications(database: Database, actor: Browser
        JOIN conversation c ON c.id=r.conversation_id WHERE r.user_id=$1 AND c.status='active'
          AND c.current_run_id=r.id AND r.status IN ('failed','budget_exhausted')
        UNION ALL
-       SELECT n.id,'deadline',t.conversation_id,t.project_id,n.updated_at,n.notice FROM notification n
+       SELECT n.id,'deadline',t.conversation_id,t.project_id,n.updated_at,
+         jsonb_build_object('profile',t.profile,'jurisdictionTz',t.jurisdiction_tz)||n.notice FROM notification n
        JOIN timer t ON t.id=n.timer_id AND t.state='active'
        JOIN goal g ON g.id=t.goal_id AND g.owner_user_id=n.recipient_id AND g.status='active'
-       WHERE n.recipient_id=$1 AND n.status='pending'
+       WHERE n.recipient_id=$1 AND n.status='pending' AND (n.notice->>'dueAt')::timestamptz=t.due_at
+         AND COALESCE(n.notice->>'profile',t.profile)=t.profile
+         AND COALESCE(n.notice->>'jurisdictionTz',t.jurisdiction_tz)=t.jurisdiction_tz
      ) SELECT id,kind,conversation_id AS "conversationId",project_id AS "projectId",created_at AS "createdAt",deadline
        FROM pending ORDER BY created_at DESC,id DESC LIMIT 51`,
       [actor.userId],

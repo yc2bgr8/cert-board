@@ -200,6 +200,43 @@ test('V6 重算声明期限并比较实际时间点，历史报告保持两项�
     status: 'failed',
     issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
   });
+  const subject = await checkSubmission(context.pool, caller, {
+    ...base,
+    decisions: [
+      {
+        id: 'D1',
+        subject: '续证截止：2026-05-01',
+        choice: '先核对原件。',
+        reason: '缺少原件。',
+        alternatives: [],
+        sources: base.evidence,
+        risk: 'low',
+      },
+    ],
+  });
+  expect(subject.checks.at(-1)).toMatchObject({
+    status: 'failed',
+    issues: [{ code: 'deadline_unstructured', path: 'decisions[0]' }],
+  });
+  const before = await checkSubmission(context.pool, caller, {
+    ...base,
+    nextStep: '应于 2026-05-01 前提交续证申请。',
+  });
+  expect(before.checks.at(-1)).toMatchObject({
+    status: 'failed',
+    issues: [{ code: 'deadline_unstructured', path: 'nextStep' }],
+  });
+  const issueDate = await checkSubmission(context.pool, caller, {
+    ...base,
+    claims: [{ ...base.claims[0], object: '续证期限核对', field: '签发日期', value: '2026-04-01' }],
+  });
+  expect(issueDate.passed).toBe(true);
+  expect(issueDate.notRun).toContain('V6');
+  const customField = await checkSubmission(context.pool, caller, {
+    ...base,
+    claims: [{ ...deadline, field: '最晚续证日' }],
+  });
+  expect(customField.checks.at(-1)).toMatchObject({ code: 'V6', status: 'passed' });
 });
 
 test.each(['other_project', 'placeholder', 'voided'] as const)(
