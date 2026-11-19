@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import {
   documentImportSchema,
   documentListOptionsSchema,
@@ -14,6 +14,7 @@ import {
   documentSearchOptionsSchema,
   documentSearchResultSchema,
   projectIdSchema,
+  webArchiveInfoSchema,
   type ServiceIdentity,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
@@ -83,7 +84,12 @@ async function projectAccess(
   await getProject(pool, identity, projectId);
 }
 
-export async function ingestParsedDocument(pool: Pool, store: DocumentBlobStore, input: unknown) {
+export async function ingestParsedDocument(
+  pool: Pool,
+  store: DocumentBlobStore,
+  input: unknown,
+  transaction?: PoolClient,
+) {
   const parsed = documentImportSchema.safeParse(input);
   if (!parsed.success)
     throw new AppError(
@@ -121,9 +127,9 @@ export async function ingestParsedDocument(pool: Pool, store: DocumentBlobStore,
     ...data.sourceMetadata,
     _certImport: { fingerprint, name: data.name, sourcePath: data.sourcePath },
   };
-  const client = await pool.connect();
+  const client = transaction ?? (await pool.connect());
   try {
-    await client.query('BEGIN');
+    if (!transaction) await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
       `${data.projectId}:${data.sourceKey}`,
     ]);
@@ -173,7 +179,7 @@ export async function ingestParsedDocument(pool: Pool, store: DocumentBlobStore,
         '文件存储返回的内容校验不一致，本次导入未登记。',
       );
     if (previousVersion && documentId) {
-      await client.query('COMMIT');
+      if (!transaction) await client.query('COMMIT');
       return {
         documentId,
         versionId: previousVersion.id,
@@ -233,10 +239,10 @@ export async function ingestParsedDocument(pool: Pool, store: DocumentBlobStore,
        VALUES ('system','document.imported','document_version',$1,$2,$3)`,
       [versionId, latest.rows[0]?.source_metadata._certImport?.fingerprint ?? null, fingerprint],
     );
-    await client.query('COMMIT');
+    if (!transaction) await client.query('COMMIT');
     return { documentId, versionId, version, created: true, contentSha256 };
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => undefined);
+    if (!transaction) await client.query('ROLLBACK').catch(() => undefined);
     if (error instanceof AppError) throw error;
     throw new AppError(
       500,
@@ -244,7 +250,7 @@ export async function ingestParsedDocument(pool: Pool, store: DocumentBlobStore,
       '资料导入失败，本次数据库登记已撤销，请检查存储和迁移后重试。',
     );
   } finally {
-    client.release();
+    if (!transaction) client.release();
   }
 }
 
@@ -350,7 +356,8 @@ export async function readDocumentPage(
     `SELECT d.id AS "documentId",d.source_key AS "sourceKey",COALESCE(v.source_metadata->'_certImport'->>'name',d.name) AS name,
      v.version_no AS version,p.page_number AS page,p.locator_kind AS "locatorKind",${classification} AS "dataLevel",
      p.text,p.method,p.ocr_score AS "ocrScore",p.is_placeholder AS "isPlaceholder",
-     v.content_sha256 AS "contentSha256",v.original_sha256 AS "originalSha256"
+     v.content_sha256 AS "contentSha256",v.original_sha256 AS "originalSha256",
+     v.source_metadata->'webArchive' AS "webArchive"
      FROM document_page p JOIN document_version v ON v.id=p.version_id JOIN document d ON d.id=v.document_id
      WHERE d.id=$1 AND v.version_no=$2 AND p.page_number=$3 AND NOT d.voided`,
     [documentId, version, pageNumber],
@@ -392,13 +399,18 @@ export async function readDocumentPage(
       '读取上限过小，无法容纳一个完整字符，请将limit设为至少2后重试。',
     );
   }
-  const warning = ['当前提供解析文本，原始文件尚未导入。'];
+  const { webArchive: rawArchive, ...pageFields } = row;
+  const archive = webArchiveInfoSchema.safeParse(rawArchive);
+  const warning = [
+    archive.success ? '当前提供网页存档提取文本。' : '当前提供解析文本，原始文件尚未导入。',
+  ];
   if (row.locatorKind === 'extraction_unit')
     warning.push('此页为文本提取单元，不代表Word物理页码。');
   if (typeof row.ocrScore === 'number' && row.ocrScore < 0.9)
     warning.push('文字识别置信度较低，请核对原始资料。');
   return documentPageReadSchema.parse({
-    ...row,
+    ...pageFields,
+    ...(archive.success ? { webArchive: archive.data } : {}),
     text: text.slice(offset, end),
     warning: warning.join(' '),
     offset,
@@ -406,6 +418,26 @@ export async function readDocumentPage(
     truncated: end < text.length,
     nextOffset: end < text.length ? end : null,
   });
+}
+
+export async function readWebArchiveInfo(
+  db: DocumentReadDatabase,
+  identity: ServiceIdentity,
+  documentId: string,
+  version: number,
+) {
+  if (!Number.isSafeInteger(version) || version < 1 || version > maximumInteger) throw invalid();
+  const document = await getDocument(db, identity, documentId);
+  const result = await db.query<{ archive: unknown; original_sha256: string | null }>(
+    `SELECT v.source_metadata->'webArchive' AS archive,v.original_sha256
+     FROM document_version v JOIN document d ON d.id=v.document_id
+     WHERE v.document_id=$1 AND v.version_no=$2 AND NOT d.voided`,
+    [document.id, version],
+  );
+  const row = result.rows[0];
+  const archive = webArchiveInfoSchema.safeParse(row?.archive);
+  if (!archive.success || archive.data.sha256 !== row?.original_sha256) throw notFound();
+  return archive.data;
 }
 
 export async function searchDocuments(

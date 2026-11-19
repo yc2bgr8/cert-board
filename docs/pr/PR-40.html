@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-40 网页工具、证据存档与隔离抓取</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#验收">验收</a><a class="level-2" href="#没做什么">没做什么</a></nav><main><h1 id="pr-40-网页工具-证据存档与隔离抓取">PR-40 网页工具、证据存档与隔离抓取</h1>
+<p>按执行方案 v0.4 PR-40、技术方案 v0.4 §4.17、v2 §1.4 和附录 B.3 实施。</p>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>Agent 的 <code>web_search</code> 返回有界的地址、标题、摘要和来源类别。<code>web_fetch</code> 抓取公开 HTTPS 网页或文件，写入项目资料库，返回资料编号、版本和首段摘要。网页和检索结果均作为不可信资料处理。</li><li>抓取服务、抓取代理和固定中继分段部署。代理只接收 HTTPS CONNECT 到 443 端口，拒绝私有、回环、链路本地和保留地址。对外请求在后端先检查保密词和已有保密原文重合，保密项目或对话整条路径关闭。</li><li>同一运行检索、抓取合计最多八次，同项目、同地址保留 24 小时缓存。原件以 SHA-256 核对，按项目资料版本保留来源类型、地址和北京时间。解析文本经 <code>doc_read</code> 参与 V1，证据面板提供受 Cookie 保护的本地下载，原件以附件发送。</li></ul>
+<h2 id="验收">验收</h2>
+<ul><li><code>pnpm test:py</code> 在无网络的测试容器中通过 21 项。覆盖地址限制、响应大小与媒体类型、哈希、检索结果及检索未启用的回退。</li><li><code>pnpm test:int apps/backend/src/tools/web-tools.int.test.ts</code> 专项 6 项通过。覆盖资料入库和读取、权限、缓存过期、预算、抓取失败、哈希与 PDF 原件。</li><li><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code> 通过，429 项单元测试含网页和 PDF 下载入口回归。开发隔离目录中的 Vite 构建通过。</li><li><code>pnpm eval:agent</code> 的 30 项同内核剧本通过。</li><li><code>pnpm dev:fetcher:up</code> 后通过独立代理抓取公开的 OpenRouter 目录 GET，原件 36,546 字节并生成哈希。抓取服务和代理对回环地址都返回 403。抓取容器仅加入专用网络，直连数据库端口失败。</li><li><code>pnpm dev:isolated:web:up</code> 启动隔离部署。浏览器端口 28186 和 worker 到固定中继的健康检查返回 200，容器抓取中继无宿主端口。日常工作台 28080 返回 200。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>自建检索服务联调等待部署。SearXNG 标准 JSON 协议用测试服务验收，开发默认关闭，可独立抓取已知网址。<a href="https://docs.searxng.org/dev/search_api.html" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">检索协议（外部链接）</a></li><li>PDF 已归档，解析正文和逐页引用依赖 PR-17；二进制原件直接复制进工作副本等待配套文件工具。网页资料的解析片段可通过资料工具读取。</li><li>外部结论的出处逐字校验、本地模型出网复核和相关审核展示由 PR-D5 接入。开发机的 Fake-IP 可能影响部分公开站点，联调核对公共 DNS。检索词的审计取舍见 <a href="../决定记录.html#d-043-网页检索存档与出网">D-043</a>。</li></ul>
+<p>本 PR 无真实模型调用，模型费用 0 美元。引入 Python 3.12（PSF-2.0）、uv 0.13.9（Apache-2.0 或 MIT）、FastAPI 0.165.0（MIT）、Uvicorn 0.54.0（BSD-3-Clause）和测试依赖 pytest 9.2.0（MIT），使用固定镜像摘要和 <code>uv.lock</code> 校验。依赖在构建时从镜像与包仓库下载。运行时无遥测集成，测试容器无网络。抓取运行时关闭访问日志，代理日志只保留请求方法、目的域和端口、状态以及时间。<a href="https://docs.astral.sh/uv/guides/integration/docker/" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">uv 镜像集成（外部链接）</a></p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

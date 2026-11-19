@@ -67,7 +67,7 @@ export function createApp(
       (dependencies.storage ? new BlobStore(dependencies.storage, config.MINIO_BUCKET) : undefined);
     registerAuthRoutes(app, dependencies.database, config);
     registerProjectRoutes(app, dependencies.database, config);
-    registerDocumentRoutes(app, dependencies.database, config);
+    registerDocumentRoutes(app, dependencies.database, config, blobStore);
     registerProposalRoutes(app, dependencies.database, config);
     registerReviewRoutes(app, dependencies.database, config);
     registerRunControlRoutes(app, dependencies.database, config);

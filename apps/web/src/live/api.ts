@@ -41,6 +41,7 @@ import {
   documentPageParamsSchema,
   documentPageReadOptionsSchema,
   documentPageReadSchema,
+  webArchiveInfoSchema,
   workspaceFileQuerySchema,
   workspaceFileListSchema,
   workspacePathSchema,
@@ -350,6 +351,14 @@ export const api = {
       signalOption(signal),
     );
   },
+  webArchiveInfo: (id: string, version: number, signal?: AbortSignal) =>
+    request(
+      `/api/documents/${identifier(id)}/versions/${version}/web-archive-info`,
+      webArchiveInfoSchema,
+      signalOption(signal),
+    ),
+  webArchiveHref: (id: string, version: number) =>
+    `/api/documents/${identifier(id)}/versions/${version}/web-archive`,
   workspaceFiles: (
     id: string,
     options: { versionId?: string; cursor?: string; limit?: number } = {},

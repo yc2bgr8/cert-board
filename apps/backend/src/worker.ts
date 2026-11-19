@@ -6,10 +6,12 @@ import { ConfigurationError, parseBackendConfig, type AgentCode } from '@cert-bo
 import { createLogger } from './logger.js';
 import { createDependencies } from './dependencies.js';
 import { BlobStore } from './documents/blob-store.js';
+import { FetcherClient } from './documents/fetcher-client.js';
 import { loadModelGatewayConfig, parseAllowedModelHosts } from './modelgw/config.js';
 import { ModelGateway } from './modelgw/service.js';
 import { createWorkerModelTransport, type RealGatewayTransport } from './modelgw/transport.js';
 import { buildAgentTools } from './agent/default-tools.js';
+import { buildWebTools } from './tools/web-tools.js';
 import { executeAgentRun } from './agent/runtime.js';
 import { getContinuationTicket, listContinuationsForDispatch } from './approvals/continuation.js';
 import {
@@ -91,8 +93,21 @@ export async function startWorker() {
       environment: config.NODE_ENV,
     });
     const store = new BlobStore(resources.storage, config.MINIO_BUCKET);
-    const definitions = (code: AgentCode) =>
-      buildAgentTools(store, code, resources.database, config.CONTAINER_RUNTIME);
+    const webTools = process.env.CERT_FETCHER_URL
+      ? buildWebTools(
+          resources.database,
+          store,
+          new FetcherClient(process.env.CERT_FETCHER_URL, config.CONTAINER_RUNTIME),
+          (process.env.CERT_WEB_EXTENDED_HOSTS ?? '')
+            .split(',')
+            .map((host) => host.trim().toLowerCase())
+            .filter(Boolean),
+        )
+      : [];
+    const definitions = async (code: AgentCode) => [
+      ...(await buildAgentTools(store, code, resources.database, config.CONTAINER_RUNTIME)),
+      ...webTools,
+    ];
     const reconcile = async () => {
       await recoverAbandonedAgentRuns(resources.database);
       const orphaned = await resources.database.query<{

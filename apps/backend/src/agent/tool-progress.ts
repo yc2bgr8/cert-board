@@ -20,6 +20,8 @@ const labels: Readonly<Record<string, string>> = {
   propose_external: '登记外发提案',
   queue_internal_message: '登记内部测试消息',
   consult_external_model: '请外部模型核实',
+  web_search: '检索公开网页',
+  web_fetch: '抓取并保存网页出处',
 };
 
 const page = z.object({
@@ -53,6 +55,11 @@ export function toolSummary(name: string, data: unknown, isError: boolean): stri
       return `检索返回 ${parsed.data.items.length} 个资料位置${parsed.data.hasMore ? '，还有后续结果' : ''}`;
   }
   if (name === 'queue_internal_message') return '已排入内部本地测试队列';
+  if (
+    (name === 'web_fetch' || name === 'web_search') &&
+    z.object({ status: z.literal('unavailable') }).safeParse(data).success
+  )
+    return '网页操作未完成，已返回核实提示';
   if (name === 'consult_external_model') {
     const result = z.object({ status: z.enum(['completed', 'unavailable']) }).safeParse(data);
     return result.success && result.data.status === 'unavailable'

@@ -54,7 +54,9 @@ export function composeInvocation(
     down: ['down'],
     status: ['ps'],
     'isolated-up': ['up', '--detach', '--build', '--wait', '--wait-timeout', '120'],
+    'isolated-web-up': ['up', '--detach', '--build', '--wait', '--wait-timeout', '120'],
     'isolated-down': ['--profile', 'network-check', 'down'],
+    'isolated-web-down': ['--profile', 'network-check', 'down'],
     'isolated-status': ['--profile', 'network-check', 'ps'],
     'isolated-accounts': [
       'exec',
@@ -82,6 +84,7 @@ export function composeInvocation(
     throw new Error('未知操作。请使用 up、down、status 或对应的 isolated 操作。');
   }
   const isolated = action.startsWith('isolated-');
+  const withFetcher = action.startsWith('isolated-web-');
   const missing = requiredVariables.filter((key) => !credentials[key]);
   if (missing.length)
     throw new Error(`缺少配置：${missing.join('、')}。请补充仓库 .env.local 后重试。`);
@@ -95,9 +98,13 @@ export function composeInvocation(
     environment.CERT_ISOLATED_WEB_PORT = port;
     environment.CERT_DB_PASSWORD_URI = encodeURIComponent(credentials.POSTGRES_PASSWORD);
     passedVariables.push('CERT_ISOLATED_WEB_PORT', 'CERT_DB_PASSWORD_URI');
-    if (action === 'isolated-up' && credentials.OPENROUTER_API_KEY) {
+    if (['isolated-up', 'isolated-web-up'].includes(action) && credentials.OPENROUTER_API_KEY) {
       environment.OPENROUTER_API_KEY = credentials.OPENROUTER_API_KEY;
       passedVariables.push('OPENROUTER_API_KEY');
+    }
+    if (withFetcher && inheritedEnvironment.CERT_SEARXNG_ENABLED === '1') {
+      environment.CERT_SEARXNG_ENABLED = '1';
+      passedVariables.push('CERT_SEARXNG_ENABLED');
     }
   }
   const projectDirectory = platform === 'win32' ? toWslPath(root) : path.resolve(root);
@@ -114,6 +121,14 @@ export function composeInvocation(
     '/dev/null',
     '--file',
     composeFile,
+    ...(withFetcher
+      ? [
+          '--file',
+          `${projectDirectory}/deploy/compose.fetcher.yml`,
+          '--file',
+          `${projectDirectory}/deploy/compose.fetcher-isolated.yml`,
+        ]
+      : []),
     ...operations[action],
   ];
   if (platform === 'win32') {
@@ -149,7 +164,8 @@ export async function runDev(
     throw new Error('无法读取仓库 .env.local。请按 .env.example 配置本地依赖服务后重试。');
   }
   const credentials = Object.fromEntries(requiredVariables.map((key) => [key, values[key]]));
-  if (action === 'isolated-up') credentials.OPENROUTER_API_KEY = values.OPENROUTER_API_KEY;
+  if (['isolated-up', 'isolated-web-up'].includes(action))
+    credentials.OPENROUTER_API_KEY = values.OPENROUTER_API_KEY;
   const invocation = composeInvocation(action, root, process.platform, credentials);
   if (action.startsWith('isolated-'))
     credentials.CERT_DB_PASSWORD_URI = invocation.environment.CERT_DB_PASSWORD_URI;
