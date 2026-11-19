@@ -1295,6 +1295,7 @@ export const usageLedger = pgTable(
     status: usageLedgerStatus('status').notNull().default('reserved'),
     reservedNano: bigint('reserved_nano', { mode: 'bigint' }).notNull(),
     actualNano: bigint('actual_nano', { mode: 'bigint' }),
+    settledByEstimate: boolean('settled_by_estimate').notNull().default(false),
     estimatedInputTokens: bigint('estimated_input_tokens', { mode: 'number' }).notNull(),
     maxOutputTokens: bigint('max_output_tokens', { mode: 'number' }).notNull(),
     inputTokens: bigint('input_tokens', { mode: 'number' }),
@@ -1362,12 +1363,41 @@ export const usageLedger = pgTable(
     ),
     check(
       'usage_ledger_state_consistent',
-      sql`(${table.status} = 'reserved' AND ${table.actualNano} IS NULL AND ${table.settlementFingerprint} IS NULL) OR (${table.status} = 'settled' AND ${table.actualNano} IS NOT NULL AND ${table.settlementFingerprint} IS NOT NULL AND ${table.inputTokens} IS NOT NULL AND ${table.cacheReadTokens} IS NOT NULL AND ${table.outputTokens} IS NOT NULL) OR (${table.status} = 'unknown' AND ${table.reasonCode} IS NOT NULL) OR (${table.status} = 'not_sent' AND (${table.actualNano} IS NULL OR ${table.actualNano} = 0))`,
+      sql`(${table.status} = 'reserved' AND NOT ${table.settledByEstimate} AND ${table.actualNano} IS NULL AND ${table.settlementFingerprint} IS NULL)
+          OR (${table.status} = 'settled' AND ${table.actualNano} IS NOT NULL AND ${table.settlementFingerprint} IS NOT NULL
+              AND ((NOT ${table.settledByEstimate} AND ${table.inputTokens} IS NOT NULL AND ${table.cacheReadTokens} IS NOT NULL AND ${table.outputTokens} IS NOT NULL)
+                   OR (${table.settledByEstimate} AND ${table.actualNano} = ${table.reservedNano} AND ${table.inputTokens} IS NULL AND ${table.cacheReadTokens} IS NULL AND ${table.outputTokens} IS NULL)))
+          OR (${table.status} = 'unknown' AND NOT ${table.settledByEstimate} AND ${table.reasonCode} IS NOT NULL)
+          OR (${table.status} = 'not_sent' AND NOT ${table.settledByEstimate} AND (${table.actualNano} IS NULL OR ${table.actualNano} = 0))`,
     ),
     index('usage_ledger_run_idx').on(table.runId),
     index('usage_ledger_goal_idx').on(table.goalId),
     index('usage_ledger_month_idx').on(table.policyId, table.monthKey),
     index('usage_ledger_night_idx').on(table.policyId, table.nightKey),
+  ],
+);
+
+export const budgetReconciliation = pgTable(
+  'budget_reconciliation',
+  {
+    ledgerId: uuid('ledger_id')
+      .primaryKey()
+      .references(() => usageLedger.id, { onDelete: 'restrict' }),
+    outcome: varchar('outcome', { length: 24 }).notNull(),
+    evidence: varchar('evidence', { length: 500 }).notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      'budget_reconciliation_outcome_known',
+      sql`${table.outcome} IN ('charged','not_sent','reserved_estimate')`,
+    ),
+    check(
+      'budget_reconciliation_evidence_present',
+      sql`length(btrim(${table.evidence})) > 0 AND ${table.evidence} !~ '[[:cntrl:]]'`,
+    ),
+    check('budget_reconciliation_fingerprint_format', sql`${table.fingerprint} ~ '^[0-9a-f]{64}$'`),
   ],
 );
 

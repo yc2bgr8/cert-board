@@ -144,3 +144,51 @@ test('后置交回失败仍返回已结算，保留冻结并仅记录固定安�
     (await context.pool.query('SELECT status FROM run WHERE id=$1', [second.runId])).rows[0].status,
   ).toBe('budget_exhausted');
 });
+
+test('核账清除全局停止后，先前已取候选的扫描不得再停止新运行', async () => {
+  const input = await reserve();
+  const incomplete = await budget.markUsageIncomplete(context.pool, {
+    requestKey: input.requestKey,
+    runId: input.runId,
+    userId: input.userId,
+    reasonCode: 'timeout',
+  });
+  const candidate = await context.run();
+  let selected!: () => void;
+  let resume!: () => void;
+  const candidatesRead = new Promise<void>((resolve) => {
+    selected = resolve;
+  });
+  const proceed = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  const query = context.pool.query.bind(context.pool);
+  vi.spyOn(context.pool, 'query').mockImplementation(((text: string, values?: unknown[]) => {
+    const result = query(text, values);
+    if (!text.startsWith('SELECT id,user_id FROM run WHERE status')) return result;
+    return result.then(async (rows) => {
+      selected();
+      await proceed;
+      return rows;
+    });
+  }) as typeof context.pool.query);
+  const sweep = budget.handoffBlockedBudgetRuns(context.pool);
+  try {
+    await candidatesRead;
+    await expect(
+      budget.reconcileUsage(context.pool, {
+        ledgerId: incomplete.id,
+        outcome: 'not_sent',
+        evidence: '隔离测试未发出',
+      }),
+    ).resolves.toMatchObject({ blockedReason: null });
+    resume();
+    await expect(sweep).resolves.toMatchObject({ stopped: 0, failed: 0 });
+    expect(
+      (await query('SELECT status FROM run WHERE id=$1', [candidate.runId])).rows[0]?.status,
+    ).toBe('running');
+  } finally {
+    resume();
+    await sweep;
+  }
+});

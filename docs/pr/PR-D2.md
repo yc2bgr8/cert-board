@@ -1,0 +1,26 @@
+# PR-D2 预算核账
+
+用量账本因计量不明而停止后，可以用本地命令核账。账本编号和依据必填。依据留在审计记录，请填写核对说明。
+
+| 核对结果 | 必填参数 |
+|---|---|
+| 已计费 | `--outcome charged --actual-usd <美元> --input-tokens <数量> --cache-read-tokens <数量> --output-tokens <数量>` |
+| 确认未发送 | `--outcome not_sent` |
+| 按预占金额计费 | `--outcome reserved_estimate` |
+
+```powershell
+pnpm budget:reconcile --help
+$ledgerId = '替换为待核账记录的编号'
+pnpm budget:reconcile --ledger-id $ledgerId --outcome reserved_estimate --evidence '经负责人确认按预占计费'
+pnpm budget:status
+```
+
+预算摘要中的已计费用包含按预占计费金额，后者单列。计量门禁存在其他未知或在途预占时会继续停止。待这些记录处理完成，可以用相同参数重放原核账，复核门禁，无需重复入账。账本和核账依据在同一事务提交。
+
+正式核账仅在合并后执行。已授权的北京时间 2026 年 11 月 18 日 17:58:27 的 qwen/qwen3.8-flash 记录仍保留预占 0.00952992 美元，依据按变更单录入。
+
+## 验收
+
+- lint、类型检查、398 项单元与 `pnpm eval:agent` 的 30 项剧本回归通过。
+- 28 项预算专项集成覆盖三种核账、只追加的审计依据、幂等、已结算记录保护、其他门禁保留、旧扫描和新政策的并发。
+- 构建与 47 项浏览器验收通过，包含 L08 原文、工具、审核和冻结。隔离库中的真实模型成本为 0。

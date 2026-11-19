@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-D2 预算核账</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#验收">验收</a></nav><main><h1 id="pr-d2-预算核账">PR-D2 预算核账</h1>
+<p>用量账本因计量不明而停止后，可以用本地命令核账。账本编号和依据必填。依据留在审计记录，请填写核对说明。</p>
+<table><thead><tr><th>核对结果</th><th>必填参数</th></tr></thead><tbody><tr><td>已计费</td><td><code>--outcome charged --actual-usd &lt;美元&gt; --input-tokens &lt;数量&gt; --cache-read-tokens &lt;数量&gt; --output-tokens &lt;数量&gt;</code></td></tr><tr><td>确认未发送</td><td><code>--outcome not_sent</code></td></tr><tr><td>按预占金额计费</td><td><code>--outcome reserved_estimate</code></td></tr></tbody></table>
+<pre><code>pnpm budget:reconcile --help
+$ledgerId = &#39;替换为待核账记录的编号&#39;
+pnpm budget:reconcile --ledger-id $ledgerId --outcome reserved_estimate --evidence &#39;经负责人确认按预占计费&#39;
+pnpm budget:status</code></pre>
+<p>预算摘要中的已计费用包含按预占计费金额，后者单列。计量门禁存在其他未知或在途预占时会继续停止。待这些记录处理完成，可以用相同参数重放原核账，复核门禁，无需重复入账。账本和核账依据在同一事务提交。</p>
+<p>正式核账仅在合并后执行。已授权的北京时间 2026 年 11 月 18 日 17:58:27 的 qwen/qwen3.8-flash 记录仍保留预占 0.00952992 美元，依据按变更单录入。</p>
+<h2 id="验收">验收</h2>
+<ul><li>lint、类型检查、398 项单元与 <code>pnpm eval:agent</code> 的 30 项剧本回归通过。</li><li>28 项预算专项集成覆盖三种核账、只追加的审计依据、幂等、已结算记录保护、其他门禁保留、旧扫描和新政策的并发。</li><li>构建与 47 项浏览器验收通过，包含 L08 原文、工具、审核和冻结。隔离库中的真实模型成本为 0。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
