@@ -12,6 +12,7 @@ import { createReviewTestContext } from '../reviews/test-support.js';
 import { seedDevelopmentWorkspace } from '../workspace/seed.js';
 import { seedDevelopmentBudgetPolicy } from '../budget/service.js';
 import { appendConversationMessage } from '../conversations/storage.js';
+import * as conversationStorage from '../conversations/storage.js';
 import { ModelGateway, type GatewayTransport } from '../modelgw/service.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import type { ToolDefinition } from '../tools/registry.js';
@@ -1049,3 +1050,146 @@ test('同一内核提交带过程判断的审核卡并暂停，其他成员可�
       .count,
   ).toBe(1);
 });
+
+test.each(['approved', 'rejected'] as const)(
+  '运行收尾与浏览器%s并发时旧waiting不能覆盖更晚的真实决定',
+  async (action) => {
+    const context = await createReviewTestContext({ autoRead: false });
+    close = () => context.close();
+    const store = new MemoryStore();
+    await seedDevelopmentBudgetPolicy(context.pool, 'test');
+    const note = await store.put(Buffer.from('# 项目说明\n审核收尾竞态合成验证。'));
+    const next = (
+      await context.pool.query<{ id: string }>(
+        "INSERT INTO workspace_version(workspace_id,project_id,number,parent_version_id,author_type,summary,data_level) VALUES($1,$2,2,$3,'system','收尾竞态fixture','internal') RETURNING id",
+        [context.workspaceId, context.projectId, context.workspaceVersion],
+      )
+    ).rows[0]!.id;
+    await context.pool.query(
+      "INSERT INTO workspace_file(version_id,path,sha256,byte_size,data_level,media_type) VALUES($1,'AGENTS.md',$2,$3,'internal','text/markdown')",
+      [next, note.sha256, note.byteSize],
+    );
+    await context.pool.query(
+      'UPDATE workspace SET current_version_id=$1,version=version+1 WHERE id=$2',
+      [next, context.workspaceId],
+    );
+    await context.pool.query("UPDATE run SET status='completed' WHERE id=$1", [
+      context.caller.runId,
+    ]);
+    const conversationId = (
+      await context.pool.query<{ conversation_id: string }>(
+        'SELECT conversation_id FROM run WHERE id=$1',
+        [context.caller.runId],
+      )
+    ).rows[0]!.conversation_id;
+    const target = await queued(context, 'ask', conversationId);
+    const auth = await context.login('MEMBER_B');
+    let approval: Promise<{ statusCode: number }> | undefined;
+    let intercepted = false;
+    const originalQuery = context.pool.query;
+    async function beginApproval() {
+      intercepted = true;
+      const card = (
+        (await Reflect.apply(originalQuery, context.pool, [
+          'SELECT id,version,workspace_version_id FROM review_card WHERE run_id=$1',
+          [target.runId],
+        ])) as { rows: { id: string; version: number; workspace_version_id: string }[] }
+      ).rows[0]!;
+      approval = context.app.inject({
+        method: 'POST',
+        url: `/api/reviews/${card.id}/decision`,
+        headers: auth.headers,
+        payload: {
+          expectedVersion: card.version,
+          workspaceVersion: card.workspace_version_id,
+          requestKey: randomUUID(),
+          action,
+          ...(action === 'rejected' ? { reason: '请核对原件后重提。' } : {}),
+        },
+      });
+    }
+    // 旧实现的确定性窗口：独立SELECT已经取得waiting，浏览器决定先提交，再返回旧读取结果。
+    context.pool.query = (async (...args: unknown[]) => {
+      const value: unknown = await Reflect.apply(originalQuery, context.pool, args);
+      if (
+        !intercepted &&
+        args[0] === 'SELECT status FROM run WHERE id=$1' &&
+        Array.isArray(args[1]) &&
+        args[1][0] === target.runId &&
+        (value as { rows: { status: string }[] }).rows[0]?.status === 'waiting'
+      ) {
+        await beginApproval();
+        await approval;
+      }
+      return value;
+    }) as typeof context.pool.query;
+    const append = conversationStorage.appendConversationEventTx;
+    vi.spyOn(conversationStorage, 'appendConversationEventTx').mockImplementation(
+      async (tx, input) => {
+        const value = input as {
+          runId?: string;
+          event?: { type?: string; payload?: { status?: string } };
+        };
+        if (
+          !intercepted &&
+          value.runId === target.runId &&
+          value.event?.type === 'run_status' &&
+          value.event.payload?.status === 'waiting'
+        ) {
+          await beginApproval();
+          // 新实现必须让真实审批在同一个goal/conversation锁后等待，而非把旧状态推到终态之后。
+          await vi.waitFor(
+            async () => {
+              const rows = await Reflect.apply(originalQuery, context.pool, [
+                "SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND pid<>pg_backend_pid()",
+              ]);
+              expect((rows as { rows: { count: number }[] }).rows[0]!.count).toBeGreaterThan(0);
+            },
+            { timeout: 3000, interval: 20 },
+          );
+        }
+        return append(tx, input);
+      },
+    );
+    let calls = 0;
+    const gateway = new ModelGateway(
+      context.pool,
+      config,
+      {
+        kind: 'fixture',
+        async send() {
+          return ++calls === 1
+            ? call('doc_read', { id: context.documentId, version: 1, page: 1 })
+            : call('submit_for_review', { ...context.submission, workspaceVersion: next });
+        },
+      },
+      { environment: 'test' },
+    );
+    try {
+      await executeAgentRun(
+        { pool: context.pool, store, gateway, models: config, definitions: context.definitions },
+        target.runId,
+      );
+      expect(intercepted).toBe(true);
+      expect((await approval)?.statusCode).toBe(200);
+      const terminal = action === 'approved' ? 'completed' : 'stopped';
+      expect(
+        (await context.pool.query('SELECT status FROM run WHERE id=$1', [target.runId])).rows[0]
+          ?.status,
+      ).toBe(terminal);
+      const statuses = (
+        await context.pool.query<{ status: string }>(
+          "SELECT payload_json->>'status' AS status FROM conversation_event WHERE run_id=$1 AND type='run_status' ORDER BY seq",
+          [target.runId],
+        )
+      ).rows.map((row) => row.status);
+      expect(statuses.at(-1)).toBe(terminal);
+      const terminalIndex = statuses.indexOf(terminal);
+      expect(statuses.slice(terminalIndex + 1)).not.toContain('waiting');
+      expect(calls).toBe(2);
+    } finally {
+      context.pool.query = originalQuery;
+      await approval?.catch(() => undefined);
+    }
+  },
+);

@@ -21,6 +21,8 @@ import {
   reviewDecisionInputSchema,
   reviewDecisionResultSchema,
   reviewSections,
+  conversationEventSchema,
+  conversationEventNotificationSchema,
   type BackendConfig,
   type BrowserIdentity,
 } from '@cert-board/shared';
@@ -28,6 +30,7 @@ import { requireBrowserIdentity } from '../auth/session.js';
 import { authorize } from '../auth/authorization.js';
 import { reviewContentHash } from '../reviews/content.js';
 import { AppError } from './errors.js';
+import { CONVERSATION_EVENT_CHANNEL } from '../conversations/storage.js';
 
 type Card = {
   id: string;
@@ -157,6 +160,67 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
     if (!card || !run) throw missing();
     if (write) await authorized(tx, actor, card, true);
     return { card, workspace, goal, run };
+  };
+  // 仅由已验证浏览器决定调用；load已按workspace→goal→conversation→run锁定上下文。
+  // event.user_id表示原对话归属；实际决定人保存在review_decision/audit，不能借此恢复原用户执行权。
+  const appendDecisionStatus = async (
+    tx: PoolClient,
+    card: Card,
+    decisionId: string,
+    status: 'completed' | 'stopped',
+  ) => {
+    const context = (
+      await tx.query<{
+        user_id: string;
+        conversation_id: string;
+        last_event_seq: string;
+        data_level: string;
+      }>(
+        `SELECT r.user_id,r.conversation_id,c.last_event_seq,
+       GREATEST(c.max_data_level,r.max_data_level) AS data_level
+       FROM run r JOIN conversation c ON c.id=r.conversation_id AND c.user_id=r.user_id
+       WHERE r.id=$1 AND r.conversation_id=$2 AND r.user_id=$3 AND r.status=$4`,
+        [card.run_id, card.conversation_id, card.created_by, status],
+      )
+    ).rows[0];
+    if (!context) throw conflict('审核决定的运行归属或状态已变化，请刷新后核对。');
+    const seq = Number(context.last_event_seq) + 1;
+    if (!Number.isSafeInteger(seq))
+      throw new AppError(
+        409,
+        'CONVERSATION_SEQUENCE_LIMIT',
+        '对话记录已达上限，审核决定尚未保存，请联系维护人员。',
+      );
+    const event = conversationEventSchema.parse({
+      type: 'run_status',
+      payload: { reviewId: card.id, status },
+    });
+    const saved = (
+      await tx.query<{ id: string }>(
+        `INSERT INTO conversation_event(run_id,conversation_id,user_id,request_key,seq,type,payload_json,content_hash,data_level)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+        [
+          card.run_id,
+          context.conversation_id,
+          context.user_id,
+          decisionId,
+          seq,
+          event.type,
+          event.payload,
+          hash({ payload: event.payload, type: event.type }),
+          context.data_level,
+        ],
+      )
+    ).rows[0]!;
+    const notification = conversationEventNotificationSchema.parse({
+      conversationId: context.conversation_id,
+      eventId: saved.id,
+      seq,
+    });
+    await tx.query('SELECT pg_notify($1,$2)', [
+      CONVERSATION_EVENT_CHANNEL,
+      JSON.stringify(notification),
+    ]);
   };
   const content = (card: Card) => {
     const legacySubmission = !Object.hasOwn(card.structured_result as object, 'decisions');
@@ -409,11 +473,18 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
         )
       ).rows[0]!;
       // 仅收尾已经暂停的运行；若人工操作快于内核收尾，内核须按最新卡片状态条件更新。
-      await tx.query(
+      const terminal = await tx.query(
         `UPDATE run SET status=$1,finished_at=COALESCE(finished_at,CURRENT_TIMESTAMP),version=version+1,updated_at=CURRENT_TIMESTAMP
         WHERE id=$2 AND status='waiting' AND NOT EXISTS(SELECT 1 FROM review_card WHERE run_id=$2 AND status='pending')`,
         [input.action === 'approved' ? 'completed' : 'stopped', card.run_id],
       );
+      if (terminal.rowCount === 1)
+        await appendDecisionStatus(
+          tx,
+          card,
+          saved.id,
+          input.action === 'approved' ? 'completed' : 'stopped',
+        );
       await tx.query(
         "INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id,before_hash,after_hash) VALUES($1,'browser',$2,'review_card',$3,$4,$4)",
         [actor.userId, `review.${input.action}`, card.id, card.content_hash],

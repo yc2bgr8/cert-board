@@ -6,12 +6,18 @@ export function ProjectShell({
   conversationTitle,
   sidebarVisible,
   onOpenSidebar,
+  tab = 'conversation',
+  onTabChange,
+  showTabs = false,
   children,
 }: {
   title: string;
   conversationTitle?: string;
   sidebarVisible: boolean;
   onOpenSidebar(): void;
+  tab?: 'conversation' | 'files' | 'documents';
+  onTabChange?(tab: 'conversation' | 'files' | 'documents'): void;
+  showTabs?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -33,15 +39,18 @@ export function ProjectShell({
             {conversationTitle}
           </span>
         )}
-        {conversationTitle && (
+        {showTabs && (
           <nav className="live-project-tabs" aria-label="项目内容">
-            <span aria-current="page">对话</span>
-            <button type="button" disabled title="文件入口尚未开放">
-              文件
-            </button>
-            <button type="button" disabled title="资料入口尚未开放">
-              资料
-            </button>
+            {(['conversation', 'files', 'documents'] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-current={tab === value ? 'page' : undefined}
+                onClick={() => onTabChange?.(value)}
+              >
+                {{ conversation: '对话', files: '文件', documents: '资料' }[value]}
+              </button>
+            ))}
           </nav>
         )}
       </header>

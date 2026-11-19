@@ -27,7 +27,11 @@ import { assertRunLease, renewRunLease, releaseRunLease } from '../runs/lease.js
 import { lockOwnedRun } from '../runs/lock.js';
 import { RUN_CONTROL_CHANNEL } from '../runs/control.js';
 import { appendRunEvent } from '../runs/events.js';
-import { appendConversationMessage, appendConversationEvent } from '../conversations/storage.js';
+import {
+  appendConversationMessage,
+  appendConversationEvent,
+  appendConversationEventTx,
+} from '../conversations/storage.js';
 import { takeSteeringForLease } from '../conversations/steering.js';
 import {
   claimContinuationForLease,
@@ -689,7 +693,6 @@ export async function executeAgentRun(
       requestedStatus = 'failed';
     }
   }
-  let mayEmitFinalStatus = false;
   const releaseAuthority = async () => {
     if (!authority) return;
     await releaseRunLease(pool, {
@@ -699,100 +702,128 @@ export async function executeAgentRun(
       generation: authority.lease.generation,
     }).catch(() => undefined);
   };
-  if (authority) {
-    const tx = await pool.connect();
-    try {
-      await tx.query('BEGIN');
-      const row = await lockOwnedRun(tx, runId, context.userId);
-      const ownsLease =
-        (
-          await tx.query(
-            `SELECT id FROM run WHERE id=$1 AND user_id=$2 AND lease_owner=$3
-         AND lease_generation=$4 AND lease_expires_at>clock_timestamp()`,
-            [runId, context.userId, authority.lease.ownerId, authority.lease.generation],
-          )
-        ).rowCount === 1;
-      mayEmitFinalStatus = ownsLease;
-      if (!ownsLease && row.status === 'running') reason = 'RUN_LEASE_LOST';
-      if (ownsLease && reviewId) {
-        const card = (
-          await tx.query<{ status: string }>(
-            'SELECT status FROM review_card WHERE id=$1 AND run_id=$2',
-            [reviewId, runId],
-          )
-        ).rows[0];
-        if (card?.status === 'pending' && !controller.signal.aborted) requestedStatus = 'waiting';
-        if (card?.status === 'approved') requestedStatus = 'completed';
-        if (card?.status === 'rejected' || card?.status === 'cancelled')
-          requestedStatus = 'stopped';
-      }
-      if (row.status === 'running' && ownsLease) {
-        const updated = await tx.query(
-          `UPDATE run SET status=$1::run_status,finished_at=COALESCE(finished_at,CURRENT_TIMESTAMP),version=version+1,updated_at=CURRENT_TIMESTAMP
-           WHERE id=$2 AND user_id=$3 AND status='running' AND lease_owner=$4 AND lease_generation=$5 AND lease_expires_at>clock_timestamp()`,
-          [
-            requestedStatus,
-            runId,
-            context.userId,
-            authority.lease.ownerId,
-            authority.lease.generation,
-          ],
-        );
-        if (updated.rowCount !== 1) {
-          mayEmitFinalStatus = false;
-          reason = 'RUN_LEASE_LOST';
-        }
-      }
-      await tx.query('COMMIT');
-    } catch {
-      await tx.query('ROLLBACK').catch(() => undefined);
-      await releaseAuthority();
-      throw new AppError(
-        500,
-        'RUN_FINALIZATION_FAILED',
-        '运行结束状态未能保存，请核对运行记录；不会自动重放操作。',
-      );
-    } finally {
-      tx.release();
-    }
-  }
   let status: string;
   try {
-    status =
-      (await pool.query<{ status: string }>('SELECT status FROM run WHERE id=$1', [runId])).rows[0]
-        ?.status ?? 'failed';
-    const summary =
-      status === 'waiting'
-        ? approvalId
-          ? '下一步操作等待浏览器中的过程批准，尚未执行该操作。'
-          : questionId
-            ? '等待对话发起人回答问题。'
-            : '交付已提交，等待浏览器中的人工决定。'
-        : status === 'completed'
-          ? activeMode === 'read_only'
-            ? '本轮只读答复已结束。需要正式交付时，请在浏览器切换为请求批准或完全允许，再继续提交审核。'
-            : '本轮已结束。'
-          : '本轮已停止；请核对已保存的版本、工具记录和未完成事项，未自动重放操作。';
-    if (mayEmitFinalStatus) {
-      const pending = (
-        await pool.query<{ count: number }>(
-          'SELECT count(*)::int FROM run_steering_message WHERE run_id=$1 AND user_id=$2 AND delivered_at IS NULL',
-          [runId, context.userId],
-        )
-      ).rows[0]!.count;
-      await emit({
-        type: 'run_status',
-        payload: {
-          status,
-          reasonCode: reason,
-          message: pending ? `${summary}还有 ${pending} 条插话留在原对话，等待核对。` : summary,
-          ...(pending ? { pendingSteeringCount: pending } : {}),
-          usage: z.json().parse(usage),
-          ...(reviewId ? { reviewId } : {}),
-          ...(approvalId ? { approvalId } : {}),
-          ...(questionId ? { questionId } : {}),
-        },
-      }).catch(() => undefined);
+    if (authority) {
+      const tx = await pool.connect();
+      try {
+        await tx.query('BEGIN');
+        // 与消息追加和执行器保持user→goal→conversation→run顺序；不能在run之后反向取user/goal锁。
+        const owner = (
+          await tx.query<{ status: string }>('SELECT status FROM app_user WHERE id=$1 FOR SHARE', [
+            context.userId,
+          ])
+        ).rows[0];
+        await tx.query('SELECT id FROM goal WHERE id=$1 FOR SHARE', [context.goalId]);
+        await tx.query('SELECT id FROM conversation WHERE id=$1 AND user_id=$2 FOR UPDATE', [
+          context.conversationId,
+          context.userId,
+        ]);
+        const row = await lockOwnedRun(tx, runId, context.userId);
+        const ownsLease =
+          (
+            await tx.query(
+              `SELECT id FROM run WHERE id=$1 AND user_id=$2 AND lease_owner=$3
+           AND lease_generation=$4 AND lease_expires_at>clock_timestamp()`,
+              [runId, context.userId, authority.lease.ownerId, authority.lease.generation],
+            )
+          ).rowCount === 1;
+        let mayEmitFinalStatus = ownsLease;
+        if (!ownsLease && row.status === 'running') reason = 'RUN_LEASE_LOST';
+        if (ownsLease && reviewId) {
+          const card = (
+            await tx.query<{ status: string }>(
+              'SELECT status FROM review_card WHERE id=$1 AND run_id=$2',
+              [reviewId, runId],
+            )
+          ).rows[0];
+          if (card?.status === 'pending' && !controller.signal.aborted) requestedStatus = 'waiting';
+          if (card?.status === 'approved') requestedStatus = 'completed';
+          if (card?.status === 'rejected' || card?.status === 'cancelled')
+            requestedStatus = 'stopped';
+        }
+        if (row.status === 'running' && ownsLease) {
+          const updated = await tx.query(
+            `UPDATE run SET status=$1::run_status,finished_at=COALESCE(finished_at,CURRENT_TIMESTAMP),version=version+1,updated_at=CURRENT_TIMESTAMP
+             WHERE id=$2 AND user_id=$3 AND status='running' AND lease_owner=$4 AND lease_generation=$5 AND lease_expires_at>clock_timestamp()`,
+            [
+              requestedStatus,
+              runId,
+              context.userId,
+              authority.lease.ownerId,
+              authority.lease.generation,
+            ],
+          );
+          if (updated.rowCount !== 1) {
+            mayEmitFinalStatus = false;
+            reason = 'RUN_LEASE_LOST';
+          }
+        }
+        status =
+          (await tx.query<{ status: string }>('SELECT status FROM run WHERE id=$1', [runId]))
+            .rows[0]?.status ?? 'failed';
+        // 状态读取与事件写入同事务；浏览器决定只能排在它之前或之后，不能在中间插入终态。
+        // 停用账号仍能收尾run，但不恢复它追加对话内容的资格。
+        if (mayEmitFinalStatus && owner?.status === 'active') {
+          const summary =
+            status === 'waiting'
+              ? approvalId
+                ? '下一步操作等待浏览器中的过程批准，尚未执行该操作。'
+                : questionId
+                  ? '等待对话发起人回答问题。'
+                  : '交付已提交，等待浏览器中的人工决定。'
+              : status === 'completed'
+                ? activeMode === 'read_only'
+                  ? '本轮只读答复已结束。需要正式交付时，请在浏览器切换为请求批准或完全允许，再继续提交审核。'
+                  : '本轮已结束。'
+                : '本轮已停止；请核对已保存的版本、工具记录和未完成事项，未自动重放操作。';
+          const pending = (
+            await tx.query<{ count: number }>(
+              'SELECT count(*)::int FROM run_steering_message WHERE run_id=$1 AND user_id=$2 AND delivered_at IS NULL',
+              [runId, context.userId],
+            )
+          ).rows[0]!.count;
+          await appendConversationEventTx(tx, {
+            runId,
+            userId: context.userId,
+            requestKey: randomUUID(),
+            event: {
+              type: 'run_status',
+              payload: {
+                status,
+                reasonCode: reason,
+                message: pending
+                  ? `${summary}还有 ${pending} 条插话留在原对话，等待核对。`
+                  : summary,
+                ...(pending ? { pendingSteeringCount: pending } : {}),
+                usage: z.json().parse(usage),
+                ...(reviewId ? { reviewId } : {}),
+                ...(approvalId ? { approvalId } : {}),
+                ...(questionId ? { questionId } : {}),
+              },
+            },
+          });
+          const currentLease = await tx.query(
+            'SELECT id FROM run WHERE id=$1 AND user_id=$2 AND lease_owner=$3 AND lease_generation=$4 AND lease_expires_at>clock_timestamp()',
+            [runId, context.userId, authority.lease.ownerId, authority.lease.generation],
+          );
+          if (currentLease.rowCount !== 1) throw new Error('final_lease_expired');
+        }
+        await tx.query('COMMIT');
+      } catch {
+        await tx.query('ROLLBACK').catch(() => undefined);
+        throw new AppError(
+          500,
+          'RUN_FINALIZATION_FAILED',
+          '运行结束状态未能保存，请核对运行记录；不会自动重放操作。',
+        );
+      } finally {
+        tx.release();
+      }
+    } else {
+      status =
+        (await pool.query<{ status: string }>('SELECT status FROM run WHERE id=$1', [runId]))
+          .rows[0]?.status ?? 'failed';
     }
   } finally {
     // 用户提前决定时，派发器须等本轮的结束事件写入后才重新排队。

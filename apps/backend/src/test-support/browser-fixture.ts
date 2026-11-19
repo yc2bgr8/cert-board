@@ -7,8 +7,10 @@ import {
   type ModelGatewayConfig,
 } from '@cert-board/shared';
 import type { GatewayTransport } from '../modelgw/service.js';
+import { createBrowserReviewScript } from './browser-review-fixture.js';
 
-export type BrowserScenario = 'read' | 'steering' | 'stop' | 'mode' | 'approval';
+export type BrowserScenario =
+  'read' | 'steering' | 'stop' | 'mode' | 'approval' | 'review' | 'revision' | 'approval_text';
 export const browserModels: ModelGatewayConfig = {
   version: 1,
   models: [
@@ -56,6 +58,10 @@ const call = (name: string, input: unknown) =>
 export function browserScenario(kind: BrowserScenario, contactId: string) {
   if (process.env.NODE_ENV !== 'test') throw new Error('BROWSER_FIXTURE_TEST_ONLY');
   let phase = 0;
+  const reviewScript =
+    kind === 'review' || kind === 'revision'
+      ? createBrowserReviewScript(kind === 'revision')
+      : undefined;
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -103,6 +109,15 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
           request.messages.filter((message) => message.role === 'user').at(-1)?.content ?? '';
         const latest = request.messages.at(-1);
         const previous: unknown = latest?.role === 'tool' ? JSON.parse(latest.content) : null;
+        if (kind === 'approval_text')
+          return response({
+            role: 'assistant',
+            content: '对话文字不能代替审批，请在审核卡上点击通过或退回修改。',
+          });
+        if (reviewScript) {
+          const action = reviewScript(previous);
+          return call(action.name, action.input);
+        }
         if (kind === 'approval') {
           if (phase++ === 0)
             return call('queue_internal_message', {

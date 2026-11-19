@@ -4,6 +4,278 @@ import { reviewSubmitResultSchema, reviewSections } from '@cert-board/shared';
 import { createReviewTestContext } from '../reviews/test-support.js';
 import { checkSubmission } from '../checks/service.js';
 import { reviewContentHash } from '../reviews/content.js';
+import { appendConversationEvent, CONVERSATION_EVENT_CHANNEL } from '../conversations/storage.js';
+import type { Notification } from 'pg';
+import { claimRunLease } from '../runs/lease.js';
+
+async function waitingCard() {
+  const review = await card();
+  const run = (
+    await context.pool.query<{ conversation_id: string }>(
+      'SELECT conversation_id FROM run WHERE id=$1',
+      [context.caller.runId],
+    )
+  ).rows[0]!;
+  await context.pool.query("UPDATE run SET status='waiting' WHERE id=$1", [context.caller.runId]);
+  await context.pool.query('UPDATE conversation SET current_run_id=$2 WHERE id=$1', [
+    run.conversation_id,
+    context.caller.runId,
+  ]);
+  await appendConversationEvent(context.pool, {
+    runId: context.caller.runId,
+    userId: context.caller.userId,
+    requestKey: randomUUID(),
+    event: { type: 'run_status', payload: { status: 'waiting', reviewId: review.reviewId } },
+  });
+  return { ...review, conversationId: run.conversation_id };
+}
+
+test.each(['approved', 'rejected'] as const)(
+  '另一成员%s审核后原子追加原run终态，通知可回放且重复决定不增序号',
+  async (action) => {
+    const review = await waitingCard();
+    const auth = await context.login('MEMBER_B');
+    const input = decision(review, action);
+    const listener = await context.pool.connect();
+    const notices: Record<string, unknown>[] = [];
+    const marker = randomUUID();
+    let barrierResolve!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      barrierResolve = resolve;
+    });
+    const receive = (notice: Notification) => {
+      if (notice.channel !== CONVERSATION_EVENT_CHANNEL || !notice.payload) return;
+      const data = JSON.parse(notice.payload) as Record<string, unknown>;
+      if (data.barrier === marker) barrierResolve();
+      else notices.push(data);
+    };
+    listener.on('notification', receive);
+    try {
+      await listener.query(`LISTEN ${CONVERSATION_EVENT_CHANNEL}`);
+      const response = await context.app.inject({
+        method: 'POST',
+        url: `/api/reviews/${review.reviewId}/decision`,
+        headers: auth.headers,
+        payload: input,
+      });
+      expect(response.statusCode).toBe(200);
+      const retry = await context.app.inject({
+        method: 'POST',
+        url: `/api/reviews/${review.reviewId}/decision`,
+        headers: auth.headers,
+        payload: input,
+      });
+      expect(retry.statusCode).toBe(200);
+      expect(retry.json().replayed).toBe(true);
+      const events = (
+        await context.pool.query(
+          'SELECT id,seq,user_id,request_key,type,payload_json FROM conversation_event WHERE conversation_id=$1 ORDER BY seq',
+          [review.conversationId],
+        )
+      ).rows;
+      expect(events.map((entry) => Number(entry.seq))).toEqual([1, 2]);
+      expect(events[1]).toMatchObject({
+        user_id: context.caller.userId,
+        request_key: response.json().decisionId,
+        type: 'run_status',
+        payload_json: {
+          status: action === 'approved' ? 'completed' : 'stopped',
+          reviewId: review.reviewId,
+        },
+      });
+      expect(Object.keys(events[1]!.payload_json).sort()).toEqual(['reviewId', 'status']);
+      expect(
+        (await context.pool.query('SELECT status FROM run WHERE id=$1', [context.caller.runId]))
+          .rows[0]?.status,
+      ).toBe(action === 'approved' ? 'completed' : 'stopped');
+      await context.pool.query('SELECT pg_notify($1,$2)', [
+        CONVERSATION_EVENT_CHANNEL,
+        JSON.stringify({ barrier: marker }),
+      ]);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          barrier,
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error('审核通知屏障未到达')), 3000);
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+      expect(notices).toEqual([
+        { conversationId: review.conversationId, eventId: events[1]!.id, seq: 2 },
+      ]);
+    } finally {
+      await listener.query(`UNLISTEN ${CONVERSATION_EVENT_CHANNEL}`);
+      listener.removeListener('notification', receive);
+      listener.release();
+    }
+  },
+);
+
+test('原发起人停用不妨碍活动成员审核，事件仍归原对话而非审批者', async () => {
+  const review = await waitingCard();
+  const auth = await context.login('MEMBER_B');
+  await context.pool.query("UPDATE app_user SET status='disabled' WHERE id=$1", [
+    context.caller.userId,
+  ]);
+  const response = await context.app.inject({
+    method: 'POST',
+    url: `/api/reviews/${review.reviewId}/decision`,
+    headers: auth.headers,
+    payload: decision(review),
+  });
+  expect(response.statusCode).toBe(200);
+  const event = (
+    await context.pool.query(
+      'SELECT user_id,payload_json FROM conversation_event WHERE conversation_id=$1 AND seq=2',
+      [review.conversationId],
+    )
+  ).rows[0];
+  expect(event).toEqual({
+    user_id: context.caller.userId,
+    payload_json: { status: 'completed', reviewId: review.reviewId },
+  });
+});
+
+test('批准旧run时不覆盖同对话后来新run及当前指针，事件明确属于旧run', async () => {
+  const review = await waitingCard();
+  const auth = await context.login('MEMBER_B');
+  const later = (
+    await context.pool.query<{ id: string }>(
+      "INSERT INTO run(conversation_id,user_id,project_id,goal_id,status) VALUES($1,$2,$3,$4,'queued') RETURNING id",
+      [review.conversationId, context.caller.userId, context.projectId, context.goalId],
+    )
+  ).rows[0]!.id;
+  await context.pool.query('UPDATE conversation SET current_run_id=$2 WHERE id=$1', [
+    review.conversationId,
+    later,
+  ]);
+  await appendConversationEvent(context.pool, {
+    runId: later,
+    userId: context.caller.userId,
+    requestKey: randomUUID(),
+    event: { type: 'user_message', payload: { content: '后来的新任务' } },
+  });
+  const response = await context.app.inject({
+    method: 'POST',
+    url: `/api/reviews/${review.reviewId}/decision`,
+    headers: auth.headers,
+    payload: decision(review),
+  });
+  expect(response.statusCode).toBe(200);
+  expect(
+    (
+      await context.pool.query('SELECT current_run_id FROM conversation WHERE id=$1', [
+        review.conversationId,
+      ])
+    ).rows[0]?.current_run_id,
+  ).toBe(later);
+  expect(
+    (await context.pool.query('SELECT status FROM run WHERE id=$1', [later])).rows[0]?.status,
+  ).toBe('queued');
+  expect(
+    (
+      await context.pool.query(
+        'SELECT run_id,payload_json FROM conversation_event WHERE conversation_id=$1 AND seq=3',
+        [review.conversationId],
+      )
+    ).rows[0],
+  ).toEqual({
+    run_id: context.caller.runId,
+    payload_json: { status: 'completed', reviewId: review.reviewId },
+  });
+});
+
+test('审核终态事件写入失败时决定、冻结和run状态一起回滚，同请求可安全重试', async () => {
+  const review = await waitingCard();
+  const auth = await context.login('MEMBER_B');
+  const input = decision(review);
+  await context.pool
+    .query(`CREATE FUNCTION fixture_reject_review_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.type='run_status' THEN RAISE EXCEPTION '合成审核事件失败'; END IF; RETURN NEW; END; $$;
+    CREATE TRIGGER fixture_reject_review_event BEFORE INSERT ON conversation_event FOR EACH ROW EXECUTE FUNCTION fixture_reject_review_event()`);
+  try {
+    const response = await context.app.inject({
+      method: 'POST',
+      url: `/api/reviews/${review.reviewId}/decision`,
+      headers: auth.headers,
+      payload: input,
+    });
+    expect(response.statusCode).toBe(500);
+    expect(
+      (await context.pool.query('SELECT status FROM review_card WHERE id=$1', [review.reviewId]))
+        .rows[0]?.status,
+    ).toBe('pending');
+    expect(
+      (await context.pool.query('SELECT status FROM run WHERE id=$1', [context.caller.runId]))
+        .rows[0]?.status,
+    ).toBe('waiting');
+    expect((await context.pool.query('SELECT id FROM review_decision')).rowCount).toBe(0);
+    expect((await context.pool.query('SELECT id FROM submission_snapshot')).rowCount).toBe(0);
+    expect(
+      (
+        await context.pool.query('SELECT last_event_seq FROM conversation WHERE id=$1', [
+          review.conversationId,
+        ])
+      ).rows[0]?.last_event_seq,
+    ).toBe('1');
+  } finally {
+    await context.pool.query(
+      'DROP TRIGGER fixture_reject_review_event ON conversation_event; DROP FUNCTION fixture_reject_review_event()',
+    );
+  }
+  expect(
+    (
+      await context.app.inject({
+        method: 'POST',
+        url: `/api/reviews/${review.reviewId}/decision`,
+        headers: auth.headers,
+        payload: input,
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect(
+    (
+      await context.pool.query('SELECT id FROM conversation_event WHERE conversation_id=$1', [
+        review.conversationId,
+      ])
+    ).rowCount,
+  ).toBe(2);
+});
+
+test('人先于内核收尾通过时不伪造已结束事件，仍由持有lease的内核完成状态', async () => {
+  const review = await card();
+  const auth = await context.login('MEMBER_B');
+  const ownerId = randomUUID();
+  await claimRunLease(context.pool, {
+    runId: context.caller.runId,
+    userId: context.caller.userId,
+    ownerId,
+  });
+  const response = await context.app.inject({
+    method: 'POST',
+    url: `/api/reviews/${review.reviewId}/decision`,
+    headers: auth.headers,
+    payload: decision(review),
+  });
+  expect(response.statusCode).toBe(200);
+  expect(
+    (await context.pool.query('SELECT status FROM run WHERE id=$1', [context.caller.runId])).rows[0]
+      ?.status,
+  ).toBe('running');
+  expect(
+    (await context.pool.query('SELECT lease_owner FROM run WHERE id=$1', [context.caller.runId]))
+      .rows[0]?.lease_owner,
+  ).toBe(ownerId);
+  expect(
+    (
+      await context.pool.query('SELECT id FROM conversation_event WHERE run_id=$1', [
+        context.caller.runId,
+      ])
+    ).rowCount,
+  ).toBe(0);
+});
 
 let context: Awaited<ReturnType<typeof createReviewTestContext>>;
 beforeEach(async () => {
