@@ -9,6 +9,8 @@ export function ProjectShell({
   tab = 'conversation',
   onTabChange,
   showTabs = false,
+  headerAction,
+  inspector,
   children,
 }: {
   title: string;
@@ -18,6 +20,8 @@ export function ProjectShell({
   tab?: 'conversation' | 'files' | 'documents';
   onTabChange?(tab: 'conversation' | 'files' | 'documents'): void;
   showTabs?: boolean;
+  headerAction?: ReactNode;
+  inspector?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -56,8 +60,12 @@ export function ProjectShell({
             ))}
           </nav>
         )}
+        {headerAction && <div className="live-project-header-action">{headerAction}</div>}
       </header>
-      <div className="live-main-content">{children}</div>
+      <div className="live-main-row">
+        <div className="live-main-content">{children}</div>
+        {inspector}
+      </div>
     </main>
   );
 }

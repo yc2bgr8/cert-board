@@ -25,6 +25,9 @@ import {
   reviewCardViewSchema,
   reviewDecisionInputSchema,
   reviewDecisionResultSchema,
+  proposalRecordSchema,
+  proposalDecisionSchema,
+  proposalDecisionResultSchema,
   workspaceRecordSchema,
   workspaceVersionListOptionsSchema,
   workspaceVersionListSchema,
@@ -51,6 +54,7 @@ import {
   type ConversationModeInput,
   type ToolApprovalDecisionInput,
   type ReviewDecisionInput,
+  type ProposalDecision,
 } from '@cert-board/shared';
 
 export type ConversationDetail = ReturnType<typeof conversationPublicRecordSchema.parse>;
@@ -171,6 +175,13 @@ export const api = {
     request(`/api/reviews/${identifier(id)}/decision`, reviewDecisionResultSchema, {
       method: 'POST',
       body: checked(reviewDecisionInputSchema, input),
+    }),
+  proposal: (id: string, signal?: AbortSignal) =>
+    request(`/api/proposals/${identifier(id)}`, proposalRecordSchema, signalOption(signal)),
+  decideProposal: (id: string, input: ProposalDecision) =>
+    request(`/api/proposals/${identifier(id)}/decision`, proposalDecisionResultSchema, {
+      method: 'POST',
+      body: checked(proposalDecisionSchema, input),
     }),
   workspace: (projectId: string, signal?: AbortSignal) =>
     request(

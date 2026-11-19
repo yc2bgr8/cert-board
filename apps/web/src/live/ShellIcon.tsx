@@ -13,6 +13,8 @@ const paths = {
   wrench: 'M14 4a5 5 0 0 0-6 6l-4 5a2 2 0 0 0 3 3l5-4a5 5 0 0 0 6-6l-3 3-3-3z',
   arrowUp: 'M12 19V5m-6 6 6-6 6 6',
   attachment: 'm9 12 6-6a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7l9-9m4 7-7 7a2 2 0 0 1-3-3l7-7',
+  activity: 'M3 12h4l3-7 4 14 3-7h4',
+  mail: 'M3 5h18v14H3zm0 1 9 7 9-7',
 } as const;
 
 export function ShellIcon({ name }: { name: keyof typeof paths }) {

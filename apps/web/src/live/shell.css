@@ -393,6 +393,21 @@ body {
   text-overflow: ellipsis;
   min-width: 0;
 }
+.live-project-header-action {
+  margin-inline-start: auto;
+  flex-shrink: 0;
+}
+.live-run-details-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.live-main-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 .live-title-group {
   min-width: 0;
 }
@@ -428,6 +443,7 @@ body {
   position: relative;
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
@@ -454,21 +470,35 @@ body {
   flex-direction: column;
   background: var(--paper);
 }
+.live-inspector.is-wide {
+  --live-inspector-width: min(880px, calc(100vw - 248px - 280px));
+}
 .live-inspector-navigation {
-  min-height: 64px;
-  padding: 13px 22px;
+  min-height: 56px;
+  padding: 10px 20px;
   display: flex;
   gap: 16px;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+.live-inspector-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 .live-inspector-page {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 24px;
+  padding: 18px 20px 20px;
   overflow-wrap: anywhere;
+}
+.live-inspector-page.is-flush {
+  padding: 0;
+  overflow: hidden;
 }
 .live-project-assets h2 {
   font-size: 18px;
@@ -528,6 +558,9 @@ body {
     inset: 0 0 0 auto;
     z-index: 25;
     width: min(var(--live-inspector-width), 100vw);
+  }
+  .live-inspector.is-wide {
+    --live-inspector-width: min(880px, 100vw);
   }
 }
 .live-overview {

@@ -93,6 +93,13 @@ export async function reviewBrowserFlow(
   const source = page.getByRole('region', { name: 'D035 第 1 页原文', exact: true });
   await source.locator('mark').waitFor();
   assert.equal(await source.locator('mark').textContent(), submission.evidence[0]!.quote);
+  const parsed = source.getByLabel('D035解析原文', { exact: true });
+  const excerpt = await parsed.textContent();
+  await source.getByRole('button', { name: '展开解析全文', exact: true }).click();
+  assert.ok((await parsed.textContent())!.length > excerpt!.length);
+  assert.equal(await source.locator('mark').textContent(), submission.evidence[0]!.quote);
+  await source.getByRole('button', { name: '收起解析全文', exact: true }).click();
+  assert.equal(await parsed.textContent(), excerpt);
   await page.screenshot({ path: path.join(output, 'review-evidence.png'), fullPage: true });
   await page.getByRole('button', { name: '返回审核卡', exact: true }).click();
   await card.getByRole('button', { name: '并排查看两处依据', exact: true }).click();
@@ -101,6 +108,18 @@ export async function reviewBrowserFlow(
     await region.locator('mark').waitFor();
     assert.equal(await region.locator('mark').textContent(), ref.quote);
   }
+  const pairPanel = page.getByRole('complementary', { name: '原文依据', exact: true });
+  assert.ok((await pairPanel.boundingBox())!.width > 800);
+  await pairPanel.getByRole('button', { name: '单份', exact: true }).click();
+  assert.equal(await pairPanel.getByRole('region', { name: /D035 第 .*原文/ }).count(), 1);
+  await pairPanel.getByRole('button', { name: '下一组依据', exact: true }).click();
+  await pairPanel
+    .getByRole('region', { name: 'D035 第 5 页原文', exact: true })
+    .getByText(submission.evidence[1]!.quote, { exact: true })
+    .waitFor();
+  await pairPanel.getByRole('button', { name: '并排对照', exact: true }).click();
+  await pairPanel.getByRole('region', { name: 'D035 第 1 页原文', exact: true }).waitFor();
+  assert.equal(await pairPanel.getByRole('region', { name: /D035 第 .*原文/ }).count(), 2);
   await page.screenshot({ path: path.join(output, 'review-evidence-pair.png'), fullPage: true });
   await page.getByRole('button', { name: '返回审核卡', exact: true }).click();
   const reportRow = card.getByText(browserReviewPath, { exact: true }).locator('..');
@@ -198,6 +217,13 @@ export async function reviewBrowserFlow(
   assert.equal(await changes.getByRole('listitem').count(), 1);
   await changes.getByRole('button', { name: '查看对比', exact: true }).click();
   const textDiff = page.getByRole('region', { name: '文本差异', exact: true });
+  const fileNavigation = page.getByRole('navigation', { name: '改动文件列表', exact: true });
+  const selectedFile = fileNavigation.getByRole('button', {
+    name: `查看文本对比：${browserReviewPath}`,
+    exact: true,
+  });
+  await selectedFile.waitFor();
+  assert.equal(await selectedFile.getAttribute('aria-current'), 'true');
   await textDiff
     .locator('[data-change="added"]')
     .filter({ hasText: browserRevisionText })

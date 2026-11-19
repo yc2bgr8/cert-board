@@ -1,4 +1,6 @@
-import { useState } from 'react';
+// 参考 VisaFlow app/apps/electron/src/renderer/visaflow/MaterialRecognitionDialog.tsx。
+// 改为按项目资料版本并排读取，原页可用性与解析文字独立显示。
+import { useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { api, errorMessage } from './api.js';
 import type { EvidenceTarget } from './review-navigation.js';
@@ -10,34 +12,56 @@ export function EvidencePanel({ sources }: { sources: EvidenceTarget[] }) {
 }
 function EvidenceGroup({ sources }: { sources: EvidenceTarget[] }) {
   const [first, setFirst] = useState(0);
+  const [compare, setCompare] = useState(sources.length > 1);
   if (!sources.length) return <p className="review-panel-empty">当前没有可打开的资料引用。</p>;
+  const count = compare ? 2 : 1;
   return (
     <section className="review-evidence-panel" aria-label="资料依据">
-      <p className="review-panel-note">当前提供解析原文。原件文件与原页图像尚未导入。</p>
-      <div className={`review-evidence-grid${sources.length > 1 ? ' is-comparison' : ''}`}>
-        {sources.slice(first, first + 2).map((source, index) => (
+      <header className="review-evidence-toolbar">
+        <span className="live-review-chip">{sources.length} 处来源</span>
+        {sources.length > 1 && (
+          <div className="review-preview-toggle" role="group" aria-label="显示方式">
+            <button
+              type="button"
+              aria-pressed={compare}
+              onClick={() => {
+                setFirst(first === sources.length - 1 ? first - 1 : first);
+                setCompare(true);
+              }}
+            >
+              并排对照
+            </button>
+            <button type="button" aria-pressed={!compare} onClick={() => setCompare(false)}>
+              单份
+            </button>
+          </div>
+        )}
+      </header>
+      <div className={`review-evidence-grid${compare ? ' is-comparison' : ''}`}>
+        {sources.slice(first, first + count).map((source, index) => (
           <EvidenceSource
             key={`${source.documentId}:${source.version}:${source.page}:${index}`}
             source={source}
+            number={first + index + 1}
           />
         ))}
       </div>
-      {sources.length > 2 && (
+      {sources.length > count && (
         <nav className="review-panel-pagination" aria-label="引用组分页">
           <button
             type="button"
             disabled={first === 0}
-            onClick={() => setFirst(Math.max(0, first - 2))}
+            onClick={() => setFirst(Math.max(0, first - count))}
           >
             上一组依据
           </button>
           <span>
-            第 {first + 1}–{Math.min(first + 2, sources.length)} 条，共 {sources.length} 条
+            第 {first + 1}–{Math.min(first + count, sources.length)} 条，共 {sources.length} 条
           </span>
           <button
             type="button"
-            disabled={first + 2 >= sources.length}
-            onClick={() => setFirst(first + 2)}
+            disabled={first + count >= sources.length}
+            onClick={() => setFirst(first + count)}
           >
             下一组依据
           </button>
@@ -46,7 +70,10 @@ function EvidenceGroup({ sources }: { sources: EvidenceTarget[] }) {
     </section>
   );
 }
-function EvidenceSource({ source }: { source: EvidenceTarget }) {
+function EvidenceSource({ source, number }: { source: EvidenceTarget; number: number }) {
+  const textPane = useRef<HTMLPreElement>(null);
+  const highlight = useRef<HTMLElement>(null);
+  const [expanded, setExpanded] = useState(false);
   const query = useInfiniteQuery({
     queryKey: ['live', 'evidence', source.documentId, source.version, source.page],
     initialPageParam: 0,
@@ -81,6 +108,15 @@ function EvidenceSource({ source }: { source: EvidenceTarget }) {
     failure = '资料定位或续读内容不一致，请重新加载当前引用。';
   }
   const match = combined ? exactQuoteParts(combined.text, source.quote) : null;
+  const before = match?.before.split('\n').slice(-4).join('\n');
+  const after = match?.after.split('\n').slice(0, 4).join('\n');
+  const excerpt = !!match && (before !== match.before || after !== match.after);
+  const scrollToQuote = Boolean(match) && (expanded || !excerpt);
+  useEffect(() => {
+    if (textPane.current)
+      textPane.current.scrollTop =
+        scrollToQuote && highlight.current ? Math.max(0, highlight.current.offsetTop - 60) : 0;
+  }, [scrollToQuote, source.quote]);
   return (
     <section
       className="review-evidence-source"
@@ -90,13 +126,16 @@ function EvidenceSource({ source }: { source: EvidenceTarget }) {
           : '资料原文'
       }
     >
-      <h3>{first ? `${first.sourceKey} · ${first.name}` : '资料原文'}</h3>
+      <h3>
+        <span className="review-source-number">{number}</span>
+        {first ? `${first.sourceKey} · ${first.name}` : '资料原文'}
+      </h3>
       <p className="review-panel-meta">
         第 {source.version} 版 · 第 {source.page}{' '}
         {first?.locatorKind === 'extraction_unit' ? '提取单元' : '页'}
       </p>
       {first?.warning && (
-        <p className="review-panel-warning" role="status">
+        <p className="review-original-unavailable" role="status">
           {first.warning}
         </p>
       )}
@@ -114,17 +153,31 @@ function EvidenceSource({ source }: { source: EvidenceTarget }) {
       )}
       {first && !failure && combined && (
         <>
-          <pre className="review-original-text" aria-label={`${first.sourceKey}解析原文`}>
+          <pre
+            ref={textPane}
+            className="review-original-text"
+            aria-label={`${first.sourceKey}解析原文`}
+          >
             {match ? (
               <>
-                {match.before}
-                <mark>{match.match}</mark>
-                {match.after}
+                {expanded ? match.before : before !== match.before ? `…\n${before}` : before}
+                <mark ref={highlight}>{match.match}</mark>
+                {expanded ? match.after : after !== match.after ? `${after}\n…` : after}
               </>
             ) : (
               combined.text || '本页解析文本为空。'
             )}
           </pre>
+          {excerpt && (
+            <button
+              type="button"
+              className="review-panel-more"
+              aria-expanded={expanded}
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded ? '收起解析全文' : '展开解析全文'}
+            </button>
+          )}
           {source.quote && !match && (
             <p className="review-panel-warning">
               {combined.complete

@@ -13,6 +13,7 @@ import { RunDetails } from './live/RunDetails.js';
 import { Login } from './live/Login.js';
 import { Logo } from './live/Logo.js';
 import { Sidebar } from './live/Sidebar.js';
+import { ShellIcon } from './live/ShellIcon.js';
 import { ProjectShell } from './live/ProjectShell.js';
 import { NewConversation } from './live/NewConversation.js';
 import { Search } from './live/Search.js';
@@ -21,6 +22,7 @@ import { Inspector, type InspectorEntry } from './live/Inspector.js';
 import { ProjectFiles } from './live/ProjectFiles.js';
 import { ProjectDocuments } from './live/ProjectDocuments.js';
 import { ReviewCard } from './live/ReviewCard.js';
+import { ProposalCard } from './live/ProposalCard.js';
 import { EvidencePanel } from './live/EvidencePanel.js';
 import { DiffPanel } from './live/DiffPanel.js';
 import { FilePanel } from './live/FilePanel.js';
@@ -67,7 +69,8 @@ const goalStatuses: Record<GoalRecord['status'], string> = {
   completed: '已完成',
   cancelled: '已取消',
 };
-type PanelTarget = { label: string } & ({ content: InspectorEntry['content'] } | { runId: string });
+type PanelTarget = Omit<InspectorEntry, 'key' | 'content'> &
+  ({ content: InspectorEntry['content'] } | { runId: string });
 
 function displayTime(value: string) {
   const instant = new Date(value);
@@ -270,17 +273,26 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     });
   }
   function openEvidence(sources: EvidenceTarget[]) {
-    pushPanel({ label: '原文依据', content: <EvidencePanel sources={sources} /> });
+    pushPanel({
+      label: '原文依据',
+      wide: sources.length > 1,
+      content: <EvidencePanel sources={sources} />,
+    });
   }
   function openFile(target: WorkspaceFileTarget) {
     pushPanel({ label: '文件', content: <FilePanel target={target} /> });
   }
   function openDiff(target: WorkspaceDiffTarget) {
-    pushPanel({ label: '改动', content: <DiffPanel target={target} onOpenFile={openFile} /> });
+    pushPanel({
+      label: '改动',
+      wide: true,
+      content: <DiffPanel target={target} onOpenFile={openFile} />,
+    });
   }
   function openReview(reviewId: string) {
     pushPanel({
       label: '审核卡',
+      flush: true,
       content: (
         <ReviewCard
           reviewId={reviewId}
@@ -289,6 +301,13 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           onOpenFile={openFile}
         />
       ),
+    });
+  }
+  function openProposal(proposalId: string) {
+    pushPanel({
+      label: '外发提案',
+      flush: true,
+      content: <ProposalCard proposalId={proposalId} />,
     });
   }
   function updateMessageDraft(id: string, update: SetStateAction<string>) {
@@ -365,6 +384,10 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       openReview(item.id);
       return;
     }
+    if (item.kind === 'proposal') {
+      openProposal(item.id);
+      return;
+    }
     const project = availableProjects.find((candidate) => candidate.id === item.projectId);
     if (project) setSidebarAgent(project.projectType);
     setPanels([]);
@@ -419,6 +442,27 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       ? projectTitle
       : undefined;
   const collapsedRail = !narrow && collapsed;
+  const currentRunId = stream.state.currentRunId ?? current?.currentRunId;
+  const runDetailsAvailable =
+    !isNewConversation &&
+    view === 'conversation' &&
+    tab === 'conversation' &&
+    currentRunId &&
+    Boolean(stream.state.runs[currentRunId]);
+  const conversationProposals = (snapshot?.items ?? [])
+    .filter((item) => item.kind === 'proposal' && item.conversationId === conversationId)
+    .map((item) => item.id);
+  const entries = isNewConversation
+    ? []
+    : panels.map((panel): InspectorEntry => {
+        if ('content' in panel) return panel;
+        const run = stream.state.runs[panel.runId];
+        return {
+          key: panel.key,
+          label: panel.label,
+          content: run ? <RunDetails run={run} /> : <p role="status">正在同步运行记录…</p>,
+        };
+      });
 
   return (
     <div
@@ -486,6 +530,20 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         tab={tab}
         onTabChange={setTab}
         showTabs={Boolean(projectId) && view !== 'inbox' && !isNewConversation}
+        headerAction={
+          runDetailsAvailable &&
+          currentRunId && (
+            <button
+              className="live-text-button live-run-details-button"
+              type="button"
+              onClick={() => pushPanel({ label: '运行详情', runId: currentRunId })}
+            >
+              <ShellIcon name="activity" />
+              运行详情
+            </button>
+          )
+        }
+        inspector={<Inspector entries={entries} onBack={backPanel} onClose={closePanel} />}
       >
         <div
           className="live-view-content"
@@ -523,7 +581,11 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
                   </span>
                   <span className="live-muted">{displayTime(item.createdAt)}</span>
                   <span className="live-row-action">
-                    {item.kind === 'review' ? '查看审核' : '打开对话'}
+                    {item.kind === 'review'
+                      ? '查看审核'
+                      : item.kind === 'proposal'
+                        ? '查看提案'
+                        : '打开对话'}
                   </span>
                 </button>
               ))}
@@ -726,7 +788,8 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               text={messageDrafts.get(conversationId) ?? ''}
               setText={(update) => updateMessageDraft(conversationId, update)}
               onReview={openReview}
-              onRunDetails={(runId) => pushPanel({ label: '运行详情', runId })}
+              proposalIds={conversationProposals}
+              onProposal={openProposal}
             />
           </div>
         )}
@@ -764,23 +827,6 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           onCreated={created}
         />
       </ProjectShell>
-      <Inspector
-        entries={
-          isNewConversation
-            ? []
-            : panels.map((panel) => {
-                if ('content' in panel) return panel;
-                const run = stream.state.runs[panel.runId];
-                return {
-                  key: panel.key,
-                  label: panel.label,
-                  content: run ? <RunDetails run={run} /> : <p role="status">正在同步运行记录…</p>,
-                };
-              })
-        }
-        onBack={backPanel}
-        onClose={closePanel}
-      />
       <Search
         open={dialog === 'search'}
         onOpenChange={(open) => {

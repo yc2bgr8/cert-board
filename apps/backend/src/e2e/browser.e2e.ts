@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { access, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Page,
+  type Response,
+} from 'playwright-core';
 import { startBrowserHarness } from '../test-support/browser-harness.js';
 import { reviewBrowserFlow } from '../test-support/browser-review-flow.js';
 
@@ -276,7 +282,7 @@ async function main() {
     await searchDialog.getByRole('option', { name: /K123465.*写法检查/ }).waitFor();
     await captureWorkbench(page, output, 'pr-u1-13-search.png');
     await checkNarrowLayout(page);
-    await searchBox.fill('');
+    await searchBox.fill('510(k)');
     const projectOption = searchDialog.getByRole('option', { name: 'L08 510(k)', exact: true });
     await projectOption.waitFor();
     await searchBox.press('ArrowUp');
@@ -543,7 +549,73 @@ async function main() {
       },
       output,
     );
+    stage = '维护对话和外发提案';
+    await page.getByRole('button', { name: '维护Agent', exact: true }).click();
+    await page.getByRole('button', { name: 'L08 年度注册（验收示例）', exact: true }).click();
+    for (const action of ['rejected', 'approved'] as const) {
+      await createConversation(
+        page,
+        harness.maintenanceProjectId,
+        undefined,
+        action === 'rejected' ? '年度注册核查' : '年度注册提案复验',
+      );
+      harness.plan('proposal');
+      const proposalRun = await send(page, '请准备供审核的续期材料核对提案。');
+      if (action === 'rejected') {
+        await page.getByRole('button', { name: '查看提案', exact: true }).click();
+      } else {
+        await page.getByRole('button', { name: /待我处理/ }).click();
+        await page
+          .getByRole('region', { name: '待我处理事项' })
+          .getByRole('button', { name: /外发提案.*查看提案/ })
+          .click();
+      }
+      const proposal = page.getByRole('article', { name: '提案内容', exact: true });
+      await proposal.getByText('核对年度注册联络人协议（本地测试）', { exact: true }).waitFor();
+      await proposal.getByText('联络人 A <renewal@example.invalid>', { exact: true }).waitFor();
+      const proposalId = (
+        await harness.pool.query<{ id: string }>(
+          "SELECT id FROM proposal WHERE run_id=$1 AND status='proposed' AND channel='local_test'",
+          [proposalRun.runId],
+        )
+      ).rows[0]!.id;
+      assert.equal(
+        (
+          await harness.pool.query('SELECT id FROM outbound_message WHERE proposal_id=$1', [
+            proposalId,
+          ])
+        ).rowCount,
+        0,
+      );
+      if (action === 'rejected') await captureWorkbench(page, output, 'pr-u3-10-proposal.png');
+      const decision: Promise<Response> = page.waitForResponse(
+        (candidate) =>
+          candidate.request().method() === 'POST' &&
+          new URL(candidate.url()).pathname === `/api/proposals/${proposalId}/decision`,
+      );
+      await proposal
+        .getByRole('button', { name: action === 'approved' ? '批准本地测试' : '拒绝', exact: true })
+        .click();
+      const response = await decision;
+      assert.equal(response.status(), 200);
+      assert.equal(response.request().postDataJSON().action, action);
+      await proposal
+        .getByText(action === 'approved' ? '已批准，等待本地测试' : '已拒绝', { exact: true })
+        .waitFor();
+      const queue = (
+        await harness.pool.query<{ channel: string; status: string }>(
+          'SELECT channel,status FROM outbound_message WHERE proposal_id=$1',
+          [proposalId],
+        )
+      ).rows;
+      assert.deepEqual(
+        queue,
+        action === 'approved' ? [{ channel: 'local_test', status: 'queued' }] : [],
+      );
+      await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
+    }
     stage = '共享对话只读';
+    await page.getByRole('button', { name: '注册Agent', exact: true }).click();
     await page.getByRole('button', { name: 'L08 510(k)', exact: true }).click();
     await page.getByRole('button', { name: '部门对话', exact: true }).click();
     await page.getByRole('button', { name: '打开对话：王敏的资料核对', exact: true }).click();
@@ -633,11 +705,15 @@ async function main() {
             'review_decisions',
             'real_evidence_highlight',
             'evidence_pair',
+            'evidence_wide_and_single_navigation',
             'saved_report',
             'report_download_hash',
             'chat_not_approval',
             'browser_review_freeze',
             'revision_single_path_diff',
+            'review_diff_file_list_selects_target',
+            'proposal_rejected_without_queue',
+            'proposal_browser_approval_local_queue_only',
             'review_current_run_completed_sse',
             'review_completed_after_reopen',
             'width_1280',
@@ -667,6 +743,7 @@ async function main() {
             'review-revision-diff.png',
             'review-run-completed.png',
             'review-run-reopened.png',
+            'pr-u3-10-proposal.png',
           ],
         },
         null,

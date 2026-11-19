@@ -96,7 +96,8 @@ type ConversationProps = {
   text: string;
   setText: (update: SetStateAction<string>) => void;
   onReview?: (id: string) => void;
-  onRunDetails?: (runId: string) => void;
+  proposalIds?: string[];
+  onProposal?: (id: string) => void;
 };
 
 export function LiveConversation(props: ConversationProps) {
@@ -109,7 +110,8 @@ function ConversationView({
   text,
   setText,
   onReview,
-  onRunDetails,
+  proposalIds = [],
+  onProposal,
 }: ConversationProps) {
   const detail = useQuery({
     queryKey: ['live', 'conversation', conversationId],
@@ -213,11 +215,6 @@ function ConversationView({
         <p className="live-conversation-meta">
           {agentNames[record.agentCode]} · {record.ownerName}
         </p>
-        {run && onRunDetails && (
-          <button className="live-secondary" type="button" onClick={() => onRunDetails(run.id)}>
-            运行详情
-          </button>
-        )}
       </header>
       <div
         className="live-transcript"
@@ -274,8 +271,11 @@ function ConversationView({
                   <div className="live-conversation-notice">{entry.workspaceChange.summary}</div>
                 )}
                 {reviewId && (
-                  <div className="live-conversation-notice">
-                    <span>结果已提交审核</span>
+                  <div className="live-conversation-notice live-conversation-result">
+                    <span>
+                      <ShellIcon name="clipboard" />
+                      结果已提交审核
+                    </span>
                     {onReview && (
                       <button type="button" onClick={() => onReview(reviewId)}>
                         查看审核
@@ -286,6 +286,18 @@ function ConversationView({
               </div>
             );
           })}
+          {onProposal &&
+            proposalIds.map((proposalId) => (
+              <div key={proposalId} className="live-conversation-notice live-conversation-result">
+                <span>
+                  <ShellIcon name="mail" />
+                  外发提案等待批准
+                </span>
+                <button type="button" onClick={() => onProposal(proposalId)}>
+                  查看提案
+                </button>
+              </div>
+            ))}
           {question && (
             <section className="live-conversation-notice live-question" aria-label="Agent提问">
               <h2>Agent 提问</h2>
