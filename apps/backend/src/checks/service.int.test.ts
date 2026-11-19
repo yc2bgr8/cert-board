@@ -261,6 +261,12 @@ test('V6 重算声明期限并比较实际时间点，历史报告保持两项�
     status: 'failed',
     issues: [{ code: 'deadline_unstructured', path: 'nextStep' }],
   });
+  const laterReference = await checkSubmission(context.pool, caller, {
+    ...base,
+    nextStep: '请查阅 2026-05-01 发布的公告，核实「此后不再受理」适用于哪些申请。',
+  });
+  expect(laterReference.passed).toBe(true);
+  expect(laterReference.notRun).toContain('V6');
 });
 
 test.each(['other_project', 'placeholder', 'voided'] as const)(
