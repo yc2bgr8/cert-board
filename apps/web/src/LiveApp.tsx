@@ -130,7 +130,11 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const [collapsed, setCollapsed] = useState(false);
   const returnFocus = useRef<HTMLElement | null>(null);
   const sidebarVisible = narrow ? mobileOpen : !collapsed;
-  const notifications = useMemberNotifications();
+  const refreshVerification = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['live', 'linked-verifications'] });
+    void queryClient.invalidateQueries({ queryKey: ['live', 'review-verifications'] });
+  }, [queryClient]);
+  const notifications = useMemberNotifications(true, refreshVerification);
   const externalConversations = useInfiniteQuery({
     queryKey: ['live', 'verification-rooms', userId],
     queryFn: ({ pageParam, signal }) => api.verificationRooms(pageParam, '', signal),

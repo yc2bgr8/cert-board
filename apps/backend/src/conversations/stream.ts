@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Pool, PoolClient, Notification } from 'pg';
+import { z } from 'zod';
 import { conversationEventNotificationSchema, type BackendConfig } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { CONVERSATION_EVENT_CHANNEL } from './storage.js';
@@ -24,7 +25,15 @@ export function parseEventCursor(value: unknown): number {
     );
   return Number(value);
 }
-type Subscription = { conversationId: string | null; userId: string; wake(): void; close(): void };
+const verificationChannel = 'cert_board_verification_link_change';
+const verificationNotice = z.object({ userId: z.uuid(), shared: z.boolean() }).strict();
+type Subscription = {
+  conversationId: string | null;
+  userId: string;
+  wake(): void;
+  verificationChanged(): void;
+  close(): void;
+};
 
 export function createConversationStreams(pool: Pool, config: BackendConfig) {
   const subscriptions = new Set<Subscription>();
@@ -42,13 +51,25 @@ export function createConversationStreams(pool: Pool, config: BackendConfig) {
     }
   };
   const notification = (message: Notification) => {
-    if (message.channel !== CONVERSATION_EVENT_CHANNEL || !message.payload) return;
+    if (!message.payload) return;
     let raw: unknown;
     try {
       raw = JSON.parse(message.payload);
     } catch {
       return;
     }
+    if (message.channel === verificationChannel) {
+      const notice = verificationNotice.safeParse(raw);
+      if (notice.success)
+        for (const subscription of subscriptions)
+          if (
+            subscription.conversationId === null &&
+            (notice.data.shared || subscription.userId === notice.data.userId)
+          )
+            subscription.verificationChanged();
+      return;
+    }
+    if (message.channel !== CONVERSATION_EVENT_CHANNEL) return;
     const event = conversationEventNotificationSchema.safeParse(raw);
     if (!event.success) return;
     for (const subscription of subscriptions)
@@ -68,6 +89,7 @@ export function createConversationStreams(pool: Pool, config: BackendConfig) {
           connection.on('error', listenerFailed);
           connection.on('notification', notification);
           await connection.query(`LISTEN ${CONVERSATION_EVENT_CHANNEL}`);
+          await connection.query(`LISTEN ${verificationChannel}`);
           if (stopped) throw new Error('stream_closed');
           listener = connection;
         } catch {
@@ -120,6 +142,7 @@ export function createConversationStreams(pool: Pool, config: BackendConfig) {
       started = false;
     let lastSnapshot: string | undefined,
       lastWrite = Date.now();
+    let verificationDirty = false;
     let timer: ReturnType<typeof setInterval> | undefined;
     const close = () => {
       if (closed) return;
@@ -171,9 +194,12 @@ export function createConversationStreams(pool: Pool, config: BackendConfig) {
             }
             if (events.length === 50) dirty = true;
           } else {
+            const refreshVerification = verificationDirty;
+            verificationDirty = false;
             const snapshot = await withConversationReadSession(pool, config, request, (tx, actor) =>
               readMemberNotifications(tx, actor),
             );
+            if (refreshVerification) await write('event: verification_changed\ndata: {}\n\n');
             const fingerprint = JSON.stringify({
               items: snapshot.items,
               truncated: snapshot.truncated,
@@ -198,7 +224,16 @@ export function createConversationStreams(pool: Pool, config: BackendConfig) {
       tasks.add(task);
       void task.finally(() => tasks.delete(task));
     };
-    const subscription: Subscription = { conversationId, userId, wake, close };
+    const subscription: Subscription = {
+      conversationId,
+      userId,
+      wake,
+      verificationChanged() {
+        verificationDirty = true;
+        wake();
+      },
+      close,
+    };
     subscriptions.add(subscription);
     reply.raw.once('close', close);
     request.raw.once('aborted', close);
@@ -240,6 +275,7 @@ export function createConversationStreams(pool: Pool, config: BackendConfig) {
         listener = undefined;
         connection.removeListener('notification', notification);
         await connection.query(`UNLISTEN ${CONVERSATION_EVENT_CHANNEL}`).catch(() => undefined);
+        await connection.query(`UNLISTEN ${verificationChannel}`).catch(() => undefined);
         connection.removeListener('error', listenerFailed);
         connection.release();
       }

@@ -62,7 +62,7 @@ import {
   verificationSettingsSchema,
   verificationSettingsInputSchema,
   verificationShareSchema,
-  verificationLinkListSchema,
+  verificationLinkPageSchema,
   verificationReviewInputSchema,
   type AuthResponse,
   type ConversationCreateInput,
@@ -205,16 +205,16 @@ export const api = {
       verificationDetailSchema,
       signalOption(signal),
     ),
-  linkedVerifications: (conversationId: string, signal?: AbortSignal) =>
+  linkedVerifications: (conversationId: string, cursor: string | null, signal?: AbortSignal) =>
     request(
-      `/api/conversations/${identifier(conversationId)}/verifications`,
-      verificationLinkListSchema,
+      `/api/conversations/${identifier(conversationId)}/verifications${externalPage(cursor)}`,
+      verificationLinkPageSchema,
       signalOption(signal),
     ),
-  reviewVerifications: (reviewId: string, signal?: AbortSignal) =>
+  reviewVerifications: (reviewId: string, cursor: string | null, signal?: AbortSignal) =>
     request(
-      `/api/reviews/${identifier(reviewId)}/verifications`,
-      verificationLinkListSchema,
+      `/api/reviews/${identifier(reviewId)}/verifications${externalPage(cursor)}`,
+      verificationLinkPageSchema,
       signalOption(signal),
     ),
   verificationFromReview: (id: string, payload: { question: string; requestKey: string }) =>

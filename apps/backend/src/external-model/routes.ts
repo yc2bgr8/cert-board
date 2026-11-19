@@ -24,7 +24,7 @@ import {
   verificationRoomPageSchema,
   verificationSettingsInputSchema,
   verificationShareSchema,
-  verificationLinkListSchema,
+  verificationLinkPageSchema,
   verificationReviewInputSchema,
   type BackendConfig,
   type BrowserIdentity,
@@ -147,19 +147,25 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   app.addHook('onClose', async () => verification.close());
   app.get('/api/conversations/:id/verifications', async (request, reply) => {
     reply.header('cache-control', 'no-store');
-    return verificationLinkListSchema.parse(
-      await verification.linkedRooms(await read(request), id(request)),
+    return verificationLinkPageSchema.parse(
+      await verification.linkedRooms(await read(request), id(request), cursor(request)),
     );
   });
-  const reviewScope = async (db: Pool | PoolClient, actor: BrowserIdentity, reviewId: string) => {
+  const reviewScope = async (
+    db: Pool | PoolClient,
+    actor: BrowserIdentity,
+    reviewId: string,
+    lock = false,
+  ) => {
     const { rows } = await db.query<{
       project_id: string;
       run_id: string;
       conversation_id: string;
       owner_user_id: string;
+      status: string;
     }>(
-      `SELECT c.project_id,c.run_id,c.conversation_id,p.owner_user_id
-       FROM review_card c JOIN cert_project p ON p.id=c.project_id WHERE c.id=$1`,
+      `SELECT c.project_id,c.run_id,c.conversation_id,c.status,p.owner_user_id
+       FROM review_card c JOIN cert_project p ON p.id=c.project_id WHERE c.id=$1${lock ? ' FOR UPDATE OF c' : ''}`,
       [reviewId],
     );
     const review = rows[0];
@@ -179,8 +185,8 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
     const actor = await read(request);
     const reviewId = id(request);
     const scope = await reviewScope(pool, actor, reviewId);
-    return verificationLinkListSchema.parse(
-      await verification.linkedRooms(actor, scope.conversation_id, {
+    return verificationLinkPageSchema.parse(
+      await verification.linkedRooms(actor, scope.conversation_id, cursor(request), {
         id: reviewId,
         runId: scope.run_id,
       }),
@@ -191,7 +197,17 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
     const room = await write(request, async (db, actor) => {
       const input = checked(verificationReviewInputSchema, request.body);
       const reviewId = id(request);
-      const review = await reviewScope(db, actor, reviewId);
+      const review = await reviewScope(db, actor, reviewId, true);
+      if (
+        review.status !== 'pending' &&
+        !(
+          await db.query(
+            'SELECT room_id FROM verification_link WHERE review_id=$1 AND room_id=$2 AND requester=$3',
+            [reviewId, input.requestKey, actor.userId],
+          )
+        ).rowCount
+      )
+        throw new AppError(409, 'REVIEW_ALREADY_DECIDED', '该审核卡已处理，请刷新后查看核实历史。');
       return verification.create(
         db,
         actor,

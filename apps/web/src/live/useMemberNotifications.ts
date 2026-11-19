@@ -4,7 +4,7 @@ import { api, ApiError, subscribeSessionExpired } from './api.js';
 import type { StreamConnection } from './useConversationStream.js';
 
 export type MemberNotificationSnapshot = ReturnType<typeof memberNotificationSnapshotSchema.parse>;
-export function useMemberNotifications(enabled = true) {
+export function useMemberNotifications(enabled = true, onVerificationChanged?: () => void) {
   const [value, setValue] = useState<{
     snapshot: MemberNotificationSnapshot | null;
     connection: StreamConnection;
@@ -27,8 +27,13 @@ export function useMemberNotifications(enabled = true) {
     if (enabled) {
       source = new EventSource('/api/me/stream');
       source.onopen = () => {
-        if (active()) setValue((current) => ({ ...current, connection: 'open', error: null }));
+        if (!active()) return;
+        setValue((current) => ({ ...current, connection: 'open', error: null }));
+        onVerificationChanged?.();
       };
+      source.addEventListener('verification_changed', () => {
+        if (active()) onVerificationChanged?.();
+      });
       source.addEventListener('pending_snapshot', ((message: MessageEvent<string>) => {
         if (!active()) return;
         try {
@@ -76,6 +81,6 @@ export function useMemberNotifications(enabled = true) {
       source?.close();
       unsubscribe();
     };
-  }, [enabled]);
+  }, [enabled, onVerificationChanged]);
   return enabled ? value : { snapshot: null, connection: 'closed' as const, error: null };
 }

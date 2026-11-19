@@ -965,8 +965,8 @@ async function main() {
     });
     harness.verification.runtime.send = (model, prompt, dispatch) =>
       originalVerificationSend(model, prompt, async () => {
-        await dispatch();
         await stopGate;
+        await dispatch();
       });
     try {
       const requested = await send(page, '请启动合成核实，等待外部回复。');
@@ -994,7 +994,16 @@ async function main() {
           ).rowCount === 1,
       );
       releaseStop();
-      await activeVerification.getByText('外部核实已完成', { exact: true }).waitFor();
+      await until(
+        async () =>
+          (
+            await harness.pool.query(
+              "SELECT room_id FROM verification_link l JOIN external_model_conversation c ON c.id=l.room_id WHERE l.run_id=$1 AND c.state='completed'",
+              [requested.runId],
+            )
+          ).rowCount === 1,
+      );
+      await activeVerification.getByText('外部核实暂不可用', { exact: true }).waitFor();
       assert.equal(stoppedVerificationModel.observed.calls, 1);
     } finally {
       releaseStop();

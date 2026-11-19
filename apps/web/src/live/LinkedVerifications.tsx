@@ -1,12 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import type { VerificationLinkView } from '@cert-board/shared';
 import { api } from './api.js';
 import { ShellIcon } from './ShellIcon.js';
 
 const titles = {
-  discussing: '正在请外部模型核实…',
-  completed: '外部核实已完成',
-  paused: '外部核实暂不可用',
+  pending: '正在请外部模型核实…',
+  available: '外部核实已完成',
+  unavailable: '外部核实暂不可用',
 };
 const badges = { trusted: '可信', disputed: '有分歧', unverified: '待核实', human: '人工提供' };
 
@@ -15,15 +15,30 @@ export const linkedVerificationsKey = (conversationId: string | null) => [
   'linked-verifications',
   conversationId,
 ];
-export function useLinkedVerifications(conversationId: string | null, running = false) {
-  return useQuery({
-    queryKey: linkedVerificationsKey(conversationId),
-    queryFn: ({ signal }) => api.linkedVerifications(conversationId!, signal),
-    enabled: Boolean(conversationId),
+export const reviewVerificationsKey = (reviewId: string) => [
+  'live',
+  'review-verifications',
+  reviewId,
+];
+
+export function useLinkedVerifications(id: string | null, inReview = false) {
+  const load = inReview ? api.reviewVerifications : api.linkedVerifications;
+  const query = useInfiniteQuery({
+    queryKey: inReview ? reviewVerificationsKey(id ?? '') : linkedVerificationsKey(id),
+    queryFn: ({ signal, pageParam }) => load(id!, pageParam, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
+    enabled: Boolean(id),
     retry: false,
-    refetchInterval: (query) =>
-      running || query.state.data?.some(({ room }) => room.status === 'discussing') ? 1000 : 4000,
   });
+  return {
+    ...query,
+    items:
+      query.data?.pages
+        .slice()
+        .reverse()
+        .flatMap((page) => page.items) ?? [],
+  };
 }
 
 export function LinkedVerificationRows({
@@ -41,13 +56,11 @@ export function LinkedVerificationRows({
       className="verification-link-list"
       aria-label={inReview ? '外部核实依据' : '对话中的外部核实'}
     >
-      {items.map(({ room, summary, counts, sources }) => (
+      {items.map(({ room, result, summary, counts, sources }) => (
         <li className="verification-link-row" key={room.id}>
           <ShellIcon name="sparkle" />
           <div>
-            <strong>
-              {inReview && room.status === 'completed' ? '外部核实' : titles[room.status]}
-            </strong>
+            <strong>{inReview && result === 'available' ? '外部核实' : titles[result]}</strong>
             {room.status === 'completed' && (
               <span className="verification-link-counts">
                 {Object.entries(counts)
@@ -77,7 +90,7 @@ export function LinkedVerificationRows({
                 ))}
               </ul>
             )}
-            {room.status === 'paused' && <p>仍可按项目资料继续工作。</p>}
+            {result === 'unavailable' && <p>仍可按项目资料继续工作。</p>}
           </div>
           <button className="live-secondary" type="button" onClick={() => open(room.id)}>
             {inReview ? '查看核实群聊' : '查看群聊'}

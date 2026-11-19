@@ -28,12 +28,14 @@ export function createVerificationModerator(
       id: string;
       goal_id: string;
       project_id: string;
+      user_id: string;
       direction_version: number;
     }>(
-      `SELECT c.id,c.goal_id,c.project_id,g.direction_version
+      `SELECT c.id,c.goal_id,c.project_id,c.user_id,g.direction_version
        FROM conversation c JOIN goal g ON g.id=c.goal_id AND g.project_id=c.project_id
-       WHERE c.project_id=$1 AND c.user_id=$2 AND c.status='active' AND g.status='active'
-         AND ($3::uuid IS NULL OR c.id=$3)
+       JOIN app_user u ON u.id=c.user_id AND u.status='active'
+       WHERE c.project_id=$1 AND c.status='active' AND g.status='active'
+         AND (($3::uuid IS NULL AND c.user_id=$2) OR c.id=$3)
        ORDER BY c.updated_at DESC,c.id LIMIT 1`,
       [scope.room.projectId, scope.ownerId, scope.room.origin?.conversationId ?? null],
     );
@@ -52,7 +54,7 @@ export function createVerificationModerator(
     const { rows: runs } = await database.query<{ id: string }>(
       `INSERT INTO run(conversation_id,user_id,project_id,goal_id,direction_version,trigger_type,status)
        VALUES($1,$2,$3,$4,$5,'evaluation','running') RETURNING id`,
-      [context.id, scope.ownerId, context.project_id, context.goal_id, context.direction_version],
+      [context.id, context.user_id, context.project_id, context.goal_id, context.direction_version],
     );
     const runId = runs[0]!.id;
     let completed = false;
@@ -79,7 +81,7 @@ export function createVerificationModerator(
           requestKey: randomUUID(),
           runId,
           conversationId: context.id,
-          userId: scope.ownerId,
+          userId: context.user_id,
           purpose: 'agent',
         },
         AbortSignal.timeout(60000),

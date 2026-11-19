@@ -248,7 +248,22 @@ test('主模型主持使用已有本人目标和主网关，先替换保密词�
   };
   expect(await moderator.moderate(input)).toMatchObject({ call: 'gpt-flagship', finish: false });
   expect(await moderator.moderate({ ...input, room: { ...room, projectId: null } })).toBeNull();
-  expect(complete).toHaveBeenCalledTimes(1);
+  const reviewer = await context.run('MEMBER_B', 'read_only');
+  const linked = await moderator.moderate({
+    ...input,
+    ownerId: reviewer.userId,
+    room: {
+      ...room,
+      origin: {
+        kind: 'review',
+        conversationId: review.conversationId,
+        runId: review.runId,
+        reviewId: randomUUID(),
+      },
+    },
+  });
+  expect(linked).toMatchObject({ call: 'gpt-flagship', finish: false });
+  expect(complete).toHaveBeenCalledTimes(2);
   expect(
     (
       await context.pool.query(
@@ -256,7 +271,7 @@ test('主模型主持使用已有本人目标和主网关，先替换保密词�
         [review.conversationId],
       )
     ).rows,
-  ).toEqual([{ status: 'completed' }]);
+  ).toEqual([{ status: 'completed' }, { status: 'completed' }]);
 });
 
 test('握手期间停用模型后不发送，计次和当日外发档案排除未发送', async () => {

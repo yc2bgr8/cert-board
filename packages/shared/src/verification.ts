@@ -193,6 +193,7 @@ export const verificationLinkListSchema = z
     z
       .object({
         room: verificationRoomSchema,
+        result: z.enum(['pending', 'available', 'unavailable']),
         summary: note(2000).nullable(),
         sources: z.array(verificationSourceSchema).max(6),
         counts: z
@@ -207,6 +208,9 @@ export const verificationLinkListSchema = z
       .strict(),
   )
   .max(20);
+export const verificationLinkPageSchema = z
+  .object({ items: verificationLinkListSchema, nextCursor: id.nullable() })
+  .strict();
 
 export type VerificationModel = z.infer<typeof verificationModelSchema>;
 export type VerificationMessage = z.infer<typeof verificationMessageSchema>;

@@ -117,12 +117,7 @@ function ConversationView({
   onProposal,
   onVerification,
 }: ConversationProps) {
-  const linkedRunId = stream.state.currentRunId;
-  const linkedStatus = linkedRunId ? stream.state.runs[linkedRunId]?.status : undefined;
-  const linked = useLinkedVerifications(
-    onVerification ? conversationId : null,
-    linkedStatus === 'queued' || linkedStatus === 'running' || linkedStatus === 'waiting',
-  );
+  const linked = useLinkedVerifications(onVerification ? conversationId : null);
   const detail = useQuery({
     queryKey: ['live', 'conversation', conversationId],
     queryFn: ({ signal }) => api.conversation(conversationId, signal),
@@ -303,7 +298,7 @@ function ConversationView({
                 {processIndex === -1 && <InlineExecution activities={entry.tools} />}
                 {onVerification && (
                   <LinkedVerificationRows
-                    items={linked.data?.filter(({ room }) => room.origin?.runId === id) ?? []}
+                    items={linked.items.filter(({ room }) => room.origin?.runId === id)}
                     open={onVerification}
                   />
                 )}
@@ -337,14 +332,24 @@ function ConversationView({
             );
           })}
           {onVerification && (
-            <LinkedVerificationRows
-              items={
-                linked.data?.filter(
+            <>
+              <LinkedVerificationRows
+                items={linked.items.filter(
                   ({ room }) => !room.origin || !state.runOrder.includes(room.origin.runId),
-                ) ?? []
-              }
-              open={onVerification}
-            />
+                )}
+                open={onVerification}
+              />
+              {linked.hasNextPage && (
+                <button
+                  className="live-secondary"
+                  type="button"
+                  disabled={linked.isFetchingNextPage}
+                  onClick={() => void linked.fetchNextPage()}
+                >
+                  查看更早的核实
+                </button>
+              )}
+            </>
           )}
           {onProposal &&
             proposals.data?.pages

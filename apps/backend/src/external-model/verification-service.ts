@@ -364,16 +364,19 @@ export class VerificationRooms {
     return rows[0]!.display_name;
   }
 
-  private async linkedSourceIsConfidential(db: Executor, origin: VerificationOrigin) {
-    const { rows } = await db.query<{ confidential: boolean }>(
-      `SELECT (c.max_data_level='confidential' OR r.max_data_level='confidential'
+  private async linkedSource(db: Executor, origin: VerificationOrigin) {
+    const { rows } = await db.query<{
+      confidential: boolean;
+      agent_code: VerificationRoom['host'];
+    }>(
+      `SELECT c.agent_code,(c.max_data_level='confidential' OR r.max_data_level='confidential'
                OR COALESCE(w.data_level='confidential',false)) AS confidential
        FROM conversation c JOIN run r ON r.conversation_id=c.id
        LEFT JOIN workspace w ON w.project_id=c.project_id
        WHERE c.id=$1 AND r.id=$2`,
       [origin.conversationId, origin.runId],
     );
-    return rows[0]?.confidential ?? true;
+    return rows[0];
   }
 
   async create(
@@ -392,16 +395,18 @@ export class VerificationRooms {
     });
     const title = Array.from(input.question.replace(/\s+/gu, ' ')).slice(0, 70).join('');
     const channel = await this.channelStatus(db);
-    const unavailable =
-      origin && (await this.linkedSourceIsConfidential(db, origin))
-        ? '原对话含保密资料，当前无法自动核实。请用项目资料继续，并记录不确定事项。'
-        : origin && !participants.length
-          ? '核实群聊未配置默认模型。请在设置中核对后继续。'
-          : channel === 'ready' || channel === 'fixture'
-            ? null
-            : channel === 'unavailable'
-              ? 'Cursor 通道暂不可用。'
-              : channelFailureText[channel];
+    const source = origin ? await this.linkedSource(db, origin) : undefined;
+    if (origin && !source) throw roomAbsent();
+    const host = source?.agent_code ?? project?.projectType ?? 'registration';
+    const unavailable = source?.confidential
+      ? '原对话含保密资料，当前无法自动核实。请用项目资料继续，并记录不确定事项。'
+      : origin && !participants.length
+        ? '核实群聊未配置默认模型。请在设置中核对后继续。'
+        : channel === 'ready' || channel === 'fixture'
+          ? null
+          : channel === 'unavailable'
+            ? 'Cursor 通道暂不可用。'
+            : channelFailureText[channel];
     const inserted = await db.query(
       `INSERT INTO external_model_conversation(id,user_id,title,project_id,host_agent,state,participants)
        VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING RETURNING id`,
@@ -410,7 +415,7 @@ export class VerificationRooms {
         actor.userId,
         title,
         project?.id ?? null,
-        project?.projectType ?? 'registration',
+        host,
         unavailable ? 'paused' : 'discussing',
         JSON.stringify(participants),
       ],
@@ -438,10 +443,7 @@ export class VerificationRooms {
       await this.append(db, input.requestKey, {
         type: origin?.kind === 'agent' ? 'host' : 'human',
         userId: actor.userId,
-        author:
-          origin?.kind === 'agent'
-            ? hostName(project?.projectType ?? 'registration')
-            : await this.author(db, actor.userId),
+        author: origin?.kind === 'agent' ? hostName(host) : await this.author(db, actor.userId),
         text: input.question,
       });
       await db.query('UPDATE external_model_conversation SET last_handled_position=1 WHERE id=$1', [
@@ -473,7 +475,12 @@ export class VerificationRooms {
     return publicRoom(await this.room(db, input.requestKey));
   }
 
-  async linkedRooms(actor: Member, conversationId: string, review?: { id: string; runId: string }) {
+  async linkedRooms(
+    actor: Member,
+    conversationId: string,
+    cursor?: string,
+    review?: { id: string; runId: string },
+  ) {
     const { rows: conversations } = await this.pool.query<{
       project_id: string | null;
       user_id: string;
@@ -482,13 +489,20 @@ export class VerificationRooms {
     if (!conversation) throw roomAbsent();
     if (conversation.project_id) await getProject(this.pool, actor, conversation.project_id);
     else if (conversation.user_id !== actor.userId) throw roomAbsent();
-    const { rows } = await this.pool.query<RoomRow>(
-      `SELECT ${roomColumns} FROM ${roomFrom} WHERE l.conversation_id=$1
-       AND ($2::uuid IS NULL OR l.review_id=$2 OR (l.kind='agent' AND l.run_id=$3))
-       ORDER BY l.created_at DESC,c.id DESC LIMIT 20`,
-      [conversationId, review?.id ?? null, review?.runId ?? null],
+    const { rows } = await this.pool.query<RoomRow & { hasModelReply: boolean }>(
+      `WITH scoped AS (
+         SELECT * FROM verification_link WHERE conversation_id=$1
+         AND ($2::uuid IS NULL OR review_id=$2 OR (kind='agent' AND run_id=$3))
+       )
+       SELECT ${roomColumns},EXISTS(
+         SELECT 1 FROM verification_post p WHERE p.room_id=c.id AND p.type='model'
+       ) AS "hasModelReply" FROM ${roomFrom} JOIN scoped scope ON scope.room_id=c.id
+       WHERE $4::uuid IS NULL OR (l.created_at,c.id)<(
+         SELECT created_at,room_id FROM scoped WHERE room_id=$4
+       ) ORDER BY l.created_at DESC,c.id DESC LIMIT 21`,
+      [conversationId, review?.id ?? null, review?.runId ?? null, cursor ?? null],
     );
-    return rows.reverse().map((row) => {
+    const items = rows.slice(0, 20).map((row) => {
       const outcome = verificationConclusionSchema.nullable().parse(row.conclusion);
       const counts = { trusted: 0, disputed: 0, unverified: 0, human: 0 };
       for (const item of outcome?.items ?? []) counts[item.category]++;
@@ -499,8 +513,15 @@ export class VerificationRooms {
             .map((source) => [source.url, source]),
         ).values(),
       ).slice(0, 6);
-      return { room: publicRoom(row), summary: outcome?.summary ?? null, counts, sources };
+      const result =
+        row.status === 'discussing'
+          ? 'pending'
+          : row.status === 'completed' && row.hasModelReply
+            ? 'available'
+            : 'unavailable';
+      return { room: publicRoom(row), result, summary: outcome?.summary ?? null, counts, sources };
     });
+    return { items: items.reverse(), nextCursor: rows.length > 20 ? rows[19]!.id : null };
   }
 
   async list(actor: Member, cursor: string | undefined, query: string) {
@@ -1051,7 +1072,7 @@ export class VerificationRooms {
         await this.release(db, id, work.leaseId, work.pending?.position);
         return null;
       }
-      if (current.origin && (await this.linkedSourceIsConfidential(db, current.origin)))
+      if (current.origin && (await this.linkedSource(db, current.origin))?.confidential !== false)
         throw new AppError(
           403,
           'VERIFICATION_CONFIDENTIAL_CONTEXT',
@@ -1141,7 +1162,8 @@ export class VerificationRooms {
           if (
             current.leaseId !== work.leaseId ||
             current.stopUserId ||
-            (current.origin && (await this.linkedSourceIsConfidential(db, current.origin))) ||
+            (current.origin &&
+              (await this.linkedSource(db, current.origin))?.confidential !== false) ||
             (runtime.status !== 'ready' && runtime.status !== 'fixture') ||
             !settings.models.some(
               ({ id, channel, enabled }) => id === model.id && channel === model.channel && enabled,

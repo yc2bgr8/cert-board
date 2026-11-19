@@ -17,3 +17,28 @@ ALTER TABLE "verification_link" ADD CONSTRAINT "verification_link_requester_app_
 CREATE INDEX "verification_link_conversation_idx" ON "verification_link" USING btree ("conversation_id","created_at");--> statement-breakpoint
 CREATE INDEX "verification_link_review_idx" ON "verification_link" USING btree ("review_id","created_at");--> statement-breakpoint
 CREATE INDEX "verification_link_run_idx" ON "verification_link" USING btree ("run_id");
+--> statement-breakpoint
+CREATE FUNCTION notify_verification_link_change() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  source_id uuid;
+BEGIN
+  IF TG_TABLE_NAME = 'verification_link' THEN
+    source_id := NEW.conversation_id;
+  ELSE
+    SELECT conversation_id INTO source_id FROM verification_link WHERE room_id = NEW.id;
+  END IF;
+
+  PERFORM pg_notify(
+    'cert_board_verification_link_change',
+    json_build_object('userId', user_id, 'shared', project_id IS NOT NULL)::text
+  ) FROM conversation WHERE id = source_id;
+  RETURN NULL;
+END;
+$$;
+--> statement-breakpoint
+CREATE TRIGGER verification_link_created
+AFTER INSERT ON verification_link FOR EACH ROW EXECUTE FUNCTION notify_verification_link_change();
+--> statement-breakpoint
+CREATE TRIGGER verification_link_state_changed
+AFTER UPDATE OF state ON external_model_conversation FOR EACH ROW
+WHEN (OLD.state IS DISTINCT FROM NEW.state) EXECUTE FUNCTION notify_verification_link_change();

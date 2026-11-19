@@ -4,7 +4,12 @@ import type { DocumentCitation, ReviewCardView, ReviewDecisionInput } from '@cer
 import { SafeMarkdown } from '../SafeMarkdown.js';
 import { useBrowserCommand } from './ApprovalCard.js';
 import { api, errorMessage, isStaleError } from './api.js';
-import { LinkedVerificationRows, linkedVerificationsKey } from './LinkedVerifications.js';
+import {
+  LinkedVerificationRows,
+  linkedVerificationsKey,
+  reviewVerificationsKey,
+  useLinkedVerifications,
+} from './LinkedVerifications.js';
 import type {
   EvidenceTarget,
   WorkspaceDiffTarget,
@@ -76,19 +81,11 @@ function ReviewCardContent({
     retry: false,
   });
   const card = review.data;
-  const verificationKey = ['live', 'review-verifications', reviewId];
-  const linked = useQuery({
-    queryKey: verificationKey,
-    queryFn: ({ signal }) => api.reviewVerifications(reviewId, signal),
-    enabled: !!card && !!onOpenVerification,
-    retry: false,
-    refetchInterval: (query) =>
-      query.state.data?.some(({ room }) => room.status === 'discussing') ? 1000 : 4000,
-  });
+  const linked = useLinkedVerifications(card && onOpenVerification ? reviewId : null, true);
   const [askingVerification, setAskingVerification] = useState(false);
   const [verificationQuestion, setVerificationQuestion] = useState('');
   const verificationCommand = useBrowserCommand();
-  const pausedVerification = linked.data?.some(({ room }) => room.status === 'paused') ?? false;
+  const unavailableVerification = linked.items.some(({ result }) => result === 'unavailable');
 
   async function askVerification(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -101,7 +98,7 @@ function ReviewCardContent({
     setAskingVerification(false);
     setVerificationQuestion('');
     await Promise.all([
-      client.invalidateQueries({ queryKey: verificationKey }),
+      client.invalidateQueries({ queryKey: reviewVerificationsKey(reviewId) }),
       client.invalidateQueries({ queryKey: linkedVerificationsKey(card.conversationId) }),
     ]);
   }
@@ -394,7 +391,7 @@ function ReviewCardContent({
               并排查看两处依据
             </button>
           )}
-          {sources.length === 0 && !linked.data?.length && (
+          {sources.length === 0 && !linked.items.length && (
             <p className="live-review-meta">这份提交没有列出来源。</p>
           )}
           <ul className="live-review-evidence-list">
@@ -413,7 +410,19 @@ function ReviewCardContent({
             ))}
           </ul>
           {onOpenVerification && (
-            <LinkedVerificationRows items={linked.data ?? []} open={onOpenVerification} inReview />
+            <>
+              <LinkedVerificationRows items={linked.items} open={onOpenVerification} inReview />
+              {linked.hasNextPage && (
+                <button
+                  className="live-secondary"
+                  type="button"
+                  disabled={linked.isFetchingNextPage}
+                  onClick={() => void linked.fetchNextPage()}
+                >
+                  查看更早的核实
+                </button>
+              )}
+            </>
           )}
         </ReviewSection>
         <ReviewSection title="自检">
@@ -447,10 +456,11 @@ function ReviewCardContent({
           </details>
         </ReviewSection>
         <ReviewSection title="不确定事项">
-          {pausedVerification && (
+          {unavailableVerification && (
             <p className="live-review-meta">外部核实暂不可用，相关事项保留待核实。</p>
           )}
-          {submission.uncertain.length + submission.missing.length === 0 && !pausedVerification ? (
+          {submission.uncertain.length + submission.missing.length === 0 &&
+          !unavailableVerification ? (
             <p className="live-review-meta">未列出不确定事项。</p>
           ) : (
             <>
