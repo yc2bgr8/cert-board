@@ -139,7 +139,7 @@ function ConversationView({
       noticeRefresh.current = { key: proposalNoticeKey, pending: true };
     if (
       !noticeRefresh.current.pending ||
-      proposals.isFetching ||
+      proposals.fetchStatus !== 'idle' ||
       !onProposal ||
       !detail.data?.projectId
     )
@@ -148,7 +148,7 @@ function ConversationView({
     void refreshProposals({ cancelRefetch: false });
   }, [
     proposalNoticeKey,
-    proposals.isFetching,
+    proposals.fetchStatus,
     onProposal,
     detail.data?.projectId,
     refreshProposals,
@@ -350,7 +350,7 @@ function ConversationView({
             <button
               type="button"
               className="live-text-button"
-              disabled={proposals.isFetching}
+              disabled={proposals.fetchStatus !== 'idle'}
               onClick={() => void proposals.fetchNextPage({ cancelRefetch: false })}
             >
               继续读取提案

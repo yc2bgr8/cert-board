@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { randomUUID } from 'node:crypto';
 import { useState } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { LiveConversation } from './LiveConversation.js';
@@ -127,7 +127,7 @@ it('提案首屏读取期间收到通知会补刷，补刷时暂停分页按钮'
     .spyOn(api, 'conversationProposals')
     .mockReturnValueOnce(first)
     .mockReturnValueOnce(refresh);
-  const client = new QueryClient();
+  const client = new QueryClient({ defaultOptions: { queries: { refetchOnReconnect: false } } });
   const stream = {
     state: { ...initialConversationState(conversationId), lastSeq: 1 },
     connection: 'open' as const,
@@ -174,4 +174,27 @@ it('提案首屏读取期间收到通知会补刷，补刷时暂停分页按钮'
   await screen.findByText('外发提案 · 已拒绝');
   fireEvent.click(screen.getByRole('button', { name: '查看提案' }));
   expect(openProposal).toHaveBeenCalledWith(proposalId);
+
+  const lastPage = { items: [], hasMore: false, nextCursor: null };
+  load
+    .mockResolvedValueOnce(lastPage)
+    .mockResolvedValueOnce({
+      items: [{ id: proposalId, status: 'approved' }],
+      hasMore: true,
+      nextCursor: proposalId,
+    })
+    .mockResolvedValueOnce(lastPage);
+  try {
+    act(() => onlineManager.setOnline(false));
+    const nextPage = screen.getByRole<HTMLButtonElement>('button', { name: '继续读取提案' });
+    fireEvent.click(nextPage);
+    await waitFor(() => expect(nextPage.disabled).toBe(true));
+    rendered.rerender(view(proposalId));
+    expect(load).toHaveBeenCalledTimes(2);
+    act(() => onlineManager.setOnline(true));
+    await screen.findByText('外发提案 · 已批准，等待本地测试');
+    expect(load).toHaveBeenCalledTimes(5);
+  } finally {
+    act(() => onlineManager.setOnline(true));
+  }
 });
