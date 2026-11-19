@@ -119,9 +119,10 @@ BEGIN
             (NEW.outcome='reserved_estimate' AND status='settled' AND settled_by_estimate)
         )
     ) OR NOT EXISTS (
-        SELECT 1 FROM public.audit_log
-        WHERE actor_kind='system' AND action='budget.reconciled' AND target_type='usage_ledger'
-          AND target_id=NEW.ledger_id::text AND after_hash=NEW.fingerprint
+        SELECT 1 FROM public.audit_log AS audit
+        WHERE audit.actor_kind='system' AND audit.action='budget.reconciled' AND audit.target_type='usage_ledger'
+          AND audit.target_id=NEW.ledger_id::text AND audit.after_hash=NEW.fingerprint
+          AND audit.xmin=pg_current_xact_id()::xid
     ) THEN
         RAISE EXCEPTION '核账依据必须与同一事务中的最终账目一致。' USING ERRCODE='23514';
     END IF;

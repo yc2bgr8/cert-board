@@ -354,6 +354,40 @@ test('还有在途预占时保留停机，重复原核账仅复核门禁', async
   );
 });
 
+test('提交核账必须在本事务写审计，不能借用原有的同指纹记录', async () => {
+  const input = await request();
+  const reserved = await reserveUsage(context.pool, input);
+  await markUsageIncomplete(context.pool, {
+    requestKey: input.requestKey,
+    runId: input.runId,
+    userId: input.userId,
+    reasonCode: 'timeout',
+  });
+  const auditHash = 'd'.repeat(64);
+  await context.pool.query(
+    "INSERT INTO audit_log(actor_kind,action,target_type,target_id,after_hash) VALUES('system','budget.reconciled','usage_ledger',$1,$2)",
+    [reserved.id, auditHash],
+  );
+  const client = await context.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      "INSERT INTO budget_reconciliation(ledger_id,outcome,evidence,fingerprint) VALUES($1,'not_sent','旧审计隔离测试',$2)",
+      [reserved.id, auditHash],
+    );
+    await client.query("UPDATE usage_ledger SET status='not_sent',actual_nano=0 WHERE id=$1", [
+      reserved.id,
+    ]);
+    await expect(client.query('COMMIT')).rejects.toMatchObject({ code: '23514' });
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
+  const summary = await getBudgetSummary(context.pool);
+  expect(summary.counts.unknown).toBe(1);
+  expect(summary.blockedReason).toBe('metering_incomplete');
+});
+
 test.each(['manual_check', 'reservation_exceeded'] as const)(
   '核账保留 %s 安全门并拒绝覆写已完成计量',
   async (blocker) => {
