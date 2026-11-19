@@ -1,12 +1,72 @@
 .live-review {
-  --review-line: #e4e6e9;
-  --review-muted: #5f6670;
-  --review-accent: #2a4d8f;
-  color: #1c1f23;
-  font-size: 15px;
-  line-height: 1.75;
+  --review-line: var(--color-cb-line);
+  --review-muted: var(--color-cb-muted);
+  --review-accent: var(--color-cb-teal-ink);
+  color: var(--color-cb-ink);
+  font-size: 14px;
+  line-height: 1.65;
   overflow-wrap: anywhere;
-  padding: 8px 22px 20px;
+}
+.live-panel-card {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.live-review-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px 20px;
+}
+.live-review-footer {
+  flex: 0 0 auto;
+  max-height: 45%;
+  overflow: auto;
+  padding: 12px 20px;
+  border-top: 1px solid var(--color-cb-line);
+  background: var(--color-cb-paper);
+}
+.live-review-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.live-review-chip {
+  padding: 1px 8px;
+  border-radius: 99px;
+  background: var(--color-cb-soft);
+  color: var(--color-cb-ink-2);
+  font-size: 12px;
+}
+.live-review-chip.is-good {
+  background: var(--color-cb-good-bg);
+  color: var(--color-cb-good);
+}
+.live-review-chip.is-warning {
+  background: var(--color-cb-warn-bg);
+  color: var(--color-cb-warn);
+}
+.live-proposal-fields {
+  display: grid;
+  gap: 6px;
+  padding-block: 18px;
+}
+.live-proposal-fields dt {
+  color: var(--color-cb-muted);
+  font-size: 13px;
+}
+.live-proposal-fields dd {
+  padding: 9px 12px;
+  border: 1px solid var(--color-cb-line);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+}
+.live-proposal-body {
+  min-height: 140px;
 }
 .live-review h2,
 .live-review h3,
@@ -22,8 +82,8 @@
   font-weight: 600;
 }
 .live-review h3 {
-  font-size: 16px;
-  font-weight: 400;
+  font-size: 13px;
+  font-weight: 600;
 }
 .live-review h4 {
   font-size: 15px;
@@ -40,19 +100,30 @@
   margin-bottom: 6px;
 }
 .live-review-header + .live-review-section h3 {
-  font-size: 18px;
+  font-size: 13px;
+}
+.live-review-header + .live-review-section .markdown-content {
+  font-size: 17px;
   font-weight: 600;
+  line-height: 1.6;
+}
+.live-review-next {
+  background: var(--color-cb-teal-soft);
+  padding: 10px 12px;
+  border-radius: 8px;
 }
 .live-review-meta {
   color: var(--review-muted);
   font-size: 13px;
 }
 .live-review-identifier {
-  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--font-workbench-mono);
   overflow-wrap: anywhere;
 }
 .live-review-warning {
-  border: 1px solid #a86a00;
+  border: 1px solid var(--color-cb-warn);
+  background: var(--color-cb-warn-bg);
+  border-radius: 8px;
   padding: 8px 12px;
   margin-bottom: 12px;
 }
@@ -89,22 +160,36 @@
 .live-review-file-list > li + li {
   margin-top: 10px;
 }
+.live-review-decisions > li,
+.live-review-evidence-list > li {
+  border: 1px solid var(--review-line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.live-review-decisions h4 {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
 .live-review-decisions dl div {
   display: grid;
   grid-template-columns: 3.5em minmax(0, 1fr);
+  padding-block: 2px;
 }
 .live-review-decisions dt {
   color: var(--review-muted);
   font-size: 13px;
 }
 .live-review-evidence-list blockquote {
-  border-left: 2px solid var(--review-line);
+  border-left: 3px solid var(--color-cb-teal-line);
   padding-left: 10px;
   margin-block: 4px;
   white-space: pre-wrap;
 }
 .live-review-file-list > li {
-  padding-block: 4px;
+  padding: 8px 10px;
+  background: var(--color-cb-bg);
+  border: 1px solid var(--review-line);
+  border-radius: 8px;
 }
 .live-review-file-list > li > .live-review-meta {
   padding-inline-start: 6px;
@@ -114,7 +199,7 @@
   gap: 8px;
 }
 .live-review-check-passed {
-  color: #2f7d4f;
+  color: var(--color-cb-good);
 }
 .live-review-claims {
   margin-top: 6px;
@@ -138,8 +223,8 @@
 .live-review-primary,
 .live-review-neutral {
   border: 1px solid var(--review-line);
-  border-radius: 6px;
-  padding: 5px 12px;
+  border-radius: 8px;
+  padding: 8px 12px;
   font-size: 14px;
 }
 .live-review-primary {
@@ -163,6 +248,6 @@
   resize: vertical;
 }
 .live-review-error {
-  color: #b42318;
+  color: var(--color-cb-bad);
   margin-top: 6px;
 }

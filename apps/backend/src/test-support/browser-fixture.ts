@@ -10,7 +10,15 @@ import type { GatewayTransport } from '../modelgw/service.js';
 import { createBrowserReviewScript } from './browser-review-fixture.js';
 
 export type BrowserScenario =
-  'read' | 'steering' | 'stop' | 'mode' | 'approval' | 'review' | 'revision' | 'approval_text';
+  | 'read'
+  | 'steering'
+  | 'stop'
+  | 'mode'
+  | 'approval'
+  | 'review'
+  | 'revision'
+  | 'approval_text'
+  | 'proposal';
 export const browserModels: ModelGatewayConfig = {
   version: 1,
   models: [
@@ -118,6 +126,12 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
           const action = reviewScript(previous);
           return call(action.name, action.input);
         }
+        if (kind === 'proposal')
+          return call('propose_external', {
+            contactId,
+            subject: '核对年度注册联络人协议（本地测试）',
+            body: '联络人 A：\n\n请核对年度注册协议续期所需材料。\n\n这是一条虚构测试提案。',
+          });
         if (kind === 'approval') {
           if (phase++ === 0)
             return call('queue_internal_message', {

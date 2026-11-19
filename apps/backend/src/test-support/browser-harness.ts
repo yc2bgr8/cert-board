@@ -151,6 +151,50 @@ export async function startBrowserHarness() {
       await pool.query<{ id: string; username: string }>('SELECT id,username FROM app_user')
     ).rows;
     const userId = (username: string) => users.find((user) => user.username === username)!.id;
+    const maintenanceProjectId = (
+      await pool.query<{ id: string }>(
+        `INSERT INTO cert_project(name,project_type,market,pathway,owner_user_id)
+         VALUES('L08 年度注册（验收示例）','maintenance','US','年度注册',$1) RETURNING id`,
+        [userId('zhangsan')],
+      )
+    ).rows[0]!.id;
+    await pool.query(
+      `INSERT INTO goal(project_id,owner_user_id,title,acceptance_criteria)
+       VALUES($1,$2,'核对联络人协议续期','使用虚构联系人验证本地提案和人工决定。')`,
+      [maintenanceProjectId, userId('zhangsan')],
+    );
+    const maintenanceWorkspace = (
+      await pool.query<{ id: string }>(
+        'INSERT INTO workspace(project_id) VALUES($1) RETURNING id',
+        [maintenanceProjectId],
+      )
+    ).rows[0]!.id;
+    const maintenanceVersion = (
+      await pool.query<{ id: string }>(
+        `INSERT INTO workspace_version(workspace_id,project_id,number,author_type,summary,data_level)
+         VALUES($1,$2,1,'system','建立虚构验收项目说明','internal') RETURNING id`,
+        [maintenanceWorkspace, maintenanceProjectId],
+      )
+    ).rows[0]!.id;
+    const instructions = await store.put(
+      Buffer.from('# 维护事项浏览器验收\n仅使用虚构联系人和本地测试队列。\n', 'utf8'),
+    );
+    await pool.query(
+      `INSERT INTO workspace_file(version_id,path,sha256,byte_size,data_level,media_type)
+       VALUES($1,'AGENTS.md',$2,$3,'internal','text/markdown')`,
+      [maintenanceVersion, instructions.sha256, instructions.byteSize],
+    );
+    await pool.query('UPDATE workspace SET current_version_id=$1 WHERE id=$2', [
+      maintenanceVersion,
+      maintenanceWorkspace,
+    ]);
+    const proposalContactId = (
+      await pool.query<{ id: string }>(
+        `INSERT INTO contact(project_id,name,address,source,created_by)
+         VALUES($1,'联络人 A','renewal@example.invalid','虚构验收联系人',$2) RETURNING id`,
+        [maintenanceProjectId, userId('zhangsan')],
+      )
+    ).rows[0]!.id;
     const contactId = (
       await pool.query<{ id: string }>(
         `INSERT INTO contact(project_id,name,address,source,created_by,internal_user_id)
@@ -291,10 +335,17 @@ export async function startBrowserHarness() {
       origin,
       pool,
       projectId: developmentProjectId,
+      maintenanceProjectId,
       sharedConversationId,
       credentials: { username: 'zhangsan', password: passwords.zhangsan! },
       plan(kind: BrowserScenario, recipient: 'wangmin' | 'admin' = 'wangmin') {
-        const scenario = browserScenario(kind, recipient === 'admin' ? adminContactId : contactId);
+        const recipientId =
+          kind === 'proposal'
+            ? proposalContactId
+            : recipient === 'admin'
+              ? adminContactId
+              : contactId;
+        const scenario = browserScenario(kind, recipientId);
         planned.push(scenario);
         return scenario;
       },

@@ -5,6 +5,8 @@ export interface InspectorEntry {
   key: number;
   label: string;
   content: ReactNode;
+  wide?: boolean;
+  flush?: boolean;
 }
 export function Inspector({
   entries,
@@ -22,15 +24,16 @@ export function Inspector({
   }, [current?.key]);
   if (!current) return null;
   return (
-    <aside className="live-inspector" aria-label={current.label}>
+    <aside className={`live-inspector${current.wide ? ' is-wide' : ''}`} aria-label={current.label}>
       <header className="live-inspector-navigation">
-        {entries.length > 1 ? (
-          <button className="live-text-button" type="button" onClick={onBack}>
-            返回{entries.at(-2)!.label}
-          </button>
-        ) : (
-          <span className="live-muted">{current.label}</span>
-        )}
+        <div className="live-inspector-heading">
+          {entries.length > 1 && (
+            <button className="live-text-button" type="button" onClick={onBack}>
+              返回{entries.at(-2)!.label}
+            </button>
+          )}
+          <strong>{current.label}</strong>
+        </div>
         <button
           ref={close}
           className="live-icon-button"
@@ -42,7 +45,11 @@ export function Inspector({
         </button>
       </header>
       {entries.map((entry, index) => (
-        <div className="live-inspector-page" key={entry.key} hidden={index !== entries.length - 1}>
+        <div
+          className={`live-inspector-page${entry.flush ? ' is-flush' : ''}`}
+          key={entry.key}
+          hidden={index !== entries.length - 1}
+        >
           {entry.content}
         </div>
       ))}

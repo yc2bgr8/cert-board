@@ -391,3 +391,18 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.live-conversation-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-color: var(--color-cb-teal-line);
+}
+.live-conversation-result > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.live-conversation-result > button {
+  flex-shrink: 0;
+}

@@ -181,235 +181,257 @@ function ReviewCardContent({ reviewId, onOpenEvidence, onOpenDiff, onOpenFile }:
   }
 
   return (
-    <article className="live-review" aria-label="审核结果">
-      <header className="live-review-header">
-        <h2>审核卡</h2>
-        <p role="status">{statusLabels[savedStatus]}</p>
-        <p className="live-review-meta">
-          工作区版本{' '}
-          <span className="live-review-identifier" title={card.workspaceVersion}>
-            {version ? `第 ${version.number} 版` : card.workspaceVersion}
-          </span>
-        </p>
-      </header>
-      {((oldVersion && pending) || conflict || review.isError || workspace.isError) && (
-        <div className="live-review-warning" role="alert">
-          <p>
-            {conflict ??
-              (oldVersion && pending
-                ? '工作区已保存为新版本。请核对并打开最新提交的审核卡。'
-                : '当前审核状态无法确认，请刷新后重试。')}
-          </p>
-          <button
-            type="button"
-            className="live-review-link"
-            disabled={refreshing}
-            onClick={refresh}
-          >
-            刷新审核卡
-          </button>
-        </div>
-      )}
-      <ReviewSection title="结论">
-        <SafeMarkdown workbench>{submission.conclusion}</SafeMarkdown>
-      </ReviewSection>
-      <ReviewSection title="需要你做什么">
-        <SafeMarkdown workbench>{submission.nextStep}</SafeMarkdown>
-      </ReviewSection>
-      <ReviewSection title="过程中作出的判断">
-        {submission.decisions.length === 0 ? (
-          <p className="live-review-meta">
-            {card.legacySubmission
-              ? '这份历史提交没有结构化判断记录。'
-              : '这次提交没有列出过程判断。'}
-          </p>
-        ) : (
-          <ul className="live-review-decisions">
-            {submission.decisions.map((decision) => (
-              <li key={decision.id}>
-                <h4>{decision.subject}</h4>
-                <dl>
-                  <div>
-                    <dt>选择</dt>
-                    <dd>{decision.choice}</dd>
-                  </div>
-                  <div>
-                    <dt>备选</dt>
-                    <dd>
-                      {decision.alternatives.length ? decision.alternatives.join('；') : '未列出'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>理由</dt>
-                    <dd>{decision.reason}</dd>
-                  </div>
-                  <div>
-                    <dt>风险</dt>
-                    <dd>{decision.risk === 'high' ? '高' : '低'}</dd>
-                  </div>
-                </dl>
-                <ul className="live-review-reference-links">
-                  {decision.sources.map((ref, index) => (
-                    <li key={`${evidenceKey(ref)}:${index}`}>
-                      <button
-                        className="live-review-link"
-                        type="button"
-                        onClick={() => onOpenEvidence([ref])}
-                      >
-                        {evidenceLabel(card, ref)}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
-        )}
-      </ReviewSection>
-      <ReviewSection title="改动">
-        {!card.diff.changes.length && <p className="live-review-meta">没有工作区文件改动。</p>}
-        {baseVersionId && card.diff.changes.length > 0 && (
-          <button
-            type="button"
-            className="live-review-link"
-            onClick={() =>
-              onOpenDiff({
-                projectId: card.projectId,
-                from: baseVersionId,
-                to: card.workspaceVersion,
-              })
-            }
-          >
-            查看版本改动
-          </button>
-        )}
-        <ul className="live-review-file-list">
-          {card.diff.changes.map((file) => {
-            const readableVersion =
-              file.change === 'deleted' ? baseVersionId : card.workspaceVersion;
-            return (
-              <li key={file.path}>
-                <span className="live-review-identifier">{file.path}</span>
-                <span className="live-review-meta">{changeLabels[file.change]}</span>
-                <div className="live-review-actions">
-                  {baseVersionId && (
-                    <button
-                      type="button"
-                      className="live-review-link"
-                      onClick={() =>
-                        onOpenDiff({
-                          projectId: card.projectId,
-                          from: baseVersionId,
-                          to: card.workspaceVersion,
-                          path: file.path,
-                        })
-                      }
-                    >
-                      查看对比
-                    </button>
-                  )}
-                  {readableVersion && (
-                    <button
-                      type="button"
-                      className="live-review-link"
-                      onClick={() =>
-                        onOpenFile({
-                          projectId: card.projectId,
-                          versionId: readableVersion,
-                          path: file.path,
-                        })
-                      }
-                    >
-                      {file.change === 'deleted' ? '打开原文件' : '打开文件'}
-                    </button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </ReviewSection>
-      <ReviewSection title="依据">
-        {sources[0] && secondLocation && (
-          <button
-            type="button"
-            className="live-review-link"
-            onClick={() => onOpenEvidence([sources[0]!, secondLocation])}
-          >
-            并排查看两处依据
-          </button>
-        )}
-        {sources.length === 0 && <p className="live-review-meta">这份提交没有列出来源。</p>}
-        <ul className="live-review-evidence-list">
-          {sources.map((ref) => (
-            <li key={evidenceKey(ref)}>
-              <p className="live-review-meta">{evidenceLabel(card, ref)}</p>
-              <blockquote>{ref.quote}</blockquote>
-              <button
-                type="button"
-                className="live-review-link"
-                onClick={() => onOpenEvidence([ref])}
-              >
-                查看原文
-              </button>
-            </li>
-          ))}
-        </ul>
-      </ReviewSection>
-      <ReviewSection title="自检">
-        <ul className="live-review-check-list">
-          {card.checks.checks.map((check) => (
-            <li key={check.code}>
-              <span className="live-review-identifier">{check.code}</span>
-              <span className={check.status === 'passed' ? 'live-review-check-passed' : undefined}>
-                {checkStatus[check.status]}
+    <article className="live-review live-panel-card" aria-label="审核结果">
+      <div className="live-review-content">
+        <header className="live-review-header">
+          <div className="live-review-heading">
+            <h2 className="sr-only">审核卡</h2>
+            <span
+              className={`live-review-chip${savedStatus === 'approved' ? ' is-good' : ''}`}
+              role="status"
+            >
+              {statusLabels[savedStatus]}
+            </span>
+            {version && (
+              <span className="live-review-chip">
+                工作区<span>第 {version.number} 版</span>
               </span>
-            </li>
-          ))}
-        </ul>
-        <p className="live-review-meta">未执行 {card.checks.notRun.join('、')}</p>
-        <details className="live-review-claims">
-          <summary>核对的陈述</summary>
-          <ul>
-            {submission.claims.map((claim) => (
-              <li key={claim.id}>
-                {claim.object} · {claim.field}{' '}
-                <span className="live-review-identifier">
-                  {claim.value}
-                  {claim.unit && ` ${claim.unit}`}
-                </span>{' '}
-                <span className="live-review-meta">{claimStatus[claim.status]}</span>
+            )}
+          </div>
+          <p className="live-review-meta">
+            提交于 {dateTime.format(new Date(card.createdAt))}（北京时间）
+            {!version && (
+              <span className="live-review-identifier" title={card.workspaceVersion}>
+                {' '}
+                · {card.workspaceVersion}
+              </span>
+            )}
+          </p>
+        </header>
+        {((oldVersion && pending) || conflict || review.isError || workspace.isError) && (
+          <div className="live-review-warning" role="alert">
+            <p>
+              {conflict ??
+                (oldVersion && pending
+                  ? '工作区已保存为新版本。请核对并打开最新提交的审核卡。'
+                  : '当前审核状态无法确认，请刷新后重试。')}
+            </p>
+            <button
+              type="button"
+              className="live-review-link"
+              disabled={refreshing}
+              onClick={refresh}
+            >
+              刷新审核卡
+            </button>
+          </div>
+        )}
+        <ReviewSection title="结论">
+          <SafeMarkdown workbench>{submission.conclusion}</SafeMarkdown>
+        </ReviewSection>
+        <ReviewSection title="需要你做什么">
+          <div className="live-review-next">
+            <SafeMarkdown workbench>{submission.nextStep}</SafeMarkdown>
+          </div>
+        </ReviewSection>
+        <ReviewSection title="过程中作出的判断">
+          {submission.decisions.length === 0 ? (
+            <p className="live-review-meta">
+              {card.legacySubmission
+                ? '这份历史提交没有结构化判断记录。'
+                : '这次提交没有列出过程判断。'}
+            </p>
+          ) : (
+            <ul className="live-review-decisions">
+              {submission.decisions.map((decision) => (
+                <li key={decision.id}>
+                  <h4>{decision.subject}</h4>
+                  <dl>
+                    <div>
+                      <dt>选择</dt>
+                      <dd>{decision.choice}</dd>
+                    </div>
+                    <div>
+                      <dt>备选</dt>
+                      <dd>
+                        {decision.alternatives.length ? decision.alternatives.join('；') : '未列出'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>理由</dt>
+                      <dd>{decision.reason}</dd>
+                    </div>
+                    <div>
+                      <dt>风险</dt>
+                      <dd>{decision.risk === 'high' ? '高' : '低'}</dd>
+                    </div>
+                  </dl>
+                  <ul className="live-review-reference-links">
+                    {decision.sources.map((ref, index) => (
+                      <li key={`${evidenceKey(ref)}:${index}`}>
+                        <button
+                          className="live-review-link"
+                          type="button"
+                          onClick={() => onOpenEvidence([ref])}
+                        >
+                          {evidenceLabel(card, ref)}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+        </ReviewSection>
+        <ReviewSection title="改动">
+          {!card.diff.changes.length && <p className="live-review-meta">没有工作区文件改动。</p>}
+          {baseVersionId && card.diff.changes.length > 0 && (
+            <button
+              type="button"
+              className="live-review-link"
+              onClick={() =>
+                onOpenDiff({
+                  projectId: card.projectId,
+                  from: baseVersionId,
+                  to: card.workspaceVersion,
+                })
+              }
+            >
+              查看版本改动
+            </button>
+          )}
+          <ul className="live-review-file-list">
+            {card.diff.changes.map((file) => {
+              const readableVersion =
+                file.change === 'deleted' ? baseVersionId : card.workspaceVersion;
+              return (
+                <li key={file.path}>
+                  <span className="live-review-identifier">{file.path}</span>
+                  <span className="live-review-meta">{changeLabels[file.change]}</span>
+                  <div className="live-review-actions">
+                    {baseVersionId && (
+                      <button
+                        type="button"
+                        className="live-review-link"
+                        onClick={() =>
+                          onOpenDiff({
+                            projectId: card.projectId,
+                            from: baseVersionId,
+                            to: card.workspaceVersion,
+                            path: file.path,
+                          })
+                        }
+                      >
+                        查看对比
+                      </button>
+                    )}
+                    {readableVersion && (
+                      <button
+                        type="button"
+                        className="live-review-link"
+                        onClick={() =>
+                          onOpenFile({
+                            projectId: card.projectId,
+                            versionId: readableVersion,
+                            path: file.path,
+                          })
+                        }
+                      >
+                        {file.change === 'deleted' ? '打开原文件' : '打开文件'}
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </ReviewSection>
+        <ReviewSection title="依据">
+          {sources[0] && secondLocation && (
+            <button
+              type="button"
+              className="live-review-link"
+              onClick={() => onOpenEvidence([sources[0]!, secondLocation])}
+            >
+              并排查看两处依据
+            </button>
+          )}
+          {sources.length === 0 && <p className="live-review-meta">这份提交没有列出来源。</p>}
+          <ul className="live-review-evidence-list">
+            {sources.map((ref) => (
+              <li key={evidenceKey(ref)}>
+                <p className="live-review-meta">{evidenceLabel(card, ref)}</p>
+                <blockquote>{ref.quote}</blockquote>
+                <button
+                  type="button"
+                  className="live-review-link"
+                  onClick={() => onOpenEvidence([ref])}
+                >
+                  查看原文
+                </button>
               </li>
             ))}
           </ul>
-        </details>
-      </ReviewSection>
-      <ReviewSection title="不确定事项">
-        {submission.uncertain.length + submission.missing.length === 0 ? (
-          <p className="live-review-meta">未列出不确定事项。</p>
-        ) : (
-          <>
-            {submission.uncertain.length > 0 && (
-              <ul className="live-review-bullets">
-                {submission.uncertain.map((value, index) => (
-                  <li key={index}>{value}</li>
-                ))}
-              </ul>
-            )}
-            {submission.missing.length > 0 && (
-              <>
-                <h4>待补资料</h4>
+        </ReviewSection>
+        <ReviewSection title="自检">
+          <ul className="live-review-check-list">
+            {card.checks.checks.map((check) => (
+              <li key={check.code}>
+                <span className="live-review-identifier">{check.code}</span>
+                <span
+                  className={check.status === 'passed' ? 'live-review-check-passed' : undefined}
+                >
+                  {checkStatus[check.status]}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="live-review-meta">未执行 {card.checks.notRun.join('、')}</p>
+          <details className="live-review-claims">
+            <summary>核对的陈述</summary>
+            <ul>
+              {submission.claims.map((claim) => (
+                <li key={claim.id}>
+                  {claim.object} · {claim.field}{' '}
+                  <span className="live-review-identifier">
+                    {claim.value}
+                    {claim.unit && ` ${claim.unit}`}
+                  </span>{' '}
+                  <span className="live-review-meta">{claimStatus[claim.status]}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        </ReviewSection>
+        <ReviewSection title="不确定事项">
+          {submission.uncertain.length + submission.missing.length === 0 ? (
+            <p className="live-review-meta">未列出不确定事项。</p>
+          ) : (
+            <>
+              {submission.uncertain.length > 0 && (
                 <ul className="live-review-bullets">
-                  {submission.missing.map((value, index) => (
+                  {submission.uncertain.map((value, index) => (
                     <li key={index}>{value}</li>
                   ))}
                 </ul>
-              </>
-            )}
-          </>
-        )}
-      </ReviewSection>
-      <ReviewSection title="操作">
+              )}
+              {submission.missing.length > 0 && (
+                <>
+                  <h4>待补资料</h4>
+                  <ul className="live-review-bullets">
+                    {submission.missing.map((value, index) => (
+                      <li key={index}>{value}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </>
+          )}
+        </ReviewSection>
+      </div>
+      <footer className="live-review-footer">
+        <h3 className="sr-only">操作</h3>
         {pending ? (
           <>
             <div className="live-review-actions">
@@ -487,7 +509,7 @@ function ReviewCardContent({ reviewId, onOpenEvidence, onOpenDiff, onOpenFile }:
             )}
           </div>
         )}
-      </ReviewSection>
+      </footer>
     </article>
   );
 }

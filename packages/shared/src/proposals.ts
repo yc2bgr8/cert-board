@@ -99,6 +99,15 @@ export const proposalListSchema = z
     '提案分页状态不一致，请重新读取。',
   );
 
+export const proposalSummarySchema = proposalRecordSchema.pick({ id: true, status: true });
+export const proposalSummaryListSchema = z
+  .object({ ...proposalListSchema.shape, items: z.array(proposalSummarySchema).max(50) })
+  .strict()
+  .refine(
+    (value) => value.hasMore === (value.nextCursor !== null),
+    '提案分页状态不一致，请重新读取。',
+  );
+
 export const proposalDecisionSchema = z
   .object({
     expectedVersion: versionSchema,

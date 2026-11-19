@@ -201,6 +201,43 @@ test('登记工具只建立proposed提案，无审批和队列；正文只在业
   expect(Object.keys(approvalModule)).toEqual(['registerProposalRoutes']);
 });
 
+test('浏览器按对话分页读取提案状态，保留决定且不返回正文或联系人', async () => {
+  const first = await proposal('history-first');
+  const second = await proposal('history-second');
+  const browser = await login();
+  await approve(first.proposalId, browser);
+  const path = `/api/conversations/${conversationId}/proposals`;
+  expect((await app.inject({ url: path })).statusCode).toBe(403);
+  expect(
+    (
+      await app.inject({
+        url: path,
+        headers: { origin: config.WEB_ORIGIN, 'sec-fetch-site': 'same-origin' },
+      })
+    ).statusCode,
+  ).toBe(401);
+  expect(
+    (await app.inject({ url: `${path}?limit=51`, headers: headers(browser) })).statusCode,
+  ).toBe(400);
+  const listed = await app.inject({ url: `${path}?limit=1`, headers: headers(browser) });
+  expect(listed.statusCode).toBe(200);
+  expect(listed.headers['cache-control']).toBe('no-store');
+  expect(listed.json().hasMore).toBe(true);
+  const next = await app.inject({
+    url: `${path}?limit=1&cursor=${listed.json().nextCursor}`,
+    headers: headers(browser),
+  });
+  expect(next.statusCode).toBe(200);
+  expect(next.json().hasMore).toBe(false);
+  expect(next.json().nextCursor).toBeNull();
+  expect([...listed.json().items, ...next.json().items]).toEqual(
+    [
+      { id: first.proposalId, status: 'approved' },
+      { id: second.proposalId, status: 'proposed' },
+    ].sort((left, right) => left.id.localeCompare(right.id)),
+  );
+});
+
 test('没有浏览器会话、CSRF或正确来源时拒绝，Agent声明不构成审批', async () => {
   const created = await proposal();
   const body = { expectedVersion: 1, action: 'approved', requestKey: randomUUID() };
