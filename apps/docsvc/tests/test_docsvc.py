@@ -182,7 +182,7 @@ def test_encrypted_estar_extracts_xfa_and_deduplicates_attachments():
 
 
 def test_content_inspection_distinguishes_pdf_and_xfa_without_names():
-    fda = '<template><desc>FDA eSTAR fictional fixture at fda.gov</desc></template>'
+    fda = '<template><desc><b>FDA</b> eSTAR fictional fixture at fda.gov.</desc></template>'
     ordinary = b"<template><desc>restart at fda.gov</desc></template>"
     samples = [
         (sample_pdf(), "pdf"),
@@ -210,6 +210,20 @@ def test_template_and_envelope_limits_are_independent_and_apply_during_decode(mo
     with pytest.raises(parsers.DocError) as rejected:
         parsers.inspect_pdf(long_template)
     assert rejected.value.code == "DOC_XFA_TEMPLATE_LIMIT"
+
+
+def test_bounded_flate_decoding_applies_prediction():
+    from parsers import bounded_xfa_data
+
+    template = b"<template>fictional XML</template>"
+    stream = DecodedStreamObject()
+    stream.set_data(b"\0" + template)
+    encoded = stream.flate_encode()
+    encoded[NameObject("/DecodeParms")] = DictionaryObject({
+        NameObject("/Predictor"): NumberObject(12),
+        NameObject("/Columns"): NumberObject(len(template)),
+    })
+    assert bounded_xfa_data(encoded, 100) == template
 
 
 def test_filled_pdf_form_is_drawn_in_page_preview():

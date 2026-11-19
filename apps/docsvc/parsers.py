@@ -10,7 +10,6 @@ import signal
 import subprocess
 import tempfile
 import unicodedata
-import zlib
 from contextlib import ExitStack, closing, suppress
 from pathlib import Path
 from time import monotonic
@@ -25,7 +24,8 @@ from defusedxml.ElementTree import fromstring
 from defusedxml.common import DefusedXmlException
 from docx.text.paragraph import Paragraph
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
-from pypdf import PdfReader, _page
+from pypdf import PdfReader, _page, apply_configuration
+from pypdf.errors import LimitReachedError, PdfReadError
 from pypdf.generic import ArrayObject, DictionaryObject, StreamObject
 
 
@@ -44,7 +44,7 @@ MAX_OCR_SIDE = 3600
 MAX_OPERATION_SECONDS = 360
 LEGACY_WORD = bytes.fromhex("d0cf11e0a1b11ae1")
 ESTAR_MARKER = re.compile(r"(?<![A-Za-z0-9_])estar(?![A-Za-z0-9_])", re.IGNORECASE)
-FDA_MARKER = re.compile(r"(?<![A-Za-z0-9-])fda\.gov(?![A-Za-z0-9.-])|food and drug administration", re.IGNORECASE)
+FDA_MARKER = re.compile(r"(?<![A-Za-z0-9-])fda\.gov(?![A-Za-z0-9-]|\.[A-Za-z0-9])|food and drug administration", re.IGNORECASE)
 logging.getLogger("pypdf").disabled = True
 logging.getLogger("pypdf").propagate = False
 logging.getLogger("pypdf").addHandler(logging.NullHandler())
@@ -155,27 +155,20 @@ def pdf_reader(data):
 
 
 def bounded_xfa_data(stream, limit):
-    raw = stream._data  # pypdf 7.1.1 已解密，尚未应用 PDF 流滤镜。
-    if not isinstance(raw, bytes):
-        raise DocError("DOC_XFA_INVALID")
     reference = stream.get("/Filter")
     value = reference.get_object() if reference is not None else None
     filters = [str(item.get_object()) for item in value] if isinstance(value, ArrayObject) else [str(value)] if value is not None else []
-    if not filters:
-        if len(raw) > limit:
-            raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
-        return raw
-    if filters not in (["/FlateDecode"], ["/Fl"]):
+    if filters and filters not in (["/FlateDecode"], ["/Fl"]):
         raise DocError("DOC_XFA_TEMPLATE_FILTER")
     try:
-        inflater = zlib.decompressobj()
-        data = inflater.decompress(raw, limit + 1)
-    except zlib.error as error:
+        with apply_configuration(zlib_maximum_output_length=limit):
+            data = stream.get_data()
+    except LimitReachedError as error:
+        raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413) from error
+    except PdfReadError as error:
         raise DocError("DOC_XFA_INVALID") from error
-    if len(data) > limit or inflater.unconsumed_tail:
+    if len(data) > limit:
         raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
-    if not inflater.eof:
-        raise DocError("DOC_XFA_INVALID")
     return data
 
 
@@ -211,7 +204,7 @@ def inspect_pdf(data):
     has_estar = has_fda = False
     if template is not None:
         for element in template.iter():
-            for value in (element.text or "", *element.attrib.values()):
+            for value in (element.text or "", element.tail or "", *element.attrib.values()):
                 has_estar = has_estar or bool(ESTAR_MARKER.search(value))
                 has_fda = has_fda or bool(FDA_MARKER.search(value))
             if has_estar and has_fda:
