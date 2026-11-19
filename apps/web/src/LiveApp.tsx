@@ -26,6 +26,7 @@ import { ProposalCard } from './live/ProposalCard.js';
 import { EvidencePanel } from './live/EvidencePanel.js';
 import { DiffPanel } from './live/DiffPanel.js';
 import { FilePanel } from './live/FilePanel.js';
+import { displayTime, Inbox, noticeLabels, ProjectHomeAside } from './live/WorkspacePages.js';
 import type {
   EvidenceTarget,
   WorkspaceDiffTarget,
@@ -33,21 +34,6 @@ import type {
 } from './live/review-navigation.js';
 import './live/shell.css';
 
-const time = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
-  month: 'numeric',
-  day: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-const notificationLabels: Record<MemberNotificationSnapshot['items'][number]['kind'], string> = {
-  approval: '批准请求',
-  question: '等待回答',
-  blocked: '需要处理',
-  review: '待审核结果',
-  proposal: '外发提案',
-};
 const projectStatuses: Record<ProjectRecord['status'], string> = {
   preparing: '准备中',
   submitted: '已提交',
@@ -71,11 +57,6 @@ const goalStatuses: Record<GoalRecord['status'], string> = {
 };
 type PanelTarget = Omit<InspectorEntry, 'key' | 'content'> &
   ({ content: InspectorEntry['content'] } | { runId: string });
-
-function displayTime(value: string) {
-  const instant = new Date(value);
-  return Number.isNaN(instant.getTime()) ? '时间待核对' : time.format(instant);
-}
 
 function canRestoreFocus(element: HTMLElement | null): element is HTMLElement {
   if (!element?.isConnected || element.matches(':disabled')) return false;
@@ -138,6 +119,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const [sidebarAgent, setSidebarAgent] = useState<AgentCode>('registration');
   const [newHeaderAgent, setNewHeaderAgent] = useState<AgentCode>('registration');
   const [dialog, setDialog] = useState<'new' | 'search' | 'settings' | null>(null);
+  const [maintenanceSettings, setMaintenanceSettings] = useState(false);
   const [narrow, setNarrow] = useState(
     () => window.matchMedia?.('(max-width: 1023px)').matches ?? false,
   );
@@ -234,6 +216,9 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const visibleConversations = allProjectConversations.filter(
     (conversation) => scope === 'department' || conversation.userId === userId,
   );
+  const recentConversations = [...visibleConversations].sort(
+    (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+  );
   const unassigned = (unassignedQuery.data?.pages.flatMap((page) => page.items) ?? []).filter(
     (conversation) => scope === 'department' || conversation.userId === userId,
   );
@@ -245,7 +230,8 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const openDialog = useCallback((value: 'new' | 'search' | 'settings') => {
     returnFocus.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (value === 'new') setMobileOpen(false);
+    if (value === 'new' || value === 'settings') setMobileOpen(false);
+    if (value === 'settings') setMaintenanceSettings(false);
     setDialog(value);
   }, []);
   const closePanel = useCallback(() => {
@@ -423,28 +409,39 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const openSidebar = () => (narrow ? setMobileOpen(true) : setCollapsed(false));
   const snapshot = notifications.snapshot;
   const isNewConversation = dialog === 'new';
+  const isSettings = dialog === 'settings';
+  const showMaintenance = isSettings && user.isManagement && maintenanceSettings;
+  const hidesWorkspace = isNewConversation || isSettings;
   const projectTitle = selectedProject?.name ?? (projectId ? '正在加载项目…' : '未关联项目');
   const hasConversationTitle = view === 'conversation' && current;
   const title = isNewConversation
     ? '新对话'
-    : view === 'inbox'
-      ? '待我处理'
-      : hasConversationTitle
-        ? current.title
-        : projectId || conversationId
-          ? projectTitle
-          : '项目';
+    : isSettings
+      ? showMaintenance
+        ? '维护'
+        : '设置'
+      : view === 'inbox'
+        ? '待我处理'
+        : hasConversationTitle
+          ? current.title
+          : projectId || conversationId
+            ? projectTitle
+            : '项目';
   const location = isNewConversation
     ? newHeaderAgent === 'maintenance'
       ? '维护Agent'
       : '注册Agent'
-    : hasConversationTitle
-      ? projectTitle
-      : undefined;
+    : showMaintenance
+      ? '设置'
+      : hasConversationTitle
+        ? projectTitle
+        : !isSettings && view === 'inbox'
+          ? '注册项目和维护事项'
+          : undefined;
   const collapsedRail = !narrow && collapsed;
   const currentRunId = stream.state.currentRunId ?? current?.currentRunId;
   const runDetailsAvailable =
-    !isNewConversation &&
+    !hidesWorkspace &&
     view === 'conversation' &&
     tab === 'conversation' &&
     currentRunId &&
@@ -454,7 +451,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     .map((item) => item.id)
     .sort()
     .join(',');
-  const entries = isNewConversation
+  const entries = hidesWorkspace
     ? []
     : panels.map((panel): InspectorEntry => {
         if ('content' in panel) return panel;
@@ -468,7 +465,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
 
   return (
     <div
-      className={`live-shell${narrow && mobileOpen ? ' has-mobile-sidebar' : ''}${panels.length && !isNewConversation ? ' has-inspector' : ''}`}
+      className={`live-shell${narrow && mobileOpen ? ' has-mobile-sidebar' : ''}${panels.length && !hidesWorkspace ? ' has-inspector' : ''}`}
     >
       <Sidebar
         visible={sidebarVisible}
@@ -531,7 +528,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         onOpenSidebar={openSidebar}
         tab={tab}
         onTabChange={setTab}
-        showTabs={Boolean(projectId) && view !== 'inbox' && !isNewConversation}
+        showTabs={Boolean(projectId) && view !== 'inbox' && !hidesWorkspace}
         headerAction={
           runDetailsAvailable &&
           currentRunId && (
@@ -550,51 +547,18 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         <div
           className="live-view-content"
           hidden={
-            isNewConversation ||
+            hidesWorkspace ||
             tab !== 'conversation' ||
             (view === 'conversation' && Boolean(current?.projectId))
           }
         >
           {view === 'inbox' ? (
-            <section className="live-overview" aria-label="待我处理事项">
-              <p className="live-muted">需要你批准、回答或审核的事项。</p>
-              {notifications.error && (
-                <p className="live-error" role="status">
-                  {notifications.error}
-                </p>
-              )}
-              {!snapshot && !notifications.error && <p role="status">正在读取待处理事项…</p>}
-              {snapshot?.items.length === 0 && (
-                <p className="live-empty">暂时没有需要你处理的事项。</p>
-              )}
-              {snapshot?.items.map((item) => (
-                <button
-                  className="live-inbox-row"
-                  type="button"
-                  key={`${item.kind}:${item.id}`}
-                  onClick={() => openNotice(item)}
-                >
-                  <span>
-                    <span className="live-inbox-kind">{notificationLabels[item.kind]}</span>
-                    <span>
-                      {projects.find((project) => project.id === item.projectId)?.name ??
-                        '项目对话'}
-                    </span>
-                  </span>
-                  <span className="live-muted">{displayTime(item.createdAt)}</span>
-                  <span className="live-row-action">
-                    {item.kind === 'review'
-                      ? '查看审核'
-                      : item.kind === 'proposal'
-                        ? '查看提案'
-                        : '打开对话'}
-                  </span>
-                </button>
-              ))}
-              {snapshot?.truncated && (
-                <p className="live-field-help">当前列出前50项，处理后会继续更新。</p>
-              )}
-            </section>
+            <Inbox
+              snapshot={snapshot}
+              error={notifications.error}
+              projects={projects}
+              onOpen={openNotice}
+            />
           ) : view === 'conversation' && conversationId ? (
             <>
               {conversationQuery.isPending && (
@@ -625,141 +589,203 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               )}
             </>
           ) : projectId ? (
-            <section className="live-overview" aria-label="项目对话">
-              <div className="live-overview-heading">
-                <p>{selectedProject?.projectType === 'maintenance' ? '维护Agent' : '注册Agent'}</p>
+            <section className="live-workspace-page" aria-label="项目对话">
+              <div className="live-page-card live-project-banner">
+                <dl>
+                  <div>
+                    <dt>助手</dt>
+                    <dd>
+                      {selectedProject
+                        ? selectedProject.projectType === 'maintenance'
+                          ? '维护Agent'
+                          : '注册Agent'
+                        : '正在读取…'}
+                    </dd>
+                  </div>
+                  {selectedProject && (
+                    <div>
+                      <dt>项目状态</dt>
+                      <dd>
+                        <span className="live-notice-chip">
+                          {projectStatuses[selectedProject.status]}
+                        </span>
+                      </dd>
+                    </div>
+                  )}
+                  {selectedProject?.nextAction && (
+                    <div>
+                      <dt>下一步</dt>
+                      <dd>{selectedProject.nextAction}</dd>
+                    </div>
+                  )}
+                  {selectedProject?.ownerUserId === userId && (
+                    <div>
+                      <dt>负责人</dt>
+                      <dd>{user.displayName}</dd>
+                    </div>
+                  )}
+                </dl>
                 <button className="live-primary" type="button" onClick={() => openDialog('new')}>
                   创建项目对话
                 </button>
               </div>
-              {selectedProject && (
-                <dl className="live-project-summary">
-                  <dt>项目状态</dt>
-                  <dd>{projectStatuses[selectedProject.status]}</dd>
-                </dl>
-              )}
               {projectQuery.isError && (
                 <p className="live-error" role="alert">
                   {errorMessage(projectQuery.error)}
                 </p>
               )}
-              {selectedProject?.nextAction && (
-                <p className="live-muted">{selectedProject.nextAction}</p>
-              )}
-              <section className="live-goals" aria-label="工作目标">
-                <h2>工作目标</h2>
-                {goalsQuery.isPending && (
-                  <p className="live-muted" role="status">
-                    正在加载目标…
-                  </p>
-                )}
-                {goalsQuery.isError && (
-                  <p className="live-error" role="alert">
-                    目标暂时无法加载。{' '}
-                    <button
-                      className="live-text-button"
-                      type="button"
-                      onClick={() => void goalsQuery.refetch()}
-                    >
-                      重试工作目标
-                    </button>
-                  </p>
-                )}
-                {goalsQuery.data?.pages
-                  .flatMap((page) => page.items)
-                  .map((goal) => (
-                    <div className="live-goal-row" key={goal.id}>
-                      <p>
-                        {goal.title}
-                        {goal.dueAt && <small>目标时间：{displayTime(goal.dueAt)}</small>}
+              <div className="live-page-grid live-project-grid">
+                <aside className="live-page-side">
+                  <ProjectHomeAside
+                    projectId={projectId}
+                    userId={userId}
+                    snapshot={snapshot}
+                    notificationError={notifications.error}
+                    conversations={allProjectConversations}
+                    onOpenNotice={openNotice}
+                    onFiles={() => setTab('files')}
+                  />
+                  <section className="live-page-card live-page-goals" aria-label="工作目标">
+                    <header className="live-page-card-head">
+                      <h2>工作目标</h2>
+                    </header>
+                    {goalsQuery.isPending && (
+                      <p className="live-muted" role="status">
+                        正在加载目标…
                       </p>
-                      <span className="live-muted">{goalStatuses[goal.status]}</span>
-                    </div>
-                  ))}
-                {!goalsQuery.isPending &&
-                  !goalsQuery.isError &&
-                  goalsQuery.data?.pages.every((page) => page.items.length === 0) && (
-                    <p className="live-muted">这个项目还没有工作目标。</p>
+                    )}
+                    {goalsQuery.isError && (
+                      <p className="live-error" role="alert">
+                        目标暂时无法加载。{' '}
+                        <button
+                          className="live-text-button"
+                          type="button"
+                          onClick={() => void goalsQuery.refetch()}
+                        >
+                          重试工作目标
+                        </button>
+                      </p>
+                    )}
+                    {goalsQuery.data?.pages
+                      .flatMap((page) => page.items)
+                      .map((goal) => (
+                        <div className="live-goal-row" key={goal.id}>
+                          <p>
+                            {goal.title}
+                            {goal.dueAt && <small>目标时间：{displayTime(goal.dueAt)}</small>}
+                          </p>
+                          <span className="live-muted">{goalStatuses[goal.status]}</span>
+                        </div>
+                      ))}
+                    {!goalsQuery.isPending &&
+                      !goalsQuery.isError &&
+                      goalsQuery.data?.pages.every((page) => page.items.length === 0) && (
+                        <p className="live-muted">这个项目还没有工作目标。</p>
+                      )}
+                    {goalsQuery.hasNextPage && (
+                      <button
+                        className="live-text-button"
+                        type="button"
+                        disabled={goalsQuery.isFetchingNextPage}
+                        onClick={() => void goalsQuery.fetchNextPage()}
+                      >
+                        加载更多工作目标
+                      </button>
+                    )}
+                  </section>
+                </aside>
+                <section
+                  className="live-page-card live-project-conversations"
+                  aria-label="对话列表"
+                >
+                  <header className="live-page-card-head">
+                    <h2>对话</h2>
+                    <span className="live-muted">
+                      {visibleConversations.length} 个{conversationsQuery.hasNextPage && '已加载'}
+                    </span>
+                  </header>
+                  <div className="live-thread-filter" aria-label="对话范围">
+                    <button
+                      type="button"
+                      aria-pressed={scope === 'mine'}
+                      onClick={() => setScope('mine')}
+                    >
+                      我的对话
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={scope === 'department'}
+                      onClick={() => setScope('department')}
+                    >
+                      部门对话
+                    </button>
+                  </div>
+                  {conversationsQuery.isPending && <p role="status">正在加载对话…</p>}
+                  {conversationsQuery.isError && (
+                    <p className="live-error" role="alert">
+                      {errorMessage(conversationsQuery.error)}{' '}
+                      <button
+                        className="live-text-button"
+                        type="button"
+                        onClick={() => void conversationsQuery.refetch()}
+                      >
+                        重试对话列表
+                      </button>
+                    </p>
                   )}
-                {goalsQuery.hasNextPage && (
-                  <button
-                    className="live-text-button"
-                    type="button"
-                    disabled={goalsQuery.isFetchingNextPage}
-                    onClick={() => void goalsQuery.fetchNextPage()}
-                  >
-                    加载更多工作目标
-                  </button>
-                )}
-              </section>
-              <div className="live-thread-filter" aria-label="对话范围">
-                <button
-                  type="button"
-                  aria-pressed={scope === 'mine'}
-                  onClick={() => setScope('mine')}
-                >
-                  我的对话
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={scope === 'department'}
-                  onClick={() => setScope('department')}
-                >
-                  部门对话
-                </button>
+                  {!conversationsQuery.isPending &&
+                    !conversationsQuery.isError &&
+                    visibleConversations.length === 0 && (
+                      <p className="live-empty">
+                        {conversationsQuery.hasNextPage
+                          ? '当前已加载的列表中没有匹配的对话。'
+                          : scope === 'mine'
+                            ? '你还没有在这个项目中发起对话。'
+                            : '这个项目还没有对话。'}
+                      </p>
+                    )}
+                  {recentConversations.map((conversation) => {
+                    const notice = snapshot?.items.find(
+                      (item) => item.conversationId === conversation.id,
+                    );
+                    return (
+                      <button
+                        className="live-conversation-row live-page-list-row"
+                        type="button"
+                        key={conversation.id}
+                        aria-label={`打开对话：${conversation.title}`}
+                        onClick={() => openConversation(conversation)}
+                      >
+                        <span>
+                          {conversation.title}
+                          <small>
+                            {conversation.ownerName}
+                            {!conversation.canWrite ? '，可查看' : ''}
+                          </small>
+                        </span>
+                        <span className={`live-notice-chip${notice ? ` is-${notice.kind}` : ''}`}>
+                          {notice
+                            ? noticeLabels[notice.kind]
+                            : conversation.status === 'archived'
+                              ? '已归档'
+                              : '活动对话'}
+                        </span>
+                        <span className="live-muted">{displayTime(conversation.updatedAt)}</span>
+                      </button>
+                    );
+                  })}
+                  {conversationsQuery.hasNextPage && (
+                    <button
+                      className="live-secondary"
+                      type="button"
+                      disabled={conversationsQuery.isFetchingNextPage}
+                      onClick={() => void conversationsQuery.fetchNextPage()}
+                    >
+                      继续加载对话
+                    </button>
+                  )}
+                </section>
               </div>
-              {conversationsQuery.isPending && <p role="status">正在加载对话…</p>}
-              {conversationsQuery.isError && (
-                <p className="live-error" role="alert">
-                  {errorMessage(conversationsQuery.error)}{' '}
-                  <button
-                    className="live-text-button"
-                    type="button"
-                    onClick={() => void conversationsQuery.refetch()}
-                  >
-                    重试对话列表
-                  </button>
-                </p>
-              )}
-              {!conversationsQuery.isPending &&
-                !conversationsQuery.isError &&
-                visibleConversations.length === 0 && (
-                  <p className="live-empty">
-                    {conversationsQuery.hasNextPage
-                      ? '当前已加载的列表中没有匹配的对话。'
-                      : scope === 'mine'
-                        ? '你还没有在这个项目中发起对话。'
-                        : '这个项目还没有对话。'}
-                  </p>
-                )}
-              {visibleConversations.map((conversation) => (
-                <button
-                  className="live-conversation-row"
-                  type="button"
-                  key={conversation.id}
-                  aria-label={`打开对话：${conversation.title}`}
-                  onClick={() => openConversation(conversation)}
-                >
-                  <span>
-                    {conversation.title}
-                    <small>
-                      {conversation.ownerName}
-                      {!conversation.canWrite ? '，可查看' : ''}
-                    </small>
-                  </span>
-                  <span className="live-muted">{displayTime(conversation.updatedAt)}</span>
-                </button>
-              ))}
-              {conversationsQuery.hasNextPage && (
-                <button
-                  className="live-secondary"
-                  type="button"
-                  disabled={conversationsQuery.isFetchingNextPage}
-                  onClick={() => void conversationsQuery.fetchNextPage()}
-                >
-                  继续加载对话
-                </button>
-              )}
             </section>
           ) : (
             <section className="live-overview live-welcome">
@@ -782,7 +808,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         {current?.projectId && conversationId && (
           <div
             className="live-thread-host"
-            hidden={isNewConversation || view !== 'conversation' || tab !== 'conversation'}
+            hidden={hidesWorkspace || view !== 'conversation' || tab !== 'conversation'}
           >
             <LiveConversation
               conversationId={conversationId}
@@ -796,7 +822,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           </div>
         )}
         {projectId && tab === 'files' && (
-          <div className="live-view-content" hidden={isNewConversation}>
+          <div className="live-view-content" hidden={hidesWorkspace}>
             <ProjectFiles
               key={projectId}
               projectId={projectId}
@@ -807,7 +833,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           </div>
         )}
         {projectId && tab === 'documents' && (
-          <div className="live-view-content" hidden={isNewConversation}>
+          <div className="live-view-content" hidden={hidesWorkspace}>
             <ProjectDocuments
               key={projectId}
               projectId={projectId}
@@ -828,6 +854,18 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           returnFocus={returnFocus}
           onCreated={created}
         />
+        <Settings
+          open={isSettings}
+          onOpenChange={(open) => {
+            if (!open) setDialog(null);
+          }}
+          user={user}
+          logout={logout}
+          returnFocus={returnFocus}
+          maintenance={showMaintenance}
+          onMaintenanceChange={setMaintenanceSettings}
+          notificationConnection={notifications.connection}
+        />
       </ProjectShell>
       <Search
         open={dialog === 'search'}
@@ -844,15 +882,6 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         returnFocus={returnFocus}
         onProject={openProject}
         onConversation={openConversation}
-      />
-      <Settings
-        open={dialog === 'settings'}
-        onOpenChange={(open) => {
-          if (!open) setDialog(null);
-        }}
-        user={user}
-        logout={logout}
-        returnFocus={returnFocus}
       />
     </div>
   );

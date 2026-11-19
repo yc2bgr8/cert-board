@@ -211,8 +211,10 @@ export const workspaceVersionListOptionsSchema = z
   .object({
     afterNumber: z.coerce.number().int().nonnegative().safe().default(0),
     limit: z.coerce.number().int().min(1).max(50).default(20),
+    view: z.literal('recent').optional(),
   })
-  .strict();
+  .strict()
+  .refine((value) => value.view !== 'recent' || value.afterNumber === 0, '最近版本无需分页位置。');
 export const workspaceVersionListSchema = z
   .object({
     items: z.array(workspaceVersionRecordSchema).max(50),

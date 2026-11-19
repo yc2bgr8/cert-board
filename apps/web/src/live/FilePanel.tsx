@@ -100,7 +100,7 @@ function FileContent({ target }: { target: WorkspaceFileTarget }) {
       {first && combined && !failure && (
         <>
           <div className="review-file-text">
-            {first.mediaType === 'text/markdown' ? (
+            {first.mediaType.split(';', 1)[0]?.trim().toLowerCase() === 'text/markdown' ? (
               <SafeMarkdown workbench>{combined.text}</SafeMarkdown>
             ) : (
               <pre>{combined.text || '此文本文件为空。'}</pre>

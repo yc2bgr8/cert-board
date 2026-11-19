@@ -10,6 +10,7 @@ import {
 } from 'playwright-core';
 import { startBrowserHarness } from '../test-support/browser-harness.js';
 import { reviewBrowserFlow } from '../test-support/browser-review-flow.js';
+import { browserReviewPath } from '../test-support/browser-review-fixture.js';
 
 let stage = '启动';
 async function until(check: () => boolean | Promise<boolean>, timeout = 20000) {
@@ -549,6 +550,57 @@ async function main() {
       },
       output,
     );
+    stage = '新版项目首页';
+    await page.getByRole('button', { name: 'L08 510(k)', exact: true }).click();
+    const home = page.getByRole('region', { name: '项目对话', exact: true });
+    await home.getByRole('heading', { name: '工作区版本', exact: true }).waitFor();
+    await home.getByText('第 3 版', { exact: true }).waitFor();
+    await home.getByRole('button', { name: '打开对话：L08审核状态验收', exact: true }).waitFor();
+    await page.getByRole('button', { name: '维护Agent', exact: true }).click();
+    await home.getByText('注册Agent', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '注册Agent', exact: true }).click();
+    await captureWorkbench(page, output, 'pr-u4-03-project.png');
+    stage = '新版文件与历史版本';
+    await home.getByRole('button', { name: '全部文件', exact: true }).click();
+    const files = page.getByRole('region', { name: '项目文件', exact: true });
+    await files
+      .getByRole('region', { name: '工作区版本历史', exact: true })
+      .getByRole('button', { name: '第 2 版', exact: true })
+      .click();
+    const selected = files.getByRole('combobox', { name: '文件版本', exact: true });
+    assert.equal(await selected.locator('option:checked').textContent(), '第 2 版');
+    await files
+      .getByRole('button', { name: `查看文件：${browserReviewPath}`, exact: true })
+      .click();
+    const file = page.getByRole('complementary', { name: '文件', exact: true });
+    await file.getByRole('heading', { name: 'L08 K号写法核查', exact: true }).waitFor();
+    await file
+      .getByText('两处写法不同，正确编号待注册人员核对原件确认。', { exact: false })
+      .waitFor();
+    await captureWorkbench(page, output, 'pr-u4-08-files.png');
+    await file.getByRole('button', { name: '关闭右栏', exact: true }).click();
+    stage = '新版资料与导入状态';
+    await page.getByRole('button', { name: '资料', exact: true }).click();
+    const documents = page.getByRole('region', { name: '项目资料', exact: true });
+    const documentLink = documents.getByRole('button', {
+      name: '打开资料：510(k) summary.pdf',
+      exact: true,
+    });
+    await documentLink.waitFor();
+    await documents.getByText('尚未接入', { exact: true }).waitFor();
+    await captureWorkbench(page, output, 'pr-u4-09-documents.png');
+    await documentLink.click();
+    const evidence = page.getByRole('complementary', { name: '原文依据', exact: true });
+    await evidence.getByRole('region', { name: 'D035 第 1 页原文', exact: true }).waitFor();
+    await evidence.getByRole('button', { name: '关闭右栏', exact: true }).click();
+    stage = '新版个人设置和权限入口';
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const settings = page.getByRole('dialog', { name: '设置', exact: true });
+    await settings.getByText('zhangsan', { exact: true }).waitFor();
+    await settings.getByText('已连接', { exact: true }).waitFor();
+    assert.equal(await settings.getByRole('button', { name: '维护页', exact: true }).count(), 0);
+    await captureWorkbench(page, output, 'pr-u4-15-settings.png');
+    await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
     stage = '维护对话和外发提案';
     await page.getByRole('button', { name: '维护Agent', exact: true }).click();
     await page.getByRole('button', { name: 'L08 年度注册（验收示例）', exact: true }).click();
@@ -565,10 +617,15 @@ async function main() {
         await page.getByRole('button', { name: '查看提案', exact: true }).click();
       } else {
         await page.getByRole('button', { name: /待我处理/ }).click();
-        await page
-          .getByRole('region', { name: '待我处理事项' })
-          .getByRole('button', { name: /外发提案.*查看提案/ })
-          .click();
+        const inbox = page.getByRole('region', { name: '待我处理事项', exact: true });
+        const item = inbox.getByRole('button', { name: /外发提案.*查看提案/ });
+        await item.waitFor();
+        await captureWorkbench(page, output, 'pr-u4-12-inbox.png');
+        const filters = page.getByRole('group', { name: '按类型筛选待处理事项', exact: true });
+        await filters.getByRole('button', { name: /^批准请求 / }).click();
+        await inbox.getByText('当前没有这个类型的待处理事项。', { exact: true }).waitFor();
+        await filters.getByRole('button', { name: /^外发提案 / }).click();
+        await item.click();
       }
       const proposal = page.getByRole('article', { name: '提案内容', exact: true });
       await proposal.getByText('核对年度注册联络人协议（本地测试）', { exact: true }).waitFor();
@@ -619,9 +676,7 @@ async function main() {
           .getByRole('button', { name: /外发提案.*查看提案/ })
           .waitFor({ state: 'hidden' });
         await page.getByRole('button', { name: 'L08 年度注册（验收示例）', exact: true }).click();
-        await page
-          .getByRole('button', { name: '打开对话：年度注册提案复验', exact: true })
-          .click();
+        await page.getByRole('button', { name: '打开对话：年度注册提案复验', exact: true }).click();
       }
       await page
         .getByText(
@@ -646,6 +701,41 @@ async function main() {
     assert.equal(await page.getByRole('combobox', { name: '权限模式', exact: true }).count(), 0);
     for (const name of ['停止', '允许', '本对话中都允许', '拒绝'])
       assert.equal(await page.getByRole('button', { name, exact: true }).count(), 0);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+      false,
+    );
+    await page.screenshot({ path: path.join(output, 'conversation-shared.png'), fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    stage = '仅管理权限可打开维护页';
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await settings.getByRole('button', { name: '退出登录', exact: true }).click();
+    authenticated = false;
+    try {
+      await page
+        .getByRole('textbox', { name: '账号', exact: true })
+        .fill(harness.managementCredentials.username);
+      await page.getByLabel('密码', { exact: true }).fill(harness.managementCredentials.password);
+      await page.getByRole('button', { name: '登录', exact: true }).click();
+      await page.getByRole('button', { name: '设置', exact: true }).waitFor();
+    } catch {
+      throw new Error('BROWSER_MANAGEMENT_LOGIN_FAILED');
+    }
+    authenticated = true;
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const maintenanceEntry = settings.getByRole('button', { name: '维护页', exact: true });
+    await maintenanceEntry.press('Enter');
+    const management = page.getByRole('dialog', { name: '维护', exact: true });
+    await management.getByRole('heading', { name: '预算与用量', exact: true }).waitFor();
+    await management.getByText('管理权限已启用', { exact: false }).waitFor();
+    assert.ok((await management.getByText('尚未接入', { exact: true }).count()) > 0);
+    await captureWorkbench(page, output, 'pr-u4-16-management.png');
+    const backToSettings = management.getByRole('button', { name: '返回设置', exact: true });
+    assert.equal(await backToSettings.evaluate((el) => el === document.activeElement), true);
+    await backToSettings.press('Enter');
+    await settings.getByRole('heading', { name: '个人与通知', exact: true }).waitFor();
+    assert.equal(await maintenanceEntry.evaluate((el) => el === document.activeElement), true);
     stage = 'CSP与零外网检查';
     const cspState = await page.evaluate(() => {
       const state = globalThis as typeof globalThis & {
@@ -687,12 +777,6 @@ async function main() {
     assert.equal(harness.healthy(), true);
     assert.equal(unknown.rowCount, 0);
     assert.equal(costNano, '0');
-    await page.setViewportSize({ width: 1280, height: 800 });
-    assert.equal(
-      await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
-      false,
-    );
-    await page.screenshot({ path: path.join(output, 'conversation-shared.png'), fullPage: true });
     await writeFile(
       path.join(output, 'result.json'),
       JSON.stringify(
@@ -740,6 +824,12 @@ async function main() {
             'proposal_history_and_pending_inbox_update',
             'review_current_run_completed_sse',
             'review_completed_after_reopen',
+            'project_home_actual_notices_and_versions',
+            'file_history_select_and_open',
+            'documents_open_parsed_source',
+            'inbox_type_filter',
+            'profile_reads_actual_account_and_stream',
+            'management_entry_only_with_permission',
             'width_1280',
           ],
           externalRequests,
@@ -768,6 +858,12 @@ async function main() {
             'review-run-completed.png',
             'review-run-reopened.png',
             'pr-u3-10-proposal.png',
+            'pr-u4-03-project.png',
+            'pr-u4-08-files.png',
+            'pr-u4-09-documents.png',
+            'pr-u4-12-inbox.png',
+            'pr-u4-15-settings.png',
+            'pr-u4-16-management.png',
           ],
         },
         null,

@@ -338,6 +338,7 @@ export async function startBrowserHarness() {
       maintenanceProjectId,
       sharedConversationId,
       credentials: { username: 'zhangsan', password: passwords.zhangsan! },
+      managementCredentials: { username: 'admin', password: passwords.admin! },
       plan(kind: BrowserScenario, recipient: 'wangmin' | 'admin' = 'wangmin') {
         const recipientId =
           kind === 'proposal'
