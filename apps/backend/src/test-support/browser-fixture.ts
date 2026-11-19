@@ -182,7 +182,19 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
             const steering = kind === 'steering' ? `\n\n已收到插话：${observed.latestUser}` : '';
             return response({
               role: 'assistant',
-              content: `已读取资料原文，正确编号仍待确认。${steering}\n\n**核查进度**\n\n<script>globalThis.__certInjected=true</script>\n\n<img src="https://external.invalid/pixel" onerror="globalThis.__certInjected=true">\n\n![外部图片](https://external.invalid/pixel)\n\n[外部参考](https://example.invalid/reference)`,
+              content: [
+                `已读取资料原文，正确编号仍待确认。${steering}`,
+                '## 核查进度',
+                '| 来源 | 状态 |\n| --- | --- |\n| 510(k) 摘要 | 已阅读 |',
+                '```javascript\nconst status = "待核对";\n```',
+                '<div data-markdown-sample="html">HTML 样例内容</div>',
+                '<style data-probe="stylesheet">:root { --fixture-global-style: applied; }</style>',
+                '<link rel="stylesheet" href="https://external.invalid/blocked.css" />',
+                '<script>globalThis.__certInjected=true</script>',
+                '<script async src="/assets/markdown-fixture.js"></script>',
+                '![外部图片](https://external.invalid/fixture-image.svg)',
+                '[外部参考](https://example.invalid/reference)',
+              ].join('\n\n'),
             });
           }
           default:

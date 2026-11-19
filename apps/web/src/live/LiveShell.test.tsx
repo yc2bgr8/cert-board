@@ -29,6 +29,17 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('./useSession.js', () => ({ useSession: mocks.session }));
 vi.mock('./useMemberNotifications.js', () => ({ useMemberNotifications: mocks.notifications }));
+vi.mock('./useConversationStream.js', async () => {
+  const { initialConversationState } = await import('./events.js');
+  return {
+    useConversationStream: (id: string | null) => ({
+      state: initialConversationState(id),
+      connection: 'closed',
+      error: null,
+      reconnect: vi.fn(),
+    }),
+  };
+});
 vi.mock('./LiveConversation.js', () => ({
   LiveConversation: ({
     conversationId,

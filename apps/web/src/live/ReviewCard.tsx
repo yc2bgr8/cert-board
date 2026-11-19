@@ -211,10 +211,10 @@ function ReviewCardContent({ reviewId, onOpenEvidence, onOpenDiff, onOpenFile }:
         </div>
       )}
       <ReviewSection title="结论">
-        <SafeMarkdown>{submission.conclusion}</SafeMarkdown>
+        <SafeMarkdown workbench>{submission.conclusion}</SafeMarkdown>
       </ReviewSection>
       <ReviewSection title="需要你做什么">
-        <SafeMarkdown>{submission.nextStep}</SafeMarkdown>
+        <SafeMarkdown workbench>{submission.nextStep}</SafeMarkdown>
       </ReviewSection>
       <ReviewSection title="过程中作出的判断">
         {submission.decisions.length === 0 ? (

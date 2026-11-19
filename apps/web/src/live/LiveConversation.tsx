@@ -1,11 +1,23 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type SetStateAction,
+} from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { permissionModeSchema, type PermissionMode } from '@cert-board/shared';
-import { SafeMarkdown } from '../SafeMarkdown.js';
 import { api, errorMessage, type ConversationDetail } from './api.js';
 import { ApprovalCard, useBrowserCommand } from './ApprovalCard.js';
 import type { LiveMessage, LiveRun } from './events.js';
-import { useConversationStream } from './useConversationStream.js';
+import type { useConversationStream } from './useConversationStream.js';
+import { ChatBubble } from './ChatBubble.js';
+import { InlineExecution } from './InlineExecution.js';
+import { runStateNames } from './RunDetails.js';
+import { ShellIcon } from './ShellIcon.js';
+import { ReferencePicker } from './ReferencePicker.js';
 import './conversation.css';
 
 const modes: Record<PermissionMode, { label: string; description: string }> = {
@@ -13,42 +25,8 @@ const modes: Record<PermissionMode, { label: string; description: string }> = {
   ask: { label: '请求批准', description: '需要批准的动作先交给本对话发起人确认。' },
   full: { label: '完全允许', description: '允许执行可撤销的动作；对外动作仍需批准。' },
 };
-const statuses: Record<LiveRun['status'], string> = {
-  queued: '等待开始',
-  running: '正在处理',
-  waiting: '等待处理',
-  completed: '已完成',
-  failed: '运行失败',
-  stopped: '已停止',
-  budget_exhausted: '预算检查已停止本轮',
-};
-const toolStates = {
-  running: '进行中',
-  completed: '完成',
-  failed: '失败',
-  awaiting_approval: '待批准',
-};
 const planStates = { pending: '待处理', running: '进行中', completed: '完成' };
 const agentNames = { registration: '注册 Agent', maintenance: '维护 Agent' };
-
-function ToolProcess({ run }: { run: LiveRun }) {
-  if (!run.tools.length) return null;
-  return (
-    <details className="live-tool-process">
-      <summary>
-        工具过程 <span className="live-conversation-meta">{run.tools.length} 项</span>
-      </summary>
-      <ol>
-        {run.tools.map((tool) => (
-          <li key={tool.id}>
-            <span className="live-conversation-meta">{toolStates[tool.status]}</span>{' '}
-            {tool.summary || tool.name}
-          </li>
-        ))}
-      </ol>
-    </details>
-  );
-}
 
 function RunProgress({ run, active }: { run: LiveRun | undefined; active: boolean }) {
   const [clock, setClock] = useState(Date.now);
@@ -60,7 +38,7 @@ function RunProgress({ run, active }: { run: LiveRun | undefined; active: boolea
   if (!run)
     return active ? (
       <p className="live-conversation-meta" role="status">
-        {statuses.queued}
+        {runStateNames.queued}
       </p>
     ) : null;
   const date = Date.parse(run.startedAt);
@@ -72,6 +50,7 @@ function RunProgress({ run, active }: { run: LiveRun | undefined; active: boolea
     ),
   );
   const plan = run.plan;
+  const stopped = run.status === 'stopped' || run.status === 'budget_exhausted';
   const running = plan?.steps.findIndex((step) => step.status === 'running') ?? -1;
   const complete = plan?.steps.filter((step) => step.status === 'completed').length ?? 0;
   const summary = active
@@ -81,16 +60,16 @@ function RunProgress({ run, active }: { run: LiveRun | undefined; active: boolea
   return (
     <div className="live-run-progress">
       <p className="live-conversation-meta">
-        <span role="status">{statuses[run.status]}</span> · 已用 {Math.floor(elapsed / 60)} 分{' '}
+        <span role="status">{runStateNames[run.status]}</span> · 已用 {Math.floor(elapsed / 60)} 分{' '}
         {elapsed % 60} 秒
         {run.pendingSteeringCount > 0 && ` · ${run.pendingSteeringCount} 条插话尚未处理`}
       </p>
       {showSummary && <p className="live-conversation-meta">{summary}</p>}
       {plan && (
-        <details className="live-plan">
+        <details className="live-plan" open>
           <summary>
             {running >= 0
-              ? `第 ${running + 1} 步，共 ${plan.steps.length} 步`
+              ? `${stopped ? '停在第' : '第'} ${running + 1} 步，共 ${plan.steps.length} 步`
               : `已完成 ${complete}/${plan.steps.length} 步`}
             {plan.progress && ` · ${plan.progress}`}
           </summary>
@@ -98,7 +77,10 @@ function RunProgress({ run, active }: { run: LiveRun | undefined; active: boolea
             {plan.steps.map((step, index) => (
               <li key={index}>
                 {step.title}{' '}
-                <span className="live-conversation-meta">· {planStates[step.status]}</span>
+                <span className="live-conversation-meta">
+                  ·{' '}
+                  {stopped && step.status === 'running' ? '停止时进行中' : planStates[step.status]}
+                </span>
               </li>
             ))}
           </ol>
@@ -110,20 +92,30 @@ function RunProgress({ run, active }: { run: LiveRun | undefined; active: boolea
 
 type ConversationProps = {
   conversationId: string;
+  stream: ReturnType<typeof useConversationStream>;
+  text: string;
+  setText: (update: SetStateAction<string>) => void;
   onReview?: (id: string) => void;
+  onRunDetails?: (runId: string) => void;
 };
 
 export function LiveConversation(props: ConversationProps) {
   return <ConversationView key={props.conversationId} {...props} />;
 }
 
-function ConversationView({ conversationId, onReview }: ConversationProps) {
+function ConversationView({
+  conversationId,
+  stream,
+  text,
+  setText,
+  onReview,
+  onRunDetails,
+}: ConversationProps) {
   const detail = useQuery({
     queryKey: ['live', 'conversation', conversationId],
     queryFn: ({ signal }) => api.conversation(conversationId, signal),
     retry: false,
   });
-  const stream = useConversationStream(conversationId, !!detail.data);
   const { state } = stream;
   const messagesByRun = useMemo(() => {
     const groups = new Map<string, LiveMessage[]>();
@@ -136,7 +128,8 @@ function ConversationView({ conversationId, onReview }: ConversationProps) {
   }, [state.messages]);
   const command = useBrowserCommand();
   const stopCommand = useBrowserCommand();
-  const [text, setText] = useState('');
+  const [referencesOpen, setReferencesOpen] = useState(false);
+  const [referenceError, setReferenceError] = useState<string>();
   const [queuedRun, setQueuedRun] = useState<string | null>(null);
   const [stoppedRun, setStoppedRun] = useState<string | null>(null);
   const [modeReceipt, setModeReceipt] = useState<{
@@ -220,6 +213,11 @@ function ConversationView({ conversationId, onReview }: ConversationProps) {
         <p className="live-conversation-meta">
           {agentNames[record.agentCode]} · {record.ownerName}
         </p>
+        {run && onRunDetails && (
+          <button className="live-secondary" type="button" onClick={() => onRunDetails(run.id)}>
+            运行详情
+          </button>
+        )}
       </header>
       <div
         className="live-transcript"
@@ -253,17 +251,25 @@ function ConversationView({ conversationId, onReview }: ConversationProps) {
               <div key={id} className="live-turn">
                 {messages.map((message, index) => (
                   <Fragment key={message.id}>
-                    {index === processIndex && <ToolProcess run={entry} />}
-                    {message.role === 'assistant' ? (
-                      <article className="live-agent-message">
-                        <SafeMarkdown>{message.text}</SafeMarkdown>
-                      </article>
-                    ) : (
-                      <p className="live-user-message">{message.text}</p>
-                    )}
+                    {index === processIndex && <InlineExecution activities={entry.tools} />}
+                    <ChatBubble
+                      message={message}
+                      agentName={agentNames[record.agentCode]}
+                      maintenance={record.agentCode === 'maintenance'}
+                    />
                   </Fragment>
                 ))}
-                {processIndex === -1 && <ToolProcess run={entry} />}
+                {processIndex === -1 && <InlineExecution activities={entry.tools} />}
+                {(entry.status === 'stopped' || entry.status === 'budget_exhausted') && (
+                  <section className="live-stop-report" aria-label="中途停止汇报">
+                    <h2>运行已停止</h2>
+                    {entry.summary !== '运行状态已更新。' && <p>{entry.summary}</p>}
+                    <p>
+                      已记录 {entry.tools.length} 个工具步骤，其中{' '}
+                      {entry.tools.filter((tool) => tool.status === 'completed').length} 个完成。
+                    </p>
+                  </section>
+                )}
                 {entry.workspaceChange && (
                   <div className="live-conversation-notice">{entry.workspaceChange.summary}</div>
                 )}
@@ -298,14 +304,14 @@ function ConversationView({ conversationId, onReview }: ConversationProps) {
                 ))}
             </section>
           )}
-          {run?.approvalId && record.canWrite && (
-            <ApprovalCard key={run.approvalId} approvalId={run.approvalId} disabled={!connected} />
-          )}
         </div>
       </div>
       <footer className="live-composer-wrap">
         <div className="live-composer-content">
           <RunProgress key={runId} run={run} active={active} />
+          {run?.approvalId && record.canWrite && (
+            <ApprovalCard key={run.approvalId} approvalId={run.approvalId} disabled={!connected} />
+          )}
           {record.canWrite ? (
             <form className="live-composer" onSubmit={(event) => void submit(event)}>
               <textarea
@@ -332,6 +338,22 @@ function ConversationView({ conversationId, onReview }: ConversationProps) {
               />
               <div className="live-composer-controls">
                 <div className="live-permission">
+                  {record.projectId && (
+                    <button
+                      type="button"
+                      className="live-reference-toggle"
+                      aria-label="添加资料引用"
+                      aria-expanded={referencesOpen && !blocked}
+                      title="将已有项目资料的编号加入消息"
+                      disabled={!mayWrite || blocked}
+                      onClick={() => {
+                        setReferencesOpen(!referencesOpen);
+                        setReferenceError(undefined);
+                      }}
+                    >
+                      <ShellIcon name="attachment" />
+                    </button>
+                  )}
                   <select
                     aria-label="权限模式"
                     aria-describedby="live-permission-help"
@@ -384,12 +406,35 @@ function ConversationView({ conversationId, onReview }: ConversationProps) {
                   <button
                     type="submit"
                     className="live-send"
+                    aria-label={question ? '回复' : active ? '插话' : '发送'}
                     disabled={!mayWrite || !text.trim() || blocked}
                   >
-                    {question ? '回复' : active ? '插话' : '发送'}
+                    <ShellIcon name="arrowUp" />
                   </button>
                 </div>
               </div>
+              {referencesOpen && !blocked && record.projectId && (
+                <ReferencePicker
+                  projectId={record.projectId}
+                  conversationId={conversationId}
+                  onSelect={(reference) => {
+                    if (!mayWrite) return;
+                    const next = [text.trimEnd(), reference].filter(Boolean).join('\n');
+                    if (next.length > 8000) {
+                      setReferenceError('消息和资料引用合计不得超过 8000 字。');
+                      return;
+                    }
+                    setText(next);
+                    setReferencesOpen(false);
+                    setReferenceError(undefined);
+                  }}
+                />
+              )}
+              {referenceError && (
+                <p className="live-command-error" role="alert">
+                  {referenceError}
+                </p>
+              )}
             </form>
           ) : (
             <p className="live-conversation-meta">

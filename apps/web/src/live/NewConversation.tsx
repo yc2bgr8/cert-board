@@ -52,7 +52,12 @@ export function NewConversation({
   projects: ProjectRecord[];
   userId: string;
   returnFocus: RefObject<HTMLElement | null>;
-  onCreated(conversationId: string, projectId: string | null, agentCode: AgentCode): void;
+  onCreated(
+    conversationId: string,
+    projectId: string | null,
+    agentCode: AgentCode,
+    firstMessage: string,
+  ): void;
   onAgentChange(agentCode: AgentCode): void;
 }) {
   const [projectId, setProjectId] = useState('');
@@ -60,6 +65,7 @@ export function NewConversation({
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(defaultPermissionMode);
   const [goalId, setGoalId] = useState('');
   const [title, setTitle] = useState('');
+  const [firstMessage, setFirstMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const projectSelect = useRef<HTMLSelectElement>(null);
@@ -87,6 +93,7 @@ export function NewConversation({
     setProjectId(initialProjectId ?? '');
     setGoalId('');
     setTitle('');
+    setFirstMessage('');
     setAgentCode('registration');
     setPermissionMode(defaultPermissionMode);
     setError(null);
@@ -129,6 +136,7 @@ export function NewConversation({
         result.conversation.id,
         result.conversation.projectId,
         result.conversation.agentCode,
+        result.conversation.goalId ? firstMessage : '',
       );
       onOpenChange(false);
     } catch (failure) {
@@ -223,6 +231,17 @@ export function NewConversation({
               placeholder="可选，简述这次工作"
               onChange={(event) => setTitle(event.target.value)}
             />
+            {goalId && (
+              <textarea
+                aria-label="首条消息"
+                placeholder="可选，创建后在对话中确认并发送"
+                value={firstMessage}
+                rows={2}
+                maxLength={8000}
+                disabled={busy}
+                onChange={(event) => setFirstMessage(event.target.value)}
+              />
+            )}
             <div className="live-dock-options">
               <label className="sr-only" htmlFor="live-new-project">
                 选择项目

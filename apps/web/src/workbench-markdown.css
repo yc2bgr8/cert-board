@@ -1,0 +1,75 @@
+.workbench-markdown {
+  color: var(--color-cb-ink);
+  font: 15px/1.75 var(--font-workbench);
+  overflow-wrap: anywhere;
+  contain: layout paint;
+}
+.workbench-markdown :where(p, ul, ol, blockquote, pre, table) {
+  margin: 0 0 10px;
+}
+.workbench-markdown > :last-child {
+  margin-bottom: 0;
+}
+.workbench-markdown :where(ul, ol) {
+  padding-inline-start: 22px;
+}
+.workbench-markdown ul {
+  list-style: disc;
+}
+.workbench-markdown ol {
+  list-style: decimal;
+}
+.workbench-markdown :where(h1, h2, h3, strong) {
+  font-weight: 600;
+}
+.workbench-markdown :where(h1, h2, h3) {
+  margin: 14px 0 6px;
+}
+.workbench-markdown a {
+  color: var(--color-cb-teal-ink);
+  text-decoration: underline;
+}
+.workbench-markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+.workbench-markdown code {
+  font: 0.88em var(--font-workbench-mono);
+}
+.workbench-markdown :not(pre) > code {
+  padding: 1px 4px;
+  background: var(--color-cb-soft);
+  border-radius: 4px;
+}
+.workbench-markdown pre {
+  padding: 12px 14px;
+  overflow: auto;
+  border: 1px solid var(--color-cb-line);
+  border-radius: 10px;
+  background: var(--color-cb-paper);
+}
+.workbench-markdown :where(.hljs-keyword, .hljs-literal, .hljs-number) {
+  color: var(--color-cb-info);
+}
+.workbench-markdown .hljs-string {
+  color: var(--color-cb-good);
+}
+.workbench-markdown .hljs-comment {
+  color: var(--color-cb-muted);
+}
+.workbench-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.workbench-markdown :where(th, td) {
+  padding: 5px 9px;
+  border: 1px solid var(--color-cb-line);
+}
+.workbench-markdown th {
+  background: var(--color-cb-soft);
+  font-weight: 600;
+}

@@ -1,14 +1,12 @@
 // @vitest-environment jsdom
 import { randomUUID } from 'node:crypto';
+import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { LiveConversation } from './LiveConversation.js';
 import { api, type ConversationDetail } from './api.js';
 import { initialConversationState, type LiveRun } from './events.js';
-import { useConversationStream } from './useConversationStream.js';
-
-vi.mock('./useConversationStream.js', () => ({ useConversationStream: vi.fn() }));
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -59,7 +57,7 @@ it('断流时保留发起人的停止操作，暂停用旧记录发送插话', a
     stopped: true,
     replayed: false,
   });
-  vi.mocked(useConversationStream).mockReturnValue({
+  const stream = {
     state: {
       ...initialConversationState(conversationId),
       currentRunId: runId,
@@ -67,13 +65,24 @@ it('断流时保留发起人的停止操作，暂停用旧记录发送插话', a
       runOrder: [runId],
       lastSeq: 1,
     },
-    connection: 'reconnecting',
+    connection: 'reconnecting' as const,
     error: '连接暂时中断',
     reconnect: vi.fn(),
-  });
+  };
+  function TestConversation() {
+    const [text, setText] = useState('');
+    return (
+      <LiveConversation
+        conversationId={conversationId}
+        stream={stream}
+        text={text}
+        setText={setText}
+      />
+    );
+  }
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <LiveConversation conversationId={conversationId} />
+      <TestConversation />
     </QueryClientProvider>,
   );
   const stopButton = await screen.findByRole<HTMLButtonElement>('button', { name: '停止' });
