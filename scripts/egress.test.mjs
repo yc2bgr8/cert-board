@@ -83,3 +83,25 @@ test('代理探针只连接本机、识别CONNECT响应并拒绝报文注入', a
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('代理构建在 APT 更新前切到 Azure 镜像，重试并保留锁定版本与完整 CI 检查', async () => {
+  const dockerfile = await readFile(
+    new URL('../deploy/egress/Dockerfile', import.meta.url),
+    'utf8',
+  );
+  const workflow = await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  expect(dockerfile).toContain('/etc/apt/sources.list.d/ubuntu.sources');
+  expect(dockerfile.indexOf('/etc/apt/sources.list.d/ubuntu.sources')).toBeLessThan(
+    dockerfile.indexOf('apt-get -o Acquire::Retries=5 update'),
+  );
+  expect(dockerfile).toContain('//archive\\.ubuntu\\.com/ubuntu|//azure.archive.ubuntu.com/ubuntu');
+  expect(dockerfile).toContain(
+    '//security\\.ubuntu\\.com/ubuntu|//azure.archive.ubuntu.com/ubuntu',
+  );
+  expect(dockerfile).toContain('apt-get -o Acquire::Retries=5 install');
+  expect(dockerfile).toContain('squid=${SQUID_VERSION} squid-common=${SQUID_VERSION}');
+  expect(dockerfile).not.toMatch(
+    /Verify-(?:Peer|Host)\s*=\s*(?:false|0)|allow-unauthenticated|trusted=yes/iu,
+  );
+  expect(workflow).toMatch(/pnpm dev:up[\s\S]*pnpm test:int/u);
+});

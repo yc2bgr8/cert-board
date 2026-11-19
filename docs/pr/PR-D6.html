@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-D6 外部模型核实群聊</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#真实-cursor-验证">真实 Cursor 验证</a><a class="level-2" href="#开发机启动">开发机启动</a><a class="level-2" href="#实施差异与后续">实施差异与后续</a><a class="level-2" href="#本地验收">本地验收</a></nav><main><h1 id="pr-d6-外部模型核实群聊">PR-D6 外部模型核实群聊</h1>
+<p>按 v4 重做 PR <a href="https://github.com/yc2bgr8/cert-board/pull/35" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">#35（外部链接）</a>。手动发起时可关联项目，注册或维护 Agent 担任主持人。群里可以点名、人直接发言、停止并整理，以及在原记录继续。无人工插话时按每个模型分别限制轮数，管理人员可修改默认 7 轮。</p>
+<table><thead><tr><th>场景</th><th>实现截图</th><th>参考设计</th></tr></thead><tbody><tr><td>14a 核实进行中</td><td><a href="../evidence/pr-d6-14a-verification.png">1440×900</a></td><td><a href="../变更单/界面设计稿/14a-外部模型-核实进行中.png">14a</a></td></tr><tr><td>14b 核实结论</td><td><a href="../evidence/pr-d6-14b-verification.png">1440×900</a></td><td><a href="../变更单/界面设计稿/14b-外部模型-核实结论.png">14b</a></td></tr><tr><td>15 模型设置、保密词表和外发记录</td><td><a href="../evidence/pr-d6-15-privacy.png">1440×900</a></td><td><a href="../变更单/界面设计稿/15-设置.png">15</a></td></tr><tr><td>16 外部核实次数与模型配置</td><td><a href="../evidence/pr-d6-16-budget.png">1440×900</a></td><td><a href="../变更单/界面设计稿/16-维护页.png">16</a></td></tr></tbody></table>
+<h2 id="真实-cursor-验证">真实 Cursor 验证</h2>
+<p>Windows 命令行版为 <code>2026.11.19-f005e9d</code>。使用 Lan 已登录的团队订阅。Lan 提供的设置界面显示团队锁定 Privacy Mode，并提示某些功能仍可能存储代码。核实使用本机 Ask 会话、临时空工作目录、空 MCP 列表和拒绝工具权限的独立配置。发送仅包含合成问题，未启用后台 Agent 或联网搜索。<a href="https://cursor.com/docs/cli/acp" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">Cursor ACP 说明（外部链接）</a> · <a href="https://cursor.com/help/security-and-privacy/privacy" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">Cursor 隐私说明（外部链接）</a></p>
+<ul><li>真实模型选择为 GPT-5.6 Sol 和 Claude Opus 5.5，使用命令行 ACP 列出的标准参数。明确标注无零数据保留的 Fable 未列为参与模型。</li><li>两次连通测试、一次隔离后端群聊和两次隔离浏览器群聊，共 8 次 Cursor 调用，计入订阅次数。最新一次浏览器核实验证了派发前复核、回复和原样回执的入库。合成事实无出处时归为「待核实」。OpenRouter 新费用为 0。<a href="../evidence/pr-d6-real-cursor-verification.png">浏览器真实核实截图</a></li><li>没有文件、工具、真实项目材料或真实收件人参与验收。网页本身的外部请求为 0。</li></ul>
+<h2 id="开发机启动">开发机启动</h2>
+<p>合并后运行 <code>pnpm db:migrate</code>。用 <code>pnpm dev:api</code>、<code>pnpm dev:worker</code> 和 <code>pnpm dev:verification</code> 启动相应进程，前端由 <code>pnpm build</code> 与 <code>pnpm preview</code> 提供。共享工作台沿用 28080。</p>
+<p>在本机 <code>.env.local</code> 设置 <code>CERT_CURSOR_BUNDLE</code> 和 <code>CERT_CURSOR_PROFILE</code> 为绝对路径。前者是已验证的 Windows Cursor 命令行包目录，后者是只含核实权限与空 MCP 的独立配置目录。团队隐私模式确认后使用 <code>CERT_CURSOR_PRIVACY_CONFIRMED=1</code>。配置无效或账号不可用时，手动核实保存在本机并暂停派发。</p>
+<h2 id="实施差异与后续">实施差异与后续</h2>
+<ul><li>D6 的主持职责、点名和四类结论在群聊中验收。项目关联只提供访问和主持身份。原 Agent 发起核实、审核卡「让Agent核实」和审核证据链接使用设计稿 04、05，由 PR-D4 实现。</li><li>关联项目且发起人已有活动目标对话时，主持请求走现有主网关，按该目标记账。无活动目标或主网关暂不可用时，由程序组织点名并保守分类。隔离验收验证网关约束，包括保密替换与禁用工具。</li><li>来源链接和摘录来自回答。真实出处的逐字核验、降级和可信结果纳入审核留 PR-D5。当前已按提供方、观点与出处分组。</li><li>API Key/OpenRouter 网关通道保留配置入口和独立预算边界。Cursor 只统计调用次数。真实联网与本地模型出网检查随对应能力接入。</li><li>14a 截图截取首轮在途状态。14b 展开一条出网存档便于与替换后的文本互验。15 的外发记录在设置页继续向下滚动。16 只接入外部核实用量、模型和相关状态。</li></ul>
+<h2 id="本地验收">本地验收</h2>
+<ul><li><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code> 通过，共 414 项单元测试。</li><li>专项集成覆盖浏览器授权、每个模型 7／3 轮、实时插话、停止续聊、停用后拦截、重复保密词、跨月计次和原样回执。</li><li><code>pnpm eval:agent</code> 通过 30 项。<code>pnpm build</code> 和 <code>pnpm test:e2e</code> 通过 55 项。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

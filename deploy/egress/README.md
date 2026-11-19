@@ -2,6 +2,8 @@
 
 使用 Ubuntu 24.04 官方基础镜像（Dockerfile 固定摘要）及官方软件源的 Squid `6.14-0ubuntu0.24.04.5`。Squid 使用 GNU GPL，内含第三方条款以镜像内 `/usr/share/doc/squid/copyright` 为准。配置不启用遥测、更新检查或外部上报；运行时只处理经过白名单的显式代理请求。
 
+GitHub CI 多次在 Ubuntu 原软件源连接失败。构建出网代理镜像时，Ubuntu 发行和安全源使用 Azure 镜像，APT 更新与安装均可重试五次。软件套件、APT 签名配置和 Squid 固定版本沿用原设定。CI 通过 `pnpm dev:up` 启动服务并运行全量测试。[Ubuntu Azure 安全更新源](https://azure.archive.ubuntu.com/ubuntu/dists/noble-security/)
+
 代理以 `proxy` 非 root 用户运行，根文件系统只读、全部 capabilities 移除、`no-new-privileges`，只在 `/tmp` 使用临时空间。没有凭据环境变量或数据/密钥挂载；只连接独立的 `cert-board_egress` bridge，发布 `127.0.0.1:28085`。数据库和 MinIO 仍只连接原来的无出口内部网络。
 
 ## 放行与记录

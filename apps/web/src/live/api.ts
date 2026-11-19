@@ -48,6 +48,20 @@ import {
   workspaceReadFileSchema,
   workspaceDiffQuerySchema,
   workspaceDiffResponseSchema,
+  externalModelWordInputSchema,
+  externalModelWordSchema,
+  externalModelWordListSchema,
+  externalModelArchiveSchema,
+  externalModelArchivePageSchema,
+  verificationCreateSchema,
+  verificationRoomSchema,
+  verificationRoomPageSchema,
+  verificationDetailSchema,
+  verificationInviteSchema,
+  verificationMessageInputSchema,
+  verificationSettingsSchema,
+  verificationSettingsInputSchema,
+  verificationShareSchema,
   type AuthResponse,
   type ConversationCreateInput,
   type ConversationMessageInput,
@@ -57,6 +71,10 @@ import {
   type ToolApprovalDecisionInput,
   type ReviewDecisionInput,
   type ProposalDecision,
+  type ExternalModelWordInput,
+  type VerificationCreate,
+  type VerificationMessageInput,
+  type VerificationSettingsInput,
 } from '@cert-board/shared';
 
 export type ConversationDetail = ReturnType<typeof conversationPublicRecordSchema.parse>;
@@ -170,7 +188,73 @@ async function request<T>(
   }
 }
 const signalOption = (signal: AbortSignal | undefined) => (signal ? { signal } : {});
+const externalPage = (cursor: string | null) =>
+  cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
 export const api = {
+  verificationRooms: (cursor: string | null, query: string, signal?: AbortSignal) =>
+    request(
+      `/api/verification/rooms${search({ cursor: cursor ?? undefined, query })}`,
+      verificationRoomPageSchema,
+      signalOption(signal),
+    ),
+  verificationRoom: (id: string, cursor: string | null, signal?: AbortSignal) =>
+    request(
+      `/api/verification/rooms/${identifier(id)}${externalPage(cursor)}`,
+      verificationDetailSchema,
+      signalOption(signal),
+    ),
+  verificationCreate: (data: VerificationCreate) =>
+    request('/api/verification/rooms', verificationRoomSchema, {
+      method: 'POST',
+      body: checked(verificationCreateSchema, data),
+    }),
+  verificationPost: (id: string, data: VerificationMessageInput) =>
+    request(`/api/verification/rooms/${identifier(id)}/posts`, null, {
+      method: 'POST',
+      body: checked(verificationMessageInputSchema, data),
+    }),
+  verificationStop: (id: string) =>
+    request(`/api/verification/rooms/${identifier(id)}/stop`, null, { method: 'POST' }),
+  verificationInvite: (id: string, model: string) =>
+    request(`/api/verification/rooms/${identifier(id)}/models`, null, {
+      method: 'POST',
+      body: checked(verificationInviteSchema, { model }),
+    }),
+  verificationShare: (id: string, data: { conversationId: string; requestKey: string }) =>
+    request(`/api/verification/rooms/${identifier(id)}/share`, conversationWriteResultSchema, {
+      method: 'POST',
+      body: checked(verificationShareSchema, data),
+    }),
+  verificationSettings: (signal?: AbortSignal) =>
+    request('/api/verification/settings', verificationSettingsSchema, signalOption(signal)),
+  verificationSaveSettings: (data: VerificationSettingsInput) =>
+    request('/api/verification/settings', verificationSettingsSchema, {
+      method: 'PUT',
+      body: checked(verificationSettingsInputSchema, data),
+    }),
+  verificationRecheck: () =>
+    request('/api/verification/settings/recheck', null, { method: 'POST' }),
+  externalWords: (signal?: AbortSignal) =>
+    request('/api/external-model/words', externalModelWordListSchema, signalOption(signal)),
+  externalSaveWord: (data: ExternalModelWordInput) =>
+    request('/api/external-model/words', externalModelWordSchema, {
+      method: 'POST',
+      body: checked(externalModelWordInputSchema, data),
+    }),
+  externalRemoveWord: (id: string) =>
+    request(`/api/external-model/words/${identifier(id)}`, null, { method: 'DELETE' }),
+  externalArchive: (id: string, signal?: AbortSignal) =>
+    request(
+      `/api/external-model/exchanges/${identifier(id)}/archive`,
+      externalModelArchiveSchema,
+      signalOption(signal),
+    ),
+  externalArchiveDay: (day: string, cursor?: string | null, signal?: AbortSignal) =>
+    request(
+      `/api/external-model/archive${search({ day, cursor: cursor ?? undefined })}`,
+      externalModelArchivePageSchema,
+      signalOption(signal),
+    ),
   review: (id: string, signal?: AbortSignal) =>
     request(`/api/reviews/${identifier(id)}`, reviewCardViewSchema, signalOption(signal)),
   decideReview: (id: string, input: ReviewDecisionInput) =>

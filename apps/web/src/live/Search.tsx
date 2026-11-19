@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import type { ProjectRecord } from '@cert-board/shared';
-import type { ConversationDetail } from './api.js';
+import { api, type ConversationDetail } from './api.js';
 import { ShellIcon } from './ShellIcon.js';
 
 function highlight(value: string, search: string) {
@@ -29,6 +30,8 @@ export function Search({
   returnFocus,
   onProject,
   onConversation,
+  userId,
+  onVerification,
 }: {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -42,11 +45,22 @@ export function Search({
   returnFocus: RefObject<HTMLElement | null>;
   onProject(id: string): void;
   onConversation(conversation: ConversationDetail): void;
+  userId: string;
+  onVerification(id: string): void;
 }) {
   const [query, setQuery] = useState('');
   const [activeKey, setActiveKey] = useState<string>();
   const input = useRef<HTMLInputElement>(null);
   const search = query.trim().toLocaleLowerCase();
+  const verification = useInfiniteQuery({
+    queryKey: ['live', 'verification-search', userId, search],
+    queryFn: ({ signal, pageParam }) => api.verificationRooms(pageParam, search, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
+    enabled: open && search.length > 0,
+    retry: false,
+  });
+  const verificationMatches = verification.data?.pages.flatMap(({ items }) => items) ?? [];
   const projectMatches = projects.filter((project) =>
     project.name.toLocaleLowerCase().includes(search),
   );
@@ -56,6 +70,7 @@ export function Search({
   const optionKeys = [
     ...conversationMatches.map((conversation) => `conversation-${conversation.id}`),
     ...projectMatches.map((project) => `project-${project.id}`),
+    ...verificationMatches.map((room) => `verification-${room.id}`),
   ];
   const resultCount = optionKeys.length;
   const selectedKey = activeKey && optionKeys.includes(activeKey) ? activeKey : optionKeys[0];
@@ -69,8 +84,11 @@ export function Search({
   function choose(index: number) {
     const thread = conversationMatches[index];
     const project = projectMatches[index - conversationMatches.length];
+    const verificationRoom =
+      verificationMatches[index - conversationMatches.length - projectMatches.length];
     if (thread) onConversation(thread);
     else if (project) onProject(project.id);
+    else if (verificationRoom) onVerification(verificationRoom.id);
     else return;
     onOpenChange(false);
   }
@@ -92,7 +110,7 @@ export function Search({
         >
           <Dialog.Title className="sr-only">搜索项目或对话</Dialog.Title>
           <Dialog.Description className="sr-only">
-            查找项目名和已加载的对话标题。
+            查找项目名、对话标题和核实记录。
           </Dialog.Description>
           <div className="live-search-bar">
             <ShellIcon name="search" />
@@ -105,6 +123,7 @@ export function Search({
               aria-controls="live-search-results"
               aria-activedescendant={activeOptionId}
               placeholder="输入项目名或对话标题"
+              maxLength={100}
               value={query}
               onChange={(event) => {
                 setQuery(event.target.value);
@@ -193,11 +212,62 @@ export function Search({
                   })}
                 </section>
               )}
+              {verificationMatches.length > 0 && (
+                <section role="group" aria-label="核实记录">
+                  <h3 aria-hidden="true">核实记录</h3>
+                  {verificationMatches.map((room, offset) => {
+                    const index = conversationMatches.length + projectMatches.length + offset;
+                    return (
+                      <button
+                        id={`live-search-option-${optionKeys[index]}`}
+                        className={
+                          selected === index
+                            ? 'live-search-result is-current'
+                            : 'live-search-result'
+                        }
+                        key={room.id}
+                        type="button"
+                        role="option"
+                        aria-selected={selected === index}
+                        tabIndex={-1}
+                        onFocus={() => setActiveKey(optionKeys[index])}
+                        onClick={() => choose(index)}
+                      >
+                        <ShellIcon name="sparkle" />
+                        <span>
+                          {highlight(room.title, search)}
+                          {room.projectName && <small>{room.projectName}</small>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </section>
+              )}
             </div>
             {loading && (
               <p className="live-muted" role="status">
                 正在加载对话…
               </p>
+            )}
+            {verification.isFetching && (
+              <p className="live-muted" role="status">
+                正在查找核实记录…
+              </p>
+            )}
+            {verification.isError && !loading && !error && (
+              <p className="live-error" role="alert">
+                核实记录暂时无法查询。
+              </p>
+            )}
+            {verification.hasNextPage && (
+              <button
+                type="button"
+                className="live-text-button"
+                disabled={verification.isFetchingNextPage}
+                onClick={() => void verification.fetchNextPage()}
+              >
+                加载更多核实记录
+              </button>
             )}
             {error && (
               <p className="live-error" role="alert">
@@ -207,9 +277,11 @@ export function Search({
                 </button>
               </p>
             )}
-            {!loading && !error && resultCount === 0 && (
-              <p className="live-muted">当前列表没有匹配结果。</p>
-            )}
+            {!loading &&
+              !error &&
+              !verification.isFetching &&
+              !verification.isError &&
+              resultCount === 0 && <p className="live-muted">当前列表没有匹配结果。</p>}
             {hasMore && (
               <button
                 className="live-text-button"

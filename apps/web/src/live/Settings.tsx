@@ -5,6 +5,7 @@ import type { PublicUser } from '@cert-board/shared';
 import { errorMessage } from './api.js';
 import { ShellIcon } from './ShellIcon.js';
 import type { StreamConnection } from './useConversationStream.js';
+import { ExternalSettings, ExternalUsageSummary } from './ExternalSettings.js';
 import './pages.css';
 
 const managementSections = [
@@ -25,6 +26,7 @@ export function Settings({
   maintenance,
   onMaintenanceChange,
   notificationConnection,
+  openVerification,
 }: {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -34,6 +36,7 @@ export function Settings({
   maintenance: boolean;
   onMaintenanceChange(value: boolean): void;
   notificationConnection: StreamConnection;
+  openVerification(roomId: string): void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -107,6 +110,9 @@ export function Settings({
             <div className="live-settings-columns">
               <nav className="live-page-card live-settings-nav" aria-label="设置分类">
                 <a href="#account-current">个人与通知</a>
+                <a href="#external-verification-settings">外部模型</a>
+                <a href="#external-model-words">保密词表</a>
+                <a href="#external-model-archive">外发记录</a>
                 {user.isManagement && (
                   <button
                     ref={maintenanceEntry}
@@ -168,6 +174,11 @@ export function Settings({
                     {busy ? '正在退出…' : '退出登录'}
                   </button>
                 </section>
+                <ExternalSettings
+                  userId={user.id}
+                  management={user.isManagement}
+                  openRoom={openVerification}
+                />
                 <section id="about-cert-board" className="live-page-card">
                   <header className="live-page-card-head">
                     <h2>关于</h2>
@@ -199,8 +210,15 @@ function Maintenance({ user }: { user: PublicUser }) {
           {title === '用户与权限' && (
             <p className="live-page-message">{user.displayName} · 管理权限已启用</p>
           )}
+          {title === '预算与用量' && <ExternalUsageSummary userId={user.id} view="budget" />}
+          {title === '模型配置' && <ExternalUsageSummary userId={user.id} view="models" />}
+          {title === '告警' && <ExternalUsageSummary userId={user.id} view="alert" />}
           <p className="live-page-message live-muted">
-            {title === '用户与权限' ? '账号管理尚未接入。' : '尚未接入'}
+            {title === '用户与权限'
+              ? '账号管理尚未接入。'
+              : title === '预算与用量'
+                ? '其他预算视图尚未接入。'
+                : '尚未接入'}
           </p>
         </section>
       ))}

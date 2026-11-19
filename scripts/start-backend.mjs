@@ -11,6 +11,7 @@ const baseKeys = [
   'LOG_LEVEL',
   'WEB_ORIGIN',
   'SESSION_TTL_HOURS',
+  'EXTERNAL_MODEL_MONTHLY_USD',
   'DATABASE_URL',
   'TEST_DATABASE_URL',
   'MINIO_ENDPOINT',
@@ -36,13 +37,17 @@ const systemKeys = new Set([
 ]);
 
 export function backendEnvironment(kind, local, inherited = process.env) {
-  if (!['api', 'worker'].includes(kind)) throw new Error('仅支持api或worker启动方式。');
+  if (!['api', 'worker', 'verification'].includes(kind))
+    throw new Error('仅支持 api、worker 或 verification 启动方式。');
   const environment = Object.fromEntries(
     Object.entries(inherited).filter(([key]) => systemKeys.has(key.toUpperCase())),
   );
   const allowed = [
     ...baseKeys,
-    ...(kind === 'worker' ? ['OPENROUTER_API_KEY', 'HTTPS_PROXY'] : []),
+    ...(kind !== 'api' ? ['OPENROUTER_API_KEY', 'HTTPS_PROXY'] : []),
+    ...(kind === 'verification'
+      ? ['CERT_CURSOR_BUNDLE', 'CERT_CURSOR_PROFILE', 'CERT_CURSOR_PRIVACY_CONFIRMED']
+      : []),
   ];
   for (const key of allowed) if (local[key] !== undefined) environment[key] = local[key];
   return environment;
@@ -57,7 +62,7 @@ export async function startBackend(kind) {
     'apps',
     'backend',
     'src',
-    kind === 'api' ? 'server.ts' : 'worker.ts',
+    { api: 'server.ts', worker: 'worker.ts', verification: 'verification-worker.ts' }[kind],
   );
   const child = spawn(process.execPath, ['--import', 'tsx', entry], {
     cwd: root,

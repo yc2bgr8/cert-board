@@ -1,4 +1,10 @@
 import { sql } from 'drizzle-orm';
+import type {
+  VerificationClaim,
+  VerificationConclusion,
+  VerificationModel,
+  VerificationSettingsInput,
+} from '@cert-board/shared';
 import {
   boolean,
   date,
@@ -1405,6 +1411,181 @@ export const budgetReconciliation = pgTable(
     check('budget_reconciliation_fingerprint_format', sql`${table.fingerprint} ~ '^[0-9a-f]{64}$'`),
   ],
 );
+
+export const externalModelExchangeStatus = pgEnum('external_model_exchange_status', [
+  'reserved',
+  'awaiting_receipt',
+  'settled',
+  'unknown',
+  'not_sent',
+]);
+export const verificationStatus = pgEnum('verification_status', [
+  'discussing',
+  'completed',
+  'paused',
+]);
+export const verificationChannel = pgEnum('verification_channel', ['cursor', 'gateway']);
+export const verificationPostKind = pgEnum('verification_post_kind', [
+  'host',
+  'human',
+  'model',
+  'system',
+  'summary',
+]);
+
+export const externalModelConversation = pgTable(
+  'external_model_conversation',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    title: varchar('title', { length: 160 }).notNull(),
+    projectId: uuid('project_id').references(() => certProject.id, { onDelete: 'restrict' }),
+    hostAgent: agentCode('host_agent').notNull().default('registration'),
+    state: verificationStatus('state').notNull().default('discussing'),
+    participants: jsonb('participants').$type<VerificationModel[]>().notNull().default([]),
+    nextPosition: integer('next_position').notNull().default(1),
+    lastHandledPosition: integer('last_handled_position').notNull().default(0),
+    humanJoined: boolean('human_joined').notNull().default(false),
+    stoppedBy: uuid('stopped_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    activeModel: varchar('active_model', { length: 64 }),
+    leaseId: uuid('lease_id'),
+    leasedAt: timestamp('leased_at', { withTimezone: true }),
+    conclusion: jsonb('conclusion').$type<VerificationConclusion>(),
+    ...timestamps(),
+  },
+  (table) => [
+    check('external_model_conversation_title_present', sql`length(btrim(${table.title})) > 0`),
+    index('external_model_conversation_owner_idx').on(table.userId, table.updatedAt),
+    index('external_model_conversation_project_idx').on(table.projectId, table.updatedAt),
+  ],
+);
+
+export const externalModelWord = pgTable(
+  'external_model_word',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    phrase: varchar('phrase', { length: 120 }).notNull(),
+    normalized: varchar('normalized', { length: 240 }).notNull().unique(),
+    category: varchar('category', { length: 24 }).notNull(),
+    active: boolean('active').notNull().default(true),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    ...timestamps(),
+  },
+  (table) => [
+    check('external_model_word_phrase_present', sql`length(btrim(${table.phrase})) > 0`),
+    check(
+      'external_model_word_category_known',
+      sql`${table.category} IN ('customer','product','price','contract','other')`,
+    ),
+  ],
+);
+
+export const externalModelExchange = pgTable(
+  'external_model_exchange',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => externalModelConversation.id, { onDelete: 'restrict' }),
+    requestKey: uuid('request_key').notNull().unique(),
+    requestFingerprint: varchar('request_fingerprint', { length: 64 }).notNull(),
+    model: varchar('model', { length: 64 }).notNull(),
+    channel: verificationChannel('channel').notNull().default('gateway'),
+    originalText: text('original_text').notNull(),
+    attachments: jsonb('attachments')
+      .$type<{ versionId: string; path: string }[]>()
+      .notNull()
+      .default([]),
+    search: boolean('search').notNull(),
+    sent: jsonb('sent').$type<Record<string, unknown>>().notNull(),
+    returned: jsonb('returned').$type<Record<string, unknown>>(),
+    answer: text('answer'),
+    references: jsonb('references').$type<{ title: string; url: string }[]>().notNull().default([]),
+    replacementCount: integer('replacement_count').notNull(),
+    monthKey: varchar('month_key', { length: 7 }).notNull(),
+    status: externalModelExchangeStatus('status').notNull().default('reserved'),
+    reservedNano: bigint('reserved_nano', { mode: 'bigint' }).notNull(),
+    actualNano: bigint('actual_nano', { mode: 'bigint' }),
+    dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
+    ...timestamps(),
+  },
+  (table) => [
+    check(
+      'external_model_exchange_fingerprint',
+      sql`${table.requestFingerprint} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check('external_model_exchange_month', sql`${table.monthKey} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
+    check(
+      'external_model_exchange_amounts',
+      sql`${table.reservedNano} >= 0 AND ${table.replacementCount} >= 0
+      AND (${table.actualNano} IS NULL OR ${table.actualNano} >= 0)`,
+    ),
+    check(
+      'external_model_exchange_state',
+      sql`
+      (${table.status}='settled' AND ${table.actualNano} IS NOT NULL AND (${table.answer} IS NULL OR ${table.returned} IS NOT NULL))
+      OR (${table.status} IN ('reserved','unknown','awaiting_receipt') AND ${table.actualNano} IS NULL AND ${table.answer} IS NULL
+          AND (${table.status}<>'awaiting_receipt' OR (${table.dispatchedAt} IS NOT NULL AND ${table.returned} IS NULL)))
+      OR (${table.status}='not_sent' AND ${table.actualNano} IS NOT NULL AND ${table.actualNano}=0 AND ${table.answer} IS NULL)`,
+    ),
+    index('external_model_exchange_conversation_idx').on(table.conversationId, table.createdAt),
+    index('external_model_exchange_month_idx').on(table.monthKey),
+  ],
+);
+
+export const verificationPost = pgTable(
+  'verification_post',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => externalModelConversation.id, { onDelete: 'restrict' }),
+    position: integer('position').notNull(),
+    type: verificationPostKind('type').notNull(),
+    author: varchar('author', { length: 120 }).notNull(),
+    userId: uuid('user_id').references(() => appUser.id, { onDelete: 'restrict' }),
+    model: varchar('model', { length: 64 }),
+    channel: verificationChannel('channel'),
+    round: integer('round'),
+    text: text('text').notNull(),
+    mention: varchar('mention', { length: 64 }),
+    compactsThrough: integer('compacts_through'),
+    redactionHash: varchar('redaction_hash', { length: 64 }),
+    claims: jsonb('claims').$type<VerificationClaim[]>().notNull().default([]),
+    archiveId: uuid('archive_id').references(() => externalModelExchange.id, {
+      onDelete: 'restrict',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('verification_post_position_unique').on(table.roomId, table.position),
+    check('verification_post_position_positive', sql`${table.position}>0`),
+    check('verification_post_text_present', sql`length(btrim(${table.text}))>0`),
+  ],
+);
+
+export const verificationPreference = pgTable(
+  'verification_preference',
+  {
+    id: uuid('id').primaryKey(),
+    autoRounds: integer('auto_rounds').notNull().default(7),
+    models: jsonb('models').$type<VerificationSettingsInput['models']>().notNull(),
+    ...timestamps(),
+  },
+  (table) => [check('verification_auto_rounds_range', sql`${table.autoRounds} BETWEEN 1 AND 20`)],
+);
+
+export const verificationWorkerState = pgTable('verification_worker_state', {
+  id: uuid('id').primaryKey(),
+  workerId: uuid('worker_id').notNull(),
+  status: varchar('status', { length: 32 }).notNull(),
+  recheckAt: timestamp('recheck_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const runEventType = pgEnum('run_event_type', [
   'run_started',

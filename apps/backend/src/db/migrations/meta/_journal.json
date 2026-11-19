@@ -127,6 +127,41 @@
       "when": 1795072900758,
       "tag": "0017_budget_reconciliation",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795077214800,
+      "tag": "0018_external_model_workbench",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795082870279,
+      "tag": "0019_external_model_verification",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1795084489843,
+      "tag": "0020_verification_worker_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795086758254,
+      "tag": "0021_verification_channel_recheck",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1795089834121,
+      "tag": "0022_verification_redaction_version",
+      "breakpoints": true
     }
   ]
 }

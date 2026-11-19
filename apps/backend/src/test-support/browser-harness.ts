@@ -33,6 +33,7 @@ import { ModelGateway } from '../modelgw/service.js';
 import { executeAgentRun } from '../agent/runtime.js';
 import { buildAgentTools } from '../agent/default-tools.js';
 import { setTestReminderClock } from './internal-reminder-clock.js';
+import { verificationFixture } from './verification-fixture.js';
 import {
   browserModels,
   browserScenario,
@@ -55,7 +56,7 @@ class MemoryStore implements DocumentBlobStore {
   }
 }
 
-export async function startBrowserHarness() {
+export async function startBrowserHarness({ useVerificationWorker = false } = {}) {
   if (process.env.NODE_ENV !== 'test') throw new Error('BROWSER_HARNESS_TEST_ONLY');
   const dist = fileURLToPath(new URL('../../../web/dist/', import.meta.url));
   let index: Buffer;
@@ -222,9 +223,11 @@ export async function startBrowserHarness() {
       WEB_ORIGIN: origin,
       LOG_LEVEL: 'silent',
     });
+    const verification = verificationFixture();
     app = createApp(config, {
       database: pool,
       blobStore: store,
+      ...(useVerificationWorker ? {} : { verificationRuntime: verification.runtime }),
       checkDatabase: async () => {
         await pool.query('SELECT 1');
       },
@@ -336,6 +339,7 @@ export async function startBrowserHarness() {
       pool,
       projectId: developmentProjectId,
       maintenanceProjectId,
+      verification,
       sharedConversationId,
       credentials: { username: 'zhangsan', password: passwords.zhangsan! },
       managementCredentials: { username: 'admin', password: passwords.admin! },

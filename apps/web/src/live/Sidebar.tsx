@@ -1,4 +1,4 @@
-import type { AgentCode, ProjectRecord } from '@cert-board/shared';
+import type { AgentCode, ExternalModelConversation, ProjectRecord } from '@cert-board/shared';
 import type { ConversationDetail } from './api.js';
 import { ShellIcon } from './ShellIcon.js';
 import { Logo } from './Logo.js';
@@ -32,6 +32,13 @@ type Props = {
   count: number;
   truncated: boolean;
   displayName: string;
+  external: boolean;
+  externalId: string | null;
+  externalConversations: readonly ExternalModelConversation[];
+  externalLoading: boolean;
+  externalHasMore: boolean;
+  externalLoadingMore: boolean;
+  externalError: string | null;
   onProject(projectId: string): void;
   onAgent(agent: AgentCode): void;
   onConversation(conversation: ConversationDetail): void;
@@ -39,6 +46,10 @@ type Props = {
   onSearch(): void;
   onInbox(): void;
   onSettings(): void;
+  onExternal(): void;
+  onExternalConversation(id: string): void;
+  onExternalNew(): void;
+  onExternalMore(): void;
   onClose(): void;
 };
 export function Sidebar(props: Props) {
@@ -173,7 +184,7 @@ export function Sidebar(props: Props) {
             key={code}
             className="live-agent-button"
             type="button"
-            aria-pressed={props.agent === code}
+            aria-pressed={!props.external && props.agent === code}
             onClick={() => props.onAgent(code)}
           >
             <span>
@@ -182,55 +193,120 @@ export function Sidebar(props: Props) {
             {label}
           </button>
         ))}
+        <button
+          type="button"
+          className="live-agent-button"
+          aria-label="外部模型"
+          aria-pressed={props.external}
+          onClick={props.onExternal}
+        >
+          <span>
+            <ShellIcon name="sparkle" />
+          </span>
+          外部模型
+          <small className="external-sidebar-badge" aria-hidden="true">
+            外部
+          </small>
+        </button>
       </section>
       <div className="live-navigation-scroll">
-        {props.projectsLoading && (
-          <p className="live-nav-note" role="status">
-            正在加载项目…
-          </p>
-        )}
-        {props.projectsError && (
-          <div className="live-nav-note">
-            <p>项目暂时无法加载。</p>
-            <button className="live-text-button" type="button" onClick={props.retryProjects}>
-              重试项目列表
-            </button>
-          </div>
-        )}
-        {group(props.agent, props.agent === 'registration' ? '注册项目' : '维护事项')}
-        {(unassigned.length > 0 || props.hasMoreUnassigned) && (
-          <section className="live-project-group" aria-label="未关联项目的对话">
-            <h2>未关联项目</h2>
-            {unassigned.map((conversation) => (
+        {props.external ? (
+          <section className="live-project-group" aria-label="外部核实记录">
+            <div className="external-sidebar-heading">
+              <h2>核实记录</h2>
               <button
-                className={`live-thread-item${props.conversationId === conversation.id ? ' is-selected' : ''}`}
+                type="button"
+                className="live-icon-button"
+                aria-label="发起外部核实"
+                onClick={props.onExternalNew}
+              >
+                <ShellIcon name="plus" />
+              </button>
+            </div>
+            {props.externalLoading && (
+              <p className="live-nav-note" role="status">
+                正在加载对话…
+              </p>
+            )}
+            {props.externalError && (
+              <p className="live-nav-note" role="alert">
+                {props.externalError}
+              </p>
+            )}
+            {props.externalConversations.map((conversation) => (
+              <button
                 type="button"
                 key={conversation.id}
-                aria-label={`切换到对话：${conversation.title}`}
-                onClick={() => props.onConversation(conversation)}
+                aria-label={`打开核实：${conversation.title}`}
+                aria-current={props.externalId === conversation.id ? 'page' : undefined}
+                className={`live-thread-item${props.externalId === conversation.id ? ' is-selected' : ''}`}
+                onClick={() => props.onExternalConversation(conversation.id)}
               >
                 {conversation.title}
               </button>
             ))}
-            {props.hasMoreUnassigned && (
+            {props.externalHasMore && (
               <button
-                className="live-nav-note live-text-button"
                 type="button"
-                onClick={props.loadMoreUnassigned}
+                className="live-text-button"
+                disabled={props.externalLoadingMore}
+                onClick={props.onExternalMore}
               >
-                加载更多未关联对话
+                加载更多核实记录
               </button>
             )}
           </section>
-        )}
-        {props.hasMoreProjects && (
-          <button
-            className="live-nav-note live-text-button"
-            type="button"
-            onClick={props.loadMoreProjects}
-          >
-            加载更多项目
-          </button>
+        ) : (
+          <>
+            {props.projectsLoading && (
+              <p className="live-nav-note" role="status">
+                正在加载项目…
+              </p>
+            )}
+            {props.projectsError && (
+              <div className="live-nav-note">
+                <p>项目暂时无法加载。</p>
+                <button className="live-text-button" type="button" onClick={props.retryProjects}>
+                  重试项目列表
+                </button>
+              </div>
+            )}
+            {group(props.agent, props.agent === 'registration' ? '注册项目' : '维护事项')}
+            {(unassigned.length > 0 || props.hasMoreUnassigned) && (
+              <section className="live-project-group" aria-label="未关联项目的对话">
+                <h2>未关联项目</h2>
+                {unassigned.map((conversation) => (
+                  <button
+                    className={`live-thread-item${props.conversationId === conversation.id ? ' is-selected' : ''}`}
+                    type="button"
+                    key={conversation.id}
+                    aria-label={`切换到对话：${conversation.title}`}
+                    onClick={() => props.onConversation(conversation)}
+                  >
+                    {conversation.title}
+                  </button>
+                ))}
+                {props.hasMoreUnassigned && (
+                  <button
+                    className="live-nav-note live-text-button"
+                    type="button"
+                    onClick={props.loadMoreUnassigned}
+                  >
+                    加载更多未关联对话
+                  </button>
+                )}
+              </section>
+            )}
+            {props.hasMoreProjects && (
+              <button
+                className="live-nav-note live-text-button"
+                type="button"
+                onClick={props.loadMoreProjects}
+              >
+                加载更多项目
+              </button>
+            )}
+          </>
         )}
       </div>
       <div className="live-sidebar-footer">
