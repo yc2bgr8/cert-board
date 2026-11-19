@@ -155,6 +155,13 @@
       "when": 1795086758254,
       "tag": "0021_verification_channel_recheck",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1795089834121,
+      "tag": "0022_verification_redaction_version",
+      "breakpoints": true
     }
   ]
 }

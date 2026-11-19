@@ -1554,6 +1554,7 @@ export const verificationPost = pgTable(
     text: text('text').notNull(),
     mention: varchar('mention', { length: 64 }),
     compactsThrough: integer('compacts_through'),
+    redactionHash: varchar('redaction_hash', { length: 64 }),
     claims: jsonb('claims').$type<VerificationClaim[]>().notNull().default([]),
     archiveId: uuid('archive_id').references(() => externalModelExchange.id, {
       onDelete: 'restrict',

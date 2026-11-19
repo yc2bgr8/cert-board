@@ -548,6 +548,19 @@ test('多次重复同一保密词时按实际代号长度判断原话可以发�
 
 test('词表在握手期间变化时丢弃旧发送计划，再按最新规则继续', async () => {
   await rounds(1);
+  await app.inject({
+    method: 'POST',
+    url: '/api/external-model/words',
+    headers,
+    payload: { phrase: '隐', category: 'other' },
+  });
+  const newlyProtected = '多字短保密词';
+  const firstHostText = '页'.repeat(598) + newlyProtected;
+  const moderate = fixture.runtime.moderate;
+  fixture.runtime.moderate = async (context) =>
+    context.attempts['gpt-flagship']
+      ? moderate(context)
+      : { text: firstHostText, call: 'gpt-flagship', finish: false };
   let handshakeReady!: () => void;
   let allowDispatch!: () => void;
   const handshake = new Promise<void>((resolve) => {
@@ -564,14 +577,14 @@ test('词表在握手期间变化时丢弃旧发送计划，再按最新规则�
     }
     return send(model, prompt, dispatch);
   };
-  const id = await start('合成核实问题。');
+  const id = await start('隐'.repeat(520));
   await handshake;
   try {
     const changed = await app.inject({
       method: 'POST',
       url: '/api/external-model/words',
       headers,
-      payload: { phrase: '新增词表条目', category: 'other' },
+      payload: { phrase: newlyProtected, category: 'other' },
     });
     expect(changed.statusCode).toBe(200);
   } finally {
@@ -579,4 +592,10 @@ test('词表在握手期间变化时丢弃旧发送计划，再按最新规则�
   }
   await expect.poll(async () => (await detail(id)).room.status).toBe('completed');
   expect(fixture.requests.map(({ model }) => model)).toEqual(['claude-flagship']);
+  const outbound = fixture.requests[0]!.prompt.transcript.map(({ text }) => text).join('\n');
+  expect(outbound).not.toContain('页'.repeat(25));
+  expect(outbound).not.toContain(newlyProtected);
+  expect(
+    (await detail(id)).messages.some(({ type, text }) => type === 'host' && text === firstHostText),
+  ).toBe(true);
 });

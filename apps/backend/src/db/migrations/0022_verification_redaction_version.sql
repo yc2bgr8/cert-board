@@ -1,0 +1,1 @@
+ALTER TABLE "verification_post" ADD COLUMN "redaction_hash" varchar(64);

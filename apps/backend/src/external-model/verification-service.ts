@@ -45,6 +45,8 @@ const preferencesId = 'e78e2bd8-2e90-49a8-91c9-ba189c2746ab';
 const promptTextLimit = 24000;
 const hostTextReserve = 2000;
 const summaryTextReserve = 3800;
+const redactionHash = (words: string[]) =>
+  createHash('sha256').update(JSON.stringify(words)).digest('hex');
 function outboundTextLength(messages: readonly { text: string }[], words: string[]) {
   if (messages.reduce((size, { text }) => size + text.length, 0) > 32000) return Infinity;
   const redacted = redactExternalMessages(
@@ -132,11 +134,13 @@ type PostRow = Omit<VerificationMessage, 'createdAt' | 'sources' | 'redactions'>
   position: number;
   claims: unknown;
   compactsThrough: number | null;
+  redactionHash: string | null;
   redactions: number | null;
 };
 const postColumns = `
   m.id,m.type,m.author,m.model,m.round,m.channel,m.text,m.mention,m.position,
   m.user_id AS "userId",m.claims,m.archive_id AS "archiveId",m.compacts_through AS "compactsThrough",
+  m.redaction_hash AS "redactionHash",
   e.replacement_count AS redactions,m.created_at AS "createdAt"`;
 const postFrom = 'verification_post m LEFT JOIN external_model_exchange e ON e.id=m.archive_id';
 function publicPost(row: PostRow) {
@@ -171,6 +175,7 @@ type Append = Pick<VerificationMessage, 'type' | 'author' | 'text'> & {
   claims?: VerificationClaim[];
   archiveId?: string;
   compactsThrough?: number;
+  redactionHash?: string;
 };
 
 export class VerificationRooms {
@@ -321,8 +326,8 @@ export class VerificationRooms {
     );
     const id = post.id ?? randomUUID();
     await db.query(
-      `INSERT INTO verification_post(id,room_id,position,type,author,text,user_id,mention,model,channel,round,claims,archive_id,compacts_through)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      `INSERT INTO verification_post(id,room_id,position,type,author,text,user_id,mention,model,channel,round,claims,archive_id,compacts_through,redaction_hash)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
       [
         id,
         roomId,
@@ -338,6 +343,7 @@ export class VerificationRooms {
         JSON.stringify(post.claims ?? []),
         post.archiveId ?? null,
         post.compactsThrough ?? null,
+        post.redactionHash ?? null,
       ],
     );
     return id;
@@ -700,11 +706,16 @@ export class VerificationRooms {
     active?: PostRow,
     previousHuman?: PostRow,
   ) {
+    const wordHash = redactionHash(words);
     const existing = history.findLast(
-      ({ type, compactsThrough }) => type === 'summary' && compactsThrough !== null,
+      ({ type, compactsThrough, redactionHash: saved }) =>
+        type === 'summary' && compactsThrough !== null && saved === wordHash,
     );
     const uncompacted = history.filter(
-      ({ position, type }) => position > (existing?.compactsThrough ?? 0) && type !== 'summary',
+      ({ position, type, redactionHash: saved }) =>
+        position > (existing?.compactsThrough ?? 0) &&
+        type !== 'summary' &&
+        (type !== 'host' || saved === wordHash),
     );
     const required = [
       ...new Map(
@@ -765,16 +776,13 @@ export class VerificationRooms {
       this.pool,
       redactExternalMessages([{ role: 'user', content: summaryDraft }], words).messages,
     );
-    const compacted = fitProtectedPrefix(summaryDraft, words, summaryTextReserve, Infinity);
-    const excerpt = fittingOutboundText(
-      compacted || shortSummary,
-      words,
-      kept,
-      summaryTextReserve,
-      budget,
-      summaryTextReserve,
-      true,
-    );
+    const compacted =
+      summaryDraft.length <= 32000 && !/[\p{Surrogate}\0]/u.test(summaryDraft)
+        ? summaryDraft.trim()
+        : '';
+    const fit = (text: string) =>
+      fittingOutboundText(text, words, kept, summaryTextReserve, budget, summaryTextReserve, true);
+    const excerpt = fit(compacted) || fit(shortSummary);
     const latest = Math.max(existing?.compactsThrough ?? 0, older.at(-1)?.position ?? 0);
     const summary = await this.transaction(async (db) => {
       const postId = await this.append(db, id, {
@@ -782,6 +790,7 @@ export class VerificationRooms {
         author: '主持人',
         text: compacted || shortSummary,
         compactsThrough: latest,
+        redactionHash: wordHash,
       });
       const { rows } = await db.query<PostRow>(
         `SELECT ${postColumns} FROM ${postFrom} WHERE m.id=$1`,
@@ -842,7 +851,7 @@ export class VerificationRooms {
                 });
             });
           }
-          await this.finish(work, context, runtime);
+          await this.finish(work, context, runtime, redactionHash(words));
           continue;
         }
         const direct = work.participants.find(({ id: model }) => model === work.pending?.mention);
@@ -853,7 +862,7 @@ export class VerificationRooms {
           ? null
           : moderatorTurnSchema.parse(await runtime.moderate(context));
         if (moderation?.finish && !work.room.humanJoined && !firstRound) {
-          await this.finish(work, context, runtime);
+          await this.finish(work, context, runtime, redactionHash(words));
           continue;
         }
         const choice =
@@ -882,21 +891,22 @@ export class VerificationRooms {
             const created = await this.append(db, id, {
               type: 'host',
               author: hostName(current.host),
-              text: text || '主持人已安排下一轮核实。',
+              text: candidate,
+              redactionHash: redactionHash(words),
               ...(choice ? { mention: choice.id } : {}),
             });
             const { rows } = await db.query<PostRow>(
               `SELECT ${postColumns} FROM ${postFrom} WHERE m.id=$1`,
               [created],
             );
-            return text ? publicPost(rows[0]!) : null;
+            return text ? { ...publicPost(rows[0]!), text } : null;
           });
           if (post) transcript.push(post);
         }
         if (choice) {
           await this.callModel(work, choice, transcript, runtime, words);
         } else if (!work.pending && moderation) {
-          await this.finish(work, { ...context, transcript }, runtime);
+          await this.finish(work, { ...context, transcript }, runtime, redactionHash(words));
         } else {
           await this.transaction((db) =>
             this.release(db, id, work.leaseId, work.pending?.position),
@@ -1137,6 +1147,7 @@ export class VerificationRooms {
     work: NonNullable<Awaited<ReturnType<VerificationRooms['claim']>>>,
     context: ModeratorContext,
     runtime: VerificationRuntime,
+    wordHash: string,
   ) {
     const moderated = moderatorSummarySchema.parse(await runtime.summarize(context));
     const conclusion = arrangeVerificationConclusion(
@@ -1167,6 +1178,7 @@ export class VerificationRooms {
       await this.append(db, room.id, {
         type: 'host',
         author: hostName(room.host),
+        redactionHash: wordHash,
         text: room.stoppedBy
           ? `被${room.stoppedBy}中途停止。\n${conclusion.summary}`
           : conclusion.summary,
