@@ -6,7 +6,6 @@ import {
   type VerificationSource,
   type VerificationSourceCheck,
 } from '@cert-board/shared';
-import { AppError } from '../api/errors.js';
 import { quoteAppears } from '../checks/quotes.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import type { FetcherClient } from '../documents/fetcher-client.js';
@@ -82,21 +81,36 @@ export async function readCheckedConclusion(
   );
 }
 
-async function scopeAllowed(db: PoolClient, scope: SourceScope) {
+async function scopeAllowed(db: PoolClient, scope: SourceScope, lock = false) {
+  if (lock) {
+    await db.query(
+      `SELECT goal.id FROM verification_link link JOIN run r ON r.id=link.run_id
+       JOIN goal ON goal.id=r.goal_id WHERE link.room_id=$1 FOR SHARE OF goal`,
+      [scope.roomId],
+    );
+    await db.query(
+      `SELECT c.id FROM verification_link link JOIN conversation c ON c.id=link.conversation_id
+       WHERE link.room_id=$1 FOR SHARE OF c`,
+      [scope.roomId],
+    );
+  }
   const allowed = await db.query(
     `SELECT 1 FROM external_model_conversation room
       JOIN app_user initiator ON initiator.id=room.user_id AND initiator.status='active'
       LEFT JOIN verification_link link ON link.room_id=room.id
       LEFT JOIN conversation convo ON convo.id=link.conversation_id
       LEFT JOIN run origin_run ON origin_run.id=link.run_id
+      LEFT JOIN goal origin_goal ON origin_goal.id=origin_run.goal_id AND origin_goal.project_id=room.project_id
       WHERE room.id=$1 AND room.lease_id=$2 AND room.state='discussing' AND room.project_id=$3
       AND (link.room_id IS NULL OR (
-        convo.project_id=room.project_id AND convo.permission_mode<>'read_only'
+        convo.project_id=room.project_id AND convo.status='active' AND convo.permission_mode<>'read_only'
         AND convo.max_data_level<>'confidential' AND origin_run.max_data_level<>'confidential'
+        AND origin_run.goal_id IS NOT DISTINCT FROM convo.goal_id
+        AND (origin_run.goal_id IS NULL OR origin_goal.status='active')
       )) AND NOT EXISTS (
         SELECT 1 FROM document doc JOIN document_version ver ON ver.document_id=doc.id
         WHERE doc.project_id=room.project_id AND ver.data_level='confidential'
-      )`,
+      ) ${lock ? 'FOR SHARE OF room,initiator' : ''}`,
     [scope.roomId, scope.leaseId, scope.projectId],
   );
   return !!allowed.rowCount;
@@ -137,7 +151,7 @@ export function createVerificationSourceChecker(
         };
 
       const downloaded = await downloadPublicWebSnapshot(fetcher, url, signal);
-      if (signal.aborted || !(await scopeAllowed(db, scope))) return null;
+      if (signal.aborted || !(await scopeAllowed(db, scope, true))) return null;
       const { saved, archive } = await archivePublicWebSnapshot(
         pool,
         store,
@@ -154,9 +168,6 @@ export function createVerificationSourceChecker(
         sha256: archive.sha256,
         text: downloaded.snapshot.text,
       };
-    } catch (error) {
-      if (!(error instanceof AppError)) throw error;
-      return null;
     } finally {
       if (!committed) await db.query('ROLLBACK').catch(() => undefined);
       db.release();
@@ -174,10 +185,11 @@ export function createVerificationSourceChecker(
       let check: VerificationSourceCheck;
       if (!source.excerpt?.trim()) check = { status: 'excerpt_missing' };
       else if (!scope.projectId) check = { status: 'scope_unavailable' };
-      else if (!url || signal.aborted || (!archived.has(url) && archived.size >= 8))
+      else if (!url || (!archived.has(url) && (signal.aborted || archived.size >= 8)))
         check = { status: 'source_unavailable' };
       else {
-        if (!archived.has(url)) archived.set(url, await archivePage(scope, url, signal));
+        if (!archived.has(url))
+          archived.set(url, await archivePage(scope, url, signal).catch(() => null));
         const page = archived.get(url);
         if (!page?.text.trim()) check = { status: 'source_unavailable' };
         else if (!quoteAppears(page.text, source.excerpt)) check = { status: 'excerpt_mismatch' };

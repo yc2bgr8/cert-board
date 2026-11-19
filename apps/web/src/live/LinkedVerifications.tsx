@@ -1,5 +1,5 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
-import type { VerificationLinkView } from '@cert-board/shared';
+import { verificationArchiveKey, type VerificationLinkView } from '@cert-board/shared';
 import { api, ApiError } from './api.js';
 import { ShellIcon } from './ShellIcon.js';
 import type { EvidenceTarget } from './review-navigation.js';
@@ -120,7 +120,8 @@ export function LinkedVerificationRows({
               openEvidence &&
               sources.some(({ check }) => check?.status === 'verified') && (
                 <ul className="verification-sources" aria-label="外部核实出处">
-                  {sources.map(({ check, excerpt, title, url }) => {
+                  {sources.map((source) => {
+                    const { check, excerpt, title } = source;
                     if (check?.status !== 'verified') return null;
                     const target = {
                       documentId: check.documentId,
@@ -129,7 +130,7 @@ export function LinkedVerificationRows({
                       ...(excerpt ? { quote: excerpt } : {}),
                     };
                     return (
-                      <li key={url}>
+                      <li key={verificationArchiveKey(source)}>
                         <button
                           className="live-review-link"
                           type="button"

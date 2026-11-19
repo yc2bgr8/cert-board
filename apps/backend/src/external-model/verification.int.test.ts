@@ -427,6 +427,18 @@ test('主模型主持使用已有本人目标和主网关，先替换保密词�
     tool_choice: 'none',
   });
   expect(JSON.stringify(complete.mock.lastCall?.[0])).toContain('文末也检查');
+  complete.mockResolvedValueOnce(localResponse);
+  expect(
+    await moderator.checkOutbound(
+      { ...input, room: { ...room, projectId: null } },
+      pending,
+      'deepseek-local',
+    ),
+  ).toBe(true);
+  expect(complete.mock.lastCall?.[1]).toMatchObject({
+    userId: review.userId,
+    conversationId: review.conversationId,
+  });
   complete.mockResolvedValueOnce({
     ...localResponse,
     message: { role: 'assistant', content: '{"allowed":false}' },

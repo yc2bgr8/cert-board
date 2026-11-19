@@ -26,7 +26,7 @@ export function createVerificationModerator(
     transcript: readonly Pick<VerificationMessage, 'type' | 'text'>[],
     localReviewModel?: string,
   ) {
-    if (!scope.room.projectId) return null;
+    if (!scope.room.projectId && !localReviewModel) return null;
     const { rows } = await database.query<{
       id: string;
       goal_id: string;
@@ -37,7 +37,7 @@ export function createVerificationModerator(
       `SELECT c.id,c.goal_id,c.project_id,c.user_id,g.direction_version
        FROM conversation c JOIN goal g ON g.id=c.goal_id AND g.project_id=c.project_id
        JOIN app_user u ON u.id=c.user_id AND u.status='active'
-       WHERE c.project_id=$1 AND c.status='active' AND g.status='active'
+       WHERE ($1::uuid IS NULL OR c.project_id=$1) AND c.status='active' AND g.status='active'
          AND (($3::uuid IS NULL AND c.user_id=$2) OR c.id=$3)
        ORDER BY c.updated_at DESC,c.id LIMIT 1`,
       [scope.room.projectId, scope.ownerId, scope.room.origin?.conversationId ?? null],

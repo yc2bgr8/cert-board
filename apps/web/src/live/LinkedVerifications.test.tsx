@@ -58,6 +58,12 @@ test('审核卡只打开已核对的站内原文，待核实出处没有证据�
           url: 'https://www.fda.gov/mismatch',
           check: { status: 'excerpt_mismatch' },
         },
+        {
+          title: '同一网页的第二处',
+          url: 'https://www.fda.gov/public',
+          excerpt: '另一段原文',
+          check: { status: 'verified', documentId, version: 2, page: 1, sha256: 'a'.repeat(64) },
+        },
       ],
     },
   ]);
@@ -67,6 +73,10 @@ test('审核卡只打开已核对的站内原文，待核实出处没有证据�
   fireEvent.click(screen.getByRole('button', { name: '已核对的出处 · 查看存档原文' }));
   expect(openEvidence).toHaveBeenCalledWith([
     { documentId, version: 2, page: 1, quote: '逐字原文' },
+  ]);
+  fireEvent.click(screen.getByRole('button', { name: '同一网页的第二处 · 查看存档原文' }));
+  expect(openEvidence).toHaveBeenLastCalledWith([
+    { documentId, version: 2, page: 1, quote: '另一段原文' },
   ]);
   expect(screen.queryByText(/不符的出处/u)).toBeNull();
   expect(screen.getByText('待核实 1')).toBeTruthy();

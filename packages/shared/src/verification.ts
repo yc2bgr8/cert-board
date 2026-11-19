@@ -244,6 +244,12 @@ export type VerificationSource = z.infer<typeof verificationSourceSchema>;
 export const sourceCheckKey = (source: VerificationSource) =>
   JSON.stringify([source.url, source.excerpt ?? null]);
 export type CheckedVerificationSource = z.infer<typeof checkedVerificationSourceSchema>;
+export function verificationArchiveKey(source: CheckedVerificationSource) {
+  const proof = source.check;
+  return proof?.status === 'verified'
+    ? JSON.stringify([proof.documentId, proof.version, proof.page, source.excerpt ?? null])
+    : null;
+}
 export type VerificationSourceCheck = z.infer<typeof verificationSourceCheckSchema>;
 export type VerificationReply = z.infer<typeof verificationReplySchema>;
 export type VerificationConclusion = z.infer<typeof verificationConclusionSchema>;

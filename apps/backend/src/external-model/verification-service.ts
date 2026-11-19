@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import {
+  verificationArchiveKey,
   externalModelConversationCursorSchema,
   verificationClaimSchema,
   verificationChannelStatusSchema,
@@ -523,7 +524,10 @@ export class VerificationRooms {
                   sources.filter(({ check }) => check?.status === 'verified'),
                 ),
               )
-              .map((source) => [source.url, source]),
+              .flatMap((source) => {
+                const key = verificationArchiveKey(source);
+                return key ? [[key, source] as const] : [];
+              }),
           ).values(),
         ).slice(0, 6);
         const result =
