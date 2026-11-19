@@ -16,6 +16,7 @@ export function intakePath(name: string) {
   if (
     !path ||
     path.length > 1024 ||
+    Buffer.byteLength(path, 'utf8') > 2400 ||
     /^(?:\/|[a-z]:)/iu.test(path) ||
     /[\p{Cc}\ufffd]/u.test(path) ||
     path
@@ -124,7 +125,5 @@ export function intakeFormat(path: string): DocumentFormat | undefined {
   const ext = /\.([^./]+)$/u.exec(path.toLowerCase())?.[1];
   const parsed = documentFormatSchema.safeParse(ext);
   if (!parsed.success || parsed.data === 'estar') return undefined;
-  return parsed.data === 'pdf' && /estar/iu.test(path.split('/').at(-1) ?? '')
-    ? 'estar'
-    : parsed.data;
+  return parsed.data;
 }

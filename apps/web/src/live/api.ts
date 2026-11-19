@@ -45,6 +45,7 @@ import {
   intakeStartResultSchema,
   intakeReportSchema,
   intakeCategoryEditSchema,
+  intakeHistorySchema,
   webArchiveInfoSchema,
   workspaceFileQuerySchema,
   workspaceFileListSchema,
@@ -109,6 +110,7 @@ export const errorMessage = (error: unknown) =>
 export const createRequestKey = () => crypto.randomUUID();
 let csrfToken: string | null = null;
 let credentialGeneration = 0;
+export const currentSessionGeneration = () => credentialGeneration;
 const expired = new Set<() => void>();
 export function setSessionCredentials(session: AuthResponse | null) {
   csrfToken = session?.csrfToken ?? null;
@@ -346,6 +348,16 @@ export const api = {
   },
   intakeReport: (id: string, signal?: AbortSignal) =>
     request('/api/intake/' + identifier(id), intakeReportSchema, signalOption(signal)),
+  intakeHistory: (projectId: string, signal?: AbortSignal) =>
+    request(
+      `/api/projects/${identifier(projectId)}/intakes`,
+      intakeHistorySchema,
+      signalOption(signal),
+    ),
+  retryIntake: (id: string) =>
+    request('/api/intake/' + identifier(id) + '/retry', intakeStartResultSchema, {
+      method: 'POST',
+    }),
   editIntakeCategory: (id: string, path: string, category: IntakeCategory) =>
     request('/api/intake/' + identifier(id) + '/category', intakeReportSchema, {
       method: 'PATCH',

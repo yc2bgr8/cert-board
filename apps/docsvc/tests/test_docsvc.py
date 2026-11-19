@@ -168,6 +168,14 @@ def test_encrypted_estar_extracts_xfa_and_deduplicates_attachments():
     assert preview.json() == {"code": "DOC_XFA_PREVIEW_UNAVAILABLE"}
 
 
+def test_content_inspection_distinguishes_pdf_and_xfa_without_names():
+    for with_xfa, kind in [(False, "pdf"), (True, "estar")]:
+        source = sample_pdf(with_xfa=with_xfa)
+        result = upload(source, "pdf", endpoint="inspect")
+        assert result.status_code == 200
+        assert result.json() == {"kind": kind, "byteSize": len(source), "sha256": sha256(source)}
+
+
 def test_filled_pdf_form_is_drawn_in_page_preview():
     data = sample_pdf(field_value="Filled fixture value")
     uploaded = upload(data, "pdf")

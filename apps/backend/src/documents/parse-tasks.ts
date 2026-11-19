@@ -22,6 +22,15 @@ const formats: Record<DocumentFormat, string> = {
 };
 
 type IntakeRegistration = { kind: 'intake'; userId: string; jobId: string; leaseToken: string };
+const transientParseCodes = [
+  'DOCSVC_UNAVAILABLE',
+  'DOC_BUSY',
+  'DOC_PROCESSING_TIMEOUT',
+  'DOC_PARSER_INTERRUPTED',
+  'DOC_RESPONSE_INVALID',
+  'BLOB_READ_FAILED',
+  'BLOB_STORAGE_UNAVAILABLE',
+];
 
 export async function queueOriginalDocument(
   pool: Pool,
@@ -75,6 +84,45 @@ export async function queueOriginalDocument(
     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [
       `${project.id}:${data.sourceKey}`,
     ]);
+    if (actor.kind === 'intake') {
+      const sameContent = (
+        await client.query<{
+          id: string;
+          document_id: string;
+          version_no: number;
+          state: string;
+          error_code: string | null;
+        }>(
+          `SELECT v.id,v.document_id,v.version_no,t.state,t.error_code
+         FROM document_version v JOIN document d ON d.id=v.document_id
+         JOIN document_parse_task t ON t.version_id=v.id
+         WHERE d.project_id=$1 AND NOT d.voided AND v.content_kind='original'
+           AND v.original_sha256=$2 AND v.data_level>=$3 AND t.format=$4
+         ORDER BY CASE t.state WHEN 'ready' THEN 0 WHEN 'failed' THEN 2 ELSE 1 END,v.created_at,v.id LIMIT 1`,
+          [project.id, sha256, data.dataLevel, data.format],
+        )
+      ).rows[0];
+      if (sameContent) {
+        if (
+          sameContent.state === 'failed' &&
+          sameContent.error_code &&
+          transientParseCodes.includes(sameContent.error_code)
+        )
+          await client.query(
+            `UPDATE document_parse_task SET state='queued',attempts=0,error_code=NULL,
+               available_at=clock_timestamp(),updated_at=clock_timestamp()
+             WHERE version_id=$1 AND state='failed'`,
+            [sameContent.id],
+          );
+        await client.query('COMMIT');
+        return {
+          documentId: sameContent.document_id,
+          versionId: sameContent.id,
+          version: sameContent.version_no,
+          created: false,
+        };
+      }
+    }
     const existing = (
       await client.query<{ id: string; voided: boolean }>(
         'SELECT id,voided FROM document WHERE project_id=$1 AND source_key=$2 FOR UPDATE',

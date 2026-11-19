@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { expect, test } from 'vitest';
 import { intakeReportSchema } from '@cert-board/shared';
 import { createApp } from '../app.js';
+import { AppError } from '../api/errors.js';
 import { processDocumentParseTask } from '../documents/parse-tasks.js';
 import { createIntegrationContext } from '../test-support/context.js';
 import { processIntakeJob } from './service.js';
@@ -40,7 +41,7 @@ test('真实数据库接收浏览器资料包，保存重复路径及 eSTAR 子�
     const zip = fixtureZip([
       { name: 'duplicate-without-extension.bin', bytes: content },
       { name: '目录/predicate.pdf', bytes: content },
-      { name: 'mock-estar.pdf', bytes: Buffer.from('fictional container') },
+      { name: 'submission.pdf', bytes: Buffer.from('fictional container') },
     ]);
     const url = `/api/intake?name=demo.zip&projectId=${context.projectId}`;
     const post = (headers: Record<string, string>) =>
@@ -67,6 +68,7 @@ test('真实数据库接收浏览器资料包，保存重复路径及 eSTAR 子�
     expect((await get()).status).toBe('queued');
     expect(
       await processIntakeJob(context.pool, store, store, {
+        inspectPdf: async (bytes) => (bytes.toString().includes('container') ? 'estar' : 'pdf'),
         estarAttachments: async () => [
           {
             name: 'demo.pdf',
@@ -86,7 +88,7 @@ test('真实数据库接收浏览器资料包，保存重复路径及 eSTAR 子�
       duplicates: 2,
     });
     expect(pending.items.find((item) => item.embedded)).toMatchObject({
-      parentPath: 'mock-estar.pdf',
+      parentPath: 'submission.pdf',
       sourceNames: ['demo.pdf', 'fixture-alias'],
       duplicate: true,
     });
@@ -121,6 +123,83 @@ test('真实数据库接收浏览器资料包，保存重复路径及 eSTAR 子�
       (await context.pool.query('SELECT count(*)::int AS total FROM document_version')).rows[0]
         ?.total,
     ).toBe(2);
+    const repeated = Buffer.from('fictional shared across separate packs');
+    for (const suffix of ['one', 'two']) {
+      const pending = await app.inject({
+        method: 'POST',
+        url: `/api/intake?projectId=${context.projectId}&name=${suffix}.zip`,
+        headers: { ...actor.headers, 'content-type': 'application/octet-stream' },
+        payload: fixtureZip([{ name: `${suffix}.pdf`, bytes: repeated }]),
+      });
+      expect(pending.statusCode).toBe(202);
+    }
+    const noAttachments = {
+      inspectPdf: async () => 'pdf' as const,
+      estarAttachments: async () => [],
+    };
+    expect(
+      await Promise.all([
+        processIntakeJob(context.pool, store, store, noAttachments),
+        processIntakeJob(context.pool, store, store, noAttachments),
+      ]),
+    ).toEqual([true, true]);
+    const matching = await context.pool.query(
+      'SELECT count(*)::int AS total FROM document_version WHERE original_sha256=$1',
+      [sha(repeated)],
+    );
+    expect(matching.rows[0]?.total).toBe(1);
+    const catalog = await app.inject({
+      url: `/api/projects/${context.projectId}/intakes`,
+      headers: actor.headers,
+    });
+    expect(catalog.statusCode).toBe(200);
+    expect(catalog.json().items).toEqual(expect.arrayContaining([{ id, name: 'demo.zip' }]));
+    const task = catalog
+      .json()
+      .items.find((entry: { id: string; name: string }) => entry.name === 'one.zip');
+    await context.pool.query(
+      "UPDATE intake_job SET state='failed',attempts=3,error_code='DOC_BUSY' WHERE id=$1",
+      [task.id],
+    );
+    const retry = await app.inject({
+      method: 'POST',
+      url: `/api/intake/${task.id}/retry`,
+      headers: actor.headers,
+    });
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json()).toMatchObject({ id: task.id, status: 'queued', created: false });
+    expect(await processIntakeJob(context.pool, store, store, noAttachments)).toBe(true);
+    const partial = await app.inject({
+      method: 'POST',
+      url: `/api/intake?projectId=${context.projectId}&name=partial.zip`,
+      headers: { ...actor.headers, 'content-type': 'application/octet-stream' },
+      payload: fixtureZip([
+        { name: 'invalid.pdf', bytes: Buffer.from('bad fixture') },
+        { name: 'usable.pdf', bytes: Buffer.from('valid fixture') },
+      ]),
+    });
+    expect(partial.statusCode).toBe(202);
+    await processIntakeJob(context.pool, store, store, {
+      inspectPdf: async (bytes) => (bytes.toString() === 'bad fixture' ? 'estar' : 'pdf'),
+      estarAttachments: async () => {
+        throw new AppError(422, 'DOC_XFA_INVALID', 'fixture');
+      },
+    });
+    const partialReport = intakeReportSchema.parse(
+      (
+        await app.inject({
+          url: `/api/intake/${partial.json().id}`,
+          headers: actor.headers,
+        })
+      ).json(),
+    );
+    expect(partialReport.status).toBe('parsing');
+    expect(partialReport.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'invalid.pdf', errorCode: 'DOC_XFA_INVALID' }),
+        expect.objectContaining({ path: 'usable.pdf', parseStatus: 'queued', errorCode: null }),
+      ]),
+    );
   } finally {
     await app.close();
     await context.close();

@@ -14,7 +14,20 @@ import { AppError } from '../api/errors.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { createDocumentUploadGate, monitorDocumentUpload } from '../documents/upload-gate.js';
 import { maximumIntakeBytes } from './archive.js';
-import { editIntakeCategory, readIntakeReport, requestIntake } from './service.js';
+import {
+  editIntakeCategory,
+  listIntakes,
+  readIntakeReport,
+  requestIntake,
+  retryIntake,
+} from './service.js';
+
+const idParams = z.object({ id: z.string().uuid() });
+function idFrom(parameters: unknown) {
+  const id = idParams.safeParse(parameters);
+  if (!id.success) throw new AppError(400, 'INTAKE_ID_INVALID', '导入任务或项目编号无效。');
+  return id.data.id;
+}
 
 export function registerIntakeRoutes<Logger extends FastifyBaseLogger>(
   app: FastifyInstance<
@@ -29,17 +42,25 @@ export function registerIntakeRoutes<Logger extends FastifyBaseLogger>(
 ) {
   app.get('/api/intake/:id', async (request, reply) => {
     const actor = await requireBrowserIdentity(request, pool, config);
-    const id = z.object({ id: z.string().uuid() }).safeParse(request.params);
-    if (!id.success) throw new AppError(400, 'INTAKE_ID_INVALID', '导入任务编号无效。');
     reply.header('cache-control', 'no-store');
-    return readIntakeReport(pool, actor, id.data.id);
+    return readIntakeReport(pool, actor, idFrom(request.params));
+  });
+  app.get('/api/projects/:id/intakes', async (request, reply) => {
+    const actor = await requireBrowserIdentity(request, pool, config);
+    reply.header('cache-control', 'no-store');
+    return listIntakes(pool, actor, idFrom(request.params));
+  });
+  app.post('/api/intake/:id/retry', async (request, reply) => {
+    const actor = await requireBrowserIdentity(request, pool, config, { write: true });
+    if (!config.CERT_DOCSVC_URL)
+      throw new AppError(503, 'INTAKE_PARSER_DISABLED', '请先启动文档解析服务。');
+    reply.header('cache-control', 'no-store');
+    return retryIntake(pool, actor, idFrom(request.params));
   });
   app.patch('/api/intake/:id/category', { bodyLimit: 8_192 }, async (request, reply) => {
     const actor = await requireBrowserIdentity(request, pool, config, { write: true });
-    const id = z.object({ id: z.string().uuid() }).safeParse(request.params);
-    if (!id.success) throw new AppError(400, 'INTAKE_ID_INVALID', '导入任务编号无效。');
     reply.header('cache-control', 'no-store');
-    return editIntakeCategory(pool, actor, id.data.id, request.body);
+    return editIntakeCategory(pool, actor, idFrom(request.params), request.body);
   });
   if (!store) return;
   app.register(async (upload) => {

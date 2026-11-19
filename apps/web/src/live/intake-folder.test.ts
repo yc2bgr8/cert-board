@@ -23,3 +23,11 @@ test('规范化后重名或选择多个目录时拒绝打包', async () => {
     code: 'INTAKE_FOLDER_PATH',
   });
 });
+
+test('重复打包的 ZIP 内容不受条目选择顺序影响', async () => {
+  const a = file('资料/甲.pdf');
+  const b = file('资料/乙.pdf');
+  const first = await packageIntakeFolder([a, b]);
+  const second = await packageIntakeFolder([b, a]);
+  expect(Buffer.from(await first.arrayBuffer())).toEqual(Buffer.from(await second.arrayBuffer()));
+});

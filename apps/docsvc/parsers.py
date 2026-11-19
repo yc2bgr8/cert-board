@@ -24,7 +24,7 @@ from defusedxml.ElementTree import fromstring
 from docx.text.paragraph import Paragraph
 from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from pypdf import PdfReader, _page
-from pypdf.generic import ArrayObject, StreamObject
+from pypdf.generic import ArrayObject, DictionaryObject, StreamObject
 
 
 KINDS = {"pdf", "estar", "doc", "docx", "xlsx"}
@@ -143,6 +143,15 @@ def pdf_reader(data):
     if len(reader.pages) > MAX_PAGES:
         raise DocError("DOC_PAGE_LIMIT", 413)
     return reader
+
+
+def inspect_pdf(data):
+    check_kind(data, "pdf")
+    reader = pdf_reader(data)
+    reference = reader.root_object.get("/AcroForm")
+    form = reference.get_object() if reference is not None else None
+    return {"sha256": sha256(data), "byteSize": len(data),
+            "kind": "estar" if isinstance(form, DictionaryObject) and "/XFA" in form else "pdf"}
 
 
 def parse_pdf(data, kind, ocr, deadline):

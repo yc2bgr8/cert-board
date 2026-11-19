@@ -25,7 +25,12 @@ export async function packageIntakeFolder(files: readonly File[]) {
       throw new ApiError(400, 'INTAKE_FOLDER_PATH', '一次请选择一个资料目录。');
     entries[path] = new Uint8Array(await file.arrayBuffer());
   }
-  const zip = zipSync(entries, { level: 0 });
+  const ordered = Object.fromEntries(
+    Object.keys(entries)
+      .sort()
+      .map((path) => [path, entries[path]!]),
+  );
+  const zip = zipSync(ordered, { level: 0, mtime: new Date(2000, 0, 1) });
   if (zip.length > maximumIntakeBytes)
     throw new ApiError(413, 'INTAKE_FOLDER_LIMIT', '目录打包后超过 192 MiB，请拆分后重试。');
   return new File([Uint8Array.from(zip)], folder + '.zip', { type: 'application/zip' });

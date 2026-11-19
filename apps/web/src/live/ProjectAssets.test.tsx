@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ProjectFiles } from './ProjectFiles.js';
 import { ProjectDocuments } from './ProjectDocuments.js';
+import { setSessionCredentials } from './api.js';
 
 const mocks = vi.hoisted(() => ({
   workspace: vi.fn(),
@@ -12,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   documents: vi.fn(),
   startIntake: vi.fn(),
   intakeReport: vi.fn(),
+  intakeHistory: vi.fn(),
+  retryIntake: vi.fn(),
   editIntakeCategory: vi.fn(),
 }));
 vi.mock('./api.js', async (original) => {
@@ -30,8 +33,8 @@ function show(content: React.ReactNode) {
   return render(<QueryClientProvider client={client}>{content}</QueryClientProvider>);
 }
 beforeEach(() => {
-  sessionStorage.clear();
   vi.clearAllMocks();
+  mocks.intakeHistory.mockResolvedValue({ items: [] });
   mocks.workspace.mockResolvedValue({ id: workspaceId, currentVersionId: currentId });
   mocks.workspaceVersions.mockResolvedValue({
     items: [
@@ -79,6 +82,43 @@ it('从资料页提交 ZIP 并展示导入报告', async () => {
   expect(mocks.startIntake).toHaveBeenCalledWith(projectId, zip, 'internal');
   expect(mocks.intakeReport).toHaveBeenCalledWith(documentId, expect.any(AbortSignal));
   expect(screen.getByText('查看分类及资料路径')).toBeTruthy();
+});
+
+it('从项目历史打开已有报告', async () => {
+  mocks.intakeHistory.mockResolvedValue({ items: [{ id: documentId, name: '之前的资料包.zip' }] });
+  mocks.intakeReport.mockResolvedValue({
+    id: documentId,
+    name: '之前的资料包.zip',
+    status: 'failed',
+    canRetry: true,
+    totals: { outerFiles: 0, embeddedFiles: 0, duplicates: 0, ready: 0, failed: 0 },
+    categories: [],
+    items: [],
+  });
+  show(<ProjectDocuments projectId={projectId} userId="member" onOpenEvidence={vi.fn()} />);
+  await screen.findByRole('button', { name: '重试导入' });
+  expect(screen.getByLabelText('导入历史')).toHaveProperty('value', documentId);
+  expect(mocks.intakeReport).toHaveBeenCalledWith(documentId, expect.any(AbortSignal));
+});
+
+it('目录打包过程中会话变更时停止上传', async () => {
+  let release!: (bytes: ArrayBuffer) => void;
+  const content = new Promise<ArrayBuffer>((resolve) => {
+    release = resolve;
+  });
+  const read = vi.fn(() => content);
+  const item = Object.defineProperties(new File(['fixture'], 'a.pdf'), {
+    webkitRelativePath: { value: 'folder/a.pdf' },
+    arrayBuffer: { value: read },
+  });
+  show(<ProjectDocuments projectId={projectId} userId="member" onOpenEvidence={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText('选择资料目录'), { target: { files: [item] } });
+  fireEvent.click(screen.getByRole('button', { name: '导入资料包' }));
+  await waitFor(() => expect(read).toHaveBeenCalled());
+  setSessionCredentials(null);
+  release(new ArrayBuffer(1));
+  await screen.findByText(/登录会话已变更/);
+  expect(mocks.startIntake).not.toHaveBeenCalled();
 });
 afterEach(() => {
   cleanup();

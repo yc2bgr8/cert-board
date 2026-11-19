@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DataLevel, IntakeCategory } from '@cert-board/shared';
-import { api, errorMessage } from './api.js';
+import { api, ApiError, currentSessionGeneration, errorMessage } from './api.js';
 import { packageIntakeFolder } from './intake-folder.js';
 
 const statusLabels = {
@@ -32,29 +32,36 @@ export function ProjectIntake({ projectId, userId }: { projectId: string; userId
   const client = useQueryClient();
   const [level, setLevel] = useState<DataLevel>('internal');
   const [selection, setSelection] = useState<{ file: File } | { folder: File[] }>();
-  const key = `cert-board:intake:${userId}:${projectId}`;
-  const [jobId, setJobId] = useState(() => {
-    try {
-      return sessionStorage.getItem(key);
-    } catch {
-      return null;
-    }
+  const [selectedJob, setSelectedJob] = useState<string>();
+  const historyKey = ['live', 'intake-history', userId, projectId];
+  const history = useQuery({
+    queryKey: historyKey,
+    queryFn: ({ signal }) => api.intakeHistory(projectId, signal),
+    retry: false,
   });
+  const jobs = history.data?.items ?? [];
+  const jobId = selectedJob ?? jobs[0]?.id;
   const upload = useMutation({
-    mutationFn: async (input: NonNullable<typeof selection>) =>
-      api.startIntake(
-        projectId,
-        'file' in input ? input.file : await packageIntakeFolder(input.folder),
-        level,
-      ),
+    mutationFn: async ({
+      input,
+      generation,
+    }: {
+      input: NonNullable<typeof selection>;
+      generation: number;
+    }) => {
+      const file = 'file' in input ? input.file : await packageIntakeFolder(input.folder);
+      if (generation !== currentSessionGeneration())
+        throw new ApiError(
+          409,
+          'INTAKE_SESSION_CHANGED',
+          '登录会话已变更，请重新选择资料后再上传。',
+        );
+      return api.startIntake(projectId, file, level);
+    },
     onSuccess(result) {
-      setJobId(result.id);
+      setSelectedJob(result.id);
       setSelection(undefined);
-      try {
-        sessionStorage.setItem(key, result.id);
-      } catch {
-        /* 浏览器存储可以禁用。 */
-      }
+      void client.invalidateQueries({ queryKey: historyKey });
     },
   });
   const report = useQuery({
@@ -72,6 +79,11 @@ export function ProjectIntake({ projectId, userId }: { projectId: string; userId
       api.editIntakeCategory(id, path, category),
     onSuccess: (updated) =>
       client.setQueryData(['live', 'intake', userId, projectId, updated.id], updated),
+  });
+  const retry = useMutation({
+    mutationFn: api.retryIntake,
+    onSuccess: (result) =>
+      client.invalidateQueries({ queryKey: ['live', 'intake', userId, projectId, result.id] }),
   });
   const status = report.data?.status;
   useEffect(() => {
@@ -99,7 +111,8 @@ export function ProjectIntake({ projectId, userId }: { projectId: string; userId
         }}
         onSubmit={(event) => {
           event.preventDefault();
-          if (selection) upload.mutate(selection);
+          if (selection)
+            upload.mutate({ input: selection, generation: currentSessionGeneration() });
         }}
       >
         <label>
@@ -139,15 +152,45 @@ export function ProjectIntake({ projectId, userId }: { projectId: string; userId
           {upload.isPending ? '正在上传…' : '导入资料包'}
         </button>
       </form>
-      {(upload.error || report.error || edit.error) && (
+      {!!jobs.length && (
+        <p className="live-page-message">
+          <label>
+            导入历史{' '}
+            <select
+              value={jobId ?? ''}
+              onChange={(event) => setSelectedJob(event.currentTarget.value)}
+            >
+              {jobId && !jobs.some((job) => job.id === jobId) && (
+                <option value={jobId}>刚提交的资料包</option>
+              )}
+              {jobs.map((job) => (
+                <option key={job.id} value={job.id}>
+                  {job.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </p>
+      )}
+      {(upload.error || report.error || edit.error || history.error || retry.error) && (
         <p className="live-error live-page-message" role="alert">
-          {errorMessage(upload.error ?? report.error ?? edit.error)}
+          {errorMessage(upload.error ?? report.error ?? edit.error ?? history.error ?? retry.error)}
         </p>
       )}
       {report.data && (
         <div className="live-page-message live-intake-report">
           <p>{report.data.name}</p>
           {report.data.errorCode && <p className="live-error">导入错误 {report.data.errorCode}</p>}
+          {report.data.canRetry && (
+            <button
+              type="button"
+              className="live-secondary"
+              disabled={retry.isPending}
+              onClick={() => retry.mutate(jobId!)}
+            >
+              重试导入
+            </button>
+          )}
           <dl>
             <div>
               <dt>包内文件</dt>

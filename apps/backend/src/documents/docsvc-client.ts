@@ -90,7 +90,13 @@ export class DocumentParserClient {
     this.#address = expected;
   }
 
-  async #request(content: Buffer, sha256: string, format: DocumentFormat, signal?: AbortSignal) {
+  async #request(
+    action: 'parse' | 'inspect',
+    content: Buffer,
+    sha256: string,
+    format: DocumentFormat,
+    signal?: AbortSignal,
+  ) {
     if (
       !content.length ||
       content.length > maximumDocumentBytes ||
@@ -101,9 +107,9 @@ export class DocumentParserClient {
         'DOC_SOURCE_INTEGRITY',
         '资料原件大小或哈希不符合已登记版本，无法解析。',
       );
-    const deadline = AbortSignal.timeout(400_000);
+    const deadline = AbortSignal.timeout(action === 'inspect' ? 40_000 : 400_000);
     try {
-      const url = new URL('parse', this.#address);
+      const url = new URL(action, this.#address);
       url.searchParams.set('kind', format);
       const response = await fetch(url, {
         method: 'POST',
@@ -112,7 +118,10 @@ export class DocumentParserClient {
         headers: { 'content-type': 'application/octet-stream', 'x-content-sha256': sha256 },
         body: Buffer.from(content),
       });
-      const raw = await readJson(response, response.ok ? maximumResponseBytes : 4_096);
+      const raw = await readJson(
+        response,
+        response.ok && action === 'parse' ? maximumResponseBytes : 4_096,
+      );
       if (!response.ok) {
         const error = parserError.safeParse(raw);
         throw new AppError(
@@ -121,24 +130,43 @@ export class DocumentParserClient {
           '解析服务暂未完成该资料。请检查资料版本的解析状态。',
         );
       }
-      const parsed = parseResponse.safeParse(raw);
-      if (
-        !parsed.success ||
-        parsed.data.sha256 !== sha256 ||
-        parsed.data.kind !== format ||
-        parsed.data.byteSize !== content.length ||
-        parsed.data.pageCount !== parsed.data.pages.length
-      )
-        throw invalid();
-      return { raw, document: parsed.data };
+      return raw;
     } catch (error) {
       if (error instanceof AppError) throw error;
       throw new AppError(503, 'DOCSVC_UNAVAILABLE', '解析服务暂不可用，请检查本机解析服务后重试。');
     }
   }
 
+  async #parsed(content: Buffer, sha256: string, format: DocumentFormat, signal?: AbortSignal) {
+    const raw = await this.#request('parse', content, sha256, format, signal);
+    const parsed = parseResponse.safeParse(raw);
+    if (
+      !parsed.success ||
+      parsed.data.sha256 !== sha256 ||
+      parsed.data.kind !== format ||
+      parsed.data.byteSize !== content.length ||
+      parsed.data.pageCount !== parsed.data.pages.length
+    )
+      throw invalid();
+    return { raw, document: parsed.data };
+  }
+
+  async inspectPdf(content: Buffer, sha256: string, signal?: AbortSignal) {
+    const raw = await this.#request('inspect', content, sha256, 'pdf', signal);
+    const result = z
+      .object({
+        sha256: sha256Schema,
+        byteSize: z.number().int(),
+        kind: z.enum(['pdf', 'estar']),
+      })
+      .safeParse(raw);
+    if (!result.success || result.data.sha256 !== sha256 || result.data.byteSize !== content.length)
+      throw invalid();
+    return result.data.kind;
+  }
+
   async parse(content: Buffer, sha256: string, format: DocumentFormat, signal?: AbortSignal) {
-    const { document } = await this.#request(content, sha256, format, signal);
+    const { document } = await this.#parsed(content, sha256, format, signal);
     const method = format === 'xlsx' ? 'xlsx' : 'docx';
     const physical = format === 'pdf' || format === 'estar';
     return document.pages.map((page, index) => {
@@ -165,7 +193,7 @@ export class DocumentParserClient {
   }
 
   async estarAttachments(content: Buffer, sha256: string, signal?: AbortSignal) {
-    const { raw } = await this.#request(content, sha256, 'estar', signal);
+    const { raw } = await this.#parsed(content, sha256, 'estar', signal);
     const result = attachmentResponse.safeParse(raw);
     if (!result.success) throw invalid();
     let total = 0;

@@ -42,6 +42,11 @@ const intakeName = z
       .max(255)
       .refine((value) => !value.includes('/') && !value.includes('\\') && !/\p{Cc}/u.test(value)),
   );
+export const intakeHistorySchema = z
+  .object({
+    items: z.array(z.object({ id: z.string().uuid(), name: intakeName }).strict()).max(50),
+  })
+  .strict();
 const nonnegative = z.number().int().nonnegative().safe();
 const nullableCode = z
   .string()
@@ -90,6 +95,7 @@ export const intakeReportSchema = z
     status: intakeStatusSchema,
     dataLevel: documentDataLevelSchema,
     errorCode: nullableCode,
+    canRetry: z.boolean(),
     totals: z
       .object({
         outerFiles: nonnegative,

@@ -2,10 +2,12 @@ import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
 import {
   intakeReportSchema,
+  intakeHistorySchema,
   intakeCategoryEditSchema,
   intakeStartSchema,
   intakeStartResultSchema,
   type IntakeCategory,
+  type DocumentFormat,
   type ServiceIdentity,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
@@ -36,8 +38,37 @@ type Job = {
   error_code: string | null;
   lease_token: string;
 };
-type IntakeFile = ArchiveFile & { parentPath: string | null; sourceNames: string[] };
+type IntakeFile = ArchiveFile & {
+  parentPath: string | null;
+  sourceNames: string[];
+  format: DocumentFormat | undefined;
+  errorCode: string | null;
+};
+type IntakeParser = Pick<DocumentParserClient, 'inspectPdf' | 'estarAttachments'>;
 const hash = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
+const safeErrorCode = (error: unknown) =>
+  error instanceof AppError && /^[A-Z][A-Z0-9_]{1,63}$/u.test(error.code)
+    ? error.code
+    : 'INTAKE_FAILED';
+const retryableIntakeCodes = [
+  'INTAKE_INTERRUPTED',
+  'INTAKE_FAILED',
+  'DOCSVC_UNAVAILABLE',
+  'DOC_BUSY',
+  'DOC_PROCESSING_TIMEOUT',
+  'DOC_RESPONSE_INVALID',
+  'BLOB_READ_FAILED',
+  'BLOB_STORAGE_UNAVAILABLE',
+];
+
+async function renew(pool: Pool, job: Job) {
+  const updated = await pool.query(
+    `UPDATE intake_job SET lease_until=clock_timestamp()+interval '15 minutes'
+     WHERE id=$1 AND lease_token=$2 AND state='running' AND lease_until>clock_timestamp()`,
+    [job.id, job.lease_token],
+  );
+  if (!updated.rowCount) throw new AppError(409, 'INTAKE_LEASE_LOST', '导入任务的执行权已变更。');
+}
 
 export async function requestIntake(
   pool: Pool,
@@ -124,9 +155,10 @@ async function claim(pool: Pool) {
 }
 
 async function expandedFiles(
+  pool: Pool,
   job: Job,
   store: DocumentBlobStore,
-  parser: Pick<DocumentParserClient, 'estarAttachments'>,
+  parser: IntakeParser,
   signal?: AbortSignal,
 ) {
   const blob = await store.get(job.sha256);
@@ -138,12 +170,40 @@ async function expandedFiles(
     ...file,
     parentPath: null,
     sourceNames: [],
+    format: intakeFormat(file.path),
+    errorCode: null,
   }));
   const paths = new Set(files.map((file) => file.path));
-  for (const file of archive.files) {
-    if (intakeFormat(file.path) !== 'estar') continue;
-    const attachments = await parser.estarAttachments(file.bytes, hash(file.bytes), signal);
-    for (const attachment of attachments) {
+  const evaluated = new Map<
+    string,
+    {
+      format: 'pdf' | 'estar';
+      errorCode: string | null;
+      attachments: Awaited<ReturnType<IntakeParser['estarAttachments']>>;
+    }
+  >();
+  for (const file of [...files]) {
+    signal?.throwIfAborted();
+    if (file.format !== 'pdf' || !file.bytes.length) continue;
+    const digest = hash(file.bytes);
+    let result = evaluated.get(digest);
+    if (!result) {
+      result = { format: 'pdf', errorCode: null, attachments: [] };
+      await renew(pool, job);
+      try {
+        result.format = await parser.inspectPdf(file.bytes, digest, signal);
+        if (result.format === 'estar')
+          result.attachments = await parser.estarAttachments(file.bytes, digest, signal);
+      } catch (error) {
+        if (!(error instanceof AppError) || error.statusCode === 429 || error.statusCode >= 500)
+          throw error;
+        result.errorCode = safeErrorCode(error);
+      }
+      evaluated.set(digest, result);
+    }
+    file.format = result.format;
+    file.errorCode = result.errorCode;
+    for (const attachment of result.attachments) {
       expandedBytes += attachment.bytes.length;
       if (expandedBytes > maximumExpandedBytes || files.length >= maximumIntakeItems)
         throw new AppError(413, 'INTAKE_ARCHIVE_LIMIT', 'eSTAR 附件使资料包超过展开上限。');
@@ -158,6 +218,8 @@ async function expandedFiles(
         bytes: attachment.bytes,
         parentPath: file.path,
         sourceNames: attachment.sourceNames,
+        format: intakeFormat(relative),
+        errorCode: null,
       });
     }
   }
@@ -175,7 +237,7 @@ async function registerFiles(
   const entries = files.map((file) => ({
     file,
     digest: hash(file.bytes),
-    format: intakeFormat(file.path),
+    format: file.format,
   }));
   const supported = new Map<string, (typeof entries)[number]>();
   for (const entry of entries) {
@@ -184,43 +246,33 @@ async function registerFiles(
   }
   for (const { file, digest } of entries) {
     signal?.throwIfAborted();
+    await renew(pool, job);
     const representative = supported.get(digest);
     const format = representative?.format;
     const previous = seen.get(digest);
     let result = previous ?? { versionId: null, errorCode: 'INTAKE_FORMAT_UNSUPPORTED' };
     if (!previous && format && representative) {
-      const existing = (
-        await pool.query<{ id: string }>(
-          `SELECT v.id FROM document_version v JOIN document d ON d.id=v.document_id
-         WHERE d.project_id=$1 AND NOT d.voided AND v.content_kind='original'
-           AND v.original_sha256=$2 AND v.data_level>=$3
-         ORDER BY v.created_at,v.id LIMIT 1`,
-          [job.project_id, digest, job.data_level],
-        )
-      ).rows[0];
-      const stored = existing
-        ? { versionId: existing.id }
-        : await queueOriginalDocument(
-            pool,
-            store,
-            {
-              kind: 'intake',
-              userId: job.requested_by,
-              jobId: job.id,
-              leaseToken: job.lease_token,
-            },
-            {
-              projectId: job.project_id,
-              sourceKey: `intake-${digest}`,
-              name: representative.file.path.split('/').at(-1)!.slice(0, 255),
-              sourcePath: representative.file.path,
-              format,
-              sourceSnapshot: hash(`intake-v1:${job.sha256}:${digest}:${job.data_level}`),
-              authorType: 'human',
-              dataLevel: job.data_level,
-            },
-            representative.file.bytes,
-          );
+      const stored = await queueOriginalDocument(
+        pool,
+        store,
+        {
+          kind: 'intake',
+          userId: job.requested_by,
+          jobId: job.id,
+          leaseToken: job.lease_token,
+        },
+        {
+          projectId: job.project_id,
+          sourceKey: `intake-${digest}`,
+          name: representative.file.path.split('/').at(-1)!.slice(0, 255),
+          sourcePath: representative.file.path,
+          format,
+          sourceSnapshot: hash(`intake-v1:${job.sha256}:${digest}:${job.data_level}:${format}`),
+          authorType: 'human',
+          dataLevel: job.data_level,
+        },
+        representative.file.bytes,
+      );
       result = { versionId: stored.versionId, errorCode: null };
     }
     seen.set(digest, result);
@@ -240,7 +292,7 @@ async function registerFiles(
         classification.category,
         classification.confidence,
         result.versionId,
-        result.errorCode,
+        file.errorCode ?? result.errorCode,
         JSON.stringify(file.sourceNames),
       ],
     );
@@ -258,14 +310,14 @@ export async function processIntakeJob(
   pool: Pool,
   packages: DocumentBlobStore,
   originals: DocumentBlobStore,
-  parser: Pick<DocumentParserClient, 'estarAttachments'>,
+  parser: IntakeParser,
   signal?: AbortSignal,
 ) {
   if (signal?.aborted) return false;
   const job = await claim(pool);
   if (!job) return false;
   try {
-    const files = await expandedFiles(job, packages, parser, signal);
+    const files = await expandedFiles(pool, job, packages, parser, signal);
     await registerFiles(pool, originals, job, files, signal);
     await pool.query(
       `UPDATE intake_job SET state='expanded',lease_token=NULL,lease_until=NULL,updated_at=clock_timestamp()
@@ -299,7 +351,7 @@ export function startIntakeWorker(
   pool: Pool,
   packages: DocumentBlobStore,
   originals: DocumentBlobStore,
-  parser: Pick<DocumentParserClient, 'estarAttachments'>,
+  parser: IntakeParser,
   reportError: () => void,
 ) {
   const shutdown = new AbortController();
@@ -358,8 +410,8 @@ export async function readIntakeReport(
     if (item.duplicate) totals.duplicates++;
     else totals.uniqueFiles++;
     if (item.parseStatus === 'queued' || item.parseStatus === 'running') totals.queued++;
-    else if (item.parseStatus === 'ready') totals.ready++;
     else if (item.errorCode || item.parseStatus === 'failed') totals.failed++;
+    else if (item.parseStatus === 'ready') totals.ready++;
     if (item.category === 'review_needed') totals.reviewNeeded++;
     categories.set(item.category, (categories.get(item.category) ?? 0) + 1);
   }
@@ -371,10 +423,64 @@ export async function readIntakeReport(
     status,
     dataLevel: job.data_level,
     errorCode: job.error_code,
+    canRetry:
+      job.state === 'failed' &&
+      job.error_code !== null &&
+      retryableIntakeCodes.includes(job.error_code),
     totals,
     categories: [...categories].map(([category, count]) => ({ category, count })),
     items,
   });
+}
+
+export async function listIntakes(pool: Pool, actor: ServiceIdentity, projectId: string) {
+  await getProject(pool, actor, projectId);
+  const result = await pool.query(
+    'SELECT id,name FROM intake_job WHERE project_id=$1 ORDER BY created_at DESC,id DESC LIMIT 50',
+    [projectId],
+  );
+  return intakeHistorySchema.parse({ items: result.rows });
+}
+
+export async function retryIntake(pool: Pool, actor: ServiceIdentity, id: string) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const job = (await client.query<Job>('SELECT * FROM intake_job WHERE id=$1 FOR UPDATE', [id]))
+      .rows[0];
+    if (!job) throw new AppError(404, 'INTAKE_NOT_FOUND', '未找到该导入任务。');
+    const project = await getProject(client, actor, job.project_id);
+    if (
+      !authorize(actor, 'document.write', {
+        projectId: project.id,
+        ownerUserId: project.ownerUserId,
+      })
+    )
+      throw new AppError(403, 'INTAKE_FORBIDDEN', '没有权限重新提交该任务。');
+    if (job.state !== 'failed' || !job.error_code || !retryableIntakeCodes.includes(job.error_code))
+      throw new AppError(
+        409,
+        'INTAKE_RETRY_UNAVAILABLE',
+        '该导入任务当前无法重试，请核对报告状态。',
+      );
+    await client.query(
+      `UPDATE intake_job SET state='queued',attempts=0,error_code=NULL,
+      available_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1`,
+      [id],
+    );
+    await client.query(
+      `INSERT INTO audit_log(actor_kind,actor_user_id,action,target_type,target_id,after_hash)
+       VALUES ($1,$2,'intake.retried','intake_job',$3,$4)`,
+      [actor.kind, actor.userId, id, job.sha256],
+    );
+    await client.query('COMMIT');
+    return intakeStartResultSchema.parse({ id, status: 'queued', created: false });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function editIntakeCategory(

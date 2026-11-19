@@ -30,7 +30,7 @@ HASH_PATTERN = "^[a-f0-9]{64}$"
 operation_lock = Lock()
 upload_lock = Lock()
 worker_file = Path(__file__).with_name("doc_worker.py")
-worker_timeouts = {"parse": 370, "text": 370, "convert": 100, "render": 30}
+worker_timeouts = {"parse": 370, "text": 370, "convert": 100, "render": 30, "inspect": 30}
 worker_env_keys = ("PATH", "HOME", "LANG", "LC_ALL", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "PYTHONDONTWRITEBYTECODE")
 
 
@@ -204,6 +204,11 @@ async def health():
 @app.post("/parse")
 async def parse(request: Request, kind: Kind, content_sha256: str = Header(alias="X-Content-Sha256", pattern=HASH_PATTERN)):
     return await uploaded_result(request, kind, content_sha256, "parse")
+
+
+@app.post("/inspect")
+async def inspect(request: Request, kind: Literal["pdf"], content_sha256: str = Header(alias="X-Content-Sha256", pattern=HASH_PATTERN)):
+    return await uploaded_result(request, kind, content_sha256, "inspect")
 
 
 @app.post("/text")
