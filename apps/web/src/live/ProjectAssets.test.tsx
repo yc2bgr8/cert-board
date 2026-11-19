@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   workspaceVersions: vi.fn(),
   workspaceFiles: vi.fn(),
   documents: vi.fn(),
+  startIntake: vi.fn(),
+  intakeReport: vi.fn(),
+  editIntakeCategory: vi.fn(),
 }));
 vi.mock('./api.js', async (original) => {
   const actual = await original<typeof import('./api.js')>();
@@ -27,6 +30,7 @@ function show(content: React.ReactNode) {
   return render(<QueryClientProvider client={client}>{content}</QueryClientProvider>);
 }
 beforeEach(() => {
+  sessionStorage.clear();
   vi.clearAllMocks();
   mocks.workspace.mockResolvedValue({ id: workspaceId, currentVersionId: currentId });
   mocks.workspaceVersions.mockResolvedValue({
@@ -55,6 +59,26 @@ beforeEach(() => {
     hasMore: false,
     nextCursor: null,
   });
+});
+
+it('从资料页提交 ZIP 并展示导入报告', async () => {
+  mocks.startIntake.mockResolvedValue({ id: documentId, status: 'queued', created: true });
+  mocks.intakeReport.mockResolvedValue({
+    id: documentId,
+    name: 'test.zip',
+    status: 'complete',
+    totals: { outerFiles: 1, embeddedFiles: 0, duplicates: 0, ready: 1, failed: 0 },
+    categories: [{ category: 'predicate', count: 1 }],
+    items: [{ path: 'predicate.pdf', category: 'predicate', sourceNames: [], duplicate: false }],
+  });
+  show(<ProjectDocuments projectId={projectId} userId="member" onOpenEvidence={vi.fn()} />);
+  const zip = new File(['fictional'], 'test.zip', { type: 'application/zip' });
+  fireEvent.change(screen.getByLabelText('选择 ZIP 资料包'), { target: { files: [zip] } });
+  fireEvent.click(screen.getByRole('button', { name: '导入资料包' }));
+  await screen.findByText('导入完成');
+  expect(mocks.startIntake).toHaveBeenCalledWith(projectId, zip, 'internal');
+  expect(mocks.intakeReport).toHaveBeenCalledWith(documentId, expect.any(AbortSignal));
+  expect(screen.getByText('查看分类及资料路径')).toBeTruthy();
 });
 afterEach(() => {
   cleanup();
@@ -193,7 +217,7 @@ it('资料按项目和游标分页，打开确切资料版本，不补造原页�
     expect.any(AbortSignal),
   );
   expect(screen.queryByText('解析成功')).toBeNull();
-  expect(screen.getByText(/原文件预览与上传暂未开放/)).toBeTruthy();
+  expect(screen.getByLabelText('选择 ZIP 资料包')).toBeTruthy();
 });
 
 it('读取失败显示重试而非空资料，重新加载使用同一项目', async () => {

@@ -41,6 +41,10 @@ import {
   documentPageParamsSchema,
   documentPageReadOptionsSchema,
   documentPageReadSchema,
+  intakeStartSchema,
+  intakeStartResultSchema,
+  intakeReportSchema,
+  intakeCategoryEditSchema,
   webArchiveInfoSchema,
   workspaceFileQuerySchema,
   workspaceFileListSchema,
@@ -66,6 +70,8 @@ import {
   verificationLinkPageSchema,
   verificationReviewInputSchema,
   type AuthResponse,
+  type DataLevel,
+  type IntakeCategory,
   type ConversationCreateInput,
   type ConversationMessageInput,
   type ConversationAnswerInput,
@@ -139,12 +145,19 @@ function search(values: Record<string, unknown>) {
 async function request<T>(
   path: string,
   schema: Parser<T> | null,
-  options: { method?: string; body?: unknown; signal?: AbortSignal; login?: boolean } = {},
+  options: {
+    method?: string;
+    body?: unknown;
+    binary?: Blob;
+    signal?: AbortSignal;
+    login?: boolean;
+  } = {},
 ): Promise<T> {
   const generation = credentialGeneration;
   const method = options.method ?? 'GET';
   const headers: Record<string, string> = { accept: 'application/json' };
-  if (options.body !== undefined) headers['content-type'] = 'application/json';
+  if (options.binary) headers['content-type'] = 'application/octet-stream';
+  else if (options.body !== undefined) headers['content-type'] = 'application/json';
   if (method !== 'GET' && !options.login) {
     if (!csrfToken) throw new ApiError(401, 'LOGIN_REQUIRED', '请先登录，再继续操作。');
     headers['x-csrf-token'] = csrfToken;
@@ -156,7 +169,11 @@ async function request<T>(
       credentials: 'same-origin',
       cache: 'no-store',
       headers,
-      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+      ...(options.binary
+        ? { body: options.binary }
+        : options.body !== undefined
+          ? { body: JSON.stringify(options.body) }
+          : {}),
       ...(options.signal ? { signal: options.signal } : {}),
     });
   } catch {
@@ -320,6 +337,20 @@ export const api = {
       workspaceVersionListSchema,
       signalOption(signal),
     ),
+  startIntake: (projectId: string, file: File, dataLevel: DataLevel) => {
+    const input = checked(intakeStartSchema, { projectId, name: file.name, dataLevel });
+    return request('/api/intake' + search(input), intakeStartResultSchema, {
+      method: 'POST',
+      binary: file,
+    });
+  },
+  intakeReport: (id: string, signal?: AbortSignal) =>
+    request('/api/intake/' + identifier(id), intakeReportSchema, signalOption(signal)),
+  editIntakeCategory: (id: string, path: string, category: IntakeCategory) =>
+    request('/api/intake/' + identifier(id) + '/category', intakeReportSchema, {
+      method: 'PATCH',
+      body: checked(intakeCategoryEditSchema, { path, category }),
+    }),
   documents: (
     projectId: string,
     options: { cursor?: string; limit?: number } = {},

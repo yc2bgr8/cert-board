@@ -621,6 +621,78 @@ export const documentParseTask = pgTable(
 );
 
 export const permissionMode = pgEnum('permission_mode', ['read_only', 'ask', 'full']);
+export const intakeJobState = pgEnum('intake_job_state', [
+  'queued',
+  'running',
+  'expanded',
+  'failed',
+]);
+export const intakeJob = pgTable(
+  'intake_job',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => certProject.id, { onDelete: 'restrict' }),
+    requestedBy: uuid('requested_by')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    name: varchar('name', { length: 255 }).notNull(),
+    sha256: varchar('sha256', { length: 64 }).notNull(),
+    byteSize: integer('byte_size').notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    state: intakeJobState('state').notNull().default('queued'),
+    availableAt: timestamp('available_at', { withTimezone: true }).notNull().defaultNow(),
+    leaseToken: uuid('lease_token'),
+    leaseUntil: timestamp('lease_until', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    errorCode: varchar('error_code', { length: 64 }),
+    ...timestamps(),
+  },
+  (table) => [
+    unique('intake_job_project_content_unique').on(table.projectId, table.sha256, table.dataLevel),
+    index('intake_job_dispatch_idx').on(table.state, table.createdAt),
+    check('intake_job_sha256', sql`${table.sha256} ~ '^[a-f0-9]{64}$'`),
+    check('intake_job_byte_size', sql`${table.byteSize} BETWEEN 1 AND 201326592`),
+    check('intake_job_attempts', sql`${table.attempts} BETWEEN 0 AND 3`),
+    check(
+      'intake_job_lease',
+      sql`
+    (${table.state} = 'running' AND ${table.leaseToken} IS NOT NULL AND ${table.leaseUntil} IS NOT NULL) OR
+    (${table.state} <> 'running' AND ${table.leaseToken} IS NULL AND ${table.leaseUntil} IS NULL)
+  `,
+    ),
+  ],
+);
+export const intakeItem = pgTable(
+  'intake_item',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    jobId: uuid('job_id')
+      .notNull()
+      .references(() => intakeJob.id, { onDelete: 'restrict' }),
+    relativePath: varchar('relative_path', { length: 1024 }).notNull(),
+    parentPath: varchar('parent_path', { length: 1024 }),
+    sourceNames: jsonb('source_names').$type<string[]>().notNull().default([]),
+    sha256: varchar('sha256', { length: 64 }).notNull(),
+    byteSize: integer('byte_size').notNull(),
+    duplicate: boolean('duplicate').notNull().default(false),
+    category: varchar('category', { length: 32 }).notNull(),
+    confidence: doublePrecision('confidence'),
+    versionId: uuid('version_id').references(() => documentVersion.id, { onDelete: 'restrict' }),
+    errorCode: varchar('error_code', { length: 64 }),
+    ...timestamps(),
+  },
+  (table) => [
+    unique('intake_item_path_unique').on(table.jobId, table.relativePath),
+    check('intake_item_sha256', sql`${table.sha256} ~ '^[a-f0-9]{64}$'`),
+    check('intake_item_byte_size', sql`${table.byteSize} BETWEEN 0 AND 100663296`),
+    check(
+      'intake_item_confidence',
+      sql`${table.confidence} IS NULL OR ${table.confidence} BETWEEN 0 AND 1`,
+    ),
+  ],
+);
 export const agentCode = pgEnum('agent_code', ['registration', 'maintenance']);
 export const conversationStatus = pgEnum('conversation_status', ['active', 'archived']);
 export const workspaceAuthorType = pgEnum('workspace_author_type', ['human', 'ai', 'system']);

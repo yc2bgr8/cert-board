@@ -1,0 +1,25 @@
+{
+  "review": "草稿，待注册人员确认",
+  "source": [
+    "fixtures/l08/manifests/manifest.json",
+    "fixtures/l08/manifests/embedded_manifest.json",
+    "fixtures/l08/t1_out/documents.json"
+  ],
+  "totals": {
+    "outerFiles": 36,
+    "embeddedFiles": 23,
+    "uniqueFiles": 45,
+    "duplicates": 14
+  },
+  "categories": {
+    "application": 4,
+    "biocompatibility": 6,
+    "declarations": 1,
+    "device_description": 2,
+    "labeling": 5,
+    "performance": 11,
+    "review_needed": 22,
+    "shelf_life": 6,
+    "summary": 2
+  }
+}

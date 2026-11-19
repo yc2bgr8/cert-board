@@ -1,6 +1,7 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { api, errorMessage } from './api.js';
 import type { EvidenceTarget } from './review-navigation.js';
+import { ProjectIntake } from './ProjectIntake.js';
 
 const parseLabels = { queued: '等待解析', running: '解析中', ready: '已解析', failed: '解析失败' };
 
@@ -32,15 +33,7 @@ export function ProjectDocuments({
   const items = query.data?.pages.flatMap((page) => page.items) ?? [];
   return (
     <section className="live-workspace-page live-documents-page" aria-label="项目资料">
-      <section className="live-page-card" aria-label="整包导入">
-        <header className="live-page-card-head">
-          <h2>整包导入</h2>
-          <span className="live-notice-chip">尚未接入</span>
-        </header>
-        <p className="live-page-message live-muted">
-          原文件预览与上传暂未开放。已导入的解析文字可从资料库打开。
-        </p>
-      </section>
+      <ProjectIntake key={`${userId}:${projectId}`} projectId={projectId} userId={userId} />
       <section className="live-page-card" aria-label="已导入资料">
         <header className="live-page-card-head">
           <h2>资料库</h2>
@@ -82,7 +75,8 @@ export function ProjectDocuments({
               <span>
                 {document.name}
                 <small>
-                  {document.sourceKey}，第 {document.currentVersion} 版，
+                  {!document.sourceKey.startsWith('intake-') && `${document.sourceKey}，`}第{' '}
+                  {document.currentVersion} 版，
                   {{ public: '公开', internal: '内部', confidential: '保密' }[document.dataLevel]}
                   {readable &&
                     readable.version < document.currentVersion &&

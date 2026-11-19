@@ -159,6 +159,7 @@ def test_encrypted_estar_extracts_xfa_and_deduplicates_attachments():
     assert len(data["attachments"]) == 1
     attachment = data["attachments"][0]
     assert attachment["name"] == "safe-name.txt"
+    assert "safe-name.txt" in attachment["sourceNames"] and len(attachment["sourceNames"]) == 2
     assert attachment["sha256"] == sha256(b"fictional attachment")
     assert base64.b64decode(attachment["bodyBase64"]) == b"fictional attachment"
     preview = client.get("/render", params={"kind": "estar", "sha256": sha256(original), "page": 1},

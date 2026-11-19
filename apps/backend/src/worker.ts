@@ -16,6 +16,8 @@ import { executeAgentRun } from './agent/runtime.js';
 import { startDeadlineQueue } from './deadlines/queue.js';
 import { DocumentParserClient, maximumDocumentBytes } from './documents/docsvc-client.js';
 import { startDocumentParseWorker } from './documents/parse-tasks.js';
+import { maximumIntakeBytes } from './intake/archive.js';
+import { startIntakeWorker } from './intake/service.js';
 import { getContinuationTicket, listContinuationsForDispatch } from './approvals/continuation.js';
 import {
   AGENT_QUEUE,
@@ -41,6 +43,7 @@ export async function startWorker() {
   let registration: Promise<string> | undefined;
   let stopPromise: Promise<void> | undefined;
   let stopDocumentWorker: (() => Promise<void>) | undefined;
+  let stopPackageWorker: (() => Promise<void>) | undefined;
   let closing = false;
   const active = new Map<string, AbortController>();
   const tasks = new Set<Promise<void>>();
@@ -53,6 +56,10 @@ export async function startWorker() {
       process.off('SIGTERM', onSignal);
       for (const controller of active.values()) controller.abort();
       let failed = false;
+      if (stopPackageWorker)
+        await stopPackageWorker().catch(() => {
+          failed = true;
+        });
       if (stopDocumentWorker)
         await stopDocumentWorker().catch(() => {
           failed = true;
@@ -107,12 +114,21 @@ export async function startWorker() {
         config.MINIO_BUCKET,
         maximumDocumentBytes,
       );
-      stopDocumentWorker = startDocumentParseWorker(
+      const packageStore = new BlobStore(
+        resources.storage,
+        config.MINIO_BUCKET,
+        maximumIntakeBytes,
+      );
+      const parser = new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME);
+      stopDocumentWorker = startDocumentParseWorker(resources.database, originalStore, parser, () =>
+        logger.warn({ event: 'document_parse_deferred' }, '暂未能处理资料解析任务，稍后再试。'),
+      );
+      stopPackageWorker = startIntakeWorker(
         resources.database,
+        packageStore,
         originalStore,
-        new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
-        () =>
-          logger.warn({ event: 'document_parse_deferred' }, '暂未能处理资料解析任务，稍后再试。'),
+        parser,
+        () => logger.warn({ event: 'intake_deferred' }, '暂未能领取整包导入任务，稍后再试。'),
       );
     }
     const webTools = process.env.CERT_FETCHER_URL

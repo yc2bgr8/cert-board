@@ -206,6 +206,13 @@ def encoded(data):
     return base64.b64encode(data).decode("ascii")
 
 
+def attachment_name(value):
+    name = unicodedata.normalize("NFC", value or "attachment")
+    name = name.replace("\\", "/").rsplit("/", 1)[-1]
+    name = "".join(character for character in name if not unicodedata.category(character).startswith("C"))
+    return name.strip(" .")[:200] or "attachment"
+
+
 def document_attachments(reader, deadline):
     entries = {}
     available = 0
@@ -216,18 +223,18 @@ def document_attachments(reader, deadline):
         content = attachment.content
         digest = sha256(content)
         previous = entries.get(digest)
-        name = unicodedata.normalize("NFC", attachment.name or "attachment")
-        name = name.replace("\\", "/").rsplit("/", 1)[-1]
-        name = "".join(character for character in name if not unicodedata.category(character).startswith("C"))
-        name = name.strip(" .")[:200] or "attachment"
+        names = list(dict.fromkeys(attachment_name(value) for value in (attachment.name, attachment.alternative_name) if value))
+        name = next((value for value in names if not re.match(r"^\d{4}-\d{2}-\d{2}T", value)), names[0] if names else "attachment")
         if previous is not None:
             if re.match(r"^\d{4}-\d{2}-\d{2}T", previous["name"]) and not re.match(r"^\d{4}-\d{2}-\d{2}T", name):
                 previous["name"] = name
+            previous["sourceNames"] = list(dict.fromkeys([*previous["sourceNames"], *names]))
             continue
         available += len(content)
         if available > MAX_ATTACHMENT_BYTES:
             raise DocError("DOC_ATTACHMENT_LIMIT", 413)
-        entries[digest] = {"name": name, "sha256": digest, "byteSize": len(content), "bodyBase64": encoded(content)}
+        entries[digest] = {"name": name, "sourceNames": names, "sha256": digest,
+                           "byteSize": len(content), "bodyBase64": encoded(content)}
     return list(entries.values())
 
 
