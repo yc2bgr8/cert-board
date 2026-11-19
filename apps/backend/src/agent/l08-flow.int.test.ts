@@ -9,12 +9,15 @@ import {
   workspaceToolReadSchema,
   workspaceToolSaveSchema,
   workspaceToolWriteSchema,
+  chatRequestSchema,
+  selectGatewayModel,
   type DocumentPageRead,
   type DocumentSearchItem,
-  type ModelGatewayConfig,
+  type ChatRequest,
   type StructuredSubmission,
 } from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
+import { startLocalModelFixture } from '../test-support/local-model-fixture.js';
 import { seedDevelopmentWorkspace } from '../workspace/seed.js';
 import { seedDevelopmentBudgetPolicy } from '../budget/service.js';
 import { readT1Fixture } from '../documents/t1-seed.js';
@@ -22,6 +25,8 @@ import { ingestParsedDocument } from '../documents/service.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { appendConversationMessage } from '../conversations/storage.js';
 import { ModelGateway, type GatewayTransport } from '../modelgw/service.js';
+import { loadModelGatewayConfig } from '../modelgw/config.js';
+import { RealGatewayTransport } from '../modelgw/transport.js';
 import { buildAgentTools } from './default-tools.js';
 import { executeAgentRun } from './runtime.js';
 
@@ -38,28 +43,6 @@ class MemoryStore implements DocumentBlobStore {
     return Buffer.from(content);
   }
 }
-const config: ModelGatewayConfig = {
-  version: 1,
-  models: [
-    {
-      id: 'scripted',
-      upstreamModel: 'scripted/l08-flow',
-      baseUrl: 'https://fixture.invalid/api/v1',
-      apiKeyEnv: 'FIXTURE_KEY',
-      family: 'fixture',
-      enabled: true,
-      accepted: false,
-      purposes: ['agent'],
-      maxDataLevel: 'internal',
-      contextLength: 1000000,
-      maxOutputTokens: 4096,
-      supportsImages: false,
-      prices: { inputUsdPerMillion: '0', cacheReadUsdPerMillion: '0', outputUsdPerMillion: '0' },
-      provider: { only: ['fixture'], allow_fallbacks: false, require_parameters: true },
-      reasoning: { enabled: false },
-    },
-  ],
-};
 const call = (name: string, args: unknown) => ({
   id: randomUUID(),
   object: 'chat.completion',
@@ -83,8 +66,10 @@ const call = (name: string, args: unknown) => ({
   usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20, cost: 0 },
 });
 
-test('真实T1经同一Pi内核完成技能计划、命中窄读、工作区保存、自检、审核及浏览器批准', async () => {
+async function verifyL08(profile: '开发模拟' | '本地端点') {
   const context = await createIntegrationContext();
+  let localFixture: Awaited<ReturnType<typeof startLocalModelFixture>> | undefined;
+  let localTransport: RealGatewayTransport | undefined;
   try {
     const store = new MemoryStore();
     const fixture = await readT1Fixture();
@@ -145,132 +130,153 @@ test('真实T1经同一Pi内核完成技能计划、命中窄读、工作区保�
     let scriptFailure: unknown;
     const path = '交付/L08-K号全链路核查.md';
     let report = '';
-    const transport: GatewayTransport = {
-      kind: 'fixture',
-      async send(_model, request) {
-        try {
-          const last = request.messages.at(-1);
-          const previous: unknown = last?.role === 'tool' ? JSON.parse(last.content) : null;
-          switch (turn++) {
-            case 0:
-              expect(
-                request.messages.some(
-                  (message) => message.role === 'system' && message.content.includes('R09'),
-                ),
-              ).toBe(true);
-              return call('skill_load', { id: 'R09' });
-            case 1:
-              expect(skillLoadResultSchema.parse(previous).skill.id).toBe('R09');
-              return call('plan_update', {
-                steps: [
-                  { title: '核对两处原文', status: 'running' },
-                  { title: '保存报告并提交审核', status: 'pending' },
-                ],
-                progress: '已读取项目说明和R09技能，开始定位原文。',
-              });
-            case 2:
-              return call('doc_search', { query: '510(k) number', limit: 3 });
-            case 3: {
-              hits = documentSearchResultSchema.parse(previous).items;
-              expect(hits.map((hit) => hit.page)).toEqual([1, 5]);
-              const hit = hits[0]!;
-              return call('doc_read', {
-                id: hit.documentId,
-                version: hit.version,
-                page: hit.page,
-                offset: hit.snippetOffset,
-              });
-            }
-            case 4: {
-              reads.push(documentPageReadSchema.parse(previous));
-              const hit = hits[1]!;
-              return call('doc_read', {
-                id: hit.documentId,
-                version: hit.version,
-                page: hit.page,
-                offset: hit.snippetOffset,
-              });
-            }
-            case 5:
-              reads.push(documentPageReadSchema.parse(previous));
-              expect(reads.map((read) => read.text.match(/K\d{6}/)?.[0])).toEqual([
-                'K170825',
-                'K170285',
-              ]);
-              expect(reads.every((read) => read.text.length <= 1800)).toBe(true);
-              report =
-                '# L08 K号写法核查\n\n两处写法不同，正确编号待注册人员核对原件确认。\n\n' +
-                reads
-                  .map(
-                    (read) =>
-                      `${read.sourceKey} 第${read.version}版 第${read.page}页：\n${read.text.split(/\r?\n/).find((line) => /K\d{6}/.test(line))!}`,
-                  )
-                  .join('\n\n');
-              return call('ws_write', { path, content: report, expectedSha256: null });
-            case 6:
-              written = workspaceToolWriteSchema.parse(previous);
-              return call('ws_read', { path });
-            case 7: {
-              const file = workspaceToolReadSchema.parse(previous);
-              expect(file.sha256).toBe(written!.file.sha256);
-              expect(file.text).toBe(report);
-              return call('workspace_save', {
-                summary: '保存两处K号原文及待确认差异',
-                expectedDraftVersion: file.draftVersion,
-              });
-            }
-            case 8: {
-              saved = workspaceToolSaveSchema.parse(previous);
-              const evidence = reads.map((read) => ({
-                documentId: read.documentId,
-                version: read.version,
-                page: read.page,
-                quote: read.text.split(/\r?\n/).find((line) => /K\d{6}/.test(line))!,
-              }));
-              submission = structuredSubmissionSchema.parse({
-                skill: { id: 'R09', version: '0.1.0' },
-                workspaceVersion: saved.workspaceVersion,
-                conclusion: '同一资料两处K号写法不同，正确编号待注册人员确认。',
-                claims: evidence.map((ref, index) => ({
-                  id: `C${index + 1}`,
-                  object: '对比器械',
-                  field: 'K号原始写法',
-                  value: ref.quote.match(/K\d{6}/)![0],
-                  unit: null,
-                  sources: [ref],
-                  status: 'checked',
-                })),
-                evidence,
-                decisions: [
-                  {
-                    id: 'D1',
-                    subject: '差异处理',
-                    choice: '保留两处原文，暂不选定正确编号。',
-                    alternatives: ['等待原件核实后修订'],
-                    reason: '两处写法不同，仅凭出现次数不能认定正确编号。',
-                    sources: evidence,
-                    risk: 'low',
-                  },
-                ],
-                missing: ['原始文件核对结果'],
-                uncertain: ['正确K号待确认。'],
-                nextStep: '请注册人员审核差异报告。',
-              });
-              return call('check_run', submission);
-            }
-            case 9:
-              expect(checkReportSchema.parse(previous).passed).toBe(true);
-              return call('submit_for_review', submission);
-            default:
-              throw new Error('提交审核后不应再调用模型');
+    async function scriptedCompletion(request: Pick<ChatRequest, 'messages'>) {
+      try {
+        const last = request.messages.at(-1);
+        const previous: unknown = last?.role === 'tool' ? JSON.parse(last.content) : null;
+        switch (turn++) {
+          case 0:
+            expect(
+              request.messages.some(
+                (message) => message.role === 'system' && message.content.includes('R09'),
+              ),
+            ).toBe(true);
+            return call('skill_load', { id: 'R09' });
+          case 1:
+            expect(skillLoadResultSchema.parse(previous).skill.id).toBe('R09');
+            return call('plan_update', {
+              steps: [
+                { title: '核对两处原文', status: 'running' },
+                { title: '保存报告并提交审核', status: 'pending' },
+              ],
+              progress: '已读取项目说明和R09技能，开始定位原文。',
+            });
+          case 2:
+            return call('doc_search', { query: '510(k) number', limit: 3 });
+          case 3: {
+            hits = documentSearchResultSchema.parse(previous).items;
+            expect(hits.map((hit) => hit.page)).toEqual([1, 5]);
+            const hit = hits[0]!;
+            return call('doc_read', {
+              id: hit.documentId,
+              version: hit.version,
+              page: hit.page,
+              offset: hit.snippetOffset,
+            });
           }
-        } catch (error) {
-          scriptFailure = error;
-          throw error;
+          case 4: {
+            reads.push(documentPageReadSchema.parse(previous));
+            const hit = hits[1]!;
+            return call('doc_read', {
+              id: hit.documentId,
+              version: hit.version,
+              page: hit.page,
+              offset: hit.snippetOffset,
+            });
+          }
+          case 5:
+            reads.push(documentPageReadSchema.parse(previous));
+            expect(reads.map((read) => read.text.match(/K\d{6}/)?.[0])).toEqual([
+              'K170825',
+              'K170285',
+            ]);
+            expect(reads.every((read) => read.text.length <= 1800)).toBe(true);
+            report =
+              '# L08 K号写法核查\n\n两处写法不同，正确编号待注册人员核对原件确认。\n\n' +
+              reads
+                .map(
+                  (read) =>
+                    `${read.sourceKey} 第${read.version}版 第${read.page}页：\n${read.text.split(/\r?\n/).find((line) => /K\d{6}/.test(line))!}`,
+                )
+                .join('\n\n');
+            return call('ws_write', { path, content: report, expectedSha256: null });
+          case 6:
+            written = workspaceToolWriteSchema.parse(previous);
+            return call('ws_read', { path });
+          case 7: {
+            const file = workspaceToolReadSchema.parse(previous);
+            expect(file.sha256).toBe(written!.file.sha256);
+            expect(file.text).toBe(report);
+            return call('workspace_save', {
+              summary: '保存两处K号原文及待确认差异',
+              expectedDraftVersion: file.draftVersion,
+            });
+          }
+          case 8: {
+            saved = workspaceToolSaveSchema.parse(previous);
+            const evidence = reads.map((read) => ({
+              documentId: read.documentId,
+              version: read.version,
+              page: read.page,
+              quote: read.text.split(/\r?\n/).find((line) => /K\d{6}/.test(line))!,
+            }));
+            submission = structuredSubmissionSchema.parse({
+              skill: { id: 'R09', version: '0.1.0' },
+              workspaceVersion: saved.workspaceVersion,
+              conclusion: '同一资料两处K号写法不同，正确编号待注册人员确认。',
+              claims: evidence.map((ref, index) => ({
+                id: `C${index + 1}`,
+                object: '对比器械',
+                field: 'K号原始写法',
+                value: ref.quote.match(/K\d{6}/)![0],
+                unit: null,
+                sources: [ref],
+                status: 'checked',
+              })),
+              evidence,
+              decisions: [
+                {
+                  id: 'D1',
+                  subject: '差异处理',
+                  choice: '保留两处原文，暂不选定正确编号。',
+                  alternatives: ['等待原件核实后修订'],
+                  reason: '两处写法不同，仅凭出现次数不能认定正确编号。',
+                  sources: evidence,
+                  risk: 'low',
+                },
+              ],
+              missing: ['原始文件核对结果'],
+              uncertain: ['正确K号待确认。'],
+              nextStep: '请注册人员审核差异报告。',
+            });
+            return call('check_run', submission);
+          }
+          case 9:
+            expect(checkReportSchema.parse(previous).passed).toBe(true);
+            return call('submit_for_review', submission);
+          default:
+            throw new Error('提交审核后不应再调用模型');
         }
-      },
+      } catch (error) {
+        scriptFailure = error;
+        throw error;
+      }
+    }
+    const scripted: GatewayTransport = {
+      kind: 'fixture',
+      send: (_model, request) => scriptedCompletion(request),
     };
-    const gateway = new ModelGateway(context.pool, config, transport, { environment: 'test' });
+    if (profile === '本地端点') {
+      localFixture = await startLocalModelFixture(({ pathname, authorization, body }) => {
+        expect(pathname).toBe('/v1/chat/completions');
+        expect(authorization).toBeUndefined();
+        const input = chatRequestSchema.parse(body);
+        expect(input.model).toBe('deepseek-flash');
+        return scriptedCompletion(input);
+      });
+      localTransport = new RealGatewayTransport({ allowedHosts: ['openrouter.ai'] });
+    }
+    const config = await loadModelGatewayConfig({
+      environment: 'development',
+      sourceEnv: localFixture ? { CERT_LOCAL_MODEL_BASE_URL: localFixture.baseUrl } : {},
+    });
+    const model = selectGatewayModel(config, 'agent');
+    if (!model) throw new Error('L08_FIXTURE_MODEL');
+    expect(model.id).toBe(localFixture ? 'deepseek-local' : 'deepseek-flash-1017');
+    const gateway = new ModelGateway(context.pool, config, localTransport ?? scripted, {
+      environment: 'test',
+    });
+    const startedAt = performance.now();
     const done = await executeAgentRun(
       {
         pool: context.pool,
@@ -285,6 +291,7 @@ test('真实T1经同一Pi内核完成技能计划、命中窄读、工作区保�
     expect(done.status).toBe('waiting');
     expect(done.reviewId).toBeTruthy();
     expect(turn).toBe(10);
+    expect(done.usage).toMatchObject({ steps: 10, costNano: '0' });
     const card = (
       await context.pool.query(
         'SELECT structured_result,check_report,evidence_refs,workspace_version_id,status,version FROM review_card WHERE id=$1 AND run_id=$2',
@@ -329,6 +336,8 @@ test('真实T1经同一Pi内核完成技能计划、命中窄读、工作区保�
     expect(events.rows.map((event) => event.type)).toEqual(
       expect.arrayContaining(['plan_updated', 'tool_completed', 'review_submitted']),
     );
+    const toolErrors = events.rows.filter(({ type }) => type === 'tool_failed').length;
+    expect(toolErrors).toBe(0);
     expect(
       (await context.pool.query('SELECT id FROM decision UNION ALL SELECT id FROM review_decision'))
         .rowCount,
@@ -365,7 +374,27 @@ test('真实T1经同一Pi内核完成技能计划、命中窄读、工作区保�
     ).rows;
     expect(ledger).toHaveLength(turn);
     expect(ledger.every((row) => row.status === 'settled' && row.actual_nano === '0')).toBe(true);
+    if (process.env.CERT_L08_METRICS === '1')
+      console.log(
+        JSON.stringify({
+          profile,
+          passed: true,
+          model: model.id,
+          steps: turn,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          toolErrors,
+          costNano: '0',
+        }),
+      );
   } finally {
-    await context.close();
+    await Promise.all([localFixture?.close(), localTransport?.close()]).finally(() =>
+      context.close(),
+    );
   }
-}, 60000);
+}
+
+test.each(['开发模拟', '本地端点'] as const)(
+  '%s用真实 T1 经同一 Pi 内核完成核查、保存、送审和批准',
+  verifyL08,
+  60000,
+);

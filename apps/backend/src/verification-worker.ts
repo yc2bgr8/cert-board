@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { createDependencies } from './dependencies.js';
 import { startVerificationWorker } from './external-model/verification-worker.js';
 import { createLogger } from './logger.js';
-import { loadModelGatewayConfig, parseAllowedModelHosts } from './modelgw/config.js';
+import { loadVerificationModelGatewayConfig, parseAllowedModelHosts } from './modelgw/config.js';
 import { ModelGateway } from './modelgw/service.js';
-import { RealGatewayTransport } from './modelgw/transport.js';
+import { createWorkerModelTransport } from './modelgw/transport.js';
 
 async function start() {
   const config = parseBackendConfig(process.env);
@@ -13,23 +13,35 @@ async function start() {
   const logger = createLogger(config);
   const dependencies = createDependencies(config);
   const proxyUrl = process.env.HTTPS_PROXY;
-  const transport =
-    proxyUrl && process.env.OPENROUTER_API_KEY
-      ? new RealGatewayTransport({
-          proxyUrl,
-          allowedHosts: parseAllowedModelHosts(
-            await readFile(new URL('../../../deploy/egress/allowlist', import.meta.url), 'utf8'),
-          ),
-        })
+  const moderatorUnavailable = () => {
+    logger.warn(
+      { event: 'verification_moderator_model_unavailable' },
+      '核实主持使用本地程序，模型配置暂不可用。',
+    );
+    return undefined;
+  };
+  const models = await loadVerificationModelGatewayConfig({ environment: config.NODE_ENV }).catch(
+    moderatorUnavailable,
+  );
+  const remoteProxy = proxyUrl && process.env.OPENROUTER_API_KEY ? proxyUrl : undefined;
+  let transport: ReturnType<typeof createWorkerModelTransport> | undefined;
+  if (models) {
+    try {
+      const allowedHosts = parseAllowedModelHosts(
+        await readFile(new URL('../../../deploy/egress/allowlist', import.meta.url), 'utf8'),
+      );
+      transport = createWorkerModelTransport(models, {
+        ...(remoteProxy ? { proxyUrl: remoteProxy } : {}),
+        allowedHosts,
+      });
+    } catch {
+      moderatorUnavailable();
+    }
+  }
+  const gateway =
+    transport && models
+      ? new ModelGateway(dependencies.database, models, transport, { environment: config.NODE_ENV })
       : undefined;
-  const gateway = transport
-    ? new ModelGateway(
-        dependencies.database,
-        await loadModelGatewayConfig({ environment: config.NODE_ENV }),
-        transport,
-        { environment: config.NODE_ENV },
-      )
-    : undefined;
   const dispose = await startVerificationWorker(
     dependencies.database,
     logger,

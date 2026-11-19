@@ -8,7 +8,7 @@ import { createDependencies } from './dependencies.js';
 import { BlobStore } from './documents/blob-store.js';
 import { loadModelGatewayConfig, parseAllowedModelHosts } from './modelgw/config.js';
 import { ModelGateway } from './modelgw/service.js';
-import { RealGatewayTransport } from './modelgw/transport.js';
+import { createWorkerModelTransport, type RealGatewayTransport } from './modelgw/transport.js';
 import { buildAgentTools } from './agent/default-tools.js';
 import { executeAgentRun } from './agent/runtime.js';
 import { getContinuationTicket, listContinuationsForDispatch } from './approvals/continuation.js';
@@ -82,8 +82,8 @@ export async function startWorker() {
     const allowedHosts = parseAllowedModelHosts(
       await readFile(new URL('../../../deploy/egress/allowlist', import.meta.url), 'utf8'),
     );
-    transport = new RealGatewayTransport({
-      proxyUrl: process.env.HTTPS_PROXY ?? '',
+    transport = createWorkerModelTransport(models, {
+      ...(process.env.HTTPS_PROXY ? { proxyUrl: process.env.HTTPS_PROXY } : {}),
       containerRuntime: config.CONTAINER_RUNTIME,
       allowedHosts,
     });

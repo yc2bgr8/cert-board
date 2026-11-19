@@ -16,10 +16,29 @@ const textContent = z
   .max(262144)
   .refine((text) => /^[^\uD800-\uDFFF]*$/u.test(text), '模型文本包含不完整字符。');
 
-export const gatewayModelConfigSchema = z
+const gatewayModelFields = {
+  id: modelId,
+  upstreamModel: modelId,
+  family: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+  enabled: z.boolean(),
+  accepted: z.boolean(),
+  purposes: z
+    .array(purpose)
+    .min(1)
+    .max(16)
+    .refine((values) => new Set(values).size === values.length, '模型用途不能重复。'),
+  contextLength: count.positive(),
+  maxOutputTokens: count.positive(),
+  supportsImages: z.literal(false, { error: '本切片仅启用文本输入。' }),
+  prices: budgetPricesSchema,
+  reasoning: z.object({ enabled: z.literal(false) }).strict(),
+};
+
+export const openRouterGatewayModelSchema = z
   .object({
-    id: modelId,
-    upstreamModel: modelId,
+    ...gatewayModelFields,
+    transport: z.literal('openrouter').optional(),
+    developmentOnly: z.literal(true).optional(),
     baseUrl: z
       .string()
       .url()
@@ -37,19 +56,7 @@ export const gatewayModelConfigSchema = z
     apiKeyEnv: z
       .string()
       .regex(/^[A-Z][A-Z0-9_]{0,62}_KEY$/, '只能填写模型密钥的环境变量名称，不能填写密钥值。'),
-    family: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
-    enabled: z.boolean(),
-    accepted: z.boolean(),
-    purposes: z
-      .array(purpose)
-      .min(1)
-      .max(16)
-      .refine((values) => new Set(values).size === values.length, '模型用途不能重复。'),
     maxDataLevel: z.literal('internal', { error: '当前远端上游最多处理内部资料。' }),
-    contextLength: count.positive(),
-    maxOutputTokens: count.positive(),
-    supportsImages: z.literal(false, { error: '本切片仅启用文本输入。' }),
-    prices: budgetPricesSchema,
     provider: z
       .object({
         only: z
@@ -59,22 +66,91 @@ export const gatewayModelConfigSchema = z
           .refine((values) => new Set(values).size === values.length, '提供方不能重复。'),
         allow_fallbacks: z.literal(false),
         require_parameters: z.literal(true),
+        data_collection: z.literal('deny').optional(),
+        zdr: z.literal(true).optional(),
       })
       .strict(),
-    reasoning: z.object({ enabled: z.literal(false) }).strict(),
   })
-  .strict()
+  .strict();
+
+export function isLocalGatewayEndpoint(value: string) {
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  if (
+    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    !['/v1', '/v1/'].includes(url.pathname) ||
+    url.port === '0'
+  )
+    return false;
+  const octets = url.hostname.split('.');
+  if (octets.length !== 4 || octets.some((part) => !/^[0-9]{1,3}$/u.test(part))) return false;
+  const [first, second] = octets.map(Number);
+  return (
+    url.hostname === '127.0.0.1' ||
+    first === 10 ||
+    (first === 172 && second! >= 16 && second! <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+export const localGatewayModelSchema = z
+  .object({
+    ...gatewayModelFields,
+    transport: z.literal('local'),
+    baseUrl: z
+      .string()
+      .refine(isLocalGatewayEndpoint, '本地模型只接受内网 IPv4 的 OpenAI 兼容 /v1 地址。')
+      .nullable(),
+    maxDataLevel: z.literal('confidential'),
+    prices: budgetPricesSchema.refine(
+      (value) => Object.values(value).every((price) => Number(price) === 0),
+      '本地模型不计美元费用。',
+    ),
+  })
+  .strict();
+
+export const gatewayModelConfigSchema = z
+  .union([openRouterGatewayModelSchema, localGatewayModelSchema])
   .refine((model) => model.maxOutputTokens <= model.contextLength, '输出上限不能超过上下文上限。');
+export type OpenRouterGatewayModel = z.infer<typeof openRouterGatewayModelSchema>;
+export type LocalGatewayModel = z.infer<typeof localGatewayModelSchema>;
 export type GatewayModelConfig = z.infer<typeof gatewayModelConfigSchema>;
 export type RuntimeModelConfig = GatewayModelConfig;
 export const modelGatewayConfigSchema = z
-  .object({ version: z.literal(1), models: z.array(gatewayModelConfigSchema).min(1).max(16) })
+  .object({
+    version: z.literal(1),
+    developmentDefault: modelId.optional(),
+    models: z.array(gatewayModelConfigSchema).min(1).max(16),
+  })
   .strict()
   .refine(
     (config) => new Set(config.models.map((model) => model.id)).size === config.models.length,
     '模型配置编号不能重复。',
   );
 export type ModelGatewayConfig = z.infer<typeof modelGatewayConfigSchema>;
+
+export function selectGatewayModel(
+  config: ModelGatewayConfig,
+  purpose: string,
+  requested?: string,
+) {
+  const candidates = config.models.filter(
+    (model) =>
+      model.enabled &&
+      model.baseUrl !== null &&
+      model.purposes.includes(purpose) &&
+      (!requested || model.id === requested),
+  );
+  return (
+    candidates.find((model) => model.transport === 'local') ??
+    candidates.find((model) => model.id === config.developmentDefault) ??
+    candidates[0]
+  );
+}
 
 const toolCallFields = {
   id: callId,

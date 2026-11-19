@@ -37,9 +37,7 @@ vi.mock('./modelgw/config.js', () => ({
   parseAllowedModelHosts: () => ['openrouter.ai'],
 }));
 vi.mock('./modelgw/transport.js', () => ({
-  RealGatewayTransport: class {
-    close = state.closeTransport;
-  },
+  createWorkerModelTransport: () => ({ close: state.closeTransport }),
 }));
 vi.mock('./modelgw/service.js', () => ({ ModelGateway: class {} }));
 vi.mock('./agent/default-tools.js', () => ({ buildAgentTools: async () => [] }));

@@ -44,7 +44,9 @@ export function backendEnvironment(kind, local, inherited = process.env) {
   );
   const allowed = [
     ...baseKeys,
-    ...(kind !== 'api' ? ['OPENROUTER_API_KEY', 'HTTPS_PROXY'] : []),
+    ...(kind !== 'api'
+      ? ['OPENROUTER_API_KEY', 'HTTPS_PROXY', 'CERT_LOCAL_MODEL_BASE_URL', 'CERT_DEV_MODEL_ID']
+      : []),
     ...(kind === 'verification'
       ? ['CERT_CURSOR_BUNDLE', 'CERT_CURSOR_PROFILE', 'CERT_CURSOR_PRIVACY_CONFIRMED']
       : []),

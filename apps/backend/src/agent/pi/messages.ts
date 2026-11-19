@@ -30,6 +30,7 @@ export const emptyUsage = (): Usage => ({
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 });
 export function piModel(config: RuntimeModelConfig): Model<'openai-completions'> {
+  if (config.baseUrl === null) throw new Error('MODEL_LOCAL_ENDPOINT_MISSING');
   return {
     id: config.upstreamModel,
     name: config.id,

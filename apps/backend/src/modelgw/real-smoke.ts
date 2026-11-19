@@ -20,8 +20,10 @@ async function main() {
       '真实连通性测试仅使用本地开发环境及持久账本。',
     );
   const config = await loadModelGatewayConfig({ environment: 'development' });
-  const model = config.models.find((item) => item.enabled && item.purposes.includes('evaluation'));
-  if (!model || !process.env[model.apiKeyEnv])
+  const model = config.models.find(
+    (item) => item.id === 'qwen-flash' && item.enabled && item.purposes.includes('evaluation'),
+  );
+  if (!model || model.transport === 'local' || !process.env[model.apiKeyEnv])
     throw new AppError(403, 'REAL_TEST_CONFIG', '未配置可用测试模型或模型凭据。');
   const hosts = parseAllowedModelHosts(
     await readFile(new URL('../../../../deploy/egress/allowlist', import.meta.url), 'utf8'),

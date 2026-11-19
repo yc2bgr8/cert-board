@@ -1,6 +1,50 @@
 # 开发候选，未完成正式模型比选。仅文本；金额单位为 USD / 百万 token。
 version: 1
+developmentDefault: deepseek-flash-1017
 models:
+  - id: deepseek-local
+    transport: local
+    upstreamModel: deepseek-flash
+    baseUrl: null
+    family: deepseek
+    enabled: true
+    accepted: false
+    purposes: [agent, extraction, evaluation]
+    maxDataLevel: confidential
+    contextLength: 1048576
+    maxOutputTokens: 4096
+    supportsImages: false
+    prices:
+      inputUsdPerMillion: '0'
+      cacheReadUsdPerMillion: '0'
+      outputUsdPerMillion: '0'
+    reasoning:
+      enabled: false
+  - id: deepseek-flash-1017
+    developmentOnly: true
+    upstreamModel: deepseek/deepseek-v4.1-flash-1017
+    baseUrl: https://openrouter.ai/api/v1
+    apiKeyEnv: OPENROUTER_API_KEY
+    family: deepseek
+    enabled: true
+    accepted: false
+    purposes: [agent, extraction, evaluation]
+    maxDataLevel: internal
+    contextLength: 1048576
+    maxOutputTokens: 4096
+    supportsImages: false
+    prices:
+      inputUsdPerMillion: '0.098'
+      cacheReadUsdPerMillion: '0.00294'
+      outputUsdPerMillion: '0.294'
+    provider:
+      only: [deepinfra/fp8]
+      allow_fallbacks: false
+      require_parameters: true
+      data_collection: deny
+      zdr: true
+    reasoning:
+      enabled: false
   - id: qwen-flash
     upstreamModel: qwen/qwen3.8-flash
     baseUrl: https://openrouter.ai/api/v1
