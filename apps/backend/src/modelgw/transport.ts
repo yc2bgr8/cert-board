@@ -1,5 +1,10 @@
 import { Agent, ProxyAgent, request } from 'undici';
-import { isLocalGatewayEndpoint, type OpenRouterGatewayModel } from '@cert-board/shared';
+import {
+  isLocalGatewayEndpoint,
+  selectGatewayModel,
+  type ModelGatewayConfig,
+  type OpenRouterGatewayModel,
+} from '@cert-board/shared';
 
 type RemoteTarget = Pick<OpenRouterGatewayModel, 'baseUrl' | 'apiKeyEnv' | 'transport'>;
 type Target = RemoteTarget | { baseUrl: string | null; transport: 'local' };
@@ -223,4 +228,13 @@ export class RealGatewayTransport {
   async close() {
     await Promise.all([this.#dispatcher?.close(), this.#localDispatcher?.close()]);
   }
+}
+
+export function createWorkerModelTransport(models: ModelGatewayConfig, options: Options) {
+  const local = selectGatewayModel(models, 'agent')?.transport === 'local';
+  const { proxyUrl, ...rest } = options;
+  return new RealGatewayTransport({
+    ...rest,
+    ...(proxyUrl || !local ? { proxyUrl: proxyUrl ?? '' } : {}),
+  });
 }

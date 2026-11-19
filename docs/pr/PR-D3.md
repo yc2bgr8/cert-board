@@ -6,27 +6,28 @@
 
 - `deploy/models.yaml` 登记本地 `deepseek-local`，地址留空。配置可用的本地端点后，普通 Agent 及其他未指定模型的请求优先选择本地模型。
 - 本地 OpenAI 兼容地址支持带 `/v1` 的 RFC 1918 IPv4 地址及 `127.0.0.1`。模型配置文件提供模型名，或通过 `.env.local` 中的 `CERT_LOCAL_MODEL_BASE_URL` 覆盖地址。调用使用本地连接，远端模型密钥和 OpenRouter 专有参数不会发往本地端点。
+- 仅配置本地模型时，Agent worker 可以在无代理设置的情况下启动。需要远端请求时仍要求固定代理。Cursor 单独使用时沿用程序主持，配置本地地址或 OpenRouter 通道后才加载主持模型。
 - 项目资料、对话、运行和工作区按最高级别路由。涉及保密的请求只允许本地模型，调用前重新核对级别。发送前升密或撤权时释放尚未使用的预占，后续继续走原授权。
 - 本地模型的实际美元费用固定为零。成功时使用可核对的令牌数和步数；超时或缺少用量时按本次预占上界保守登记令牌，保留现有预算和停止状态。工具参数对象按 OpenAI 兼容格式转为 JSON 字符串，继续由工具参数校验处理。
 
 ## 开发模拟模型
 
-开发默认配置同系列 `deepseek/deepseek-v4.1-flash-1017`，固定 `deepinfra/fp8`。2026-11-19 公开目录显示该端点支持工具，并列在 ZDR 目录，百万令牌输入、缓存读取和输出分别为 0.098、0.00294 和 0.294 美元。请求配置要求 ZDR，禁用数据收集和提供方回退。公开目录核对未发出模型推理。[模型目录](https://openrouter.ai/deepseek/deepseek-v4.1-flash-1017) · [端点与价格](https://openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints) · [ZDR 目录](https://openrouter.ai/api/v1/endpoints/zdr)
+开发默认配置同系列 `deepseek/deepseek-v4.1-flash-1017`，固定 `deepinfra/fp8`。2026-11-19 公开目录显示该端点支持工具，并列在 ZDR 目录，百万令牌输入、缓存读取和输出分别为 0.098、0.00294 和 0.294 美元。请求配置要求 ZDR，禁用数据收集和提供方回退。生产环境只使用其独立审核的模型配置。公开目录核对未发出模型推理。[模型目录](https://openrouter.ai/deepseek/deepseek-v4.1-flash-1017) · [端点与价格](https://openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints) · [ZDR 目录](https://openrouter.ai/api/v1/endpoints/zdr)
 
 `.env.local` 可设置 `CERT_DEV_MODEL_ID=qwen-flash` 切回现有开发模型。`pnpm test:real` 的网关、Agent 和 L08 路径仍使用 Lan 已指定的 Qwen Flash。真实测试在本 PR 全部跳过。
 
 ## 模拟验收
 
-模拟本地 HTTP 端点覆盖成功、超时、缺用量、格式错误和工具参数对象。保密数据测试覆盖远端指定模型拒绝、执行权检查期间升密拒绝、派发时的计量冻结以及本地端点的零费用持久记录。
+模拟本地 HTTP 端点覆盖成功、超时、缺用量、格式错误和工具参数对象。保密数据测试覆盖远端指定模型拒绝、执行权检查期间升密拒绝、最终路由期间取消后归还预占、派发时的计量冻结以及本地端点的零费用持久记录。
 
 L08 用真实 T1 解析快照和剧本模型，从核查两处 K 号写法跑到带浏览器会话和 CSRF 的审核批准接口。计时从 Agent 开始执行至审核通过。每种模式各一场，测试不代表真实模型评测。
 
 | 模式 | 通过 | 模型步骤 | 耗时 | 工具错误 | 模型费用 |
 |---|---:|---:|---:|---:|---:|
-| 开发模拟 `deepseek-flash-1017` | 1/1 | 10 | 1605 ms | 0 | 0 美元 |
-| 本地兼容 `deepseek-local` | 1/1 | 10 | 1563 ms | 0 | 0 美元 |
+| 开发模拟 `deepseek-flash-1017` | 1/1 | 10 | 1585 ms | 0 | 0 美元 |
+| 本地兼容 `deepseek-local` | 1/1 | 10 | 1465 ms | 0 | 0 美元 |
 
-合计 2/2，平均 10 步、1584 ms。复现实测可设置 `CERT_L08_METRICS=1` 后运行 `pnpm test:int apps/backend/src/agent/l08-flow.int.test.ts --silent=false`。日志仅展示模式、步数、耗时、工具错误和费用。
+合计 2/2，平均 10 步、1525 ms。复现实测可设置 `CERT_L08_METRICS=1` 后运行 `pnpm test:int apps/backend/src/agent/l08-flow.int.test.ts --silent=false`。日志仅展示模式、步数、耗时、工具错误和费用。
 
 ## 范围边界
 

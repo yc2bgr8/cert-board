@@ -21,6 +21,7 @@ models:
     reasoning:
       enabled: false
   - id: deepseek-flash-1017
+    developmentOnly: true
     upstreamModel: deepseek/deepseek-v4.1-flash-1017
     baseUrl: https://openrouter.ai/api/v1
     apiKeyEnv: OPENROUTER_API_KEY

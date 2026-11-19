@@ -12,7 +12,7 @@ import {
   reconcileUsage,
 } from '../budget/service.js';
 import { ModelGateway, type GatewayTransport, type UpstreamChatRequest } from './service.js';
-import { RealGatewayTransport } from './transport.js';
+import { createWorkerModelTransport } from './transport.js';
 
 let context: Awaited<ReturnType<typeof createIntegrationContext>>;
 let caller: GatewayContext;
@@ -123,11 +123,6 @@ async function localEndpoint(mock: () => unknown, timeoutMs = 2000) {
     received.push(input);
     return mock();
   });
-  const transport = new RealGatewayTransport({
-    allowedHosts: ['openrouter.ai'],
-    timeoutMs,
-    environment: { OPENROUTER_API_KEY: 'synthetic-remote-key' },
-  });
   const models: ModelGatewayConfig = {
     ...configuration,
     models: [
@@ -150,8 +145,14 @@ async function localEndpoint(mock: () => unknown, timeoutMs = 2000) {
       },
     ],
   };
+  const transport = createWorkerModelTransport(models, {
+    allowedHosts: ['openrouter.ai'],
+    timeoutMs,
+    environment: { OPENROUTER_API_KEY: 'synthetic-remote-key' },
+  });
   return {
     received,
+    transport,
     gateway: new ModelGateway(context.pool, models, transport, { environment: 'test' }),
     async close() {
       await Promise.all([server.close(), transport.close()]);
@@ -184,6 +185,11 @@ test('本地 OpenAI 兼容端点接收保密请求，保留工具参数并按实
     };
   });
   try {
+    const remote = configuration.models[0];
+    if (!remote || remote.transport === 'local') throw new Error('REMOTE_FIXTURE_MISSING');
+    await expect(fixture.transport.catalog(remote)).rejects.toMatchObject({
+      code: 'MODEL_PROXY_INVALID',
+    });
     await expect(
       fixture.gateway.complete({ ...request, model: 'fixture-model' }, caller),
     ).rejects.toMatchObject({ code: 'MODEL_LOCAL_REQUIRED' });
@@ -435,6 +441,40 @@ test('执行权检查期间升密时拒绝远端派发，并归还尚未消耗�
   ).rejects.toMatchObject({ code: 'MODEL_DISPATCH_BLOCKED' });
   expect(source.calls()).toBe(0);
   expect((await getBudgetSummary(context.pool)).counts).toMatchObject({ reserved: 0, unknown: 0 });
+});
+
+test('最终路由检查期间取消时按未发送释放预占，保留计量连续性', async () => {
+  const source = transport(response());
+  const gateway = new ModelGateway(context.pool, configuration, source.handler, {
+    environment: 'test',
+  });
+  const controller = new AbortController();
+  const original = context.pool.query;
+  let routeChecks = 0;
+  context.pool.query = (async (...args: unknown[]) => {
+    const result: unknown = await Reflect.apply(original, context.pool, args);
+    if (typeof args[0] === 'string' && args[0].includes('AS data_level') && ++routeChecks === 3)
+      controller.abort();
+    return result;
+  }) as typeof context.pool.query;
+  try {
+    await expect(
+      gateway.complete(request, caller, controller.signal, async () => undefined),
+    ).rejects.toMatchObject({ code: 'MODEL_ABORTED' });
+    expect(routeChecks).toBe(3);
+    expect(source.calls()).toBe(0);
+    expect(
+      (
+        await context.pool.query(
+          'SELECT status,actual_nano FROM usage_ledger WHERE request_key=$1',
+          [caller.requestKey],
+        )
+      ).rows[0],
+    ).toMatchObject({ status: 'not_sent', actual_nano: '0' });
+    expect((await getBudgetSummary(context.pool)).counts.unknown).toBe(0);
+  } finally {
+    context.pool.query = original;
+  }
 });
 
 test('运行和对话归属不能伪造，模型和用途只能从已启用配置选择', async () => {

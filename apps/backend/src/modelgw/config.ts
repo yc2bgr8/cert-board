@@ -73,9 +73,16 @@ export function parseModelGatewayConfig(
         : undefined;
     const config = modelGatewayConfigSchema.parse({
       version: parsed.version,
-      models: parsed.models.map((model) =>
-        model.transport === 'local' && localEndpoint ? { ...model, baseUrl: localEndpoint } : model,
-      ),
+      models: parsed.models
+        .filter(
+          (model) =>
+            environment !== 'production' || model.transport === 'local' || !model.developmentOnly,
+        )
+        .map((model) =>
+          model.transport === 'local' && localEndpoint
+            ? { ...model, baseUrl: localEndpoint }
+            : model,
+        ),
       ...(developmentDefault ? { developmentDefault } : {}),
     });
     if (
@@ -99,13 +106,15 @@ export function parseModelGatewayConfig(
   }
 }
 
+type ModelConfigLoadOptions = {
+  configPath?: string;
+  allowlistPath?: string;
+  environment?: string;
+  sourceEnv?: NodeJS.ProcessEnv;
+};
+
 export async function loadModelGatewayConfig(
-  options: {
-    configPath?: string;
-    allowlistPath?: string;
-    environment?: string;
-    sourceEnv?: NodeJS.ProcessEnv;
-  } = {},
+  options: ModelConfigLoadOptions = {},
 ): Promise<ModelGatewayConfig> {
   try {
     const configPath =
@@ -129,4 +138,14 @@ export async function loadModelGatewayConfig(
   } catch {
     throw new ModelConfigError();
   }
+}
+
+export function loadVerificationModelGatewayConfig(options: ModelConfigLoadOptions = {}) {
+  const sourceEnv = options.sourceEnv ?? process.env;
+  if (
+    !sourceEnv.CERT_LOCAL_MODEL_BASE_URL?.trim() &&
+    !(sourceEnv.HTTPS_PROXY && sourceEnv.OPENROUTER_API_KEY)
+  )
+    return Promise.resolve(undefined);
+  return loadModelGatewayConfig({ ...options, sourceEnv });
 }

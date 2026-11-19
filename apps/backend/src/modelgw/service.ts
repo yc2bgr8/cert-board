@@ -122,12 +122,22 @@ export class ModelGateway {
         '模型配置无效，请维护人员核对已启用模型、价格与上游设置。',
         500,
       );
-    this.config = frozen(parsed.data);
     this.environment = options.environment ?? process.env.NODE_ENV ?? 'production';
     if (process.env.NODE_ENV === 'production' && this.environment !== 'production')
       throw rejected('MODEL_ENVIRONMENT_DOWNGRADE', '生产进程不能降级为开发或测试环境。');
     if (!['development', 'test', 'production'].includes(this.environment))
       throw rejected('MODEL_ENVIRONMENT_INVALID', '模型运行环境无效，已拒绝启动。', 500);
+    const { developmentDefault: _developmentDefault, ...production } = parsed.data;
+    this.config = frozen(
+      this.environment === 'production'
+        ? {
+            ...production,
+            models: production.models.filter(
+              (model) => model.transport === 'local' || !model.developmentOnly,
+            ),
+          }
+        : parsed.data,
+    );
     if (!['real', 'fixture'].includes(transport.kind))
       throw rejected('MODEL_TRANSPORT_INVALID', '模型传输实现未登记。', 500);
     if (
@@ -282,6 +292,14 @@ export class ModelGateway {
     }
   }
 
+  private async releaseUnsent(context: GatewayContext, signal?: AbortSignal) {
+    try {
+      await markUsageNotDispatched(this.pool, context);
+    } catch {
+      await this.incomplete(context, signal?.aborted ? 'aborted' : 'request_uncertain');
+    }
+  }
+
   async complete(
     requestInput: unknown,
     contextInput: unknown,
@@ -366,11 +384,7 @@ export class ModelGateway {
       await this.routing(context, model);
       if (signal?.aborted) throw rejected('MODEL_ABORTED', '运行已停止，未继续发出模型请求。', 409);
     } catch (error) {
-      try {
-        await markUsageNotDispatched(this.pool, context);
-      } catch {
-        await this.incomplete(context, signal?.aborted ? 'aborted' : 'request_uncertain');
-      }
+      await this.releaseUnsent(context, signal);
       throw error;
     }
     if (beforeDispatch) {
@@ -400,6 +414,10 @@ export class ModelGateway {
         'MODEL_METERING_BLOCKED',
         '本网关已因计量故障停止派发，本请求未发出，请先核对账本。',
       );
+    }
+    if (signal?.aborted) {
+      await this.releaseUnsent(context, signal);
+      throw rejected('MODEL_ABORTED', '运行已停止。模型请求未派发，已释放预占。', 409);
     }
     let raw: unknown;
     const estimatedLocalUsage = {

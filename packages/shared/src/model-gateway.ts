@@ -38,6 +38,7 @@ export const openRouterGatewayModelSchema = z
   .object({
     ...gatewayModelFields,
     transport: z.literal('openrouter').optional(),
+    developmentOnly: z.literal(true).optional(),
     baseUrl: z
       .string()
       .url()

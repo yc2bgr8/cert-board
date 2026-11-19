@@ -4,6 +4,7 @@ import { selectGatewayModel } from '@cert-board/shared';
 import {
   ModelConfigError,
   loadModelGatewayConfig,
+  loadVerificationModelGatewayConfig,
   parseAllowedModelHosts,
   parseModelGatewayConfig,
 } from './config.js';
@@ -84,6 +85,38 @@ describe('唯一YAML模型配置来源', () => {
         'development',
       ),
     ).toThrow(ModelConfigError);
+  });
+
+  it('生产沿用已批准的 Qwen，开发模拟模型不参与选路或生产批准检查', () => {
+    const sourceConfig = parseModelGatewayConfig(source, hosts, 'development');
+    const production = parseModelGatewayConfig(
+      JSON.stringify({
+        ...sourceConfig,
+        models: sourceConfig.models.map((model) => ({
+          ...model,
+          accepted: model.id === 'qwen-flash',
+        })),
+      }),
+      hosts,
+      'production',
+    );
+    expect(production.models.map(({ id }) => id)).toEqual(['deepseek-local', 'qwen-flash']);
+    expect(selectGatewayModel(production, 'agent')?.id).toBe('qwen-flash');
+    expect(production).not.toHaveProperty('developmentDefault');
+  });
+
+  it('只使用 Cursor 的宿主进程无需加载远端或本地模型配置', async () => {
+    const configPath = 'nonexistent-model-config-fixture';
+    await expect(
+      loadVerificationModelGatewayConfig({ configPath, environment: 'development', sourceEnv: {} }),
+    ).resolves.toBeUndefined();
+    await expect(
+      loadVerificationModelGatewayConfig({
+        configPath,
+        environment: 'development',
+        sourceEnv: { CERT_LOCAL_MODEL_BASE_URL: 'http://127.0.0.1:3001/v1' },
+      }),
+    ).rejects.toBeInstanceOf(ModelConfigError);
   });
   it('拒绝重复键、别名、锚点、标签、多文档及未知字段', () => {
     for (const invalid of [
