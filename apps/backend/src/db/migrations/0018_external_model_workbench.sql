@@ -1,4 +1,4 @@
-CREATE TYPE "public"."external_model_exchange_status" AS ENUM('reserved', 'settled', 'unknown', 'not_sent');--> statement-breakpoint
+CREATE TYPE "public"."external_model_exchange_status" AS ENUM('reserved', 'awaiting_receipt', 'settled', 'unknown', 'not_sent');--> statement-breakpoint
 CREATE TABLE "external_model_conversation" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,
@@ -36,7 +36,8 @@ CREATE TABLE "external_model_exchange" (
       AND ("external_model_exchange"."actual_nano" IS NULL OR "external_model_exchange"."actual_nano" >= 0)),
 	CONSTRAINT "external_model_exchange_state" CHECK (
       ("external_model_exchange"."status"='settled' AND "external_model_exchange"."actual_nano" IS NOT NULL AND ("external_model_exchange"."answer" IS NULL OR "external_model_exchange"."returned" IS NOT NULL))
-      OR ("external_model_exchange"."status" IN ('reserved','unknown') AND "external_model_exchange"."actual_nano" IS NULL AND "external_model_exchange"."answer" IS NULL)
+      OR ("external_model_exchange"."status" IN ('reserved','unknown','awaiting_receipt') AND "external_model_exchange"."actual_nano" IS NULL AND "external_model_exchange"."answer" IS NULL
+          AND ("external_model_exchange"."status"<>'awaiting_receipt' OR ("external_model_exchange"."dispatched_at" IS NOT NULL AND "external_model_exchange"."returned" IS NULL)))
       OR ("external_model_exchange"."status"='not_sent' AND "external_model_exchange"."actual_nano" IS NOT NULL AND "external_model_exchange"."actual_nano"=0 AND "external_model_exchange"."answer" IS NULL))
 );
 --> statement-breakpoint
@@ -65,7 +66,7 @@ CREATE FUNCTION public.guard_external_model_exchange()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog
 AS $external_exchange_guard$
 BEGIN
-    IF OLD.status<>'reserved' OR
+    IF (OLD.status<>'reserved' AND NOT (OLD.status='awaiting_receipt' AND NEW.status IN ('settled','unknown'))) OR
        ROW(NEW.id,NEW.conversation_id,NEW.request_key,NEW.request_fingerprint,NEW.model,
            NEW.original_text,NEW.attachments,NEW.search,NEW.sent,NEW.replacement_count,NEW.month_key,
            NEW.reserved_nano,NEW.created_at)

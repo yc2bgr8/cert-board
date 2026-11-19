@@ -3129,7 +3129,7 @@
         },
         "external_model_exchange_state": {
           "name": "external_model_exchange_state",
-          "value": "\n      (\"external_model_exchange\".\"status\"='settled' AND \"external_model_exchange\".\"actual_nano\" IS NOT NULL AND (\"external_model_exchange\".\"answer\" IS NULL OR \"external_model_exchange\".\"returned\" IS NOT NULL))\n      OR (\"external_model_exchange\".\"status\" IN ('reserved','unknown') AND \"external_model_exchange\".\"actual_nano\" IS NULL AND \"external_model_exchange\".\"answer\" IS NULL)\n      OR (\"external_model_exchange\".\"status\"='not_sent' AND \"external_model_exchange\".\"actual_nano\" IS NOT NULL AND \"external_model_exchange\".\"actual_nano\"=0 AND \"external_model_exchange\".\"answer\" IS NULL)"
+          "value": "\n      (\"external_model_exchange\".\"status\"='settled' AND \"external_model_exchange\".\"actual_nano\" IS NOT NULL AND (\"external_model_exchange\".\"answer\" IS NULL OR \"external_model_exchange\".\"returned\" IS NOT NULL))\n      OR (\"external_model_exchange\".\"status\" IN ('reserved','unknown','awaiting_receipt') AND \"external_model_exchange\".\"actual_nano\" IS NULL AND \"external_model_exchange\".\"answer\" IS NULL\n          AND (\"external_model_exchange\".\"status\"<>'awaiting_receipt' OR (\"external_model_exchange\".\"dispatched_at\" IS NOT NULL AND \"external_model_exchange\".\"returned\" IS NULL)))\n      OR (\"external_model_exchange\".\"status\"='not_sent' AND \"external_model_exchange\".\"actual_nano\" IS NOT NULL AND \"external_model_exchange\".\"actual_nano\"=0 AND \"external_model_exchange\".\"answer\" IS NULL)"
         }
       },
       "isRLSEnabled": false
@@ -8675,6 +8675,7 @@
       "schema": "public",
       "values": [
         "reserved",
+        "awaiting_receipt",
         "settled",
         "unknown",
         "not_sent"

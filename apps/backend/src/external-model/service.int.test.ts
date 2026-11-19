@@ -16,6 +16,7 @@ import { createTestBlobStore } from '../documents/test-blob-store.js';
 import { createIntegrationContext } from '../test-support/context.js';
 import { externalModelFixture } from '../test-support/external-model-fixture.js';
 import { seedDevelopmentWorkspace } from '../workspace/seed.js';
+import { ExternalModels } from './service.js';
 
 let context: Awaited<ReturnType<typeof createIntegrationContext>>;
 let app: ReturnType<typeof createApp>;
@@ -216,6 +217,10 @@ test('当日档案跨过 50 条继续读取，其他成员不能使用同一游�
     (await app.inject({ url: conversationsUrl, headers })).json(),
   );
   expect(recentThreads.items).toHaveLength(50);
+  await context.pool.query(
+    "UPDATE external_model_conversation SET updated_at=clock_timestamp()+interval '1 second' WHERE id=$1",
+    [recentThreads.items.at(-1)!.id],
+  );
   const tail = externalModelConversationListSchema.parse(
     (
       await app.inject({
@@ -348,9 +353,56 @@ test('恢复过期预占时区分未获派发许可和可能已发送', async ()
   ).toEqual(
     expect.arrayContaining([
       { id: ids[0], status: 'not_sent', actual_nano: '0' },
-      { id: ids[1], status: 'unknown', actual_nano: null },
+      { id: ids[1], status: 'awaiting_receipt', actual_nano: null },
     ]),
   );
+});
+
+test('超时恢复已经冻结预占时仍结算同一次派发迟到的真实回执', async () => {
+  let requestSent!: () => void;
+  const sending = new Promise<void>((resolve) => {
+    requestSent = resolve;
+  });
+  let deliver!: () => void;
+  const received = new Promise<void>((resolve) => {
+    deliver = resolve;
+  });
+  const originalSend = fixture.runtime.send;
+  fixture.runtime.send = async (request) => {
+    requestSent();
+    await received;
+    return originalSend(request);
+  };
+  const conversationId = await createConversation();
+  const url = `${prefix}/conversations/${conversationId}/messages`;
+  const payload = message('等待迟到的回执。');
+  const pending = app
+    .inject({ url, method: 'POST', headers, payload })
+    .then((response) => response);
+  await sending;
+  try {
+    await new ExternalModels(
+      context.pool,
+      undefined,
+      fixture.runtime,
+      20_000_000_000n,
+    ).recoverExpired(new Date(Date.now() + 125_000));
+    const replay = await app.inject({ url, method: 'POST', headers, payload });
+    expect(externalModelExchangeSchema.parse(replay.json()).status).toBe('unknown');
+    expect((await app.inject({ url: `${prefix}/setup`, headers })).json().budget.blocked).toBe(
+      true,
+    );
+  } finally {
+    deliver();
+  }
+  const exchange = externalModelExchangeSchema.parse((await pending).json());
+  expect(exchange).toMatchObject({ status: 'settled', costNano: '20000000' });
+  expect(fixture.requests).toHaveLength(1);
+  const archived = await app.inject({ url: `${prefix}/exchanges/${exchange.id}/archive`, headers });
+  expect(externalModelArchiveSchema.parse(archived.json()).returned?.content).toContain(
+    '等待迟到的回执。',
+  );
+  expect((await app.inject({ url: `${prefix}/setup`, headers })).json().budget.blocked).toBe(false);
 });
 
 test('答复和出处不合法时保留原始回执及已知费用', async () => {
@@ -398,6 +450,26 @@ test('答复和出处不合法时保留原始回执及已知费用', async () =>
     costNano: '100',
     answer: '此答复可显示。',
     references: [valid],
+  });
+  fixture.runtime.send = async () => ({
+    content: '此答复存在，但回执超过存档上限。',
+    detail: 'x'.repeat(257 * 1024),
+    costNano: '200',
+  });
+  const oversized = await app.inject({
+    url: `${prefix}/conversations/${conversationId}/messages`,
+    method: 'POST',
+    headers,
+    payload: message('超限回执。'),
+  });
+  expect(externalModelExchangeSchema.parse(oversized.json())).toMatchObject({
+    status: 'settled',
+    costNano: '200',
+    answer: null,
+  });
+  expect((await app.inject({ url: `${prefix}/setup`, headers })).json().budget).toMatchObject({
+    usedNano: '380',
+    blocked: false,
   });
 });
 

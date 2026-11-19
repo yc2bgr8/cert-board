@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ExternalModelExchange, ProjectRecord } from '@cert-board/shared';
-import { api, createRequestKey, errorMessage } from './api.js';
+import { api, ApiError, createRequestKey, errorMessage } from './api.js';
 import { useBrowserCommand } from './ApprovalCard.js';
 import { ShellIcon } from './ShellIcon.js';
 import './external-model.css';
@@ -400,7 +400,12 @@ export function ExternalWorkbench({
           title: [...value.replace(/\s+/gu, ' ')].slice(0, 60).join(''),
           requestKey: createRequestKey(),
         };
-        const created = await api.externalCreate(createDraft.current);
+        const created = await api.externalCreate(createDraft.current).catch((error: unknown) => {
+          if (error instanceof ApiError && [400, 413, 422].includes(error.status)) {
+            createDraft.current = null;
+          }
+          throw error;
+        });
         id = createdId.current = created.id;
         if (mounted.current) onCreated(id);
         void client.invalidateQueries({

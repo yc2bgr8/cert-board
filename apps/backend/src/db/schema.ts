@@ -1408,6 +1408,7 @@ export const budgetReconciliation = pgTable(
 
 export const externalModelExchangeStatus = pgEnum('external_model_exchange_status', [
   'reserved',
+  'awaiting_receipt',
   'settled',
   'unknown',
   'not_sent',
@@ -1494,7 +1495,8 @@ export const externalModelExchange = pgTable(
       'external_model_exchange_state',
       sql`
       (${table.status}='settled' AND ${table.actualNano} IS NOT NULL AND (${table.answer} IS NULL OR ${table.returned} IS NOT NULL))
-      OR (${table.status} IN ('reserved','unknown') AND ${table.actualNano} IS NULL AND ${table.answer} IS NULL)
+      OR (${table.status} IN ('reserved','unknown','awaiting_receipt') AND ${table.actualNano} IS NULL AND ${table.answer} IS NULL
+          AND (${table.status}<>'awaiting_receipt' OR (${table.dispatchedAt} IS NOT NULL AND ${table.returned} IS NULL)))
       OR (${table.status}='not_sent' AND ${table.actualNano} IS NOT NULL AND ${table.actualNano}=0 AND ${table.answer} IS NULL)`,
     ),
     index('external_model_exchange_conversation_idx').on(table.conversationId, table.createdAt),

@@ -10,6 +10,7 @@ import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import {
   externalModelArchivePageSchema,
+  externalModelConversationCursorSchema,
   externalModelConversationInputSchema,
   externalModelConversationListSchema,
   externalModelExchangeListSchema,
@@ -114,8 +115,12 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   });
   app.get(`${prefix}/conversations`, async (request, reply) => {
     reply.header('cache-control', 'no-store');
+    const { cursor: after } = checked(
+      z.object({ cursor: externalModelConversationCursorSchema.optional() }).strict(),
+      request.query,
+    );
     return externalModelConversationListSchema.parse(
-      await service.conversations(await read(request), cursor(request)),
+      await service.conversations(await read(request), after),
     );
   });
   app.post(`${prefix}/conversations`, bounds, async (request, reply) => {

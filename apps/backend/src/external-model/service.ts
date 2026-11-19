@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from 'pg';
 import {
   externalModelAttachmentSchema,
   externalModelArchiveSchema,
+  externalModelConversationCursorSchema,
   externalModelConversationSchema,
   externalModelExchangeSchema,
   externalModelSetupSchema,
@@ -41,9 +42,11 @@ type ExchangeRow = {
   createdAt: Date;
 };
 const exchangeColumns = `id,conversation_id AS "conversationId",model,original_text AS "originalText",
-  status,replacement_count AS "replacementCount",search,answer,"references",
+  CASE WHEN status='awaiting_receipt' THEN 'unknown' ELSE status::text END AS status,
+  replacement_count AS "replacementCount",search,answer,"references",
   actual_nano AS "costNano",created_at AS "createdAt"`;
-const archiveColumns = `e.id,e.conversation_id AS "conversationId",c.title,e.sent,e.returned,e.status,
+const archiveColumns = `e.id,e.conversation_id AS "conversationId",c.title,e.sent,e.returned,
+  CASE WHEN e.status='awaiting_receipt' THEN 'unknown' ELSE e.status::text END AS status,
   e.actual_nano AS "costNano",e.created_at AS "createdAt"`;
 const lock = (db: ExternalDb) => db.query('SELECT pg_advisory_xact_lock(20261119,6)');
 const contextLimit = 32000;
@@ -99,15 +102,16 @@ export class ExternalModels {
     }
   }
 
-  async recoverExpired() {
+  async recoverExpired(now = new Date()) {
     if (!this.runtime) return;
     await this.withLock((db) =>
       db.query(
         `UPDATE external_model_exchange
          SET status=CASE WHEN dispatched_at IS NULL THEN 'not_sent'::external_model_exchange_status
-                         ELSE 'unknown'::external_model_exchange_status END,
+                         ELSE 'awaiting_receipt'::external_model_exchange_status END,
              actual_nano=CASE WHEN dispatched_at IS NULL THEN 0 END,updated_at=clock_timestamp()
-         WHERE status='reserved' AND updated_at < clock_timestamp()-interval '2 minutes'`,
+         WHERE status='reserved' AND updated_at < $1::timestamptz-interval '2 minutes'`,
+        [now],
       ),
     );
   }
@@ -116,8 +120,8 @@ export class ExternalModels {
     const row = (
       await db.query<{ used: string; reserved: string; stopped: boolean }>(
         `SELECT COALESCE(SUM(actual_nano) FILTER (WHERE status='settled' AND month_key=$1),0)::text AS used,
-         COALESCE(SUM(reserved_nano) FILTER (WHERE status IN ('reserved','unknown') AND month_key=$1),0)::text AS reserved,
-         COALESCE(BOOL_OR(status='unknown' OR (status='settled' AND actual_nano>reserved_nano AND month_key=$1)
+         COALESCE(SUM(reserved_nano) FILTER (WHERE status IN ('reserved','unknown','awaiting_receipt') AND month_key=$1),0)::text AS reserved,
+         COALESCE(BOOL_OR(status IN ('unknown','awaiting_receipt') OR (status='settled' AND actual_nano>reserved_nano AND month_key=$1)
            OR (status='reserved' AND dispatched_at IS NOT NULL AND updated_at < clock_timestamp()-interval '2 minutes')),false) AS stopped
          FROM external_model_exchange`,
         [month],
@@ -143,18 +147,32 @@ export class ExternalModels {
   }
 
   async conversations(actor: BrowserIdentity, cursor?: string) {
-    const result = await this.pool.query<{ id: string; title: string; updated_at: Date }>(
-      `SELECT id,title,updated_at FROM external_model_conversation WHERE user_id=$1
-       AND ($2::uuid IS NULL OR (updated_at,id)<(SELECT updated_at,id FROM external_model_conversation WHERE id=$2 AND user_id=$1))
+    const [boundary, key] = cursor
+      ? externalModelConversationCursorSchema.parse(cursor).split('/')
+      : [null, null];
+    const result = await this.pool.query<{
+      id: string;
+      title: string;
+      updated_at: Date;
+      cursor_time: string;
+    }>(
+      `SELECT id,title,updated_at,
+       to_char(updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time
+       FROM external_model_conversation WHERE user_id=$1
+       AND ($2::timestamptz IS NULL OR (updated_at,id)<($2::timestamptz,$3::uuid))
        ORDER BY updated_at DESC,id DESC LIMIT 51`,
-      [actor.userId, cursor ?? null],
+      [actor.userId, boundary, key],
     );
     const items = result.rows
       .slice(0, 50)
       .map(({ id, title, updated_at }) =>
         externalModelConversationSchema.parse({ id, title, updatedAt: updated_at.toISOString() }),
       );
-    return { items, nextCursor: result.rows.length > 50 ? items.at(-1)!.id : null };
+    const last = result.rows[49];
+    return {
+      items,
+      nextCursor: result.rows.length > 50 && last ? `${last.cursor_time}/${last.id}` : null,
+    };
   }
 
   async create(
@@ -502,13 +520,15 @@ export class ExternalModels {
     const result = await callExternalModel(runtime, work.request).catch(() => null);
     const cost = result?.kind === 'settled' ? result.costNano : null;
     const restored =
-      result?.kind === 'settled' && result.content !== null ? work.restore(result.content) : null;
+      result?.kind === 'settled' && result.raw !== null && result.content !== null
+        ? work.restore(result.content)
+        : null;
     const answer = restored !== null && restored.length <= contextLimit ? restored : null;
     const citations = answer !== null && result?.kind === 'settled' ? result.citations : [];
     return this.withLock(async (db) => {
       const updated = await db.query<ExchangeRow>(
         `UPDATE external_model_exchange SET status=$1,actual_nano=$2,answer=$3,returned=$4,"references"=$5,
-           updated_at=clock_timestamp() WHERE id=$6 AND status='reserved' RETURNING ${exchangeColumns}`,
+           updated_at=clock_timestamp() WHERE id=$6 AND status IN ('reserved','awaiting_receipt') RETURNING ${exchangeColumns}`,
         [
           cost === null ? 'unknown' : 'settled',
           cost,
@@ -544,12 +564,12 @@ export class ExternalModels {
     const { rows } = await this.pool.query<Record<string, unknown>>(
       `SELECT ${archiveColumns} FROM external_model_exchange e JOIN external_model_conversation c ON c.id=e.conversation_id
        WHERE c.user_id=$1 AND (e.created_at AT TIME ZONE 'Asia/Shanghai')::date=$2::date
-       AND e.status IN ('settled','unknown') AND ($3::uuid IS NULL OR (e.created_at,e.id)<(
+       AND e.status IN ('settled','unknown','awaiting_receipt') AND ($3::uuid IS NULL OR (e.created_at,e.id)<(
           SELECT prior.created_at,prior.id FROM external_model_exchange prior
           JOIN external_model_conversation prior_conversation ON prior_conversation.id=prior.conversation_id
           WHERE prior.id=$3 AND prior_conversation.user_id=$1
             AND (prior.created_at AT TIME ZONE 'Asia/Shanghai')::date=$2::date
-            AND prior.status IN ('settled','unknown')
+            AND prior.status IN ('settled','unknown','awaiting_receipt')
        )) ORDER BY e.created_at DESC,e.id DESC LIMIT 51`,
       [actor.userId, day, cursor ?? null],
     );

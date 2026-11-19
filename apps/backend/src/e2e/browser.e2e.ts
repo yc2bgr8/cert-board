@@ -803,6 +803,33 @@ async function main() {
       ).rowCount,
       1,
     );
+    stage = '创建被校验拒绝后可修改标题';
+    await page.route(createPattern, async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      await route.fulfill({
+        status: 400,
+        json: {
+          error: {
+            code: 'TEST_TITLE_INVALID',
+            message: '验收模拟标题受限。',
+            requestId: 'fixture',
+          },
+        },
+      });
+    });
+    await page.getByRole('button', { name: '新建外部模型对话', exact: true }).click();
+    await search.uncheck();
+    await input.fill('原草稿的标题。');
+    await external.getByRole('button', { name: '发送给外部模型', exact: true }).click();
+    await external.getByRole('alert').filter({ hasText: '验收模拟标题受限。' }).waitFor();
+    await page.unroute(createPattern);
+    await input.fill('修改后的标题。');
+    await external.getByRole('button', { name: '发送给外部模型', exact: true }).click();
+    await page.getByRole('button', { name: '打开外部对话：修改后的标题。', exact: true }).waitFor();
+    await external
+      .locator('.external-answer > p')
+      .filter({ hasText: /修改后的标题/u })
+      .waitFor();
     stage = '维护对话和外发提案';
     await page.getByRole('button', { name: '维护Agent', exact: true }).click();
     await page.getByRole('button', { name: 'L08 年度注册（验收示例）', exact: true }).click();
@@ -933,7 +960,7 @@ async function main() {
     await management.getByText('管理权限已启用', { exact: false }).waitFor();
     await management
       .getByLabel('外部模型入口预算')
-      .filter({ hasText: /0\.060001/ })
+      .filter({ hasText: /0\.060002/ })
       .waitFor();
     assert.ok((await management.getByText('尚未接入', { exact: true }).count()) > 0);
     await captureWorkbench(page, output, 'pr-u4-16-management.png');
@@ -1044,6 +1071,7 @@ async function main() {
             'external_model_archive_download_and_budget_line',
             'external_model_late_create_preserves_current_draft',
             'external_model_first_send_retry_preserves_unicode_thread',
+            'external_model_rejected_create_allows_corrected_title',
             'width_1280',
           ],
           externalRequests,

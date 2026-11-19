@@ -56,10 +56,17 @@ export const externalModelConversationSchema = z
     updatedAt: instant,
   })
   .strict();
+export const externalModelConversationCursorSchema = z
+  .string()
+  .max(80)
+  .refine((value) => {
+    const [timestamp, key, extra] = value.split('/');
+    return extra === undefined && instant.safeParse(timestamp).success && id.safeParse(key).success;
+  });
 export const externalModelConversationListSchema = z
   .object({
     items: z.array(externalModelConversationSchema).max(50),
-    nextCursor: id.nullable(),
+    nextCursor: externalModelConversationCursorSchema.nullable(),
   })
   .strict();
 export const externalModelAttachmentSchema = z
