@@ -126,6 +126,7 @@ export function Sidebar(props: Props) {
           className="live-icon-button"
           type="button"
           aria-label="收起侧栏"
+          data-sidebar-toggle
           onClick={props.onClose}
         >
           <ShellIcon name="panel" />

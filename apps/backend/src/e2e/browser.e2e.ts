@@ -211,6 +211,15 @@ async function main() {
     );
     await captureWorkbench(page, output, 'pr-u1-02-new-conversation.png');
     await checkNarrowLayout(page);
+    await page.setViewportSize({ width: 1000, height: 900 });
+    const narrowTitle = newDialog.getByRole('textbox', { name: '对话标题', exact: true });
+    const originalTitle = await narrowTitle.inputValue();
+    await page.getByRole('button', { name: '展开侧栏', exact: true }).click();
+    await page.getByRole('complementary', { name: '项目导航', exact: true }).waitFor();
+    assert.equal(await narrowTitle.inputValue(), originalTitle);
+    await page.getByRole('button', { name: '收起侧栏', exact: true }).click();
+    assert.equal(await narrowTitle.inputValue(), originalTitle);
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.keyboard.press('Escape');
     await newDialog.waitFor({ state: 'hidden' });
     stage = '新对话默认完全允许';
@@ -500,6 +509,7 @@ async function main() {
             'browser_login_cookie_csrf',
             'redesigned_login_and_logo',
             'redesigned_agent_navigation_and_new_conversation',
+            'mobile_sidebar_keeps_new_conversation',
             'redesigned_keyboard_search_at_1280_and_1440',
             'l08_real_tools',
             'plan_two_steps',

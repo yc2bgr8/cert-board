@@ -152,6 +152,11 @@ export function NewConversation({
     >
       <Dialog.Content
         className="live-dialog live-new-dialog"
+        onInteractOutside={(event) => {
+          const target = event.detail.originalEvent.target;
+          if (target instanceof Element && target.closest('[data-sidebar-toggle]'))
+            event.preventDefault();
+        }}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           projectSelect.current?.focus();

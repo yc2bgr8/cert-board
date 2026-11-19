@@ -589,3 +589,21 @@ test('异步插入对话结果时按 ID 保留已选中的项目，回车打开�
   fireEvent.keyDown(input, { key: 'Enter' });
   expect(await screen.findByRole('heading', { name: 'L08 510(k)' })).toBeTruthy();
 });
+
+test('取消新对话后保留原文件与资料标签页节点', async () => {
+  app();
+  await projectView();
+  for (const [tab, label] of [
+    ['文件', '项目文件'],
+    ['资料', '项目资料'],
+  ] as const) {
+    fireEvent.click(screen.getByRole('button', { name: tab }));
+    const original = screen.getByRole('region', { name: label });
+    fireEvent.click(screen.getByRole('button', { name: '新对话' }));
+    expect(screen.queryByRole('region', { name: label })).toBeNull();
+    expect(original.isConnected).toBe(true);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '新对话' })).toBeNull());
+    expect(screen.getByRole('region', { name: label })).toBe(original);
+  }
+});

@@ -28,6 +28,7 @@ export function ProjectShell({
             className="live-icon-button"
             type="button"
             aria-label="展开侧栏"
+            data-sidebar-toggle
             onClick={onOpenSidebar}
           >
             <ShellIcon name="panel" />

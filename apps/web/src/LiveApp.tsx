@@ -437,7 +437,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       />
       {collapsedRail && (
         <div className="live-collapsed-rail">
-          <button type="button" aria-label="展开侧栏" onClick={openSidebar}>
+          <button type="button" aria-label="展开侧栏" data-sidebar-toggle onClick={openSidebar}>
             <Logo compact />
           </button>
         </div>
@@ -447,6 +447,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           className="live-sidebar-scrim"
           type="button"
           aria-label="关闭项目导航"
+          data-sidebar-toggle
           onClick={closeSidebar}
         />
       )}
@@ -699,22 +700,26 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
             />
           </div>
         )}
-        {!isNewConversation && projectId && tab === 'files' && (
-          <ProjectFiles
-            key={projectId}
-            projectId={projectId}
-            userId={userId}
-            onOpenFile={openFile}
-            onOpenDiff={openDiff}
-          />
+        {projectId && tab === 'files' && (
+          <div className="live-view-content" hidden={isNewConversation}>
+            <ProjectFiles
+              key={projectId}
+              projectId={projectId}
+              userId={userId}
+              onOpenFile={openFile}
+              onOpenDiff={openDiff}
+            />
+          </div>
         )}
-        {!isNewConversation && projectId && tab === 'documents' && (
-          <ProjectDocuments
-            key={projectId}
-            projectId={projectId}
-            userId={userId}
-            onOpenEvidence={openEvidence}
-          />
+        {projectId && tab === 'documents' && (
+          <div className="live-view-content" hidden={isNewConversation}>
+            <ProjectDocuments
+              key={projectId}
+              projectId={projectId}
+              userId={userId}
+              onOpenEvidence={openEvidence}
+            />
+          </div>
         )}
         <NewConversation
           open={isNewConversation}
