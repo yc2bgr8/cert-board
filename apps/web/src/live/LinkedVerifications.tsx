@@ -49,11 +49,14 @@ export function useLinkedVerifications(id: string | null, inReview = false) {
 export function LinkedVerificationHistoryActions({
   query,
 }: {
-  query: ReturnType<typeof useLinkedVerifications>;
+  query: Pick<
+    ReturnType<typeof useLinkedVerifications>,
+    'isError' | 'isFetchNextPageError' | 'isFetching' | 'hasNextPage' | 'refetch' | 'fetchNextPage'
+  >;
 }) {
   return (
     <>
-      {query.isError && (
+      {query.isError && !query.isFetchNextPageError && (
         <button
           className="live-secondary"
           type="button"
@@ -70,7 +73,7 @@ export function LinkedVerificationHistoryActions({
           disabled={query.isFetching}
           onClick={() => void query.fetchNextPage({ cancelRefetch: false })}
         >
-          查看更早的核实
+          {query.isFetchNextPageError ? '重试读取更早的核实' : '查看更早的核实'}
         </button>
       )}
     </>
