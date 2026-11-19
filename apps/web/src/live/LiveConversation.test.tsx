@@ -160,10 +160,12 @@ it('提案首屏读取期间收到通知会补刷，补刷时暂停分页按钮'
       nextCursor: proposalId,
     }),
   );
-  await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
-  expect(screen.getByRole<HTMLButtonElement>('button', { name: '继续读取提案' }).disabled).toBe(
-    true,
-  );
+  await waitFor(() => {
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '继续读取提案' }).disabled).toBe(
+      true,
+    );
+  });
   await act(async () =>
     finishRefresh({
       items: [{ id: proposalId, status: 'rejected' }],
