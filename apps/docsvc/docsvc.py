@@ -3,8 +3,15 @@
 import hashlib
 import hmac
 import json
+import os
 import re
+import secrets
+import signal
+import subprocess
+import sys
 from collections import OrderedDict
+from contextlib import suppress
+from pathlib import Path
 from threading import Lock
 from typing import Literal
 
@@ -14,14 +21,24 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.requests import ClientDisconnect
 
-from parsers import MAX_INPUT, MAX_PAGES, DocError, LocalOCR, parse_document, pdf_for_render, render_page
+from parsers import MAX_INPUT, MAX_PAGES, DocError
 
 
 Kind = Literal["pdf", "estar", "doc", "docx", "xlsx"]
 HASH_PATTERN = "^[a-f0-9]{64}$"
 operation_lock = Lock()
 upload_lock = Lock()
-ocr = LocalOCR()
+worker_file = Path(__file__).with_name("doc_worker.py")
+worker_timeouts = {"parse": 370, "text": 370, "convert": 100, "render": 30}
+
+
+class CachedSource:
+    def __init__(self, content):
+        self.content = content
+        self.token = secrets.token_urlsafe(32)
+
+    def __len__(self):
+        return len(self.content) + len(self.token)
 
 
 class ByteCache:
@@ -111,39 +128,52 @@ def run_operation(action, *arguments):
         operation_lock.release()
 
 
-def serialized(value):
-    return json.dumps(value, ensure_ascii=True, allow_nan=False, separators=(",", ":")).encode("utf-8")
+def run_worker(action, data, kind, *arguments):
+    command = [sys.executable, str(worker_file), action, kind, *arguments]
+    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, start_new_session=True)
+    try:
+        output, _ = process.communicate(input=data, timeout=worker_timeouts[action])
+    except subprocess.TimeoutExpired as error:
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        raise DocError("DOC_PROCESSING_TIMEOUT", 504) from error
+    if process.returncode == 0:
+        return output
+    if process.returncode == 1 and len(output) <= 256:
+        result = json.loads(output)
+        if re.fullmatch(r"DOC_[A-Z0-9_]{1,60}", result["code"]) and 400 <= result["status"] <= 599:
+            raise DocError(result["code"], result["status"])
+    raise DocError("DOC_PROCESSING_FAILED")
 
 
-def ensure_parsed(data, kind, key):
-    cached = parsed_results.get(key)
+def upload_operation(data, key, action):
+    result_key = (*key, action)
+    cached = parsed_results.get(result_key)
     if cached is None:
-        result = parse_document(data, kind, ocr)
-        cached = serialized(result)
-        parsed_results.put(key, cached)
-    sources.put(key, data)
-    return cached
+        cached = run_worker(action, data, key[1])
+        parsed_results.put(result_key, cached)
+    source = sources.get(key)
+    if source is None:
+        source = CachedSource(data)
+        sources.put(key, source)
+    return cached, source.token
 
 
-def text_result(data, kind, key):
-    parsed = json.loads(ensure_parsed(data, kind, key))
-    return serialized({"sha256": key[0], "pageCount": parsed["pageCount"],
-                       "text": "\n\n".join(page["text"] for page in parsed["pages"])})
-
-
-def rendered_image(key, page):
+def rendered_image(key, page, token):
+    source = sources.get(key)
+    if source is None or token is None or not hmac.compare_digest(source.token, token):
+        raise DocError("DOC_SOURCE_NOT_CACHED", 404)
     cache_key = (*key, page)
     image = page_images.get(cache_key)
     if image is not None:
         return image
-    original = sources.get(key)
-    if original is None:
-        raise DocError("DOC_SOURCE_NOT_CACHED", 404)
-    pdf_data = original if key[1] in {"pdf", "estar"} else converted_pdfs.get(key)
+    pdf_data = source.content if key[1] in {"pdf", "estar"} else converted_pdfs.get(key)
     if pdf_data is None:
-        pdf_data = pdf_for_render(original, key[1])
+        pdf_data = run_worker("convert", source.content, key[1])
         converted_pdfs.put(key, pdf_data)
-    image = render_page(pdf_data, page)
+    image = run_worker("render", pdf_data, key[1], str(page))
     page_images.put(cache_key, image)
     return image
 
@@ -153,8 +183,9 @@ async def uploaded_result(request, kind, digest, action):
         raise DocError("DOC_BUSY", 429)
     try:
         data = await upload(request, digest)
-        result = await to_thread.run_sync(run_operation, action, data, kind, (digest, kind))
-        return Response(result, media_type="application/json", headers={"cache-control": "no-store"})
+        result, token = await to_thread.run_sync(run_operation, upload_operation, data, (digest, kind), action)
+        return Response(result, media_type="application/json",
+                        headers={"cache-control": "no-store", "x-docsvc-preview": token})
     finally:
         upload_lock.release()
 
@@ -166,15 +197,19 @@ async def health():
 
 @app.post("/parse")
 async def parse(request: Request, kind: Kind, content_sha256: str = Header(alias="X-Content-Sha256", pattern=HASH_PATTERN)):
-    return await uploaded_result(request, kind, content_sha256, ensure_parsed)
+    return await uploaded_result(request, kind, content_sha256, "parse")
 
 
 @app.post("/text")
 async def text(request: Request, kind: Kind, content_sha256: str = Header(alias="X-Content-Sha256", pattern=HASH_PATTERN)):
-    return await uploaded_result(request, kind, content_sha256, text_result)
+    return await uploaded_result(request, kind, content_sha256, "text")
 
 
 @app.get("/render")
-async def render(kind: Kind, sha256: str = Query(pattern=HASH_PATTERN), page: int = Query(ge=1, le=MAX_PAGES)):
-    data = await to_thread.run_sync(run_operation, rendered_image, (sha256, kind), page)
-    return Response(data, media_type="image/png", headers={"cache-control": "no-store", "x-content-type-options": "nosniff"})
+async def render(kind: Kind, sha256: str = Query(pattern=HASH_PATTERN), page: int = Query(ge=1, le=MAX_PAGES),
+                 token: str | None = Header(default=None, alias="X-Docsvc-Preview", pattern=r"^[A-Za-z0-9_-]{43}$")):
+    output = await to_thread.run_sync(run_operation, rendered_image, (sha256, kind), page, token)
+    return Response(output[4:], media_type="image/png", headers={
+        "cache-control": "no-store", "x-content-type-options": "nosniff",
+        "x-docsvc-preview-pages": str(int.from_bytes(output[:4], "big")),
+    })

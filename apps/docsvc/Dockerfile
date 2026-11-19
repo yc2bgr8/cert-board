@@ -11,7 +11,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc809
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,id=cert-board-docsvc-uv,target=/root/.cache/uv,sharing=locked \
     UV_NO_CACHE=0 UV_LINK_MODE=copy uv sync --locked --no-dev --no-install-project
-COPY docsvc.py parsers.py ./
+COPY docsvc.py doc_worker.py parsers.py ./
 
 FROM dependencies AS test
 RUN --mount=type=cache,id=cert-board-docsvc-uv,target=/root/.cache/uv,sharing=locked \

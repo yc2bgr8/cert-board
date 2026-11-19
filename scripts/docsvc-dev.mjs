@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
@@ -48,8 +48,12 @@ function compareL08() {
   }
   const inputDir = path.resolve(source, 'l08', '510k');
   const t1 = path.resolve(reference, 'sources', 't1_parse', 'out');
-  if (!existsSync(inputDir) || !existsSync(path.join(t1, 'pages.jsonl'))) {
-    console.error('已配置 L08 对照路径，但所需文件夹或 T1 结果不可用。');
+  if (!statSync(inputDir, { throwIfNoEntry: false })?.isDirectory()) {
+    console.log('已跳过 L08 实物对照。本机未找到配置的 L08 资料目录。');
+    return 0;
+  }
+  if (!['documents.json', 'pages.jsonl', 'estar_datasets.xml'].every((name) => existsSync(path.join(t1, name)))) {
+    console.error('已找到 L08 原件，但 T1 对照结果不完整。');
     return 1;
   }
   const built = buildTestImage();

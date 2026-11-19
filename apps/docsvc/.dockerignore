@@ -1,5 +1,6 @@
 *
 !docsvc.py
+!doc_worker.py
 !parsers.py
 !pyproject.toml
 !uv.lock

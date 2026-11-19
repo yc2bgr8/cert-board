@@ -115,8 +115,13 @@ def compare(input_root, reference):
                     issues.append({**location, "reason": "ocr_differs", "similarity": round(similarity, 4)})
             elif before["text"] != after["text"]:
                 summary["officeTextChanges"] += 1
-                notices.append({**location, "reason": "legacy_word_conversion" if kind == "doc" else "office_text_differs",
-                                "similarity": round(measure(before["text"], after["text"]), 4)})
+                similarity = round(measure(before["text"], after["text"]), 4)
+                if before["text"].strip() and not after["text"].strip():
+                    issues.append({**location, "reason": "office_text_missing", "similarity": similarity})
+                elif kind == "doc":
+                    notices.append({**location, "reason": "legacy_word_conversion", "similarity": similarity})
+                else:
+                    issues.append({**location, "reason": "office_text_differs", "similarity": similarity})
 
     if not summary["xfaExact"] and not any(item["reason"] == "xfa_differs" for item in issues):
         issues.append({"reason": "xfa_not_compared"})

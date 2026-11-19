@@ -19,7 +19,10 @@ from zipfile import ZipFile
 import docx
 import openpyxl
 import pypdfium2 as pdfium
+import pypdfium2.raw as pdfium_raw
 from defusedxml.ElementTree import fromstring
+from docx.text.paragraph import Paragraph
+from openpyxl.worksheet.formula import ArrayFormula, DataTableFormula
 from pypdf import PdfReader, _page
 from pypdf.generic import ArrayObject, StreamObject
 
@@ -228,29 +231,45 @@ def document_attachments(reader, deadline):
     return list(entries.values())
 
 
-def parse_docx(data, deadline):
+def parse_docx(data, deadline, comparison=False):
     document = docx.Document(io.BytesIO(data))
     budget = TextBudget()
     parts = []
-    for paragraph in document.paragraphs:
+    blocks = document.iter_inner_content() if comparison else [*document.paragraphs, *document.tables]
+    for block in blocks:
         check_time(deadline)
-        text = paragraph.text
-        if text.strip():
-            parts.append(budget.add(text))
-    for table in document.tables:
-        for row in table.rows:
-            check_time(deadline)
-            cells = []
-            for cell in row.cells:
-                text = cell.text.strip()
-                if not cells or cells[-1] != text:
-                    cells.append(text)
-            parts.append(budget.add(" | ".join(cells)))
+        if isinstance(block, Paragraph):
+            if block.text.strip():
+                parts.append(budget.add(block.text))
+        else:
+            for row in block.rows:
+                check_time(deadline)
+                cells = []
+                previous_cell = None
+                for cell in row.cells:
+                    text = cell.text.strip()
+                    if comparison and cell._tc is previous_cell:
+                        continue
+                    previous_cell = cell._tc
+                    # T1 source snapshots retain the same text for immutable citations.
+                    if comparison or not cells or cells[-1] != text:
+                        cells.append(text)
+                parts.append(budget.add(" | ".join(cells)))
     return [{"page": 1, "method": "docx", "locatorKind": "extraction_unit", "text": "\n".join(parts)}]
 
 
-def parse_xlsx(data, deadline):
-    workbook = openpyxl.load_workbook(io.BytesIO(data), data_only=True, read_only=True)
+def spreadsheet_value(value):
+    if value is None:
+        return ""
+    if isinstance(value, ArrayFormula):
+        return value.text or ""
+    if isinstance(value, DataTableFormula):
+        return " | ".join(f"{name}={setting}" for name, setting in dict(value).items())
+    return str(value)
+
+
+def parse_xlsx(data, deadline, comparison=False):
+    workbook = openpyxl.load_workbook(io.BytesIO(data), data_only=not comparison, read_only=True, keep_links=False)
     pages = []
     cells = 0
     budget = TextBudget()
@@ -258,8 +277,8 @@ def parse_xlsx(data, deadline):
         if len(workbook.worksheets) > MAX_PAGES:
             raise DocError("DOC_PAGE_LIMIT", 413)
         for index, sheet in enumerate(workbook.worksheets):
-            if (sheet.max_row or 0) > 20000 or (sheet.max_column or 0) > 256:
-                raise DocError("DOC_SHEET_LIMIT", 413)
+            # Exporters may understate the actual dimensions in the worksheet header.
+            sheet.reset_dimensions()
             lines = []
             for row_index, row in enumerate(sheet.iter_rows(values_only=True)):
                 check_time(deadline)
@@ -267,7 +286,7 @@ def parse_xlsx(data, deadline):
                 if row_index >= 20000 or len(row) > 256 or cells > 250000:
                     raise DocError("DOC_SHEET_LIMIT", 413)
                 if any(item is not None for item in row):
-                    lines.append(budget.add(" | ".join("" if item is None else str(item) for item in row)))
+                    lines.append(budget.add(" | ".join(spreadsheet_value(item) for item in row)))
             pages.append({"page": index + 1, "method": "xlsx", "locatorKind": "extraction_unit",
                           "sheet": sheet.title, "text": "\n".join(lines)})
     finally:
@@ -316,22 +335,22 @@ def convert_office(data, kind, output, deadline):
         return converted.read_bytes()
 
 
-def parse_document(data, kind, ocr):
+def parse_document(data, kind, ocr, comparison=False):
     deadline = monotonic() + MAX_OPERATION_SECONDS
     check_kind(data, kind)
     attachments = []
     xfa = None
     if kind in {"pdf", "estar"}:
         pages, reader = parse_pdf(data, kind, ocr, deadline)
-        if kind == "estar":
+        if kind == "estar" and not comparison:
             xfa = xfa_datasets(reader)
             attachments = document_attachments(reader, deadline)
     elif kind == "xlsx":
-        pages = parse_xlsx(data, deadline)
+        pages = parse_xlsx(data, deadline, comparison)
     else:
         converted = convert_office(data, kind, "docx", deadline) if kind == "doc" else data
         check_kind(converted, "docx")
-        pages = parse_docx(converted, deadline)
+        pages = parse_docx(converted, deadline, comparison)
     check_time(deadline)
     return {"sha256": sha256(data), "kind": kind, "byteSize": len(data), "pageCount": len(pages),
             "pages": pages, "attachments": attachments, "xfaDatasetsBase64": encoded(xfa) if xfa is not None else None}
@@ -343,7 +362,17 @@ def pdf_for_render(data, kind):
 
 def render_page(pdf_data, number):
     with pdfium.PdfDocument(pdf_data, password="") as pdf:
-        if not 1 <= number <= len(pdf):
+        form_type = pdf.get_formtype()
+        if form_type in {pdfium_raw.FORMTYPE_XFA_FULL, pdfium_raw.FORMTYPE_XFA_FOREGROUND}:
+            raise DocError("DOC_XFA_PREVIEW_UNAVAILABLE")
+        if form_type == pdfium_raw.FORMTYPE_ACRO_FORM:
+            pdf.init_forms()
+            if not pdf.formenv:
+                raise DocError("DOC_FORM_PREVIEW_UNAVAILABLE")
+        page_count = len(pdf)
+        if page_count > MAX_PAGES:
+            raise DocError("DOC_PREVIEW_PAGE_LIMIT", 413)
+        if not 1 <= number <= page_count:
             raise DocError("DOC_PAGE_NOT_FOUND", 404)
         with closing(pdf[number - 1]) as page:
             side = max(page.get_size())
@@ -352,4 +381,4 @@ def render_page(pdf_data, number):
             with closing(page.render(scale=LONG_SIDE / side)) as bitmap:
                 rendered = io.BytesIO()
                 bitmap.to_pil().save(rendered, format="PNG")
-    return rendered.getvalue()
+    return page_count, rendered.getvalue()

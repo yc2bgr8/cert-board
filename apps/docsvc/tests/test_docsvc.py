@@ -1,15 +1,19 @@
 import base64
 import io
+import json
 from time import monotonic
+from zipfile import ZipFile
 
+import docsvc
 from docx import Document
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfWriter
-from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, NameObject, TextStringObject
+from pypdf.generic import ArrayObject, BooleanObject, DecodedStreamObject, DictionaryObject, NameObject, NumberObject, TextStringObject
 
 from docsvc import app, operation_lock
+import compare_l08
 from parsers import MAX_INPUT, convert_office, sha256
 
 
@@ -18,7 +22,7 @@ PDF_TEXT = "This fictional document contains more than forty readable characters
 DATASETS = b'<xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/"><xfa:data><sample>fixture</sample></xfa:data></xfa:datasets>'
 
 
-def sample_pdf(with_xfa=False, text_operator=None):
+def sample_pdf(with_xfa=False, text_operator=None, field_value=None):
     writer = PdfWriter()
     page = writer.add_blank_page(width=612, height=792)
     font = writer._add_object(DictionaryObject({
@@ -41,9 +45,30 @@ def sample_pdf(with_xfa=False, text_operator=None):
             NameObject("/XFA"): ArrayObject([TextStringObject("datasets"), writer._add_object(packet)]),
         }))
         writer.root_object[NameObject("/AcroForm")] = form
+        writer.root_object[NameObject("/NeedsRendering")] = BooleanObject(True)
         writer.add_attachment("2026-01-01T12_fixture.txt", b"fictional attachment")
         writer.add_attachment("../safe-name.txt", b"fictional attachment")
         writer.encrypt("", owner_password="fixture-owner-only", algorithm="AES-256")
+    if field_value is not None:
+        appearance = TextStringObject("/F1 18 Tf 0 g")
+        widget = writer._add_object(DictionaryObject({
+            NameObject("/Type"): NameObject("/Annot"),
+            NameObject("/Subtype"): NameObject("/Widget"),
+            NameObject("/FT"): NameObject("/Tx"),
+            NameObject("/T"): TextStringObject("SyntheticText"),
+            NameObject("/V"): TextStringObject(field_value),
+            NameObject("/DA"): appearance,
+            NameObject("/Rect"): ArrayObject([NumberObject(n) for n in [50, 500, 260, 530]]),
+            NameObject("/F"): NumberObject(4),
+            NameObject("/P"): page.indirect_reference,
+        }))
+        page[NameObject("/Annots")] = ArrayObject([widget])
+        writer.root_object[NameObject("/AcroForm")] = writer._add_object(DictionaryObject({
+            NameObject("/Fields"): ArrayObject([widget]),
+            NameObject("/DA"): appearance,
+            NameObject("/DR"): page[NameObject("/Resources")],
+            NameObject("/NeedAppearances"): BooleanObject(True),
+        }))
     output = io.BytesIO()
     writer.write(output)
     return output.getvalue()
@@ -76,14 +101,18 @@ def sheet_bytes():
     return output.getvalue()
 
 
-def assert_preview(data, kind):
+def assert_preview(data, kind, upload_response):
     params = {"kind": kind, "sha256": sha256(data), "page": 1}
-    first = client.get("/render", params=params)
+    assert client.get("/render", params=params).status_code in {400, 404}
+    headers = {"X-Docsvc-Preview": upload_response.headers["X-Docsvc-Preview"]}
+    first = client.get("/render", params=params, headers=headers)
     assert first.status_code == 200, first.text if first.status_code != 200 else ""
     assert first.headers["content-type"] == "image/png"
     assert first.headers["cache-control"] == "no-store"
+    assert int(first.headers["x-docsvc-preview-pages"]) >= 1
     assert first.content.startswith(b"\x89PNG\r\n\x1a\n")
-    assert client.get("/render", params=params).content == first.content
+    assert client.get("/render", params=params, headers=headers).content == first.content
+    return headers
 
 
 def test_pdf_text_parse_and_render():
@@ -96,8 +125,8 @@ def test_pdf_text_parse_and_render():
     assert content["pages"][0] == {"page": 1, "method": "text", "locatorKind": "physical_page", "text": PDF_TEXT}
     assert result.headers["cache-control"] == "no-store"
     assert upload(data, "pdf").content == result.content
-    assert_preview(data, "pdf")
-    missing = client.get("/render", params={"kind": "pdf", "sha256": sha256(data), "page": 5})
+    headers = assert_preview(data, "pdf", result)
+    missing = client.get("/render", params={"kind": "pdf", "sha256": sha256(data), "page": 5}, headers=headers)
     assert missing.status_code == 404
 
 
@@ -109,7 +138,8 @@ def test_pdf_preserves_t1_spacing_for_positioned_text():
 
 
 def test_encrypted_estar_extracts_xfa_and_deduplicates_attachments():
-    result = upload(sample_pdf(with_xfa=True), "estar")
+    original = sample_pdf(with_xfa=True)
+    result = upload(original, "estar")
     assert result.status_code == 200, result.text if result.status_code != 200 else ""
     data = result.json()
     assert base64.b64decode(data["xfaDatasetsBase64"]) == DATASETS
@@ -118,6 +148,21 @@ def test_encrypted_estar_extracts_xfa_and_deduplicates_attachments():
     assert attachment["name"] == "safe-name.txt"
     assert attachment["sha256"] == sha256(b"fictional attachment")
     assert base64.b64decode(attachment["bodyBase64"]) == b"fictional attachment"
+    preview = client.get("/render", params={"kind": "estar", "sha256": sha256(original), "page": 1},
+                         headers={"X-Docsvc-Preview": result.headers["X-Docsvc-Preview"]})
+    assert preview.status_code == 422
+    assert preview.json() == {"code": "DOC_XFA_PREVIEW_UNAVAILABLE"}
+
+
+def test_filled_pdf_form_is_drawn_in_page_preview():
+    data = sample_pdf(field_value="Filled fixture value")
+    uploaded = upload(data, "pdf")
+    preview = client.get("/render", params={"kind": "pdf", "sha256": sha256(data), "page": 1},
+                         headers={"X-Docsvc-Preview": uploaded.headers["X-Docsvc-Preview"]})
+    assert preview.status_code == 200
+    with Image.open(io.BytesIO(preview.content)) as image:
+        region = image.convert("L").crop((110, 534, 500, 584))
+        assert sum(pixel < 80 for pixel in region.get_flattened_data()) > 20
 
 
 def test_office_text_and_layout_use_the_local_converter():
@@ -129,7 +174,98 @@ def test_office_text_and_layout_use_the_local_converter():
         plain = upload(data, kind, endpoint="text")
         assert plain.status_code == 200
         assert expected in plain.json()["text"]
-        assert_preview(data, kind)
+        assert_preview(data, kind, result)
+
+
+def test_word_comparison_keeps_document_order_and_repeated_columns():
+    document = Document()
+    document.add_paragraph("前一段")
+    row = document.add_table(rows=1, cols=3).rows[0]
+    for cell, text in zip(row.cells, ["合格", "合格", "待确认"]):
+        cell.text = text
+    document.add_paragraph("后一段")
+    output = io.BytesIO()
+    document.save(output)
+    result = upload(output.getvalue(), "docx", endpoint="text")
+    assert result.json()["text"] == "前一段\n合格 | 合格 | 待确认\n后一段"
+
+
+def test_spreadsheet_comparison_keeps_formulas_beyond_stale_dimensions():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet["A1"] = "清单"
+    sheet["B2"] = "=1+2"
+    output = io.BytesIO()
+    workbook.save(output)
+    adjusted = io.BytesIO()
+    with ZipFile(output) as source, ZipFile(adjusted, "w") as target:
+        for name in source.namelist():
+            entry = source.read(name)
+            if name == "xl/worksheets/sheet1.xml":
+                entry = entry.replace(b'<dimension ref="A1:B2"', b'<dimension ref="A1:A1"')
+            target.writestr(name, entry)
+    result = upload(adjusted.getvalue(), "xlsx", endpoint="text")
+    assert "=1+2" in result.json()["text"]
+
+
+def test_word_preview_reports_physical_count_separately_from_extraction_units():
+    document = Document()
+    document.add_paragraph("第一页")
+    document.add_page_break()
+    document.add_paragraph("第二页")
+    output = io.BytesIO()
+    document.save(output)
+    data = output.getvalue()
+    parsed = upload(data, "docx")
+    assert parsed.json()["pageCount"] == 1
+    first = client.get("/render", params={"kind": "docx", "sha256": sha256(data), "page": 1},
+                       headers={"X-Docsvc-Preview": parsed.headers["X-Docsvc-Preview"]})
+    assert first.status_code == 200
+    assert first.headers["x-docsvc-preview-pages"] == "2"
+
+
+def test_cached_preview_requires_fresh_proof_after_source_eviction(monkeypatch):
+    monkeypatch.setattr(docsvc, "sources", docsvc.ByteCache(1024 * 1024, items=1))
+    data = sample_pdf()
+    result = upload(data, "pdf")
+    headers = assert_preview(data, "pdf", result)
+    other = sample_pdf(text_operator=f"({PDF_TEXT} Added.) Tj")
+    assert upload(other, "pdf").status_code == 200
+    params = {"kind": "pdf", "sha256": sha256(data), "page": 1}
+    assert client.get("/render", params=params, headers=headers).status_code == 404
+    refreshed = upload(data, "pdf")
+    assert refreshed.headers["X-Docsvc-Preview"] != headers["X-Docsvc-Preview"]
+    assert client.get("/render", params=params, headers=headers).status_code == 404
+    assert_preview(data, "pdf", refreshed)
+
+
+def test_worker_is_terminated_at_deadline_and_next_request_recovers(monkeypatch, tmp_path):
+    stalled_worker = tmp_path / "stalled_worker.py"
+    stalled_worker.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+    data = sample_pdf(text_operator=f"({PDF_TEXT} Timeout fixture.) Tj")
+    with monkeypatch.context() as temporary:
+        temporary.setattr(docsvc, "worker_file", stalled_worker)
+        temporary.setitem(docsvc.worker_timeouts, "parse", 0.1)
+        result = upload(data, "pdf")
+        assert result.status_code == 504
+        assert result.json() == {"code": "DOC_PROCESSING_TIMEOUT"}
+    assert upload(data, "pdf").status_code == 200
+
+
+def test_l08_comparison_fails_on_missing_office_text(monkeypatch, tmp_path, capsys):
+    source = tmp_path / "sample.doc"
+    source.write_bytes(b"fictional legacy fixture")
+    records = [{"id": "D001", "source_type": "外层文件夹", "name": source.name, "ext": ".doc",
+                "path": source.name, "sha256": sha256(source.read_bytes())}]
+    (tmp_path / "documents.json").write_text(json.dumps(records), encoding="utf-8")
+    (tmp_path / "pages.jsonl").write_text(
+        json.dumps({"doc": "D001", "page": 1, "method": "docx", "text": "Expected source."}) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(compare_l08, "parse_document", lambda *args: {"pages": [{"text": ""}]})
+    assert compare_l08.compare(tmp_path, tmp_path) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert any(row["reason"] == "office_text_missing" for row in report["differences"])
 
 
 def test_legacy_word_is_converted_and_parsed():
