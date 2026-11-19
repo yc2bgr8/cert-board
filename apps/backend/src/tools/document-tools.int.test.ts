@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
   documentPageReadSchema,
+  browserIdentitySchema,
   documentSearchResultSchema,
   skillLoadResultSchema,
   reviewSubmitResultSchema,
@@ -12,6 +13,7 @@ import { createIntegrationContext } from '../test-support/context.js';
 import { createToolRuntime } from '../agent/tool-runtime.js';
 import { readT1Fixture } from '../documents/t1-seed.js';
 import { ingestParsedDocument } from '../documents/service.js';
+import { processDocumentParseTask, queueOriginalDocument } from '../documents/parse-tasks.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { buildDocumentTools } from './document-tools.js';
 import { submitForReviewTool } from './submit-for-review.js';
@@ -104,6 +106,68 @@ afterEach(async () => {
 });
 const invoke = (name: string, args: unknown, callId = randomUUID()) =>
   runtime.registry.execute({ ...caller, callId }, name, args);
+
+test('doc_search 和 doc_read 使用原件解析后的页，保留可引用位置与内部级别', async () => {
+  const actor = browserIdentitySchema.parse({
+    kind: 'browser',
+    userId: caller.userId,
+    username: 'zhangsan',
+    displayName: '测试成员',
+    sessionId: randomUUID(),
+    isDevelopment: true,
+    isManagement: false,
+  });
+  const input = await queueOriginalDocument(
+    context.pool,
+    store,
+    actor,
+    {
+      projectId: context.projectId,
+      sourceKey: 'RAW-TOOL',
+      name: '原件检索样例.pdf',
+      sourcePath: 'fixture.pdf',
+      sourceSnapshot: digest('raw:tool:internal'),
+      dataLevel: 'internal',
+      format: 'pdf',
+      authorType: 'human',
+    },
+    Buffer.from('%PDF fictional tool document'),
+  );
+  const pages = [
+    {
+      pageNumber: 1,
+      method: 'ocr' as const,
+      locatorKind: 'physical_page' as const,
+      text: '原件唯一检索词。 English fixture needle.',
+      ocrScore: 0.88,
+      isPlaceholder: false,
+    },
+  ];
+  await processDocumentParseTask(context.pool, store, { parse: async () => pages });
+  const found = await invoke('doc_search', { query: '原件唯一检索词' });
+  const hit = documentSearchResultSchema.parse(found.data).items[0]!;
+  expect(hit).toMatchObject({
+    documentId: input.documentId,
+    version: 1,
+    page: 1,
+    dataLevel: 'internal',
+  });
+  const read = await invoke('doc_read', {
+    id: hit.documentId,
+    version: hit.version,
+    page: hit.page,
+  });
+  expect(read.dataLevel).toBe('internal');
+  expect(documentPageReadSchema.parse(read.data)).toMatchObject({
+    text: pages[0]!.text,
+    ocrScore: 0.88,
+  });
+  const levels = await context.pool.query(
+    'SELECT r.max_data_level,c.max_data_level AS conversation_level FROM run r JOIN conversation c ON c.id=r.conversation_id WHERE r.id=$1',
+    [caller.runId],
+  );
+  expect(levels.rows[0]).toEqual({ max_data_level: 'internal', conversation_level: 'internal' });
+});
 
 test('真实T1按英文/文件名检索并分页；UUID和版本页可读，摘要不会充当doc_read', async () => {
   const empty = documentSearchResultSchema.parse(

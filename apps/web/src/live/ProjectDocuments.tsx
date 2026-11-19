@@ -2,6 +2,8 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { api, errorMessage } from './api.js';
 import type { EvidenceTarget } from './review-navigation.js';
 
+const parseLabels = { queued: '等待解析', running: '解析中', ready: '已解析', failed: '解析失败' };
+
 export function ProjectDocuments({
   projectId,
   userId,
@@ -17,6 +19,14 @@ export function ProjectDocuments({
       api.documents(projectId, { limit: 50, ...(pageParam ? { cursor: pageParam } : {}) }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    refetchInterval: ({ state }) =>
+      state.data?.pages.some((page) =>
+        page.items.some(
+          (document) => document.parseState === 'queued' || document.parseState === 'running',
+        ),
+      )
+        ? 2_000
+        : false,
     retry: false,
   });
   const items = query.data?.pages.flatMap((page) => page.items) ?? [];
@@ -27,7 +37,9 @@ export function ProjectDocuments({
           <h2>整包导入</h2>
           <span className="live-notice-chip">尚未接入</span>
         </header>
-        <p className="live-page-message live-muted">原文件预览与上传暂未开放。已导入的解析文字可从资料库打开。</p>
+        <p className="live-page-message live-muted">
+          原文件预览与上传暂未开放。已导入的解析文字可从资料库打开。
+        </p>
       </section>
       <section className="live-page-card" aria-label="已导入资料">
         <header className="live-page-card-head">
@@ -56,6 +68,7 @@ export function ProjectDocuments({
             className="live-asset-row"
             type="button"
             key={document.id}
+            disabled={document.parseState !== undefined && document.parseState !== 'ready'}
             aria-label={`打开资料：${document.name}`}
             onClick={() =>
               onOpenEvidence([
@@ -70,7 +83,13 @@ export function ProjectDocuments({
                 {{ public: '公开', internal: '内部', confidential: '保密' }[document.dataLevel]}
               </small>
             </span>
-            <span className="live-row-action">打开解析页</span>
+            {document.parseState ? (
+              <span className="live-notice-chip" data-parse-state={document.parseState}>
+                {parseLabels[document.parseState]}
+              </span>
+            ) : (
+              <span className="live-row-action">打开解析页</span>
+            )}
           </button>
         ))}
         {!query.isPending && !query.isError && items.length === 0 && (

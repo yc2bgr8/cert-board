@@ -14,6 +14,8 @@ import { buildAgentTools } from './agent/default-tools.js';
 import { buildWebTools } from './tools/web-tools.js';
 import { executeAgentRun } from './agent/runtime.js';
 import { startDeadlineQueue } from './deadlines/queue.js';
+import { DocumentParserClient, maximumDocumentBytes } from './documents/docsvc-client.js';
+import { startDocumentParseWorker } from './documents/parse-tasks.js';
 import { getContinuationTicket, listContinuationsForDispatch } from './approvals/continuation.js';
 import {
   AGENT_QUEUE,
@@ -38,6 +40,7 @@ export async function startWorker() {
   let maintenance: Promise<void> | undefined;
   let registration: Promise<string> | undefined;
   let stopPromise: Promise<void> | undefined;
+  let stopDocumentWorker: (() => Promise<void>) | undefined;
   let closing = false;
   const active = new Map<string, AbortController>();
   const tasks = new Set<Promise<void>>();
@@ -50,6 +53,10 @@ export async function startWorker() {
       process.off('SIGTERM', onSignal);
       for (const controller of active.values()) controller.abort();
       let failed = false;
+      if (stopDocumentWorker)
+        await stopDocumentWorker().catch(() => {
+          failed = true;
+        });
       if (registration) await registration.catch(() => undefined);
       if (boss)
         await boss.stop({ graceful: true, timeout: 20_000 }).catch(() => {
@@ -94,6 +101,20 @@ export async function startWorker() {
       environment: config.NODE_ENV,
     });
     const store = new BlobStore(resources.storage, config.MINIO_BUCKET);
+    if (process.env.CERT_DOCSVC_URL) {
+      const originalStore = new BlobStore(
+        resources.storage,
+        config.MINIO_BUCKET,
+        maximumDocumentBytes,
+      );
+      stopDocumentWorker = startDocumentParseWorker(
+        resources.database,
+        originalStore,
+        new DocumentParserClient(process.env.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
+        () =>
+          logger.warn({ event: 'document_parse_deferred' }, '暂未能处理资料解析任务，稍后再试。'),
+      );
+    }
     const webTools = process.env.CERT_FETCHER_URL
       ? buildWebTools(
           resources.database,

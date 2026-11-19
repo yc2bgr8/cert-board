@@ -11,6 +11,7 @@ import { registerAuthRoutes } from './auth/routes.js';
 import { registerProjectRoutes } from './projects/routes.js';
 import { registerDocumentRoutes } from './documents/routes.js';
 import { BlobStore, type DocumentBlobStore } from './documents/blob-store.js';
+import { maximumDocumentBytes } from './documents/docsvc-client.js';
 import { registerWorkspaceRoutes } from './workspace/routes.js';
 import { registerProposalRoutes } from './api/proposal-routes.js';
 import { registerReviewRoutes } from './api/review-routes.js';
@@ -68,7 +69,12 @@ export function createApp(
       (dependencies.storage ? new BlobStore(dependencies.storage, config.MINIO_BUCKET) : undefined);
     registerAuthRoutes(app, dependencies.database, config);
     registerProjectRoutes(app, dependencies.database, config);
-    registerDocumentRoutes(app, dependencies.database, config, blobStore);
+    const originals =
+      dependencies.blobStore ??
+      (dependencies.storage
+        ? new BlobStore(dependencies.storage, config.MINIO_BUCKET, maximumDocumentBytes)
+        : undefined);
+    registerDocumentRoutes(app, dependencies.database, config, blobStore, originals);
     registerProposalRoutes(app, dependencies.database, config);
     registerReviewRoutes(app, dependencies.database, config);
     registerRunControlRoutes(app, dependencies.database, config);

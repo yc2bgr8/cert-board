@@ -467,7 +467,13 @@ export const documentDataLevel = pgEnum('document_data_level', [
 ]);
 export const documentAuthorType = pgEnum('document_author_type', ['ai', 'human', 'external']);
 export const documentContentKind = pgEnum('document_content_kind', ['parsed_text', 'original']);
-export const documentPageMethod = pgEnum('document_page_method', ['text', 'ocr', 'docx']);
+export const documentPageMethod = pgEnum('document_page_method', ['text', 'ocr', 'docx', 'xlsx']);
+export const documentParseState = pgEnum('document_parse_state', [
+  'queued',
+  'running',
+  'ready',
+  'failed',
+]);
 export const documentLocatorKind = pgEnum('document_locator_kind', [
   'physical_page',
   'extraction_unit',
@@ -575,6 +581,42 @@ export const documentPage = pgTable(
       sql`${table.ocrScore} IS NULL OR (${table.ocrScore} >= 0 AND ${table.ocrScore} <= 1)`,
     ),
     index('document_page_version_idx').on(table.versionId),
+  ],
+);
+
+export const documentParseTask = pgTable(
+  'document_parse_task',
+  {
+    versionId: uuid('version_id')
+      .primaryKey()
+      .references(() => documentVersion.id, { onDelete: 'restrict' }),
+    format: varchar('format', { length: 8 }).notNull(),
+    state: documentParseState('state').notNull().default('queued'),
+    attempts: integer('attempts').notNull().default(0),
+    availableAt: timestamp('available_at', { withTimezone: true }).notNull().defaultNow(),
+    leaseToken: uuid('lease_token'),
+    leaseUntil: timestamp('lease_until', { withTimezone: true }),
+    errorCode: varchar('error_code', { length: 64 }),
+    ...timestamps(),
+  },
+  (table) => [
+    index('document_parse_task_dispatch_idx').on(table.state, table.availableAt),
+    check(
+      'document_parse_task_format',
+      sql`${table.format} IN ('pdf','estar','doc','docx','xlsx')`,
+    ),
+    check('document_parse_task_attempts', sql`${table.attempts} BETWEEN 0 AND 3`),
+    check(
+      'document_parse_task_lease',
+      sql`
+      (${table.state} = 'running' AND ${table.leaseToken} IS NOT NULL AND ${table.leaseUntil} IS NOT NULL) OR
+      (${table.state} <> 'running' AND ${table.leaseToken} IS NULL AND ${table.leaseUntil} IS NULL)
+    `,
+    ),
+    check(
+      'document_parse_task_error_code',
+      sql`${table.errorCode} IS NULL OR ${table.errorCode} ~ '^[A-Z][A-Z0-9_]*$'`,
+    ),
   ],
 );
 

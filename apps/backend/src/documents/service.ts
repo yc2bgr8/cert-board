@@ -15,6 +15,7 @@ import {
   documentSearchResultSchema,
   projectIdSchema,
   webArchiveInfoSchema,
+  type DocumentPageSource,
   type ServiceIdentity,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
@@ -27,11 +28,16 @@ export type DocumentReadDatabase = Pick<Pool, 'query'>;
 const maximumImportBytes = 25 * 1024 * 1024;
 const maximumInteger = 2_147_483_647;
 const classification = `(SELECT sv.data_level FROM document_version sv WHERE sv.document_id = d.id ORDER BY sv.data_level DESC LIMIT 1)`;
-const latestVersion = `JOIN LATERAL (SELECT lv.version_no FROM document_version lv WHERE lv.document_id = d.id ORDER BY lv.version_no DESC LIMIT 1) current ON true`;
+const latestVersion = `JOIN LATERAL (
+  SELECT lv.version_no, task.state AS parse_state FROM document_version lv
+  LEFT JOIN document_parse_task task ON task.version_id=lv.id
+  WHERE lv.document_id=d.id ORDER BY lv.version_no DESC LIMIT 1
+) current ON true`;
 const documentFields = `d.id, d.project_id AS "projectId", d.source_key AS "sourceKey", d.name,
   d.source_path AS "sourcePath", d.owner_user_id AS "ownerUserId", ${classification} AS "dataLevel",
   CASE WHEN d.voided THEN 'voided' ELSE 'active' END AS status,
-  current.version_no AS "currentVersion", d.version, d.created_at AS "createdAt", d.updated_at AS "updatedAt"`;
+  current.version_no AS "currentVersion", current.parse_state AS "parseState",
+  d.version, d.created_at AS "createdAt", d.updated_at AS "updatedAt"`;
 const versionFields = `v.id, v.document_id AS "documentId", v.version_no AS version,
   v.source_snapshot AS "sourceSnapshot", v.content_sha256 AS "contentSha256",
   v.original_sha256 AS "originalSha256", v.byte_size AS "byteSize", v.content_kind AS "contentKind",
@@ -62,8 +68,10 @@ function canonicalValue(value: unknown): unknown {
 }
 const canonicalJson = (value: unknown) => JSON.stringify(canonicalValue(value));
 function toDocument(row: Record<string, unknown>) {
+  const { parseState, ...fields } = row;
   return documentRecordSchema.parse({
-    ...row,
+    ...fields,
+    ...(parseState == null ? {} : { parseState }),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   });
@@ -82,6 +90,19 @@ async function projectAccess(
 ) {
   if (!projectIdSchema.safeParse(projectId).success) throw invalid();
   await getProject(pool, identity, projectId);
+}
+
+export async function insertDocumentPages(
+  client: PoolClient,
+  versionId: string,
+  pages: readonly DocumentPageSource[],
+) {
+  await client.query(
+    `INSERT INTO document_page (version_id,page_number,text,method,locator_kind,ocr_score,is_placeholder)
+     SELECT $1, p."pageNumber",p.text,p.method::document_page_method,p."locatorKind"::document_locator_kind,p."ocrScore",p."isPlaceholder"
+     FROM jsonb_to_recordset($2::jsonb) AS p("pageNumber" integer,text text,method text,"locatorKind" text,"ocrScore" double precision,"isPlaceholder" boolean)`,
+    [versionId, JSON.stringify(pages)],
+  );
 }
 
 export async function ingestParsedDocument(
@@ -223,12 +244,7 @@ export async function ingestParsedDocument(
     );
     const versionId = inserted.rows[0]?.id;
     if (!versionId) throw new Error('资料版本登记失败');
-    await client.query(
-      `INSERT INTO document_page (version_id,page_number,text,method,locator_kind,ocr_score,is_placeholder)
-       SELECT $1, p."pageNumber",p.text,p.method::document_page_method,p."locatorKind"::document_locator_kind,p."ocrScore",p."isPlaceholder"
-       FROM jsonb_to_recordset($2::jsonb) AS p("pageNumber" integer,text text,method text,"locatorKind" text,"ocrScore" double precision,"isPlaceholder" boolean)`,
-      [versionId, JSON.stringify(data.pages)],
-    );
+    await insertDocumentPages(client, versionId, data.pages);
     if (!isNewDocument)
       await client.query(
         'UPDATE document SET name=$1, source_path=$2, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=$3',
@@ -317,12 +333,22 @@ export async function listDocumentVersions(
   if (!parsed.success || parsed.data.afterVersion > maximumInteger) throw invalid();
   const page = parsed.data;
   const result = await pool.query<Record<string, unknown>>(
-    `SELECT ${versionFields} FROM document_version v JOIN document d ON d.id=v.document_id
+    `SELECT ${versionFields}, CASE WHEN task.version_id IS NULL THEN NULL ELSE jsonb_build_object(
+       'state',task.state,'attempts',task.attempts,'errorCode',task.error_code,
+       'lowConfidencePages',(SELECT count(*)::integer FROM document_page p
+         WHERE p.version_id=v.id AND p.ocr_score<0.9)
+     ) END AS "parseStatus"
+     FROM document_version v JOIN document d ON d.id=v.document_id
+     LEFT JOIN document_parse_task task ON task.version_id=v.id
      WHERE d.id=$1 AND NOT d.voided AND v.version_no>$2 ORDER BY v.version_no LIMIT $3`,
     [documentId, page.afterVersion, page.limit + 1],
   );
   const hasMore = result.rows.length > page.limit;
-  const items = result.rows.slice(0, page.limit).map(toVersion);
+  const items = result.rows
+    .slice(0, page.limit)
+    .map(({ parseStatus, ...row }) =>
+      toVersion(parseStatus === null ? row : { ...row, parseStatus }),
+    );
   return documentVersionListSchema.parse({
     items,
     hasMore,
@@ -357,6 +383,7 @@ export async function readDocumentPage(
      v.version_no AS version,p.page_number AS page,p.locator_kind AS "locatorKind",${classification} AS "dataLevel",
      p.text,p.method,p.ocr_score AS "ocrScore",p.is_placeholder AS "isPlaceholder",
      v.content_sha256 AS "contentSha256",v.original_sha256 AS "originalSha256",
+     v.content_kind='original' AS "originalStored",
      v.source_metadata->'webArchive' AS "webArchive"
      FROM document_page p JOIN document_version v ON v.id=p.version_id JOIN document d ON d.id=v.document_id
      WHERE d.id=$1 AND v.version_no=$2 AND p.page_number=$3 AND NOT d.voided`,
@@ -399,12 +426,16 @@ export async function readDocumentPage(
       '读取上限过小，无法容纳一个完整字符，请将limit设为至少2后重试。',
     );
   }
-  const { webArchive: rawArchive, ...pageFields } = row;
+  const { webArchive: rawArchive, originalStored, ...pageFields } = row;
   const archive = webArchiveInfoSchema.safeParse(rawArchive);
   const webArchive =
     archive.success && archive.data.sha256 === row.originalSha256 ? archive.data : undefined;
   const warning = [
-    webArchive ? '当前提供网页存档提取文本。' : '当前提供解析文本，原始文件尚未导入。',
+    webArchive
+      ? '当前提供网页存档提取文本。'
+      : originalStored
+        ? '当前提供原始资料的解析文本。'
+        : '当前提供解析文本，原始文件尚未导入。',
   ];
   if (row.locatorKind === 'extraction_unit')
     warning.push(
@@ -455,12 +486,20 @@ export async function searchDocuments(
   if (!parsed.success || parsed.data.offset > maximumInteger) throw invalid();
   const page = parsed.data;
   const result = await pool.query<Record<string, unknown>>(
-    `SELECT d.id AS "documentId",d.source_key AS "sourceKey",d.name,v.version_no AS version,p.page_number AS page,
+    `SELECT d.id AS "documentId",d.source_key AS "sourceKey",
+      COALESCE(v.source_metadata->'_certImport'->>'name',d.name) AS name,v.version_no AS version,p.page_number AS page,
       p.locator_kind AS "locatorKind",${classification} AS "dataLevel",p.method,p.ocr_score AS "ocrScore",
       p.text AS "pageText"
-     FROM document d ${latestVersion} JOIN document_version v ON v.document_id=d.id AND v.version_no=current.version_no
+     FROM document d JOIN LATERAL (
+       SELECT lv.id FROM document_version lv
+       LEFT JOIN document_parse_task task ON task.version_id=lv.id
+       WHERE lv.document_id=d.id AND (task.state IS NULL OR task.state='ready')
+       ORDER BY lv.version_no DESC LIMIT 1
+     ) current ON true JOIN document_version v ON v.id=current.id
      JOIN document_page p ON p.version_id=v.id WHERE d.project_id=$1 AND NOT d.voided AND NOT p.is_placeholder
-      AND (strpos(lower(p.text),lower($2))>0 OR strpos(lower(d.name),lower($2))>0 OR strpos(lower(d.source_key),lower($2))>0)
+      AND (strpos(lower(p.text),lower($2))>0
+        OR strpos(lower(COALESCE(v.source_metadata->'_certImport'->>'name',d.name)),lower($2))>0
+        OR strpos(lower(d.source_key),lower($2))>0)
      ORDER BY d.id,p.page_number LIMIT $3 OFFSET $4`,
     [projectId, page.query, page.limit + 1, page.offset],
   );

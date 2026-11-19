@@ -127,6 +127,10 @@ export function composeInvocation(
           `${projectDirectory}/deploy/compose.fetcher.yml`,
           '--file',
           `${projectDirectory}/deploy/compose.fetcher-isolated.yml`,
+          '--file',
+          `${projectDirectory}/deploy/compose.docsvc.yml`,
+          '--file',
+          `${projectDirectory}/deploy/compose.docsvc-isolated.yml`,
         ]
       : []),
     ...operations[action],

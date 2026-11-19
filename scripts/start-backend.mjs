@@ -53,6 +53,7 @@ export function backendEnvironment(kind, local, inherited = process.env) {
     ...(kind === 'worker' || kind === 'verification'
       ? ['CERT_FETCHER_URL', 'CERT_WEB_EXTENDED_HOSTS']
       : []),
+    ...(kind === 'worker' ? ['CERT_DOCSVC_URL'] : []),
   ];
   for (const key of allowed) if (local[key] !== undefined) environment[key] = local[key];
   return environment;
