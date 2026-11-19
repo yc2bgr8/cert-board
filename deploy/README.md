@@ -16,6 +16,6 @@ MinIO S3 端口为 `127.0.0.1:29000`，管理界面为 `127.0.0.1:29001`。数�
 
 本机 Docker 29 对仅加入 `internal: true` 网络的容器没有发布回环端口，Windows 上的 Node 因而无法连接。为保持隔离，PR-01 提前实现开发中继的最小部分：Nginx stream 同时加入 `internal` 与专有 `ingress` bridge，只把上述三个回环端口转发给固定的数据库/存储目标，不提供通用代理，不持有凭据；容器只读、移除所有 capabilities。数据库和 MinIO 自身没有外网出口。
 
-解析、沙箱执行与网页抓取服务按各自 PR 接入。PR-13 新增独立容器部署和网络探针。沙箱经本身网段上的专用白名单代理出网，开发中继只对固定回环端口提供服务。[PR-13 网络拓扑与验收](../docs/pr/PR-13.md)
+PR-13 提供独立容器部署和网络探针。沙箱经本身网段上的专用白名单代理出网，开发中继只对固定回环端口提供服务。PR-40 的网页抓取使用独立代理和专用网段，Windows 开发用 `pnpm dev:fetcher:up`，容器部署用 `pnpm dev:isolated:web:up`。解析与沙箱执行由对应 PR 接入。[PR-13 网络拓扑与验收](../docs/pr/PR-13.md) · [网页抓取服务](../apps/fetcher/README.md)
 
 新建依赖镜像：`pgvector/pgvector:0.8.1-pg16`（PostgreSQL License）、`pgsty/minio:RELEASE.2026-08-04T00-00-00Z`（AGPL-3.0）、`nginxinc/nginx-unprivileged:1.30.6-alpine3.24`（BSD-2-Clause）。无遥测或错误上报集成；MinIO 自动更新检查关闭，且服务网络无出口。

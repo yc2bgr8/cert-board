@@ -1,0 +1,8 @@
+**
+!pyproject.toml
+!uv.lock
+!fetcher.py
+!tests
+!tests/**
+**/__pycache__
+**/.env*

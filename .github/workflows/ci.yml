@@ -24,6 +24,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm test:py
       - run: pnpm env:init
       - run: pnpm dev:up
       - run: pnpm test:int

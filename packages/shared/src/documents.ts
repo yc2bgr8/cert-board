@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { webArchiveInfoSchema } from './web.js';
 
 const uuidSchema = z.string().uuid('资料或版本编号无效，请重新选择。');
 const instantSchema = z.string().datetime({ offset: true });
@@ -225,6 +226,7 @@ export const documentPageReadSchema = z
     nextOffset: nonnegativeIntegerSchema.nullable(),
     contentSha256: sha256Schema,
     originalSha256: sha256Schema.nullable(),
+    webArchive: webArchiveInfoSchema.optional(),
   })
   .strict()
   .refine(

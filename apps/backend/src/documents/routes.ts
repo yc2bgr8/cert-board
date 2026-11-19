@@ -19,8 +19,12 @@ import {
   listDocuments,
   listDocumentVersions,
   readDocumentPage,
+  readWebArchiveInfo,
   searchDocuments,
 } from './service.js';
+import type { DocumentBlobStore } from './blob-store.js';
+
+const archiveParams = documentPageParamsSchema.pick({ id: true, version: true });
 
 function idFrom(params: unknown, project = false) {
   const result = (project ? projectParamsSchema : documentParamsSchema).safeParse(params);
@@ -38,6 +42,7 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
   >,
   pool: Pool,
   config: BackendConfig,
+  store?: DocumentBlobStore,
 ) {
   app.get('/api/projects/:id/documents', async (request, reply) => {
     const actor = await requireBrowserIdentity(request, pool, config);
@@ -73,5 +78,28 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
       location.data.page,
       request.query,
     );
+  });
+  app.get('/api/documents/:id/versions/:version/web-archive-info', async (request, reply) => {
+    const actor = await requireBrowserIdentity(request, pool, config);
+    const location = archiveParams.safeParse(request.params);
+    if (!location.success)
+      throw new AppError(400, 'DOCUMENT_LOCATION_INVALID', '网页存档版本无效。');
+    reply.header('cache-control', 'no-store');
+    return readWebArchiveInfo(pool, actor, location.data.id, location.data.version);
+  });
+  app.get('/api/documents/:id/versions/:version/web-archive', async (request, reply) => {
+    const actor = await requireBrowserIdentity(request, pool, config);
+    const location = archiveParams.safeParse(request.params);
+    if (!location.success)
+      throw new AppError(400, 'DOCUMENT_LOCATION_INVALID', '网页存档版本无效。');
+    const archive = await readWebArchiveInfo(pool, actor, location.data.id, location.data.version);
+    if (!store) throw new AppError(503, 'WEB_ARCHIVE_UNAVAILABLE', '网页存档文件存储不可用。');
+    reply.header('cache-control', 'no-store');
+    reply.header('content-security-policy', "default-src 'none'; sandbox");
+    reply.header(
+      'content-disposition',
+      `attachment; filename="web-${archive.sha256.slice(0, 16)}.snapshot"`,
+    );
+    return reply.type('application/octet-stream').send(await store.get(archive.sha256));
   });
 }

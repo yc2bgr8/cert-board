@@ -152,6 +152,9 @@ it('两来源并排且DOCX标提取单元，不拿不同页或版本替换引用
   ]);
 });
 it('占位或作废资料错误保持可见，不伪造原页；错误来源响应不展示为当前引用', async () => {
+  vi.spyOn(api, 'webArchiveInfo').mockRejectedValue(
+    new ApiError(404, 'NOT_FOUND', '没有网页存档。'),
+  );
   const read = vi
     .spyOn(api, 'documentPage')
     .mockRejectedValueOnce(
@@ -166,6 +169,40 @@ it('占位或作废资料错误保持可见，不伪造原页；错误来源响�
   await screen.findByText('资料定位或续读内容不一致，请重新加载当前引用。', { exact: false });
   expect(screen.queryByText('不应显示')).toBeNull();
 });
+it.each(['text/html', 'application/pdf'] as const)(
+  '网页证据（%s）提供站内原件下载，PDF 占位时也能访问存档',
+  async (mediaType) => {
+    const archive = {
+      url: 'https://www.fda.gov/medical-devices',
+      sourceType: 'official' as const,
+      fetchedAt: stamp,
+      sha256: 'a'.repeat(64),
+      extractedTruncated: false,
+      mediaType,
+    };
+    const read = vi.spyOn(api, 'documentPage');
+    const info = vi.spyOn(api, 'webArchiveInfo').mockResolvedValue(archive);
+    if (mediaType === 'application/pdf')
+      read.mockRejectedValue(new ApiError(422, 'DOCUMENT_PLACEHOLDER', '没有解析正文。'));
+    else read.mockResolvedValue({ ...docPage('可核对的原文'), webArchive: archive });
+
+    view(<EvidencePanel sources={[{ documentId, version: 1, page: 1, quote: '原文' }]} />);
+
+    const link = await screen.findByRole('link', { name: '下载原始网页存档' });
+    expect(link.getAttribute('href')).toBe(`/api/documents/${documentId}/versions/1/web-archive`);
+    expect(link.hasAttribute('download')).toBe(true);
+    expect(screen.getByText('www.fda.gov')).toBeTruthy();
+    expect(screen.getByText(/官方来源/u)).toBeTruthy();
+    if (mediaType === 'application/pdf') {
+      expect(info).toHaveBeenCalledWith(documentId, 1, expect.any(AbortSignal));
+      expect(screen.getByText('该原件的解析正文尚未导入。')).toBeTruthy();
+      expect(document.querySelector('mark')).toBeNull();
+    } else {
+      expect(info).not.toHaveBeenCalled();
+      expect(document.querySelector('mark')?.textContent).toBe('原文');
+    }
+  },
+);
 it('文件部分内容不能下载，完整续读后核验哈希与字节数并下载文本', async () => {
   const whole = '# 报告\n甲😀乙';
   const chunk = '# 报告\n';

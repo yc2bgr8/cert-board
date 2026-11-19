@@ -50,6 +50,7 @@ export function backendEnvironment(kind, local, inherited = process.env) {
     ...(kind === 'verification'
       ? ['CERT_CURSOR_BUNDLE', 'CERT_CURSOR_PROFILE', 'CERT_CURSOR_PRIVACY_CONFIRMED']
       : []),
+    ...(kind === 'worker' ? ['CERT_FETCHER_URL', 'CERT_WEB_EXTENDED_HOSTS'] : []),
   ];
   for (const key of allowed) if (local[key] !== undefined) environment[key] = local[key];
   return environment;

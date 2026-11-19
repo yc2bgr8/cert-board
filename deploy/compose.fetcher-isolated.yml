@@ -1,0 +1,14 @@
+services:
+  backend-worker:
+    environment:
+      CERT_FETCHER_URL: http://fetch-relay:28084
+    depends_on:
+      fetch-relay:
+        condition: service_started
+
+  fetch-relay:
+    networks: !override
+      fetch: {}
+      internal:
+        aliases: [fetch-relay-entry]
+    ports: !reset []

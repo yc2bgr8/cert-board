@@ -1,11 +1,18 @@
 // 参考 VisaFlow app/apps/electron/src/renderer/visaflow/MaterialRecognitionDialog.tsx。
 // 改为按项目资料版本并排读取，原页可用性与解析文字独立显示。
 import { useEffect, useRef, useState } from 'react';
-import { useInfiniteQuery } from '@tanstack/react-query';
-import { api, errorMessage } from './api.js';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { api, ApiError, errorMessage } from './api.js';
 import type { EvidenceTarget } from './review-navigation.js';
 import { exactQuoteParts, joinTextPages } from './text-pages.js';
 import './review-panels.css';
+
+const sourceTypes = { official: '官方来源', extended: '扩展来源', general: '一般网站' };
+const archiveTime = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
 
 export function EvidencePanel({ sources }: { sources: EvidenceTarget[] }) {
   return <EvidenceGroup key={JSON.stringify(sources)} sources={sources} />;
@@ -90,6 +97,13 @@ function EvidenceSource({ source, number }: { source: EvidenceTarget; number: nu
   });
   const pages = query.data?.pages ?? [];
   const first = pages[0];
+  const archiveQuery = useQuery({
+    queryKey: ['live', 'web-archive-info', source.documentId, source.version],
+    queryFn: ({ signal }) => api.webArchiveInfo(source.documentId, source.version, signal),
+    enabled: query.error instanceof ApiError && query.error.code === 'DOCUMENT_PLACEHOLDER',
+    retry: false,
+  });
+  const webArchive = first?.webArchive ?? archiveQuery.data;
   let combined: ReturnType<typeof joinTextPages> | undefined,
     failure: string | null = null;
   try {
@@ -134,6 +148,18 @@ function EvidenceSource({ source, number }: { source: EvidenceTarget; number: nu
         第 {source.version} 版 · 第 {source.page}{' '}
         {first?.locatorKind === 'extraction_unit' ? '提取单元' : '页'}
       </p>
+      {webArchive && (
+        <div className="review-original-unavailable" aria-label="网页存档">
+          <p>
+            {sourceTypes[webArchive.sourceType]} ·{' '}
+            {archiveTime.format(new Date(webArchive.fetchedAt))}
+          </p>
+          <p>{new URL(webArchive.url).hostname}</p>
+          <a href={api.webArchiveHref(source.documentId, source.version)} download>
+            下载原始网页存档
+          </a>
+        </div>
+      )}
       {first?.warning && (
         <p className="review-original-unavailable" role="status">
           {first.warning}
@@ -143,7 +169,10 @@ function EvidenceSource({ source, number }: { source: EvidenceTarget; number: nu
         <p className="review-panel-meta">识别置信度 {(first.ocrScore * 100).toFixed(1)}%</p>
       )}
       {query.isPending && <p role="status">正在读取解析原文…</p>}
-      {(query.isError || failure) && (
+      {query.isError && webArchive && (
+        <p className="review-panel-meta">该原件的解析正文尚未导入。</p>
+      )}
+      {((query.isError && !webArchive) || failure) && (
         <p className="review-panel-error" role="alert">
           {failure ?? errorMessage(query.error)}{' '}
           <button type="button" onClick={() => void query.refetch()}>
