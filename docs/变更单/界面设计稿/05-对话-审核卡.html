@@ -133,6 +133,11 @@ a{color:#146b62}a:hover{color:#0f554e}
               <p class="quote"><a class="cite" href="#e2">2</a> Predicate device 510(k) number: K123465.</p>
               <div class="src"><span>510(k)摘要</span><span class="chip line">第2版</span><span>第4页</span><a href="#e2" style="margin-left: auto">打开原文与原页</a></div>
             </div>
+            <div class="evid">
+              <div class="row" style="gap: 8px"><span class="chip teal"><svg class="i xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path></svg>外部核实</span><span class="chip good">可信</span><span class="chip bad">待核实 1</span></div>
+              <p class="quote">K123456 在 FDA 510(k) 数据库中对应的器械名称、型号与对照表一致；K123465 查不到对应器械。</p>
+              <div class="src"><span>GPT、Claude 一致，出处 accessdata.fda.gov</span><a href="#ext" style="margin-left: auto">查看核实群聊</a></div>
+            </div>
           </div>
 
           <div class="rv-sec">
@@ -152,11 +157,17 @@ a{color:#146b62}a:hover{color:#0f554e}
             </ul>
           </div>
 
+          <div class="question" role="group" aria-label="让Agent核实">
+            <h3>让Agent核实</h3>
+            <textarea class="input" rows="3" style="height: auto; padding: 8px 12px; resize: none; line-height: 1.6" aria-label="你的疑问">摘要第2版是不是按新资料改过K号？请查一下 K123465 有没有对应的已上市器械。</textarea>
+            <div class="row"><button type="button" class="btn primary sm">发起核实</button><button type="button" class="btn ghost sm">取消</button><span class="hint" style="margin-left: auto">Agent 会请外部模型讨论，结论回到这条对话</span></div>
+          </div>
           <div class="row small muted">这张审核卡<button type="button" class="fb">有用</button><button type="button" class="fb">没用</button></div>
         </div>
         <div class="panel-foot">
           <button type="button" class="btn primary">通过</button>
           <button type="button" class="btn">退回修改</button>
+          <button type="button" class="btn"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path></svg>让Agent核实</button>
           <button type="button" class="btn ghost">更多操作<svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
           <span class="hint" style="margin-left: auto">修改后通过、追问、转交他人在更多操作中</span>
         </div>

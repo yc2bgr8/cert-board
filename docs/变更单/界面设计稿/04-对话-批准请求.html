@@ -61,20 +61,25 @@ a{color:#146b62}a:hover{color:#0f554e}
           <div class="m-agent">
             <div class="m-head"><span class="m-ava"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span><span class="who">注册Agent</span><span>10:31</span></div>
             <div class="prose"><p>先读项目说明和 R09 申报一致性检查技能，再对照资料中所有出现对比器械K号的地方。</p></div>
-            <button type="button" class="steps" aria-expanded="true"><span class="chev down"></span>已执行 4 步</button>
+            <button type="button" class="steps" aria-expanded="true"><span class="chev down"></span>已执行 5 步</button>
             <div class="step-list">
               <div class="step"><svg class="i sm ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>读取项目说明</div>
               <div class="step"><svg class="i sm ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>加载技能 R09 申报一致性检查</div>
               <div class="step"><svg class="i sm ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>在 46 份资料中检索K号，找到 2 处</div>
               <div class="step"><svg class="i sm ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>读取对比器械对照表第2页、510(k)摘要第4页</div>
+              <div class="step"><svg class="i sm ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>请外部模型核实两个K号</div>
             </div>
             <div class="prose">
-              <p>第2步完成：两处K号写法不一致，对比器械对照表第2页写作 <span class="mono">K123456</span><a class="cite" href="#e1">1</a>，510(k)摘要第4页写作 <span class="mono">K123465</span><a class="cite" href="#e2">2</a>。下一步记录判断和候选改动。</p>
+              <p>第2步完成：两处K号写法不一致，对比器械对照表第2页写作 <span class="mono">K123456</span><a class="cite" href="#e1">1</a>，510(k)摘要第4页写作 <span class="mono">K123465</span><a class="cite" href="#e2">2</a>。<span class="mono">K123465</span> 会不会是另一台已上市器械的编号，我拿不准，先请外部模型核实。</p>
+            </div>
+            <div class="rowcard teal">
+              <div class="lead"><svg class="i" viewBox="0 0 24 24" aria-hidden="true" style="color: #146b62"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path><path d="M19 16v4M17 18h4"></path></svg><span><b style="font-weight: 600">外部核实已完成</b>　GPT、Claude，各 2 轮<br><span class="muted small">K123456 与对照表中的对比器械一致</span> <span class="chip good">可信</span>　<span class="muted small">K123465 查不到对应器械</span> <span class="chip bad">待核实</span></span></div>
+              <a class="btn sm" href="#ext">查看群聊</a>
             </div>
           </div>
 
           <div class="m-agent">
-            <div class="prose"><p>我判断 <span class="mono">K123465</span> 是笔误，候选统一为 <span class="mono">K123456</span>：对照表中的K号和对比器械名称、型号在同一行，摘要中只出现这一次。当前是请求批准模式，写入台账和核查记录前先请你确认。</p></div>
+            <div class="prose"><p>我判断 <span class="mono">K123465</span> 是笔误，候选统一为 <span class="mono">K123456</span>：对照表中的K号和对比器械名称、型号在同一行，摘要中只出现这一次；外部核实也没有查到 <span class="mono">K123465</span> 对应的器械。当前是请求批准模式，写入台账和核查记录前先请你确认。</p></div>
             <div class="feedback"><button type="button" class="fb">有用</button><button type="button" class="fb">没用</button></div>
           </div>
         </div>
@@ -97,7 +102,7 @@ a{color:#146b62}a:hover{color:#0f554e}
               <dt>记录</dt><dd>L08 510(k)，对比器械K号</dd>
               <dt>改前</dt><dd><span class="old mono">K123456 / K123465</span></dd>
               <dt>改后</dt><dd><span class="new mono">K123456</span></dd>
-              <dt>依据</dt><dd><a class="cite" href="#e1">1</a> 对比器械对照表第2页　<a class="cite" href="#e2">2</a> 510(k)摘要第4页</dd>
+              <dt>依据</dt><dd><a class="cite" href="#e1">1</a> 对比器械对照表第2页　<a class="cite" href="#e2">2</a> 510(k)摘要第4页　<a href="#ext">外部核实</a></dd>
             </dl>
             <div class="row">
               <button type="button" class="btn primary">允许</button>
