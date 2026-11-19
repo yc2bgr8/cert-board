@@ -191,6 +191,7 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
                 '<style data-probe="stylesheet">:root { --fixture-global-style: applied; }</style>',
                 '<link rel="stylesheet" href="https://external.invalid/blocked.css" />',
                 '<script>globalThis.__certInjected=true</script>',
+                '<script async src="/assets/markdown-fixture.js"></script>',
                 '![外部图片](https://external.invalid/fixture-image.svg)',
                 '[外部参考](https://example.invalid/reference)',
               ].join('\n\n'),

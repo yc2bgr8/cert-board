@@ -11,3 +11,5 @@ export const browserContentSecurityPolicy = [
   "frame-ancestors 'none'",
   "form-action 'self'",
 ].join('; ');
+
+export const browserReferrerPolicy = 'no-referrer';

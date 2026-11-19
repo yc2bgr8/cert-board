@@ -6,11 +6,13 @@ import { SafeMarkdown } from './SafeMarkdown.js';
 afterEach(cleanup);
 
 describe('模型 Markdown 显示安全', () => {
-  test('正式界面保留语义 HTML 和 HTTPS 图片，移除嵌套样式表', () => {
+  test('正式界面显示 HTML 正文，隔离文档设置和可执行内容', () => {
     const markdown = [
       '<section><strong>报告片段</strong><style>p { color: red }</style></section>',
       '<link rel="alternate stylesheet" href="https://example.invalid/demo.css">',
       '<title>资料标题</title><meta name="description" content="资料摘要">',
+      '<script async src="/assets/fixture.js"></script>',
+      '<input type="file" value="样例.pdf">',
       '| 字段 | 结果 |\n| --- | --- |\n| 版本 | 已核对 |',
       '```javascript\nconst state = "review";\n```',
       '![示例](https://example.invalid/sample.png)',
@@ -20,11 +22,31 @@ describe('模型 Markdown 显示安全', () => {
     expect(container.querySelector('style, link')).toBeNull();
     expect(document.title).not.toBe('资料标题');
     expect(document.head.querySelector('meta[content="资料摘要"]')).toBeNull();
+    expect(document.querySelector('script[src="/assets/fixture.js"]')).toBeNull();
+    expect(container.querySelector<HTMLInputElement>('input[type="file"]')?.value).toBe('');
     expect(screen.getByRole('table')).toBeTruthy();
     expect(container.querySelector('code.hljs')?.textContent).toContain('const state');
     const image = screen.getByRole('img', { name: '示例' });
     expect(image.getAttribute('src')).toBe('https://example.invalid/sample.png');
     expect(image.getAttribute('referrerpolicy')).toBe('no-referrer');
+  });
+
+  test('脚注链接可在正文与注释之间往返', () => {
+    const { container } = render(
+      <>
+        <SafeMarkdown workbench>{'已核对原文。[^1]\n\n[^1]: 资料 D001。'}</SafeMarkdown>
+        <SafeMarkdown workbench>{'已核对次页。[^1]\n\n[^1]: 资料 D002。'}</SafeMarkdown>
+      </>,
+    );
+    const references = screen.getAllByRole('link', { name: /^1$/ });
+    expect(new Set(references.map((link) => link.id)).size).toBe(2);
+    for (const [index, forward] of references.entries()) {
+      const note = document.getElementById(forward.getAttribute('href')!.slice(1));
+      const back = container.querySelectorAll('.footnotes a')[index];
+      expect(note?.textContent).toContain(`资料 D00${index + 1}。`);
+      expect(back?.getAttribute('href')).toBe(`#${forward.id}`);
+      expect(back?.getAttribute('target')).toBeNull();
+    }
   });
   test('保留普通Markdown和代码，原始HTML不成为页面元素', () => {
     const { container } = render(

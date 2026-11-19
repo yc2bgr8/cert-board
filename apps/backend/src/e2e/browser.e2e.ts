@@ -128,6 +128,8 @@ async function main() {
     });
     let externalRequests = 0;
     let fixtureImages = 0;
+    let fixtureImageWithReferrer = false;
+    let markdownScriptRequests = 0;
     await context.route('**/*', async (route) => {
       const request = route.request();
       if (
@@ -135,10 +137,14 @@ async function main() {
         request.resourceType() === 'image'
       ) {
         fixtureImages++;
+        fixtureImageWithReferrer ||= Boolean(await request.headerValue('referer'));
         await route.fulfill({
           contentType: 'image/svg+xml',
           body: '<svg xmlns="http://www.w3.org/2000/svg" width="154" height="64"><rect width="154" height="64" rx="8" fill="#eaf5f1"/><text x="76" y="37" text-anchor="middle" fill="#146b62" font-size="13">浏览器测试图片</text></svg>',
         });
+      } else if (request.url() === `${harness.origin}/assets/markdown-fixture.js`) {
+        markdownScriptRequests++;
+        await route.abort();
       } else if (new URL(request.url()).origin !== harness.origin) {
         externalRequests++;
         await route.abort();
@@ -188,6 +194,7 @@ async function main() {
       "script-src 'self'",
     );
     assert.equal(csp.includes('unsafe-eval'), false);
+    assert.equal(navigation?.headers()['referrer-policy'], 'no-referrer');
     await page.getByRole('textbox', { name: '账号', exact: true }).waitFor();
     await captureWorkbench(page, output, 'pr-u1-01-login.png');
     assert.equal(
@@ -243,6 +250,7 @@ async function main() {
     await newDialog.waitFor({ state: 'hidden' });
     stage = '新对话默认完全允许';
     const firstMessage = '首条消息等待人工确认后发送。';
+    const editedDraft = '编辑过的首条消息，稍后发送。';
     const draftConversation = await createConversation(
       page,
       harness.projectId,
@@ -259,6 +267,7 @@ async function main() {
         .rowCount,
       0,
     );
+    await page.getByRole('textbox', { name: '消息', exact: true }).fill(editedDraft);
     stage = '新版搜索';
     await page.getByRole('button', { name: '搜索', exact: true }).click();
     const searchDialog = page.getByRole('dialog', { name: '搜索项目或对话', exact: true });
@@ -330,6 +339,9 @@ async function main() {
       ),
       false,
     );
+    stage = 'Markdown 图片隐私和内容脚本隔离';
+    if (fixtureImageWithReferrer) throw new Error('BROWSER_IMAGE_REFERRER_PRESENT');
+    if (markdownScriptRequests !== 0) throw new Error('BROWSER_MARKDOWN_SCRIPT_REQUESTED');
     const externalLink = page.getByRole('link', { name: /外部参考/ });
     assert.equal(await externalLink.getAttribute('rel'), 'noopener noreferrer');
     assert.equal(await externalLink.getAttribute('target'), '_blank');
@@ -339,6 +351,14 @@ async function main() {
       async () =>
         (await harness.pool.query('SELECT status FROM run WHERE id=$1', [first.runId])).rows[0]
           ?.status === 'completed',
+    );
+    stage = '切换会话后保留首条草稿';
+    await page.getByRole('button', { name: '搜索', exact: true }).click();
+    await searchBox.fill('K123465');
+    await searchDialog.getByRole('option', { name: /K123465.*写法检查/ }).click();
+    assert.equal(
+      await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(),
+      editedDraft,
     );
     stage = '插话在下一步生效';
     await createConversation(page, harness.projectId, 'read_only');
@@ -377,6 +397,9 @@ async function main() {
     const stopped = harness.plan('stop');
     const active = await send(page, '检查资料，本轮测试停止。');
     await bounded(stopped.reached);
+    await page.getByRole('button', { name: '运行详情', exact: true }).click();
+    const runDetails = page.getByRole('complementary', { name: '运行详情', exact: true });
+    await runDetails.getByText('正在处理', { exact: true }).waitFor();
     harness.disconnectStreams();
     await page.getByRole('button', { name: '重新连接', exact: true }).first().waitFor();
     await page.getByRole('button', { name: '停止', exact: true }).click();
@@ -406,8 +429,7 @@ async function main() {
       0,
     );
     await page.getByRole('region', { name: '中途停止汇报' }).waitFor();
-    await page.getByRole('button', { name: '运行详情', exact: true }).click();
-    const runDetails = page.getByRole('complementary', { name: '运行详情', exact: true });
+    await runDetails.getByText('已停止', { exact: true }).waitFor();
     await runDetails.getByRole('region', { name: '工具步骤时间线', exact: true }).waitFor();
     await captureWorkbench(page, output, 'pr-u2-11-stop-details.png');
     await runDetails.getByRole('button', { name: '关闭右栏', exact: true }).click();
@@ -603,6 +625,8 @@ async function main() {
             'allow_conversation',
             'shared_read_only',
             'markdown_html_images_tables_code_and_stylesheet_filter',
+            'markdown_script_blocked_and_image_without_referrer',
+            'conversation_switch_preserves_edited_draft',
             'strict_csp',
             'l08_exact_request_ask',
             'review_eight_sections',

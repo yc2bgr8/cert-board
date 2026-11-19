@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AgentCode, PublicUser, ProjectRecord, GoalRecord } from '@cert-board/shared';
 import { api, errorMessage, type ConversationDetail } from './live/api.js';
 import { useSession } from './live/useSession.js';
+import { useConversationStream } from './live/useConversationStream.js';
 import {
   useMemberNotifications,
   type MemberNotificationSnapshot,
@@ -66,6 +67,8 @@ const goalStatuses: Record<GoalRecord['status'], string> = {
   completed: '已完成',
   cancelled: '已取消',
 };
+type PanelTarget = { label: string } & ({ content: InspectorEntry['content'] } | { runId: string });
+
 function displayTime(value: string) {
   const instant = new Date(value);
   return Number.isNaN(instant.getTime()) ? '时间待核对' : time.format(instant);
@@ -120,10 +123,12 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const userId = user.id;
   const [projectId, setProjectId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [firstMessageDraft, setFirstMessageDraft] = useState<{ id: string; text: string }>();
+  const [messageDrafts, setMessageDrafts] = useState(() => new Map<string, string>());
   const [view, setView] = useState<'project' | 'conversation' | 'inbox'>('project');
   const [tab, setTab] = useState<'conversation' | 'files' | 'documents'>('conversation');
-  const [panels, setPanels] = useState<(InspectorEntry & { trigger: HTMLElement | null })[]>([]);
+  const [panels, setPanels] = useState<
+    (PanelTarget & { key: number; trigger: HTMLElement | null })[]
+  >([]);
   const panelKey = useRef(0);
   const panelOrigin = useRef<HTMLElement | null>(null);
   const [scope, setScope] = useState<'mine' | 'department'>('mine');
@@ -216,6 +221,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     retry: false,
   });
   const current = conversationQuery.data;
+  const stream = useConversationStream(conversationId, Boolean(current?.projectId));
   const loaded = conversationsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const allProjectConversations =
     current?.projectId === projectId &&
@@ -255,33 +261,46 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       target?.focus();
     }, 0);
   }, []);
-  function pushPanel(label: string, content: InspectorEntry['content']) {
+  function pushPanel(target: PanelTarget) {
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const entry = { key: ++panelKey.current, label, content, trigger };
+    const entry = { ...target, key: ++panelKey.current, trigger };
     setPanels((previous) => {
       if (previous.length === 0) panelOrigin.current = trigger;
       return [...previous, entry];
     });
   }
   function openEvidence(sources: EvidenceTarget[]) {
-    pushPanel('原文依据', <EvidencePanel sources={sources} />);
+    pushPanel({ label: '原文依据', content: <EvidencePanel sources={sources} /> });
   }
   function openFile(target: WorkspaceFileTarget) {
-    pushPanel('文件', <FilePanel target={target} />);
+    pushPanel({ label: '文件', content: <FilePanel target={target} /> });
   }
   function openDiff(target: WorkspaceDiffTarget) {
-    pushPanel('改动', <DiffPanel target={target} onOpenFile={openFile} />);
+    pushPanel({ label: '改动', content: <DiffPanel target={target} onOpenFile={openFile} /> });
   }
   function openReview(reviewId: string) {
-    pushPanel(
-      '审核卡',
-      <ReviewCard
-        reviewId={reviewId}
-        onOpenEvidence={openEvidence}
-        onOpenDiff={openDiff}
-        onOpenFile={openFile}
-      />,
-    );
+    pushPanel({
+      label: '审核卡',
+      content: (
+        <ReviewCard
+          reviewId={reviewId}
+          onOpenEvidence={openEvidence}
+          onOpenDiff={openDiff}
+          onOpenFile={openFile}
+        />
+      ),
+    });
+  }
+  function updateMessageDraft(id: string, update: SetStateAction<string>) {
+    setMessageDrafts((previous) => {
+      const currentText = previous.get(id) ?? '';
+      const text = typeof update === 'function' ? update(currentText) : update;
+      if (text === currentText) return previous;
+      const drafts = new Map(previous);
+      if (text) drafts.set(id, text);
+      else drafts.delete(id);
+      return drafts;
+    });
   }
   function backPanel() {
     const trigger = panels.at(-1)?.trigger;
@@ -322,7 +341,6 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   }, [current, userId]);
 
   const openProject = (id: string) => {
-    setFirstMessageDraft(undefined);
     const project = availableProjects.find((item) => item.id === id);
     if (project) setSidebarAgent(project.projectType);
     setPanels([]);
@@ -333,7 +351,6 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     setMobileOpen(false);
   };
   const openConversation = (conversation: ConversationDetail) => {
-    setFirstMessageDraft(undefined);
     setSidebarAgent(conversation.agentCode);
     setPanels([]);
     setTab('conversation');
@@ -363,7 +380,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     agentCode: AgentCode,
     firstMessage: string,
   ) => {
-    setFirstMessageDraft(firstMessage ? { id, text: firstMessage } : undefined);
+    if (firstMessage) updateMessageDraft(id, firstMessage);
     setSidebarAgent(agentCode);
     setPanels([]);
     setTab('conversation');
@@ -704,13 +721,12 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
             hidden={isNewConversation || view !== 'conversation' || tab !== 'conversation'}
           >
             <LiveConversation
-              key={conversationId}
               conversationId={conversationId}
-              {...(firstMessageDraft?.id === conversationId
-                ? { initialMessage: firstMessageDraft.text }
-                : {})}
+              stream={stream}
+              text={messageDrafts.get(conversationId) ?? ''}
+              setText={(update) => updateMessageDraft(conversationId, update)}
               onReview={openReview}
-              onRunDetails={(run) => pushPanel('运行详情', <RunDetails run={run} />)}
+              onRunDetails={(runId) => pushPanel({ label: '运行详情', runId })}
             />
           </div>
         )}
@@ -749,7 +765,19 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         />
       </ProjectShell>
       <Inspector
-        entries={isNewConversation ? [] : panels}
+        entries={
+          isNewConversation
+            ? []
+            : panels.map((panel) => {
+                if ('content' in panel) return panel;
+                const run = stream.state.runs[panel.runId];
+                return {
+                  key: panel.key,
+                  label: panel.label,
+                  content: run ? <RunDetails run={run} /> : <p role="status">正在同步运行记录…</p>,
+                };
+              })
+        }
         onBack={backPanel}
         onClose={closePanel}
       />

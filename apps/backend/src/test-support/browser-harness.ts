@@ -3,7 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import type { PgBoss } from 'pg-boss';
-import { browserContentSecurityPolicy, parseBackendConfig } from '@cert-board/shared';
+import {
+  browserContentSecurityPolicy,
+  browserReferrerPolicy,
+  parseBackendConfig,
+} from '@cert-board/shared';
 import { createTestDatabase } from '../db/test-database.js';
 import { migrateDatabase } from '../db/migrate.js';
 import { seedDevelopmentAccounts } from '../db/seed.js';
@@ -185,6 +189,7 @@ export async function startBrowserHarness() {
     });
     app.addHook('onSend', async (_request, reply, payload) => {
       reply.header('content-security-policy', browserContentSecurityPolicy);
+      reply.header('referrer-policy', browserReferrerPolicy);
       return payload;
     });
     app.get('/', async (_request, reply) => reply.type('text/html; charset=utf-8').send(index));

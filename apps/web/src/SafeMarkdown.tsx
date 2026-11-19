@@ -1,4 +1,5 @@
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+import { useId } from 'react';
 import rehypeRaw from 'rehype-raw';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
@@ -59,9 +60,11 @@ export function SafeMarkdown({
   children: string;
   workbench?: boolean;
 }) {
+  const footnotePrefix = `note-${useId()}-`;
   const plugins = workbench
     ? {
         remarkPlugins: [remarkGfm],
+        remarkRehypeOptions: { clobberPrefix: footnotePrefix },
         rehypePlugins: [rehypeRaw, removeEmbeddedStyles, rehypeHighlight],
       }
     : {
@@ -104,11 +107,17 @@ export function SafeMarkdown({
           return workbench ? defaultUrlTransform(url) : '';
         }}
         components={{
-          // Markdown 是正文。React 不应把其中的文档元数据提升到工作台的 head。
+          // 正文不能把文档元数据或可执行脚本提升到工作台的 head。
           base: () => null,
           meta: () => null,
           title: () => null,
           link: () => null,
+          script: () => null,
+          input({ node: _node, type, value, defaultValue, ...input }) {
+            // 浏览器只允许用户为文件选择器赋值。
+            if (type?.toLowerCase() === 'file') return <input {...input} type="file" disabled />;
+            return <input {...input} type={type} defaultValue={defaultValue ?? value} />;
+          },
           img({ node: _node, src, alt, ...image }) {
             return workbench && src ? (
               <img
@@ -121,10 +130,21 @@ export function SafeMarkdown({
               />
             ) : null;
           },
-          a({ href, children: label }) {
+          a({
+            href,
+            id,
+            children: label,
+            'aria-describedby': describedBy,
+            'aria-label': labelText,
+          }) {
             const target = safeLink(href);
             if (!target) return <span>{label}</span>;
-            if (target.startsWith('#')) return <a href={target}>{label}</a>;
+            if (target.startsWith('#'))
+              return (
+                <a href={target} id={id} aria-describedby={describedBy} aria-label={labelText}>
+                  {label}
+                </a>
+              );
             return (
               <a href={target} target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">
                 {label}

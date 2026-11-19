@@ -1,10 +1,18 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type SetStateAction,
+} from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { permissionModeSchema, type PermissionMode } from '@cert-board/shared';
 import { api, errorMessage, type ConversationDetail } from './api.js';
 import { ApprovalCard, useBrowserCommand } from './ApprovalCard.js';
 import type { LiveMessage, LiveRun } from './events.js';
-import { useConversationStream } from './useConversationStream.js';
+import type { useConversationStream } from './useConversationStream.js';
 import { ChatBubble } from './ChatBubble.js';
 import { InlineExecution } from './InlineExecution.js';
 import { runStateNames } from './RunDetails.js';
@@ -84,9 +92,11 @@ function RunProgress({ run, active }: { run: LiveRun | undefined; active: boolea
 
 type ConversationProps = {
   conversationId: string;
+  stream: ReturnType<typeof useConversationStream>;
+  text: string;
+  setText: (update: SetStateAction<string>) => void;
   onReview?: (id: string) => void;
-  onRunDetails?: (run: LiveRun) => void;
-  initialMessage?: string;
+  onRunDetails?: (runId: string) => void;
 };
 
 export function LiveConversation(props: ConversationProps) {
@@ -95,16 +105,17 @@ export function LiveConversation(props: ConversationProps) {
 
 function ConversationView({
   conversationId,
+  stream,
+  text,
+  setText,
   onReview,
   onRunDetails,
-  initialMessage = '',
 }: ConversationProps) {
   const detail = useQuery({
     queryKey: ['live', 'conversation', conversationId],
     queryFn: ({ signal }) => api.conversation(conversationId, signal),
     retry: false,
   });
-  const stream = useConversationStream(conversationId, !!detail.data);
   const { state } = stream;
   const messagesByRun = useMemo(() => {
     const groups = new Map<string, LiveMessage[]>();
@@ -117,7 +128,6 @@ function ConversationView({
   }, [state.messages]);
   const command = useBrowserCommand();
   const stopCommand = useBrowserCommand();
-  const [text, setText] = useState(initialMessage);
   const [referencesOpen, setReferencesOpen] = useState(false);
   const [referenceError, setReferenceError] = useState<string>();
   const [queuedRun, setQueuedRun] = useState<string | null>(null);
@@ -204,7 +214,7 @@ function ConversationView({
           {agentNames[record.agentCode]} · {record.ownerName}
         </p>
         {run && onRunDetails && (
-          <button className="live-secondary" type="button" onClick={() => onRunDetails(run)}>
+          <button className="live-secondary" type="button" onClick={() => onRunDetails(run.id)}>
             运行详情
           </button>
         )}
