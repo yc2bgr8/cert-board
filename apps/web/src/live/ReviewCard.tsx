@@ -448,9 +448,7 @@ function ReviewCardContent({
             ))}
           </ul>
           <p className="live-review-meta">未执行 {card.checks.notRun.join('、')}</p>
-          {card.checks.notRun.some((code) => code === 'V6') && (
-            <p className="live-review-meta">V6 复算结构化期限。请人工核对叙述中的期限。</p>
-          )}
+          <p className="live-review-meta">V6 复算结构化期限。请人工核对叙述中的期限。</p>
           <details className="live-review-claims">
             <summary>核对的陈述</summary>
             <ul>

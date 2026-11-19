@@ -12,7 +12,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function fixture() {
+function fixture(configure?: (card: ReviewCardView) => void) {
   const now = '2026-11-18T12:00:00.000Z';
   const workspaceVersion = randomUUID();
   const projectId = randomUUID();
@@ -119,6 +119,7 @@ function fixture() {
     },
     evidenceRefs,
   };
+  configure?.(card);
   vi.spyOn(api, 'review').mockResolvedValue(card);
   vi.spyOn(api, 'workspace').mockResolvedValue(workspace);
   vi.spyOn(api, 'workspaceVersions').mockResolvedValue({
@@ -147,6 +148,29 @@ function fixture() {
   );
   return { card, workspace, callbacks };
 }
+
+it('结构化期限通过 V6 时仍提示人工核对同卡的叙述期限', async () => {
+  fixture((card) => {
+    if (card.legacySubmission) throw new Error('TEST_REVIEW_STRUCTURE_MISSING');
+    card.submission.nextStep = '请人工核对 2026-05-01 是否为其他事项的期限。';
+    card.submission.claims.push({
+      ...card.submission.claims[0]!,
+      id: 'Deadline',
+      field: '截止日期',
+      value: '2026-03-09T03:59:59.999Z',
+      deadlineCalculation: {
+        startDate: '2026-03-08',
+        quantity: 0,
+        unit: 'calendar_days',
+        jurisdictionTz: 'America/New_York',
+      },
+    });
+    card.checks.checks.push({ code: 'V6', status: 'passed', issues: [] });
+    card.checks.notRun = ['V2', 'V4', 'V5', 'V7', 'V8'];
+  });
+  await screen.findByText('V6 · 结构化期限');
+  expect(screen.getByText('V6 复算结构化期限。请人工核对叙述中的期限。')).toBeTruthy();
+});
 
 it('展示八部分、过程判断、版本和精确证据，只用浏览器批准接口冻结', async () => {
   const { card, callbacks } = fixture();

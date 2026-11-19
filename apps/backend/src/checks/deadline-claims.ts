@@ -20,8 +20,14 @@ const deadlineFields = new Set([
   'expiration date',
 ]);
 const plainDateFields = new Set(['日', '日期', '时间', '时点', '时刻', 'date', 'time']);
-const namedDeadline =
-  /(?:截止(?:日(?:期)?|时间|点)?|到期(?:日(?:期)?|时间)?|最后期限|\bdeadline|\bdue date)$/iu;
+const namedDeadline = (object: string) => {
+  const label = object.normalize('NFKC').trim().toLowerCase();
+  return Array.from(deadlineFields).some((suffix) =>
+    /^[a-z]/u.test(suffix)
+      ? label === suffix || label.endsWith(` ${suffix}`)
+      : label.endsWith(suffix),
+  );
+};
 
 export function checkDeadlineClaims(submission: StructuredSubmission) {
   const issues: Issue[] = [];
@@ -31,8 +37,7 @@ export function checkDeadlineClaims(submission: StructuredSubmission) {
     if (!claim.deadlineCalculation) {
       const field = claim.field.normalize('NFKC').toLowerCase();
       const declared =
-        deadlineFields.has(field) ||
-        (plainDateFields.has(field) && namedDeadline.test(claim.object.normalize('NFKC')));
+        deadlineFields.has(field) || (plainDateFields.has(field) && namedDeadline(claim.object));
       if (claim.status !== 'unverified' && declared) {
         ran = true;
         issues.push({ code: 'deadline_unstructured', path });
