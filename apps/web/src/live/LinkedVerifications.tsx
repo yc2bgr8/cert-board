@@ -1,6 +1,6 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 import type { VerificationLinkView } from '@cert-board/shared';
-import { api } from './api.js';
+import { api, ApiError } from './api.js';
 import { ShellIcon } from './ShellIcon.js';
 
 const titles = {
@@ -29,7 +29,12 @@ export function useLinkedVerifications(id: string | null, inReview = false) {
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor,
     enabled: Boolean(id),
-    retry: false,
+    retry: (failures, error) =>
+      failures < 2 && (!(error instanceof ApiError) || error.status >= 500),
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((page) => page.items.some(({ result }) => result === 'pending'))
+        ? 15000
+        : false,
   });
   return {
     ...query,
@@ -39,6 +44,37 @@ export function useLinkedVerifications(id: string | null, inReview = false) {
         .reverse()
         .flatMap((page) => page.items) ?? [],
   };
+}
+
+export function LinkedVerificationHistoryActions({
+  query,
+}: {
+  query: ReturnType<typeof useLinkedVerifications>;
+}) {
+  return (
+    <>
+      {query.isError && (
+        <button
+          className="live-secondary"
+          type="button"
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          重试读取核实
+        </button>
+      )}
+      {query.hasNextPage && (
+        <button
+          className="live-secondary"
+          type="button"
+          disabled={query.isFetching}
+          onClick={() => void query.fetchNextPage({ cancelRefetch: false })}
+        >
+          查看更早的核实
+        </button>
+      )}
+    </>
+  );
 }
 
 export function LinkedVerificationRows({

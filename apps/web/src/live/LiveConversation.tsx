@@ -19,7 +19,11 @@ import { runStateNames } from './RunDetails.js';
 import { ShellIcon } from './ShellIcon.js';
 import { ReferencePicker } from './ReferencePicker.js';
 import { proposalStatusLabels } from './ProposalCard.js';
-import { LinkedVerificationRows, useLinkedVerifications } from './LinkedVerifications.js';
+import {
+  LinkedVerificationHistoryActions,
+  LinkedVerificationRows,
+  useLinkedVerifications,
+} from './LinkedVerifications.js';
 import './conversation.css';
 
 const modes: Record<PermissionMode, { label: string; description: string }> = {
@@ -339,16 +343,7 @@ function ConversationView({
                 )}
                 open={onVerification}
               />
-              {linked.hasNextPage && (
-                <button
-                  className="live-secondary"
-                  type="button"
-                  disabled={linked.isFetchingNextPage}
-                  onClick={() => void linked.fetchNextPage()}
-                >
-                  查看更早的核实
-                </button>
-              )}
+              <LinkedVerificationHistoryActions query={linked} />
             </>
           )}
           {onProposal &&

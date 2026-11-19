@@ -90,6 +90,23 @@ export async function reviewBrowserFlow(
   await page.screenshot({ path: path.join(output, 'review-card.png'), fullPage: true });
   actions.stage('审核卡发起外部核实并回到原对话');
   const moderate = harness.verification.runtime.moderate;
+  const historyPath = `**/api/reviews/${firstCard.id}/verifications`;
+  let interruptedVerificationRead = false;
+  await page.route(historyPath, async (route) => {
+    const response = await route.fetch();
+    const history = response.ok()
+      ? ((await response.json()) as { items: { result: string }[] })
+      : null;
+    if (
+      !interruptedVerificationRead &&
+      history?.items.some(({ result }) => result === 'available')
+    ) {
+      interruptedVerificationRead = true;
+      await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+      return;
+    }
+    await route.fulfill({ response });
+  });
   harness.verification.runtime.moderate = async (context) => {
     if (Object.values(context.attempts).reduce((sum, count) => sum + count, 0) >= 2)
       return { text: '本轮交叉核实已完成。', call: null, finish: true };
@@ -103,6 +120,7 @@ export async function reviewBrowserFlow(
     await card.getByRole('button', { name: '发起核实', exact: true }).click();
     const external = card.getByRole('list', { name: '外部核实依据', exact: true });
     await external.getByText('外部核实', { exact: true }).waitFor();
+    assert.equal(interruptedVerificationRead, true);
     await external.getByRole('link', { name: '合成核实资料（外部网站）', exact: true }).waitFor();
     await external.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(output, 'pr-d4-05-review-verification.png') });
@@ -117,6 +135,7 @@ export async function reviewBrowserFlow(
     await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
     await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
   } finally {
+    await page.unroute(historyPath);
     harness.verification.runtime.moderate = moderate;
   }
   actions.stage('真实资料依据与逐字高亮');

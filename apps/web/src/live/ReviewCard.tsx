@@ -5,6 +5,7 @@ import { SafeMarkdown } from '../SafeMarkdown.js';
 import { useBrowserCommand } from './ApprovalCard.js';
 import { api, errorMessage, isStaleError } from './api.js';
 import {
+  LinkedVerificationHistoryActions,
   LinkedVerificationRows,
   linkedVerificationsKey,
   reviewVerificationsKey,
@@ -412,16 +413,7 @@ function ReviewCardContent({
           {onOpenVerification && (
             <>
               <LinkedVerificationRows items={linked.items} open={onOpenVerification} inReview />
-              {linked.hasNextPage && (
-                <button
-                  className="live-secondary"
-                  type="button"
-                  disabled={linked.isFetchingNextPage}
-                  onClick={() => void linked.fetchNextPage()}
-                >
-                  查看更早的核实
-                </button>
-              )}
+              <LinkedVerificationHistoryActions query={linked} />
             </>
           )}
         </ReviewSection>
