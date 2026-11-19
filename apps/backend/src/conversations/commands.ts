@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import {
   conversationCreateInputSchema,
+  defaultPermissionMode,
   conversationCreateResultSchema,
   conversationRecordSchema,
   conversationMessageInputSchema,
@@ -75,25 +76,28 @@ async function command(
   action: string,
   target: unknown,
   payload: unknown,
-  legacyPayload?: unknown,
+  payloadForDefaultMode?: (mode: PermissionMode) => unknown,
 ) {
   const hash = digest({ action, target, payload });
   await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
     `conversation-command:${actor.userId}:${requestKey}`,
   ]);
   const prior = (
-    await tx.query<{ action: string; payload_hash: string; result_json: Record<string, unknown> }>(
-      'SELECT action,payload_hash,result_json FROM conversation_command WHERE user_id=$1 AND request_key=$2',
+    await tx.query<{
+      action: string;
+      payload_hash: string;
+      result_json: Record<string, unknown>;
+      create_default_mode: PermissionMode;
+    }>(
+      'SELECT action,payload_hash,result_json,create_default_mode FROM conversation_command WHERE user_id=$1 AND request_key=$2',
       [actor.userId, requestKey],
     )
   ).rows[0];
-  if (
-    prior &&
-    (prior.action !== action ||
-      (prior.payload_hash !== hash &&
-        (legacyPayload === undefined ||
-          prior.payload_hash !== digest({ action, target, payload: legacyPayload }))))
-  )
+  const priorHash =
+    prior && payloadForDefaultMode
+      ? digest({ action, target, payload: payloadForDefaultMode(prior.create_default_mode) })
+      : hash;
+  if (prior && (prior.action !== action || prior.payload_hash !== priorHash))
     throw new AppError(
       409,
       'CONVERSATION_REQUEST_CONFLICT',
@@ -109,10 +113,11 @@ async function saved(
   action: string,
   hash: string,
   result: unknown,
+  createDefaultMode: PermissionMode = 'ask',
 ) {
   await tx.query(
-    `INSERT INTO conversation_command(user_id,session_id,conversation_id,request_key,action,payload_hash,result_json)
-    VALUES($1,$2,$3,$4,$5,$6,$7)`,
+    `INSERT INTO conversation_command(user_id,session_id,conversation_id,request_key,action,payload_hash,result_json,create_default_mode)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
     [
       actor.userId,
       actor.sessionId,
@@ -121,6 +126,7 @@ async function saved(
       action,
       hash,
       JSON.stringify(result),
+      createDefaultMode,
     ],
   );
 }
@@ -329,18 +335,18 @@ export async function createConversationTx(
   if (!parsed.success || (projectId !== undefined && !identifier.safeParse(projectId).success))
     throw invalid();
   const data = parsed.data;
-  // 旧版本省略权限时散列 ask。新版回执带版本标记，不能通过旧签名重放。
-  const legacyPayload = Object.hasOwn(input as object, 'permissionMode')
-    ? data
-    : { ...data, permissionMode: 'ask' };
+  // 省略权限的重试按原回执的默认模式解析，显式权限请求保留原签名格式。
+  const payloadForDefaultMode = Object.hasOwn(input as object, 'permissionMode')
+    ? undefined
+    : (permissionMode: PermissionMode) => ({ ...data, permissionMode });
   const intent = await command(
     tx,
     actor,
     data.requestKey,
     'create',
     projectId ?? null,
-    { ...data, schemaVersion: 2 },
-    legacyPayload,
+    data,
+    payloadForDefaultMode,
   );
   if (intent.prior) return conversationCreateResultSchema.parse(intent.prior);
   let agentCode = data.agentCode ?? 'registration';
@@ -399,7 +405,16 @@ export async function createConversationTx(
     permissionVersion: row.permission_version,
     replayed: false,
   });
-  await saved(tx, actor, row.id, data.requestKey, 'create', intent.hash, result);
+  await saved(
+    tx,
+    actor,
+    row.id,
+    data.requestKey,
+    'create',
+    intent.hash,
+    result,
+    defaultPermissionMode,
+  );
   return result;
 }
 

@@ -138,21 +138,30 @@ it('数据库省略权限时采用完全允许，既有请求批准回执仍可�
     (await post(url, { requestKey: currentKey, title, permissionMode: 'ask' })).json().replayed,
   ).toBe(true);
 
+  const beforeUpgradeHash = (requestKey: string) =>
+    createHash('sha256')
+      .update(
+        JSON.stringify({
+          action: 'create',
+          payload: { permissionMode: 'ask', requestKey, title },
+          target: c.projectId,
+        }),
+      )
+      .digest('hex');
+  expect(
+    (
+      await c.pool.query(
+        'SELECT payload_hash,create_default_mode FROM conversation_command WHERE request_key=$1',
+        [currentKey],
+      )
+    ).rows[0],
+  ).toEqual({ payload_hash: beforeUpgradeHash(currentKey), create_default_mode: 'full' });
   const oldKey = randomUUID();
-  const beforeUpgradeHash = createHash('sha256')
-    .update(
-      JSON.stringify({
-        action: 'create',
-        payload: { permissionMode: 'ask', requestKey: oldKey, title },
-        target: c.projectId,
-      }),
-    )
-    .digest('hex');
   await c.pool.query(
     `INSERT INTO conversation_command(user_id,session_id,conversation_id,request_key,action,payload_hash,result_json)
      SELECT user_id,session_id,conversation_id,$2,action,$3,result_json
      FROM conversation_command WHERE request_key=$1`,
-    [currentKey, oldKey, beforeUpgradeHash],
+    [currentKey, oldKey, beforeUpgradeHash(oldKey)],
   );
   const replay = await post(url, { requestKey: oldKey, title });
   expect(replay.statusCode).toBe(200);

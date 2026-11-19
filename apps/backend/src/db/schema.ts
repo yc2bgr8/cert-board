@@ -2009,6 +2009,7 @@ export const conversationCommand = pgTable(
     action: varchar('action', { length: 24 }).notNull(),
     payloadHash: varchar('payload_hash', { length: 64 }).notNull(),
     resultJson: jsonb('result_json').notNull(),
+    createDefaultMode: permissionMode('create_default_mode').notNull().default('ask'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
