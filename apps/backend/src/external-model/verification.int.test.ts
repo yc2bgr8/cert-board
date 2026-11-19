@@ -500,11 +500,15 @@ test('按保密词替换后的长度整理较早回复并继续派发', async ()
   });
   const calls: VerificationPrompt[] = [];
   const oldReply = '较早的答复已归档。';
+  const originalEvidence = '较早发言的原始证据。';
   fixture.runtime.compact = async () => (oldReply + '页'.repeat(3800)).slice(0, 3799) + word;
   fixture.runtime.send = async (model, prompt, dispatch) => {
     await dispatch();
     calls.push(prompt);
-    return { text: model.id === 'gpt-flagship' ? word.repeat(650) : '核实已完成。', claims: [] };
+    return {
+      text: model.id === 'gpt-flagship' ? originalEvidence + word.repeat(650) : '核实已完成。',
+      claims: [],
+    };
   };
   const id = await start('合成问题保持原话。');
   await expect.poll(async () => (await detail(id)).room.status).toBe('completed');
@@ -520,6 +524,23 @@ test('按保密词替换后的长度整理较早回复并继续派发', async ()
       .join('')
       .includes(word),
   ).toBe(false);
+  let rebuilt = false;
+  fixture.runtime.compact = async (records) => {
+    rebuilt = records.some(({ text }) => text.includes(originalEvidence));
+    return '根据原记录重建的摘要。';
+  };
+  const changed = await app.inject({
+    method: 'POST',
+    url: '/api/external-model/words',
+    headers,
+    payload: { phrase: '新的未引用保密词', category: 'other' },
+  });
+  expect(changed.statusCode).toBe(200);
+  await speak(id, '请根据原记录继续核实。', 'claude-flagship');
+  await expect.poll(() => calls.length).toBe(3);
+  expect(rebuilt).toBe(true);
+  expect(calls[2]!.transcript.some(({ text }) => text === '根据原记录重建的摘要。')).toBe(true);
+  expect(calls[2]!.transcript.some(({ text }) => text.includes(oldReply))).toBe(false);
 });
 
 test('多次重复同一保密词时按实际代号长度判断原话可以发送', async () => {
