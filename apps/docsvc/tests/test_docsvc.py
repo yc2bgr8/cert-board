@@ -23,7 +23,8 @@ PDF_TEXT = "This fictional document contains more than forty readable characters
 DATASETS = b'<xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/"><xfa:data><sample>fixture</sample></xfa:data></xfa:datasets>'
 
 
-def sample_pdf(with_xfa=False, text_operator=None, field_value=None, with_fda=False):
+def sample_pdf(with_xfa=False, text_operator=None, field_value=None,
+               xfa_template=None, xfa_envelope=None, compress_template=False):
     writer = PdfWriter()
     page = writer.add_blank_page(width=612, height=792)
     font = writer._add_object(DictionaryObject({
@@ -42,13 +43,20 @@ def sample_pdf(with_xfa=False, text_operator=None, field_value=None, with_fda=Fa
         packet = DecodedStreamObject()
         packet.set_data(DATASETS)
         parts = [TextStringObject("datasets"), writer._add_object(packet)]
-        if with_fda:
+        if xfa_template is not None:
             template = DecodedStreamObject()
-            template.set_data(b"<template><desc>FDA eSTAR fictional fixture at fda.gov</desc></template>")
+            template.set_data(xfa_template)
+            if compress_template:
+                template = template.flate_encode()
             parts += [TextStringObject("template"), writer._add_object(template)]
+        value = ArrayObject(parts)
+        if xfa_envelope is not None:
+            envelope = DecodedStreamObject()
+            envelope.set_data(xfa_envelope)
+            value = writer._add_object(envelope)
         form = writer._add_object(DictionaryObject({
             NameObject("/Fields"): ArrayObject(),
-            NameObject("/XFA"): ArrayObject(parts),
+            NameObject("/XFA"): value,
         }))
         writer.root_object[NameObject("/AcroForm")] = form
         writer.root_object[NameObject("/NeedsRendering")] = BooleanObject(True)
@@ -174,11 +182,34 @@ def test_encrypted_estar_extracts_xfa_and_deduplicates_attachments():
 
 
 def test_content_inspection_distinguishes_pdf_and_xfa_without_names():
-    for with_xfa, with_fda, kind in [(False, False, "pdf"), (True, False, "pdf"), (True, True, "estar")]:
-        source = sample_pdf(with_xfa=with_xfa, with_fda=with_fda)
+    fda = '<template><desc>FDA eSTAR fictional fixture at fda.gov</desc></template>'
+    ordinary = b"<template><desc>restart at fda.gov</desc></template>"
+    samples = [
+        (sample_pdf(), "pdf"),
+        (sample_pdf(with_xfa=True), "pdf"),
+        (sample_pdf(with_xfa=True, xfa_template=ordinary), "pdf"),
+        (sample_pdf(with_xfa=True, xfa_template=fda.encode("utf-16")), "estar"),
+        (sample_pdf(with_xfa=True, xfa_template=fda.encode()), "estar"),
+    ]
+    for source, kind in samples:
         result = upload(source, "pdf", endpoint="inspect")
         assert result.status_code == 200
         assert result.json() == {"kind": kind, "byteSize": len(source), "sha256": sha256(source)}
+
+
+def test_template_and_envelope_limits_are_independent_and_apply_during_decode(monkeypatch):
+    import parsers
+    import pytest
+
+    monkeypatch.setattr(parsers, "MAX_XFA_TEMPLATE_BYTES", 100)
+    template = b"<template><desc>eSTAR at fda.gov</desc></template>"
+    envelope = b"<form>" + template + b"<datasets>" + b"sample " * 20 + b"</datasets></form>"
+    nested = sample_pdf(with_xfa=True, xfa_envelope=envelope)
+    assert len(envelope) > 100 and parsers.inspect_pdf(nested)["kind"] == "estar"
+    long_template = sample_pdf(with_xfa=True, xfa_template=template + b" " * 150, compress_template=True)
+    with pytest.raises(parsers.DocError) as rejected:
+        parsers.inspect_pdf(long_template)
+    assert rejected.value.code == "DOC_XFA_TEMPLATE_LIMIT"
 
 
 def test_filled_pdf_form_is_drawn_in_page_preview():

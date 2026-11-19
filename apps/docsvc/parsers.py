@@ -10,6 +10,7 @@ import signal
 import subprocess
 import tempfile
 import unicodedata
+import zlib
 from contextlib import ExitStack, closing, suppress
 from pathlib import Path
 from time import monotonic
@@ -36,11 +37,14 @@ MAX_TEXT_BYTES = 6 * 1024 * 1024
 MAX_PAGES = 800
 MAX_XFA_BYTES = 5 * 1024 * 1024
 MAX_XFA_TEMPLATE_BYTES = 16 * 1024 * 1024
+MAX_XFA_ENVELOPE_BYTES = 32 * 1024 * 1024
 OCR_THRESHOLD = 40
 LONG_SIDE = 1600
 MAX_OCR_SIDE = 3600
 MAX_OPERATION_SECONDS = 360
 LEGACY_WORD = bytes.fromhex("d0cf11e0a1b11ae1")
+ESTAR_MARKER = re.compile(r"(?<![A-Za-z0-9_])estar(?![A-Za-z0-9_])", re.IGNORECASE)
+FDA_MARKER = re.compile(r"(?<![A-Za-z0-9-])fda\.gov(?![A-Za-z0-9.-])|food and drug administration", re.IGNORECASE)
 logging.getLogger("pypdf").disabled = True
 logging.getLogger("pypdf").propagate = False
 logging.getLogger("pypdf").addHandler(logging.NullHandler())
@@ -150,33 +154,69 @@ def pdf_reader(data):
     return reader
 
 
+def bounded_xfa_data(stream, limit):
+    raw = stream._data  # pypdf 7.1.1 已解密，尚未应用 PDF 流滤镜。
+    if not isinstance(raw, bytes):
+        raise DocError("DOC_XFA_INVALID")
+    reference = stream.get("/Filter")
+    value = reference.get_object() if reference is not None else None
+    filters = [str(item.get_object()) for item in value] if isinstance(value, ArrayObject) else [str(value)] if value is not None else []
+    if not filters:
+        if len(raw) > limit:
+            raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
+        return raw
+    if filters not in (["/FlateDecode"], ["/Fl"]):
+        raise DocError("DOC_XFA_TEMPLATE_FILTER")
+    try:
+        inflater = zlib.decompressobj()
+        data = inflater.decompress(raw, limit + 1)
+    except zlib.error as error:
+        raise DocError("DOC_XFA_INVALID") from error
+    if len(data) > limit or inflater.unconsumed_tail:
+        raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
+    if not inflater.eof:
+        raise DocError("DOC_XFA_INVALID")
+    return data
+
+
+def xfa_template(form):
+    reference = form.get("/XFA") if isinstance(form, DictionaryObject) else None
+    value = reference.get_object() if reference is not None else None
+    with suppress(DefusedXmlException, ElementTree.ParseError):
+        if isinstance(value, ArrayObject):
+            for index in range(0, len(value) - 1, 2):
+                if str(value[index].get_object()) == "template":
+                    packet = value[index + 1].get_object()
+                    if isinstance(packet, StreamObject):
+                        root = fromstring(bounded_xfa_data(packet, MAX_XFA_TEMPLATE_BYTES), forbid_dtd=True)
+                        if root.tag.rsplit("}", 1)[-1] == "template":
+                            return root
+                    break
+        elif isinstance(value, StreamObject):
+            root = fromstring(bounded_xfa_data(value, MAX_XFA_ENVELOPE_BYTES), forbid_dtd=True)
+            for element in root.iter():
+                if element.tag.rsplit("}", 1)[-1] == "template":
+                    if len(ElementTree.tostring(element, encoding="utf-8")) > MAX_XFA_TEMPLATE_BYTES:
+                        raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
+                    return element
+    return None
+
+
 def inspect_pdf(data):
     check_kind(data, "pdf")
     reader = pdf_reader(data)
     reference = reader.root_object.get("/AcroForm")
     form = reference.get_object() if reference is not None else None
-    template = b""
-    reference = form.get("/XFA") if isinstance(form, DictionaryObject) else None
-    value = reference.get_object() if reference is not None else None
-    if isinstance(value, ArrayObject):
-        for index in range(0, len(value) - 1, 2):
-            if str(value[index].get_object()) == "template":
-                packet = value[index + 1].get_object()
-                if isinstance(packet, StreamObject):
-                    template = packet.get_data()
+    template = xfa_template(form)
+    has_estar = has_fda = False
+    if template is not None:
+        for element in template.iter():
+            for value in (element.text or "", *element.attrib.values()):
+                has_estar = has_estar or bool(ESTAR_MARKER.search(value))
+                has_fda = has_fda or bool(FDA_MARKER.search(value))
+            if has_estar and has_fda:
                 break
-    elif isinstance(value, StreamObject):
-        content = value.get_data()
-        if len(content) <= MAX_XFA_TEMPLATE_BYTES:
-            with suppress(DefusedXmlException, ElementTree.ParseError):
-                root = fromstring(content, forbid_dtd=True)
-                for element in root.iter():
-                    if element.tag.rsplit("}", 1)[-1] == "template":
-                        template = ElementTree.tostring(element, encoding="utf-8")
-                        break
-    template = template.lower() if len(template) <= MAX_XFA_TEMPLATE_BYTES else b""
-    fda_template = b"estar" in template and (b"fda.gov" in template or b"food and drug administration" in template)
-    return {"sha256": sha256(data), "byteSize": len(data), "kind": "estar" if fda_template else "pdf"}
+    return {"sha256": sha256(data), "byteSize": len(data), "kind": "estar" if has_estar and has_fda else "pdf"}
 
 
 def parse_pdf(data, kind, ocr, deadline):
