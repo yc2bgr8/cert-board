@@ -31,6 +31,8 @@
 - 独立测试端口使用 `CERT_E2E_PORT=28180`、`CERT_E2E_DIST=.local/d4-qa-dist`。通过 `pnpm --filter @cert-board/web exec vite build --outDir ../../.local/d4-qa-dist` 构建后运行 `pnpm test:e2e`，共通过 59 项检查。浏览器外部请求、CSP 违规、页面错误和未知用量均为 0。
 - 剧本验证了自动核实返回人工补充、原对话和审核依据跳转、浏览器审批约束、停止联动，以及 Cursor 未登录时完成原文核对并在审核卡列出不确定事项。截图保留对应的对话状态与审核操作区。
 
+`pnpm lint`、`pnpm typecheck`、`pnpm test`、`pnpm test:int`、`pnpm eval:agent` 和 `pnpm docs:html` 通过。包括 417 项单元、435 项集成、30 项剧本。
+
 ## 真实模型测试
 
 本 PR 使用剧本，真实 Cursor 调用 0 次，新增 OpenRouter 费用 0 美元。已验证的实际通道和订阅次数见 [PR-D6](PR-D6.md)。

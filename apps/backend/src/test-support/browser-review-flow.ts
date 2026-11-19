@@ -93,19 +93,21 @@ export async function reviewBrowserFlow(
   const historyPath = `**/api/reviews/${firstCard.id}/verifications`;
   let interruptedVerificationRead = false;
   await page.route(historyPath, async (route) => {
-    const response = await route.fetch();
-    const history = response.ok()
-      ? ((await response.json()) as { items: { result: string }[] })
-      : null;
     if (
       !interruptedVerificationRead &&
-      history?.items.some(({ result }) => result === 'available')
+      (
+        await harness.pool.query(
+          `SELECT 1 FROM verification_link l JOIN external_model_conversation c ON c.id=l.room_id
+         WHERE l.review_id=$1 AND c.state='completed'`,
+          [firstCard.id],
+        )
+      ).rowCount
     ) {
       interruptedVerificationRead = true;
       await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
       return;
     }
-    await route.fulfill({ response });
+    await route.fallback();
   });
   harness.verification.runtime.moderate = async (context) => {
     if (Object.values(context.attempts).reduce((sum, count) => sum + count, 0) >= 2)

@@ -30,7 +30,8 @@ export function useLinkedVerifications(id: string | null, inReview = false) {
     getNextPageParam: (page) => page.nextCursor,
     enabled: Boolean(id),
     retry: (failures, error) =>
-      failures < 2 && (!(error instanceof ApiError) || error.status >= 500),
+      failures < 2 &&
+      (!(error instanceof ApiError) || error.code === 'NETWORK_UNAVAILABLE' || error.status >= 500),
     refetchInterval: (query) =>
       query.state.data?.pages.some((page) => page.items.some(({ result }) => result === 'pending'))
         ? 15000

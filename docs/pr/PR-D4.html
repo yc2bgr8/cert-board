@@ -26,6 +26,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <p>应用迁移 <code>0023_verification_agent_links</code> 后，更新 API、Agent worker、核实 worker 和前端构建。沿用 D6 的 Cursor 隐私配置及浏览器入口 <code>http://127.0.0.1:28080</code>。</p>
 <h2 id="浏览器验收">浏览器验收</h2>
 <ul><li>独立测试端口使用 <code>CERT_E2E_PORT=28180</code>、<code>CERT_E2E_DIST=.local/d4-qa-dist</code>。通过 <code>pnpm --filter @cert-board/web exec vite build --outDir ../../.local/d4-qa-dist</code> 构建后运行 <code>pnpm test:e2e</code>，共通过 59 项检查。浏览器外部请求、CSP 违规、页面错误和未知用量均为 0。</li><li>剧本验证了自动核实返回人工补充、原对话和审核依据跳转、浏览器审批约束、停止联动，以及 Cursor 未登录时完成原文核对并在审核卡列出不确定事项。截图保留对应的对话状态与审核操作区。</li></ul>
+<p><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code>、<code>pnpm test:int</code>、<code>pnpm eval:agent</code> 和 <code>pnpm docs:html</code> 通过。包括 417 项单元、435 项集成、30 项剧本。</p>
 <h2 id="真实模型测试">真实模型测试</h2>
 <p>本 PR 使用剧本，真实 Cursor 调用 0 次，新增 OpenRouter 费用 0 美元。已验证的实际通道和订阅次数见 <a href="PR-D6.html">PR-D6</a>。</p>
 <h2 id="新增依赖">新增依赖</h2>
