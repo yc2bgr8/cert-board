@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计稿：外部模型：核实进行中（cert-board）</title>
+<!-- cert-board 界面设计稿。说明见同目录 README.md，共用样式见 cb.css，截图见同名 png（1440 宽）。
+     字体以 Inter 为准（应用内用 @fontsource/inter 打包）；本机没有 Inter 时会回落到系统字体。 -->
+<link rel="stylesheet" href="cb.css">
+<style>
+body{margin:0}
+a{color:#146b62}a:hover{color:#0f554e}
+</style>
+</head>
+<body>
+<div class="app" style="font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #142b2e">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.89 6.18A7.6 7.6 0 1 0 15.89 17.82" stroke-width="1.9"></path><path d="M7.9 12.9L10.9 15.9L20.4 6.4" stroke-width="2.1"></path></svg></div>
+      <div><div class="wordmark">cert<span class="hy">-</span>board</div><small>器械认证工作台</small></div>
+    </div>
+    <div class="side-actions">
+      <button type="button" class="btn-new"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新对话</button>
+      <button type="button" class="btn-sq" aria-label="搜索（Ctrl+K）"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+    </div>
+    <a class="nav" href="#inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>待我处理<span class="count">5</span></a>
+    <div class="side-group">
+      <div class="side-cap">助手</div>
+      <a class="agent" href="#reg"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span>注册Agent</a>
+      <a class="agent" href="#mnt"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>维护Agent</a>
+      <a class="agent active" href="#ext"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path><path d="M19 16v4M17 18h4"></path></svg></span>外部模型<span class="tag">外部</span></a>
+    </div>
+    <div class="side-group">
+      <div class="side-cap">核实记录<button type="button" class="cap-btn" aria-label="手动发起核实"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button></div>
+      <div class="tree">
+        <a class="convi flat active" href="#x1"><span class="dot"></span>带蓝牙输液泵是否属于 524B 网络设备</a>
+        <a class="convi flat" href="#x2"><span class="dot idle"></span>K123465 是否对应其他已上市器械</a>
+        <a class="convi flat" href="#x3"><span class="dot idle"></span>eSTAR 模板近期有哪些变化</a>
+        <a class="convi flat" href="#x4"><span class="dot idle"></span>IEC 60601-1 与 GB 9706.1 的差异</a>
+        <a class="convi flat" href="#x5"><span class="dot idle"></span>欧盟 MDR 临床评价报告的结构</a>
+      </div>
+    </div>
+    <div class="side-foot"><span class="avatar">张</span>张三<a class="foot-btn" href="#settings"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>设置</a></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="tb-left"><div><div class="crumb">外部模型 · 注册Agent发起</div><div class="ttl">核实：带蓝牙的输液泵是否属于 524B 网络设备，510(k) 要交什么</div></div></div>
+      <div class="tb-right"><span class="chip teal"><span class="dot"></span>进行中</span><button type="button" class="btn sm">停止并整理</button></div>
+    </div>
+
+    <div class="body">
+      <div class="conv">
+        <div class="thread">
+          <div class="gc-sys">注册Agent 在 <a href="#src">L08 510(k)：申报包一致性检查</a> 中发起核实 · 10:40</div>
+
+          <div class="m-agent">
+            <div class="m-head"><span class="m-ava"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span><span class="who">注册Agent</span><span class="role">主持人</span><span>10:40</span></div>
+            <div class="prose"><p>背景：客户A 的输液泵（产品A）准备走 510(k)。设备带蓝牙，只用于和手机 App 配对查看输液记录。</p><p>要核实两件事：一，它是否属于 FD&amp;C 法案第 524B 条所说的网络设备；二，如果属于，510(k) 里必须提交哪些网络安全资料。<span class="mention">@GPT</span> <span class="mention">@Claude</span> 请分别回答，事实性结论附出处链接和原文摘录。</p></div>
+            <div class="row muted small"><svg class="i xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>发送前已自动替换 2 处保密信息<a href="#sent">查看实际发出的内容</a></div>
+          </div>
+
+          <div class="m-agent">
+            <div class="m-head"><span class="m-ava ext">G</span><span class="who">GPT</span><span class="sub">经 Cursor</span><span class="role round">第1轮</span><span>10:41</span></div>
+            <div class="prose"><p>一，属于。524B 适用于含软件、能连接互联网、可能受网络威胁影响的器械；FDA 的问答把蓝牙等无线连接也算作联网能力。</p><p>二，法定要求三项：上市后漏洞监测与披露计划；设计、开发和维护中的网络安全保证过程；软件物料清单（SBOM）。另外指南要求提交威胁建模、风险评估和渗透测试报告。</p></div>
+            <div class="srcs"><a class="src-a" href="#s1">fda.gov：网络设备（524B）问答<svg class="i xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></a><a class="src-a" href="#s2">fda.gov：上市前网络安全指南<svg class="i xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></a></div>
+          </div>
+
+          <div class="m-agent">
+            <div class="m-head"><span class="m-ava ext cl">C</span><span class="who">Claude</span><span class="sub">经 Cursor</span><span class="role round">第1轮</span><span>10:42</span></div>
+            <div class="prose"><p>同意 GPT 的第一点和法定三项。有一处不同：渗透测试报告是指南的建议，不是 524B 的法定要求；不过审评中通常会要，缺了常见发补。指南还建议提交安全架构视图。</p></div>
+            <div class="srcs"><a class="src-a" href="#s2">fda.gov：上市前网络安全指南<svg class="i xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></a></div>
+          </div>
+
+          <div class="m-person">
+            <div class="m-head"><span>10:43</span><span class="who">张三</span><span class="m-ava person">张</span></div>
+            <div class="m-user">补充一个情况：我们去年另一个产品的 510(k) 就是因为没交渗透测试报告被发补，这次按必须准备。<span class="mention">@Claude</span> 蓝牙只用于本地配对、不连互联网，FDA 对这种情况有没有更具体的说法？</div>
+          </div>
+
+          <div class="m-agent">
+            <div class="m-head"><span class="m-ava ext cl">C</span><span class="who">Claude</span><span class="sub">经 Cursor</span><span class="role round">第2轮</span><span>10:44</span></div>
+            <div class="prose"><p>有。FDA 的 524B 问答把 Wi-Fi、蜂窝、蓝牙等连接方式都算作「能连接互联网」的能力，不要求器械本身直接上网。所以只做本地配对仍然属于网络设备。</p></div>
+            <div class="srcs"><a class="src-a" href="#s1">fda.gov：网络设备（524B）问答<svg class="i xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></a></div>
+          </div>
+
+          <div class="m-agent">
+            <div class="m-head"><span class="m-ava"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span><span class="who">注册Agent</span><span class="role">主持人</span><span>10:44</span></div>
+            <div class="prose"><p>收到张三的情况，渗透测试报告按必须准备。<span class="mention">@GPT</span> 请核对 Claude 关于蓝牙的说法，给出你看到的 FDA 原文出处和摘录。</p></div>
+          </div>
+
+          <div class="m-agent">
+            <div class="m-head"><span class="m-ava ext">G</span><span class="who">GPT</span><span class="sub">正在回答 · 第2轮</span></div>
+            <div class="typing" aria-label="正在回答"><span></span><span></span><span></span></div>
+          </div>
+        </div>
+
+        <div class="dock">
+          <div class="status"><span class="state"><span class="dot"></span>讨论进行中</span><span>自动讨论：GPT 第2轮，Claude 第2轮，每个模型最多 7 轮</span><span>已用 4分10秒</span></div>
+          <div class="composer">
+            <textarea rows="2" aria-label="在群里说话" placeholder="在群里说话。@ 点名的模型直接回答；不点名时由主持人接话"></textarea>
+            <div class="tools">
+              <button type="button" class="ibtn" aria-label="点名"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"></path></svg></button>
+              <button type="button" class="pill">@GPT</button>
+              <button type="button" class="pill">@Claude</button>
+              <button type="button" class="pill">@主持人</button>
+              <span class="hint" style="margin-left: auto">有人说话后不受轮数上限限制</span>
+              <button type="button" class="send" aria-label="发送" style="margin-left: 0"><svg class="i lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"></path><path d="m5 12 7-7 7 7"></path></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section class="panel" aria-label="本场核实" style="flex: 1 1 340px; max-width: 360px">
+        <div class="panel-head"><h2>本场核实</h2><button type="button" class="btn ghost sm" aria-label="关闭右栏"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button></div>
+        <div class="panel-body">
+          <div class="stack" style="gap: 2px">
+            <h4 style="margin: 0 0 6px; font-size: 13px; font-weight: 600; color: #28403f">成员</h4>
+            <div class="member"><span class="m-ava"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span><span class="grow">注册Agent<small>主模型，也可以自己回答</small></span><span class="role">主持人</span></div>
+            <div class="member"><span class="m-ava ext">G</span><span class="grow">GPT<small>经 Cursor，已回答 1 次</small></span><span class="chip teal">回答中</span></div>
+            <div class="member"><span class="m-ava ext cl">C</span><span class="grow">Claude<small>经 Cursor，已回答 2 次</small></span></div>
+            <div class="member"><span class="m-ava person">张</span><span class="grow">张三<small>发言 1 次</small></span></div>
+            <div class="member"><span class="m-ava person">李</span><span class="grow">李四<small>在看</small></span></div>
+            <button type="button" class="btn ghost sm" style="align-self: flex-start; margin-top: 4px"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>加入一个模型</button>
+          </div>
+          <div class="rv-sec">
+            <h4>来源</h4>
+            <dl class="kv"><dt>发起</dt><dd>注册Agent 自己发起</dd><dt>对话</dt><dd><a href="#src">L08 510(k)：申报包一致性检查</a></dd><dt>完成后</dt><dd>结论交回注册Agent，那边的工作接着进行</dd></dl>
+          </div>
+          <div class="rv-sec">
+            <h4>外发</h4>
+            <div class="small">发送前已自动替换 2 处保密信息（甲公司 → 客户A，JB-C2 → 产品A）。<a href="#sent">查看实际发出的内容</a></div>
+            <div class="muted small">每次发出和返回的全文都存档，并进入今日外发清单。</div>
+          </div>
+          <div class="rv-sec">
+            <h4>结论</h4>
+            <div class="muted small">讨论结束后由主持人整理成三类：可信、有分歧、待核实。点「停止并整理」可以提前结束。</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

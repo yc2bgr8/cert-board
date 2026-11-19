@@ -46,6 +46,7 @@ a{color:#146b62}a:hover{color:#0f554e}
     <div class="page" style="max-width: 1180px; flex-direction: row; align-items: flex-start; flex-wrap: wrap">
       <nav class="subnav" aria-label="设置分类" style="flex: 1 1 180px; max-width: 220px">
         <a class="on" href="#me">个人与通知</a>
+        <a href="#ext">外部模型</a>
         <a href="#words">保密词表</a>
         <a href="#outbound">外发记录</a>
         <a href="#admin">维护（管理权限）</a>
@@ -63,6 +64,29 @@ a{color:#146b62}a:hover{color:#0f554e}
           </div>
         </section>
 
+        <section class="card" id="ext">
+          <div class="card-head"><h3>外部模型</h3><span class="muted small">管理权限可以修改，改动对所有人生效并记入审计</span></div>
+          <div class="card-body stack" style="gap: 16px">
+            <div class="field">
+              <label>通道</label>
+              <div class="seg">
+                <div class="o on"><span class="ck done" style="margin-top: 2px"></span><span><b>Cursor（开发机）</b><span>用 Lan 的 Cursor 订阅。已登录，隐私模式已开启。</span></span></div>
+                <div class="o"><span class="ck" style="margin-top: 2px"></span><span><b>各家 API Key</b><span>以后接入。未配置。</span></span></div>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px">
+              <div class="field">
+                <label>默认参与的模型</label>
+                <div class="row"><span class="chip line">GPT（Cursor 中最新的旗舰版）</span><span class="chip line">Claude（Cursor 中最新的旗舰版）</span><button type="button" class="btn ghost sm"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>添加</button></div>
+              </div>
+              <div class="field">
+                <label for="rounds">自动讨论时每个模型最多</label>
+                <div class="row" style="flex-wrap: nowrap"><input id="rounds" class="input" style="width: 72px; text-align: center" value="7"><span>轮</span><span class="muted small">有人在群里说话后不受这个限制</span></div>
+              </div>
+            </div>
+            <div class="row small"><span class="muted">本月调用</span><span>GPT 86 次</span><span>Claude 79 次</span><span class="muted">· 计入 Cursor 订阅额度，不按美元记账</span></div>
+          </div>
+        </section>
         <section class="card" id="words">
           <div class="card-head"><h3>保密词表<span class="muted small" style="font-weight: 400">3 个词</span></h3><span class="muted small">所有注册人员都可以维护</span></div>
           <div class="card-body stack" style="gap: 12px">
@@ -89,23 +113,23 @@ a{color:#146b62}a:hover{color:#0f554e}
           <div class="card-head"><h3>外发记录<span class="chip">今天 4 次</span></h3><div class="row"><button type="button" class="pill">今天<svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button><button type="button" class="btn sm">下载今日外发清单</button></div></div>
           <div class="twrap">
             <table class="table">
-              <thead><tr><th>时间</th><th>来源</th><th>模型</th><th>数据级别</th><th>替换</th><th>费用</th><th></th></tr></thead>
+              <thead><tr><th>时间</th><th>来源</th><th>模型</th><th>数据级别</th><th>替换</th><th>通道</th><th></th></tr></thead>
               <tbody>
-                <tr><td>10:12</td><td>外部模型对话（张三）</td><td>GPT（OpenAI）</td><td><span class="chip">内部</span></td><td>1 处</td><td>0.03 美元</td><td><a href="#full" class="small">查看全文</a></td></tr>
-                <tr><td>10:40</td><td>注册Agent：申报包一致性检查</td><td>Claude（Anthropic）</td><td><span class="chip info">公开</span></td><td>无</td><td>0.01 美元</td><td><a href="#full" class="small">查看全文</a></td></tr>
-                <tr><td>11:20</td><td>维护Agent：法规更新监测</td><td>Gemini（Google）</td><td><span class="chip info">公开</span></td><td>无</td><td>0.02 美元</td><td><a href="#full" class="small">查看全文</a></td></tr>
-                <tr><td>11:31</td><td>注册Agent：申报路径研判</td><td>GPT（OpenAI）</td><td><span class="chip warn">保密，已替换</span></td><td>3 处</td><td>0.04 美元</td><td><a href="#full" class="small">查看全文</a></td></tr>
+                <tr><td>10:12</td><td>外部核实（张三发起）：eSTAR 模板变化</td><td>GPT</td><td><span class="chip">内部</span></td><td>1 处</td><td>Cursor</td><td><a href="#full" class="small">查看全文</a></td></tr>
+                <tr><td>10:40</td><td>外部核实（注册Agent发起）：524B 网络设备</td><td>Claude</td><td><span class="chip warn">保密，已替换</span></td><td>2 处</td><td>Cursor</td><td><a href="#full" class="small">查看全文</a></td></tr>
+                <tr><td>11:20</td><td>外部核实（维护Agent发起）：法规更新监测</td><td>GPT</td><td><span class="chip info">公开</span></td><td>无</td><td>Cursor</td><td><a href="#full" class="small">查看全文</a></td></tr>
+                <tr><td>11:31</td><td>外部核实（李四复核时发起）：K123465</td><td>Claude</td><td><span class="chip">内部</span></td><td>无</td><td>Cursor</td><td><a href="#full" class="small">查看全文</a></td></tr>
               </tbody>
             </table>
           </div>
-          <div class="card-body muted small" style="border-top: 1px solid #e3e9e8">发出和返回的全文都在本地存档。今日外发清单进入日摘要。</div>
+          <div class="card-body muted small" style="border-top: 1px solid #e3e9e8">发出和返回的全文都在本地存档，可以从这里打开对应的核实群聊。今日外发清单进入日摘要。</div>
         </section>
 
         <section class="card" id="about">
           <div class="card-head"><h3>关于</h3></div>
           <div class="card-body stack small" style="gap: 6px">
             <div>cert-board 的对话界面基于 Craft Agents（Apache-2.0）修改，许可证和声明见「第三方许可」。</div>
-            <div class="muted">开发环境：主模型暂由 OpenRouter 上的同系列模型模拟。</div>
+            <div class="muted">开发环境：主模型暂由 OpenRouter 上的同系列模型模拟；外部模型经开发机上的 Cursor 调用。</div>
           </div>
         </section>
       </div>

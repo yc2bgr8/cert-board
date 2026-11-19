@@ -52,7 +52,7 @@ a{color:#146b62}a:hover{color:#0f554e}
 
     <div class="page" style="max-width: 1240px">
       <div class="metrics">
-        <div class="metric"><div class="lbl">本月费用</div><div class="val">14.40<span class="muted" style="font-size: 14px; font-weight: 400"> 美元</span></div><div class="bar" style="margin: 6px 0 4px"><span style="width: 21%"></span></div><div class="note">三项上限合计 70 美元</div></div>
+        <div class="metric"><div class="lbl">本月费用</div><div class="val">8.10<span class="muted" style="font-size: 14px; font-weight: 400"> 美元</span></div><div class="bar" style="margin: 6px 0 4px"><span style="width: 27%"></span></div><div class="note">主模型上限 30 美元；外部核实走 Cursor 订阅</div></div>
         <div class="metric"><div class="lbl">进行中的目标</div><div class="val">6</div><div class="note">2 个在等外部回复</div></div>
         <div class="metric"><div class="lbl">告警</div><div class="val" style="color: #8a5a12">1</div><div class="note">定时器扫描延迟</div></div>
         <div class="metric"><div class="lbl">待审阅发布</div><div class="val">2</div><div class="note">技能 1 个，Agent 说明 1 份</div></div>
@@ -66,8 +66,7 @@ a{color:#146b62}a:hover{color:#0f554e}
               <thead><tr><th>用途</th><th>本月</th><th>上限</th><th style="width: 30%">用量</th></tr></thead>
               <tbody>
                 <tr><td>主模型<div class="muted small">开发期由 OpenRouter 模拟</div></td><td>8.10 美元</td><td>30 美元</td><td><div class="bar"><span style="width: 27%"></span></div></td></tr>
-                <tr><td>Agent 调用外部模型</td><td>2.10 美元</td><td>20 美元</td><td><div class="bar"><span style="width: 11%"></span></div></td></tr>
-                <tr><td>外部模型入口</td><td>4.20 美元</td><td>20 美元</td><td><div class="bar"><span style="width: 21%"></span></div></td></tr>
+                <tr><td>外部核实<div class="muted small">经 Cursor 订阅</div></td><td>165 次</td><td>不设美元上限</td><td class="muted small">Cursor 额度用完时暂停外部核实</td></tr>
               </tbody>
             </table>
           </div>
@@ -89,13 +88,12 @@ a{color:#146b62}a:hover{color:#0f554e}
               <thead><tr><th>用途</th><th>模型</th><th>可处理的数据</th><th>状态</th></tr></thead>
               <tbody>
                 <tr><td>主模型</td><td>DeepSeek V4.1 Flash<div class="muted small">本地 Mac Studio，MLX</div></td><td>公开、内部、保密</td><td><span class="chip warn">未接入</span></td></tr>
-                <tr><td>外部模型</td><td>GPT（OpenAI）</td><td>公开、内部；保密替换后</td><td><span class="chip good">可用</span></td></tr>
-                <tr><td>外部模型</td><td>Claude（Anthropic）</td><td>公开、内部；保密替换后</td><td><span class="chip good">可用</span></td></tr>
-                <tr><td>外部模型</td><td>Gemini（Google）</td><td>公开、内部；保密替换后</td><td><span class="chip good">可用</span></td></tr>
+                <tr><td>外部模型</td><td>GPT<div class="muted small">经 Cursor，旗舰版</div></td><td>公开、内部；保密替换后</td><td><span class="chip good">可用</span></td></tr>
+                <tr><td>外部模型</td><td>Claude<div class="muted small">经 Cursor，旗舰版</div></td><td>公开、内部；保密替换后</td><td><span class="chip good">可用</span></td></tr>
               </tbody>
             </table>
           </div>
-          <div class="card-body muted small" style="border-top: 1px solid #e3e9e8">外部模型都强制零数据保留、不用于训练；不满足的服务商不出现在列表中。</div>
+          <div class="card-body muted small" style="border-top: 1px solid #e3e9e8">外部模型经开发机上的 Cursor 调用，Cursor 开启隐私模式（不留存、不用于训练）。以后可以改成各家 API Key，在「设置 › 外部模型」中切换。</div>
         </section>
 
         <section class="card">
