@@ -196,13 +196,15 @@ export async function startBrowserHarness() {
     app.get('/assets/:file', async (request, reply) => {
       const file = (request.params as { file: string }).file;
       if (!/^[A-Za-z0-9_.-]+\.(?:js|css|woff2?|svg|png)$/.test(file)) return reply.code(404).send();
-      const type = file.endsWith('.js')
-        ? 'application/javascript'
-        : file.endsWith('.css')
-          ? 'text/css'
-          : file.endsWith('.svg')
-            ? 'image/svg+xml'
-            : 'application/octet-stream';
+      const contentTypes: Record<string, string> = {
+        '.js': 'application/javascript',
+        '.css': 'text/css',
+        '.svg': 'image/svg+xml',
+        '.png': 'image/png',
+        '.woff': 'font/woff',
+        '.woff2': 'font/woff2',
+      };
+      const type = contentTypes[path.extname(file)]!;
       try {
         return reply.type(type).send(await readFile(path.join(dist, 'assets', file)));
       } catch {

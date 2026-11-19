@@ -3,7 +3,7 @@ import { ShellIcon } from './ShellIcon.js';
 
 export function ProjectShell({
   title,
-  conversationTitle,
+  location,
   sidebarVisible,
   onOpenSidebar,
   tab = 'conversation',
@@ -12,7 +12,7 @@ export function ProjectShell({
   children,
 }: {
   title: string;
-  conversationTitle?: string;
+  location?: string;
   sidebarVisible: boolean;
   onOpenSidebar(): void;
   tab?: 'conversation' | 'files' | 'documents';
@@ -33,12 +33,14 @@ export function ProjectShell({
             <ShellIcon name="panel" />
           </button>
         )}
-        <h1 title={title}>{title}</h1>
-        {conversationTitle && (
-          <span className="live-conversation-title" title={conversationTitle}>
-            {conversationTitle}
-          </span>
-        )}
+        <div className="live-title-group">
+          {location && (
+            <p className="live-crumb" title={location}>
+              {location}
+            </p>
+          )}
+          <h1 title={title}>{title}</h1>
+        </div>
         {showTabs && (
           <nav className="live-project-tabs" aria-label="项目内容">
             {(['conversation', 'files', 'documents'] as const).map((value) => (

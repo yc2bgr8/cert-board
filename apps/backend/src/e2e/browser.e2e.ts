@@ -26,6 +26,30 @@ async function bounded<T>(promise: Promise<T>, timeout = 20000): Promise<T> {
     if (timer) clearTimeout(timer);
   }
 }
+async function captureWorkbench(page: Page, output: string, name: string) {
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+  });
+  await page.screenshot({ path: path.join(output, name), fullPage: true });
+}
+async function checkNarrowLayout(page: Page) {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const overflow = await page.evaluate(() =>
+    [
+      document.documentElement,
+      ...Array.from(document.querySelectorAll('.live-shell,.live-new-dialog,.live-search-dialog')),
+    ]
+      .filter((element) => element.scrollWidth > element.clientWidth + 1)
+      .map((element) => ({
+        name: element.className || element.tagName,
+        width: element.clientWidth,
+        content: element.scrollWidth,
+      })),
+  );
+  if (overflow.length) console.error('窄屏布局尺寸', JSON.stringify(overflow));
+  assert.equal(overflow.length, 0);
+  await page.setViewportSize({ width: 1440, height: 900 });
+}
 async function browserPath() {
   const candidates =
     process.platform === 'win32'
@@ -145,10 +169,20 @@ async function main() {
         csp.includes("connect-src 'self'"),
     );
     assert.equal(/unsafe-inline|unsafe-eval/.test(csp), false);
+    await page.getByRole('textbox', { name: '账号', exact: true }).waitFor();
+    await captureWorkbench(page, output, 'pr-u1-01-login.png');
+    assert.equal(
+      await page.evaluate(async () =>
+        (await document.fonts.load('400 14px Inter')).some(
+          (font) => font.family === 'Inter' && font.status === 'loaded',
+        ),
+      ),
+      true,
+    );
     // 密码只在内存中交给浏览器，不启用trace/HAR；登录失败不传播含fill参数的异常。
     try {
       await page
-        .getByRole('textbox', { name: '用户名', exact: true })
+        .getByRole('textbox', { name: '账号', exact: true })
         .fill(harness.credentials.username);
       await page.getByLabel('密码', { exact: true }).fill(harness.credentials.password);
       await page.getByRole('button', { name: '登录', exact: true }).click();
@@ -160,8 +194,37 @@ async function main() {
     const cookie = (await context.cookies()).find((value) => value.name === 'cert_board_session');
     assert.equal(cookie?.httpOnly, true);
     assert.equal(cookie?.sameSite, 'Strict');
+    stage = '新版外框、助手与新对话';
+    await page.getByRole('button', { name: '维护Agent', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: 'L08 510(k)', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: '外部模型', exact: true }).count(), 0);
+    await page.getByRole('button', { name: '注册Agent', exact: true }).click();
+    await page.getByRole('button', { name: '新对话', exact: true }).click();
+    const newDialog = page.getByRole('dialog', { name: '新对话', exact: true });
+    await newDialog
+      .getByRole('textbox', { name: '对话标题', exact: true })
+      .fill('检查L08申报包，列出缺件和前后不一致的地方，各附两处原文');
+    await newDialog.getByRole('textbox', { name: '对话标题', exact: true }).blur();
+    assert.equal(
+      await newDialog.getByRole('radio', { name: '注册Agent', exact: true }).isChecked(),
+      true,
+    );
+    await captureWorkbench(page, output, 'pr-u1-02-new-conversation.png');
+    await checkNarrowLayout(page);
+    await page.keyboard.press('Escape');
+    await newDialog.waitFor({ state: 'hidden' });
     stage = '新对话默认完全允许';
-    await createConversation(page, harness.projectId, undefined, '默认权限验证');
+    await createConversation(page, harness.projectId, undefined, 'K123465 写法检查');
+    stage = '新版搜索';
+    await page.getByRole('button', { name: '搜索', exact: true }).click();
+    const searchDialog = page.getByRole('dialog', { name: '搜索项目或对话', exact: true });
+    const searchBox = searchDialog.getByRole('textbox', { name: '搜索项目或对话', exact: true });
+    await searchBox.fill('K123465');
+    await searchDialog.getByRole('button', { name: /K123465.*写法检查/ }).waitFor();
+    await captureWorkbench(page, output, 'pr-u1-13-search.png');
+    await checkNarrowLayout(page);
+    await searchBox.press('Enter');
+    await searchDialog.waitFor({ state: 'hidden' });
     stage = 'L08资料与安全Markdown';
     await createConversation(page, harness.projectId, 'read_only');
     const read = harness.plan('read');
@@ -425,6 +488,9 @@ async function main() {
           environment: 'isolated_test_database',
           checks: [
             'browser_login_cookie_csrf',
+            'redesigned_login_and_logo',
+            'redesigned_agent_navigation_and_new_conversation',
+            'redesigned_keyboard_search_at_1280_and_1440',
             'l08_real_tools',
             'plan_two_steps',
             'steering_next_turn',
@@ -457,6 +523,9 @@ async function main() {
           pendingUsage: unknown.rowCount,
           costNano,
           screenshots: [
+            'pr-u1-01-login.png',
+            'pr-u1-02-new-conversation.png',
+            'pr-u1-13-search.png',
             'conversation-read.png',
             'plan-active.png',
             'approval-pending.png',

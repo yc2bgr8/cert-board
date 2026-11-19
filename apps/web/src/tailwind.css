@@ -1,1 +1,45 @@
 @import 'tailwindcss';
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/inter/latin-600.css';
+@import '@fontsource/inter/latin-700.css';
+@import '@fontsource/jetbrains-mono/latin-400.css';
+
+/* 来源：docs/变更单/界面设计稿/cb.css */
+@theme static {
+  --color-cb-ink: #142b2e;
+  --color-cb-ink-2: #28403f;
+  --color-cb-muted: #5f7273;
+  --color-cb-muted-2: #4f6264;
+  --color-cb-line: #e3e9e8;
+  --color-cb-line-2: #d6e0dd;
+  --color-cb-bg: #f6f8f7;
+  --color-cb-paper: #ffffff;
+  --color-cb-soft: #f0f4f3;
+  --color-cb-teal: #167b70;
+  --color-cb-teal-ink: #146b62;
+  --color-cb-teal-soft: #eaf5f1;
+  --color-cb-teal-soft-2: #d3ebe3;
+  --color-cb-teal-line: #bfe0d6;
+  --color-cb-user-bubble: #e3f1ec;
+  --color-cb-mark: #143d3d;
+  --color-cb-mint: #bcebdd;
+  --color-cb-good: #23775f;
+  --color-cb-good-bg: #e7f5ee;
+  --color-cb-warn: #8a5a12;
+  --color-cb-warn-bg: #fff4e0;
+  --color-cb-warn-line: #efd7a6;
+  --color-cb-bad: #a8402f;
+  --color-cb-bad-bg: #fdeeea;
+  --color-cb-bad-line: #f1cfc7;
+  --color-cb-info: #2f5f8f;
+  --color-cb-info-bg: #edf3fa;
+  --font-workbench:
+    Inter, 'PingFang SC', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+  --font-workbench-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+  --radius-cb-control: 8px;
+  --radius-cb-card: 12px;
+  --radius-cb-dialog: 14px;
+  --shadow-cb-dock: 0 2px 8px rgba(20, 43, 46, 0.05);
+  --shadow-cb-pop: 0 16px 40px rgba(20, 43, 46, 0.16);
+}

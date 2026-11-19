@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { PublicUser, ProjectRecord, GoalRecord } from '@cert-board/shared';
+import type { AgentCode, PublicUser, ProjectRecord, GoalRecord } from '@cert-board/shared';
 import { api, errorMessage, type ConversationDetail } from './live/api.js';
 import { useSession } from './live/useSession.js';
 import {
@@ -9,6 +9,7 @@ import {
 } from './live/useMemberNotifications.js';
 import { LiveConversation } from './live/LiveConversation.js';
 import { Login } from './live/Login.js';
+import { Logo } from './live/Logo.js';
 import { Sidebar } from './live/Sidebar.js';
 import { ProjectShell } from './live/ProjectShell.js';
 import { NewConversation } from './live/NewConversation.js';
@@ -124,6 +125,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const panelKey = useRef(0);
   const panelOrigin = useRef<HTMLElement | null>(null);
   const [scope, setScope] = useState<'mine' | 'department'>('mine');
+  const [sidebarAgent, setSidebarAgent] = useState<AgentCode>('registration');
   const [dialog, setDialog] = useState<'new' | 'search' | 'settings' | null>(null);
   const [narrow, setNarrow] = useState(
     () => window.matchMedia?.('(max-width: 1023px)').matches ?? false,
@@ -231,6 +233,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const openDialog = useCallback((value: 'new' | 'search' | 'settings') => {
     returnFocus.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (value === 'new') setMobileOpen(false);
     setDialog(value);
   }, []);
   const closePanel = useCallback(() => {
@@ -316,6 +319,8 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   }, [current, userId]);
 
   const openProject = (id: string) => {
+    const project = availableProjects.find((item) => item.id === id);
+    if (project) setSidebarAgent(project.projectType);
     setPanels([]);
     setTab('conversation');
     setProjectId(id);
@@ -324,6 +329,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     setMobileOpen(false);
   };
   const openConversation = (conversation: ConversationDetail) => {
+    setSidebarAgent(conversation.agentCode);
     setPanels([]);
     setTab('conversation');
     setProjectId(conversation.projectId);
@@ -337,6 +343,8 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       openReview(item.id);
       return;
     }
+    const project = availableProjects.find((candidate) => candidate.id === item.projectId);
+    if (project) setSidebarAgent(project.projectType);
     setPanels([]);
     setTab('conversation');
     setProjectId(item.projectId);
@@ -344,7 +352,8 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     setView('conversation');
     setMobileOpen(false);
   };
-  const created = (id: string, selectedProjectId: string | null) => {
+  const created = (id: string, selectedProjectId: string | null, agentCode: AgentCode) => {
+    setSidebarAgent(agentCode);
     setPanels([]);
     setTab('conversation');
     setProjectId(selectedProjectId);
@@ -362,18 +371,35 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const closeSidebar = () => (narrow ? setMobileOpen(false) : setCollapsed(true));
   const openSidebar = () => (narrow ? setMobileOpen(true) : setCollapsed(false));
   const snapshot = notifications.snapshot;
-  const title =
-    view === 'inbox'
+  const isNewConversation = dialog === 'new';
+  const projectTitle = selectedProject?.name ?? (projectId ? '正在加载项目…' : '未关联项目');
+  const hasConversationTitle = view === 'conversation' && current;
+  const title = isNewConversation
+    ? '新对话'
+    : view === 'inbox'
       ? '待我处理'
-      : (selectedProject?.name ??
-        (projectId ? '正在加载项目…' : conversationId ? '未关联项目' : '项目'));
+      : hasConversationTitle
+        ? current.title
+        : projectId || conversationId
+          ? projectTitle
+          : '项目';
+  const location = isNewConversation
+    ? sidebarAgent === 'registration'
+      ? '注册Agent'
+      : '维护Agent'
+    : hasConversationTitle
+      ? projectTitle
+      : undefined;
+  const collapsedRail = !narrow && collapsed;
 
   return (
     <div
-      className={`live-shell${narrow && mobileOpen ? ' has-mobile-sidebar' : ''}${panels.length ? ' has-inspector' : ''}`}
+      className={`live-shell${narrow && mobileOpen ? ' has-mobile-sidebar' : ''}${panels.length && !isNewConversation ? ' has-inspector' : ''}`}
     >
       <Sidebar
         visible={sidebarVisible}
+        agent={sidebarAgent}
+        newConversation={isNewConversation}
         projects={projects}
         projectsLoading={projectsQuery.isPending}
         projectsError={projectsQuery.isError}
@@ -395,6 +421,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         truncated={snapshot?.truncated ?? false}
         displayName={user.displayName}
         onProject={openProject}
+        onAgent={setSidebarAgent}
         onConversation={openConversation}
         onNew={() => openDialog('new')}
         onSearch={() => openDialog('search')}
@@ -407,6 +434,13 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         onSettings={() => openDialog('settings')}
         onClose={closeSidebar}
       />
+      {collapsedRail && (
+        <div className="live-collapsed-rail">
+          <button type="button" aria-label="展开侧栏" onClick={openSidebar}>
+            <Logo compact />
+          </button>
+        </div>
+      )}
       {narrow && mobileOpen && (
         <button
           className="live-sidebar-scrim"
@@ -417,17 +451,19 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       )}
       <ProjectShell
         title={title}
-        {...(view === 'conversation' && current ? { conversationTitle: current.title } : {})}
-        sidebarVisible={sidebarVisible}
+        {...(location ? { location } : {})}
+        sidebarVisible={sidebarVisible || collapsedRail}
         onOpenSidebar={openSidebar}
         tab={tab}
         onTabChange={setTab}
-        showTabs={Boolean(projectId) && view !== 'inbox'}
+        showTabs={Boolean(projectId) && view !== 'inbox' && !isNewConversation}
       >
         <div
           className="live-view-content"
           hidden={
-            tab !== 'conversation' || (view === 'conversation' && Boolean(current?.projectId))
+            isNewConversation ||
+            tab !== 'conversation' ||
+            (view === 'conversation' && Boolean(current?.projectId))
           }
         >
           {view === 'inbox' ? (
@@ -653,7 +689,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         {current?.projectId && conversationId && (
           <div
             className="live-thread-host"
-            hidden={view !== 'conversation' || tab !== 'conversation'}
+            hidden={isNewConversation || view !== 'conversation' || tab !== 'conversation'}
           >
             <LiveConversation
               key={conversationId}
@@ -662,7 +698,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
             />
           </div>
         )}
-        {projectId && tab === 'files' && (
+        {!isNewConversation && projectId && tab === 'files' && (
           <ProjectFiles
             key={projectId}
             projectId={projectId}
@@ -671,7 +707,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
             onOpenDiff={openDiff}
           />
         )}
-        {projectId && tab === 'documents' && (
+        {!isNewConversation && projectId && tab === 'documents' && (
           <ProjectDocuments
             key={projectId}
             projectId={projectId}
@@ -679,18 +715,23 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
             onOpenEvidence={openEvidence}
           />
         )}
+        <NewConversation
+          open={isNewConversation}
+          onOpenChange={(open) => {
+            if (!open) setDialog(null);
+          }}
+          initialProjectId={selectedProject?.projectType === sidebarAgent ? projectId : null}
+          initialAgent={sidebarAgent}
+          projects={availableProjects}
+          userId={userId}
+          returnFocus={returnFocus}
+          onCreated={created}
+        />
       </ProjectShell>
-      <Inspector entries={panels} onBack={backPanel} onClose={closePanel} />
-      <NewConversation
-        open={dialog === 'new'}
-        onOpenChange={(open) => {
-          if (!open) setDialog(null);
-        }}
-        initialProjectId={projectId}
-        projects={availableProjects}
-        userId={userId}
-        returnFocus={returnFocus}
-        onCreated={created}
+      <Inspector
+        entries={isNewConversation ? [] : panels}
+        onBack={backPanel}
+        onClose={closePanel}
       />
       <Search
         open={dialog === 'search'}
