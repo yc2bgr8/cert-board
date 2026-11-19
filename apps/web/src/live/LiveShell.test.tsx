@@ -367,7 +367,7 @@ test('真实登录表单使用密码框和POST，阻止重复提交并在结束�
   expect(password.type).toBe('password');
   const form = password.closest('form')!;
   expect(form.method).toBe('post');
-  fireEvent.change(screen.getByLabelText('用户名'), { target: { value: 'zhangsan' } });
+  fireEvent.change(screen.getByLabelText('账号'), { target: { value: 'zhangsan' } });
   fireEvent.change(password, { target: { value: 'synthetic-password-for-test' } });
   fireEvent.submit(form);
   fireEvent.submit(form);
@@ -388,7 +388,9 @@ test('项目和对话由真实接口结果展示，不补造维护事项；可�
   expect(await within(goals).findByText(goal.title)).toBeTruthy();
   expect(within(goals).getByText('进行中', { exact: true })).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'L08 年度注册' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '维护Agent' }));
   expect(screen.getByText('暂无维护事项')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '注册Agent' }));
   expect(screen.queryByRole('button', { name: '打开对话：同事的核对' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: '部门对话' }));
   fireEvent.click(screen.getByRole('button', { name: '打开对话：同事的核对' }));
@@ -403,7 +405,7 @@ test('项目内新对话固定真实Agent和目标，默认完全允许，创建
   app();
   const dialog = await newProjectDialog();
   expect(within(dialog).getByText('注册Agent')).toBeTruthy();
-  expect(within(dialog).queryByRole('combobox', { name: '选择Agent' })).toBeNull();
+  expect(within(dialog).queryByRole('radio', { name: '维护Agent' })).toBeNull();
   expect(
     (within(dialog).getByRole('combobox', { name: '权限模式' }) as HTMLSelectElement).value,
   ).toBe('full');
@@ -458,9 +460,8 @@ test('项目外新对话可选择维护Agent，保存后明确尚不能运行', 
   await screen.findByRole('button', { name: 'L08 510(k)' });
   fireEvent.click(screen.getByRole('button', { name: '新对话' }));
   const dialog = screen.getByRole('dialog', { name: '新对话' });
-  fireEvent.change(within(dialog).getByRole('combobox', { name: '选择Agent' }), {
-    target: { value: 'maintenance' },
-  });
+  fireEvent.click(within(dialog).getByRole('radio', { name: '维护Agent' }));
+  expect(screen.getByText('维护Agent', { selector: '.live-crumb' })).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: '创建对话' }));
   await screen.findByText('对话已保存，尚未关联项目，暂不能启动任务。');
   expect(screen.queryByRole('region', { name: '已打开的真实对话' })).toBeNull();
@@ -468,6 +469,11 @@ test('项目外新对话可选择维护Agent，保存后明确尚不能运行', 
     expect.objectContaining({ agentCode: 'maintenance', permissionMode: 'full' }),
     undefined,
   );
+  fireEvent.click(screen.getByRole('button', { name: '新对话' }));
+  const repeated = screen.getByRole('dialog', { name: '新对话' });
+  expect(
+    (within(repeated).getByRole('radio', { name: '注册Agent' }) as HTMLInputElement).checked,
+  ).toBe(true);
 });
 
 test('待我处理用服务器快照替换，真实通知可打开对应对话', async () => {
@@ -503,7 +509,7 @@ test('Ctrl+K和Esc保持搜索焦点，设置为非模态且真实调用logout',
   searchButton.focus();
   const styles = document.querySelectorAll('style').length;
   fireEvent.keyDown(document, { key: 'k', ctrlKey: true });
-  const searchInput = screen.getByRole('textbox', { name: '搜索项目或对话' });
+  const searchInput = screen.getByRole('combobox', { name: '搜索项目或对话' });
   await waitFor(() => expect(document.activeElement).toBe(searchInput));
   expect(
     screen.getByRole('dialog', { name: '搜索项目或对话' }).getAttribute('aria-modal'),
@@ -533,7 +539,7 @@ test('会话失效后卸载项目和活动对话，回到真实登录表单', as
     error: '登录已失效，请重新登录。',
   });
   view.rerender(<LiveApp />);
-  expect(screen.getByLabelText('用户名')).toBeTruthy();
+  expect(screen.getByLabelText('账号')).toBeTruthy();
   expect(screen.queryByRole('region', { name: '已打开的真实对话' })).toBeNull();
   expect(screen.queryByRole('complementary', { name: '项目导航' })).toBeNull();
 });
@@ -547,10 +553,57 @@ test('搜索请求失败时明确提示重试，不把网络失败展示成没�
   await screen.findByRole('button', { name: 'L08 510(k)' });
   fireEvent.click(screen.getByRole('button', { name: '搜索' }));
   const dialog = screen.getByRole('dialog', { name: '搜索项目或对话' });
-  fireEvent.change(within(dialog).getByRole('textbox', { name: '搜索项目或对话' }), {
+  fireEvent.change(within(dialog).getByRole('combobox', { name: '搜索项目或对话' }), {
     target: { value: '尚未加载的标题' },
   });
   expect(await within(dialog).findByRole('alert')).toBeTruthy();
   expect(within(dialog).queryByText('当前列表没有匹配结果。')).toBeNull();
   expect(within(dialog).getByRole('button', { name: '重新加载对话' })).toBeTruthy();
+});
+
+test('异步插入对话结果时按 ID 保留已选中的项目，回车打开原目标', async () => {
+  const page = { items: [own], hasMore: false, nextCursor: null };
+  let resolveSearch!: (value: typeof page) => void;
+  const response = new Promise<typeof page>((resolve) => {
+    resolveSearch = resolve;
+  });
+  mocks.api.conversations.mockImplementation(
+    async (options: { projectId?: string; scope?: string }) =>
+      options.scope === 'all' && !options.projectId
+        ? response
+        : { items: [], hasMore: false, nextCursor: null },
+  );
+  app();
+  await screen.findByRole('button', { name: 'L08 510(k)' });
+  fireEvent.click(screen.getByRole('button', { name: '搜索' }));
+  const dialog = screen.getByRole('dialog', { name: '搜索项目或对话' });
+  const input = within(dialog).getByRole('combobox', { name: '搜索项目或对话' });
+  const projectOption = within(dialog).getByRole('option', { name: 'L08 510(k)' });
+  fireEvent.keyDown(input, { key: 'ArrowDown' });
+  await act(async () => {
+    resolveSearch(page);
+  });
+  await within(dialog).findByRole('option', { name: /我的核对/ });
+  expect(input.getAttribute('aria-activedescendant')).toBe(projectOption.id);
+  expect(projectOption.getAttribute('aria-selected')).toBe('true');
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(await screen.findByRole('heading', { name: 'L08 510(k)' })).toBeTruthy();
+});
+
+test('取消新对话后保留原文件与资料标签页节点', async () => {
+  app();
+  await projectView();
+  for (const [tab, label] of [
+    ['文件', '项目文件'],
+    ['资料', '项目资料'],
+  ] as const) {
+    fireEvent.click(screen.getByRole('button', { name: tab }));
+    const original = screen.getByRole('region', { name: label });
+    fireEvent.click(screen.getByRole('button', { name: '新对话' }));
+    expect(screen.queryByRole('region', { name: label })).toBeNull();
+    expect(original.isConnected).toBe(true);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '新对话' })).toBeNull());
+    expect(screen.getByRole('region', { name: label })).toBe(original);
+  }
 });

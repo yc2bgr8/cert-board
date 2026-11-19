@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type RefObject,
+} from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import {
@@ -15,6 +22,20 @@ const modeDescriptions: Record<PermissionMode, string> = {
   ask: '可以整理工作文件；写业务记录和发内部消息前先请你批准。',
   full: '直接处理业务记录和内部消息；外部消息仍逐条批准，最终结果仍需审核。',
 };
+const agents = [
+  {
+    code: 'registration',
+    name: '注册Agent',
+    detail: '注册项目：立项、路径研判、申报包、发补答复',
+    icon: 'clipboard',
+  },
+  {
+    code: 'maintenance',
+    name: '维护Agent',
+    detail: '维护事项：证照台账、年度注册、续期、上市后监测',
+    icon: 'wrench',
+  },
+] as const;
 export function NewConversation({
   open,
   onOpenChange,
@@ -23,6 +44,7 @@ export function NewConversation({
   userId,
   returnFocus,
   onCreated,
+  onAgentChange,
 }: {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -30,7 +52,8 @@ export function NewConversation({
   projects: ProjectRecord[];
   userId: string;
   returnFocus: RefObject<HTMLElement | null>;
-  onCreated(conversationId: string, projectId: string | null): void;
+  onCreated(conversationId: string, projectId: string | null, agentCode: AgentCode): void;
+  onAgentChange(agentCode: AgentCode): void;
 }) {
   const [projectId, setProjectId] = useState('');
   const [agentCode, setAgentCode] = useState<AgentCode>('registration');
@@ -102,7 +125,11 @@ export function NewConversation({
         projectId || undefined,
       );
       completed.current = true;
-      onCreated(result.conversation.id, result.conversation.projectId);
+      onCreated(
+        result.conversation.id,
+        result.conversation.projectId,
+        result.conversation.agentCode,
+      );
       onOpenChange(false);
     } catch (failure) {
       setError(errorMessage(failure));
@@ -111,6 +138,10 @@ export function NewConversation({
       setBusy(false);
     }
   }
+  const selectedAgent = selected?.projectType ?? agentCode;
+  useLayoutEffect(() => {
+    if (open) onAgentChange(selectedAgent);
+  }, [open, onAgentChange, selectedAgent]);
   return (
     <Dialog.Root
       modal={false}
@@ -119,170 +150,203 @@ export function NewConversation({
         if (!busy) onOpenChange(next);
       }}
     >
-      <Dialog.Portal>
-        <Dialog.Content
-          className="live-dialog"
-          onOpenAutoFocus={(event) => {
+      <Dialog.Content
+        className="live-dialog live-new-dialog"
+        onInteractOutside={(event) => {
+          const target = event.detail.originalEvent.target;
+          if (target instanceof Element && target.closest('[data-sidebar-toggle]'))
             event.preventDefault();
-            projectSelect.current?.focus();
-          }}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            if (!completed.current) returnFocus.current?.focus();
-          }}
+        }}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          projectSelect.current?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (completed.current) return;
+          const trigger = returnFocus.current;
+          if (trigger?.isConnected && !trigger.closest('[hidden]')) trigger.focus();
+          else document.querySelector<HTMLButtonElement>('.live-project-header button')?.focus();
+        }}
+      >
+        <Dialog.Title className="sr-only">新对话</Dialog.Title>
+        <Dialog.Description className="sr-only">选择项目和本次工作的权限。</Dialog.Description>
+        <Dialog.Close
+          className="live-icon-button live-new-close"
+          aria-label="关闭新对话"
+          disabled={busy}
         >
-          <div className="live-dialog-heading">
-            <Dialog.Title>新对话</Dialog.Title>
-            <Dialog.Close className="live-icon-button" aria-label="关闭新对话" disabled={busy}>
-              <ShellIcon name="close" />
-            </Dialog.Close>
-          </div>
-          <Dialog.Description className="live-muted">选择项目和本次工作的权限。</Dialog.Description>
-          <form className="live-create-form" onSubmit={(event) => void submit(event)}>
-            <label htmlFor="live-new-project">选择项目</label>
-            <select
-              id="live-new-project"
-              ref={projectSelect}
-              value={projectId}
-              disabled={busy}
-              onChange={(event) => {
-                setProjectId(event.target.value);
-                setGoalId('');
-                setError(null);
-              }}
-            >
-              <option value="">暂不关联项目</option>
-              {(['registration', 'maintenance'] as const).map((type) => (
-                <optgroup label={type === 'registration' ? '注册项目' : '维护事项'} key={type}>
-                  {projects
-                    .filter((project) => project.projectType === type)
-                    .map((project) => (
-                      <option value={project.id} key={project.id}>
-                        {project.name}
-                      </option>
-                    ))}
-                </optgroup>
-              ))}
-            </select>
-            {!projectId && (
-              <p className="live-field-help">
-                可以先保存对话。开始任务时，需要进入一个有目标和资料的项目。
-              </p>
-            )}
-            {selected ? (
-              <div className="live-fixed-agent">
-                <span>Agent</span>
-                <span>{selected.projectType === 'registration' ? '注册Agent' : '维护Agent'}</span>
-              </div>
-            ) : (
-              <>
-                <label htmlFor="live-new-agent">选择Agent</label>
-                <select
-                  id="live-new-agent"
-                  value={agentCode}
-                  disabled={busy}
-                  onChange={(event) => setAgentCode(event.target.value as AgentCode)}
+          <ShellIcon name="close" />
+        </Dialog.Close>
+        <form className="live-create-form" onSubmit={(event) => void submit(event)}>
+          <h2>让{selectedAgent === 'registration' ? '注册Agent' : '维护Agent'}做什么？</h2>
+          <fieldset className="live-agent-options" disabled={busy || Boolean(selected)}>
+            <legend className="sr-only">选择Agent</legend>
+            {agents.map(({ code, name, detail, icon }) => (
+              <label className="live-agent-option" key={code}>
+                {selected ? null : (
+                  <input
+                    className="sr-only"
+                    type="radio"
+                    name="live-new-agent"
+                    aria-label={name}
+                    checked={agentCode === code}
+                    onChange={() => setAgentCode(code)}
+                  />
+                )}
+                <span
+                  className={
+                    selectedAgent === code ? 'live-agent-card is-selected' : 'live-agent-card'
+                  }
                 >
-                  <option value="registration">注册Agent</option>
-                  <option value="maintenance">维护Agent</option>
-                </select>
-              </>
-            )}
-            {projectId && (
-              <>
-                {goalsQuery.isPending && (
-                  <p className="live-field-help" role="status">
-                    正在加载目标…
-                  </p>
-                )}
-                {goalsQuery.isError && (
-                  <p className="live-error" role="alert">
-                    目标暂时无法加载。
-                    <button
-                      className="live-text-button"
-                      type="button"
-                      onClick={() => void goalsQuery.refetch()}
-                    >
-                      重试
-                    </button>
-                  </p>
-                )}
-                {goals.length > 0 && (
-                  <>
-                    <label htmlFor="live-new-goal">工作目标</label>
-                    <select
-                      id="live-new-goal"
-                      value={goalId}
-                      disabled={busy}
-                      onChange={(event) => setGoalId(event.target.value)}
-                    >
-                      <option value="">选择工作目标</option>
-                      {goals.map((goal) => (
-                        <option value={goal.id} key={goal.id}>
-                          {goal.title}
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                )}
-                {goalsQuery.hasNextPage && (
-                  <button
-                    className="live-text-button"
-                    type="button"
-                    disabled={goalsQuery.isFetchingNextPage}
-                    onClick={() => void goalsQuery.fetchNextPage()}
-                  >
-                    加载更多目标
-                  </button>
-                )}
-                {!goalsQuery.isPending &&
-                  !goalsQuery.isError &&
-                  goals.length === 0 &&
-                  !goalsQuery.hasNextPage && (
-                    <p className="live-field-help">此项目暂无活动目标，当前只能保存对话。</p>
-                  )}
-              </>
-            )}
-            <label htmlFor="live-new-title">对话标题</label>
-            <input
+                  <span className="live-agent-symbol">
+                    <ShellIcon name={icon} />
+                  </span>
+                  <span>
+                    <strong>{name}</strong>
+                    <small>{detail}</small>
+                  </span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+          <div className="live-create-dock">
+            <label className="sr-only" htmlFor="live-new-title">
+              对话标题
+            </label>
+            <textarea
               id="live-new-title"
               value={title}
+              rows={3}
               disabled={busy}
               maxLength={255}
               placeholder="可选，简述这次工作"
               onChange={(event) => setTitle(event.target.value)}
             />
-            <label htmlFor="live-new-mode">权限模式</label>
-            <select
-              id="live-new-mode"
-              value={permissionMode}
-              disabled={busy}
-              aria-describedby="live-mode-help"
-              onChange={(event) => setPermissionMode(event.target.value as PermissionMode)}
-            >
-              <option value="read_only">只读</option>
-              <option value="ask">请求批准</option>
-              <option value="full">完全允许</option>
-            </select>
-            <p id="live-mode-help" className="live-field-help">
-              {modeDescriptions[permissionMode]}
+            <div className="live-dock-options">
+              <label className="sr-only" htmlFor="live-new-project">
+                选择项目
+              </label>
+              <select
+                id="live-new-project"
+                ref={projectSelect}
+                value={projectId}
+                disabled={busy}
+                onChange={(event) => {
+                  setProjectId(event.target.value);
+                  setGoalId('');
+                  setError(null);
+                }}
+              >
+                <option value="">项目：不指定</option>
+                {(['registration', 'maintenance'] as const).map((type) => (
+                  <optgroup label={type === 'registration' ? '注册项目' : '维护事项'} key={type}>
+                    {projects
+                      .filter((project) => project.projectType === type)
+                      .map((project) => (
+                        <option value={project.id} key={project.id}>
+                          {project.name}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))}
+              </select>
+              <label className="sr-only" htmlFor="live-new-mode">
+                权限模式
+              </label>
+              <select
+                id="live-new-mode"
+                value={permissionMode}
+                disabled={busy}
+                aria-describedby="live-mode-help"
+                onChange={(event) => setPermissionMode(event.target.value as PermissionMode)}
+              >
+                <option value="read_only">只读</option>
+                <option value="ask">请求批准</option>
+                <option value="full">完全允许</option>
+              </select>
+              <button
+                className="live-primary live-create-submit"
+                type="submit"
+                aria-label="创建对话"
+                aria-busy={busy}
+                title={busy ? '正在创建…' : '创建对话'}
+                disabled={
+                  busy || Boolean(projectId && (goalsQuery.isPending || goalsQuery.isError))
+                }
+              >
+                <ShellIcon name="arrowUp" />
+              </button>
+            </div>
+          </div>
+          {!projectId && (
+            <p className="live-field-help">可以先保存对话。开始任务前请选择有活动目标的项目。</p>
+          )}
+          {projectId && (
+            <>
+              {goalsQuery.isPending && (
+                <p className="live-field-help" role="status">
+                  正在加载目标…
+                </p>
+              )}
+              {goalsQuery.isError && (
+                <p className="live-error" role="alert">
+                  目标暂时无法加载。
+                  <button
+                    className="live-text-button"
+                    type="button"
+                    onClick={() => void goalsQuery.refetch()}
+                  >
+                    重试
+                  </button>
+                </p>
+              )}
+              {goals.length > 0 && (
+                <>
+                  <label htmlFor="live-new-goal">工作目标</label>
+                  <select
+                    id="live-new-goal"
+                    value={goalId}
+                    disabled={busy}
+                    onChange={(event) => setGoalId(event.target.value)}
+                  >
+                    <option value="">选择工作目标</option>
+                    {goals.map((goal) => (
+                      <option value={goal.id} key={goal.id}>
+                        {goal.title}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              {goalsQuery.hasNextPage && (
+                <button
+                  className="live-text-button"
+                  type="button"
+                  disabled={goalsQuery.isFetchingNextPage}
+                  onClick={() => void goalsQuery.fetchNextPage()}
+                >
+                  加载更多目标
+                </button>
+              )}
+              {!goalsQuery.isPending &&
+                !goalsQuery.isError &&
+                goals.length === 0 &&
+                !goalsQuery.hasNextPage && (
+                  <p className="live-field-help">此项目暂无活动目标，当前只能保存对话。</p>
+                )}
+            </>
+          )}
+          <p id="live-mode-help" className="live-field-help">
+            {modeDescriptions[permissionMode]}
+          </p>
+          {error && (
+            <p className="live-error" role="alert">
+              {error}
             </p>
-            {error && (
-              <p className="live-error" role="alert">
-                {error}
-              </p>
-            )}
-            <button
-              className="live-primary"
-              type="submit"
-              aria-label="创建对话"
-              disabled={busy || Boolean(projectId && (goalsQuery.isPending || goalsQuery.isError))}
-            >
-              {busy ? '正在创建…' : '创建对话'}
-            </button>
-          </form>
-        </Dialog.Content>
-      </Dialog.Portal>
+          )}
+        </form>
+      </Dialog.Content>
     </Dialog.Root>
   );
 }

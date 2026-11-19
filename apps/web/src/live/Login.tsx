@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { errorMessage } from './api.js';
+import { Logo } from './Logo.js';
 
 export function Login({
   login,
@@ -35,10 +36,10 @@ export function Login({
   }
   return (
     <main className="live-login">
+      <Logo large />
       <form className="live-login-form" method="post" onSubmit={(event) => void submit(event)}>
-        <h1>器械认证</h1>
-        <p className="live-muted">登录后进入项目，查看资料、交代工作和审核结果。</p>
-        <label htmlFor="live-username">用户名</label>
+        <h1>登录</h1>
+        <label htmlFor="live-username">账号</label>
         <input
           id="live-username"
           name="username"
@@ -52,7 +53,6 @@ export function Login({
           }}
           maxLength={80}
           required
-          autoFocus
           disabled={busy}
         />
         <label htmlFor="live-password">密码</label>
@@ -85,7 +85,9 @@ export function Login({
         >
           {busy ? '正在登录…' : '登录'}
         </button>
+        <p className="live-muted">账号由管理员建立。忘记密码请联系管理员重置。</p>
       </form>
+      <p className="live-login-footer">仅限注册部门成员使用</p>
     </main>
   );
 }

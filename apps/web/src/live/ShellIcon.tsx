@@ -8,6 +8,10 @@ const paths = {
   panel: 'M3 4h18v16H3zM9 4v16',
   settings: 'M4 7h16M4 17h16M8 4v6M16 14v6',
   chat: 'M4 4h16v12H9l-5 4z',
+  chevron: 'm9 6 6 6-6 6',
+  clipboard: 'M9 4H6v16h12V4h-3M9 3h6v4H9zM9 13l2 2 4-4',
+  wrench: 'M14 4a5 5 0 0 0-6 6l-4 5a2 2 0 0 0 3 3l5-4a5 5 0 0 0 6-6l-3 3-3-3z',
+  arrowUp: 'M12 19V5m-6 6 6-6 6 6',
 } as const;
 
 export function ShellIcon({ name }: { name: keyof typeof paths }) {

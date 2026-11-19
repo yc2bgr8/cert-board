@@ -1,8 +1,20 @@
-import { useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import type { ProjectRecord } from '@cert-board/shared';
 import type { ConversationDetail } from './api.js';
 import { ShellIcon } from './ShellIcon.js';
+
+function highlight(value: string, search: string) {
+  const start = search ? value.toLocaleLowerCase().indexOf(search) : -1;
+  if (start < 0) return value;
+  return (
+    <>
+      {value.slice(0, start)}
+      <mark>{value.slice(start, start + search.length)}</mark>
+      {value.slice(start + search.length)}
+    </>
+  );
+}
 
 export function Search({
   open,
@@ -32,11 +44,41 @@ export function Search({
   onConversation(conversation: ConversationDetail): void;
 }) {
   const [query, setQuery] = useState('');
+  const [activeKey, setActiveKey] = useState<string>();
   const input = useRef<HTMLInputElement>(null);
   const search = query.trim().toLocaleLowerCase();
+  const projectMatches = projects.filter((project) =>
+    project.name.toLocaleLowerCase().includes(search),
+  );
+  const conversationMatches = conversations.filter((conversation) =>
+    conversation.title.toLocaleLowerCase().includes(search),
+  );
+  const optionKeys = [
+    ...conversationMatches.map((conversation) => `conversation-${conversation.id}`),
+    ...projectMatches.map((project) => `project-${project.id}`),
+  ];
+  const resultCount = optionKeys.length;
+  const selectedKey = activeKey && optionKeys.includes(activeKey) ? activeKey : optionKeys[0];
+  const selected = selectedKey ? optionKeys.indexOf(selectedKey) : -1;
+  const activeOptionId = selectedKey ? `live-search-option-${selectedKey}` : undefined;
+  useEffect(() => {
+    if (!open || !activeOptionId) return;
+    setActiveKey(selectedKey);
+    document.getElementById(activeOptionId)?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, activeOptionId, selectedKey, query]);
+  function choose(index: number) {
+    const thread = conversationMatches[index];
+    const project = projectMatches[index - conversationMatches.length];
+    if (thread) onConversation(thread);
+    else if (project) onProject(project.id);
+    else return;
+    onOpenChange(false);
+  }
+
   return (
     <Dialog.Root modal={false} open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
+        <div className="live-search-scrim" aria-hidden="true" />
         <Dialog.Content
           className="live-dialog live-search-dialog"
           onOpenAutoFocus={(event) => {
@@ -48,58 +90,110 @@ export function Search({
             returnFocus.current?.focus();
           }}
         >
-          <div className="live-dialog-heading">
-            <Dialog.Title>搜索项目或对话</Dialog.Title>
-            <Dialog.Close className="live-icon-button" aria-label="关闭搜索">
-              <ShellIcon name="close" />
-            </Dialog.Close>
-          </div>
-          <Dialog.Description className="live-muted">
+          <Dialog.Title className="sr-only">搜索项目或对话</Dialog.Title>
+          <Dialog.Description className="sr-only">
             查找项目名和已加载的对话标题。
           </Dialog.Description>
-          <input
-            ref={input}
-            aria-label="搜索项目或对话"
-            placeholder="输入项目名或对话标题"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
+          <div className="live-search-bar">
+            <ShellIcon name="search" />
+            <input
+              ref={input}
+              role="combobox"
+              aria-label="搜索项目或对话"
+              aria-expanded={open}
+              aria-autocomplete="list"
+              aria-controls="live-search-results"
+              aria-activedescendant={activeOptionId}
+              placeholder="输入项目名或对话标题"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActiveKey(undefined);
+              }}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing || event.keyCode === 229 || resultCount === 0)
+                  return;
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  const offset = event.key === 'ArrowDown' ? 1 : -1;
+                  setActiveKey(optionKeys[(selected + offset + resultCount) % resultCount]);
+                } else if (event.key === 'Enter') {
+                  event.preventDefault();
+                  choose(selected);
+                }
+              }}
+            />
+            <Dialog.Close className="live-search-escape" aria-label="关闭搜索">
+              <kbd>Esc</kbd>
+            </Dialog.Close>
+          </div>
           <div className="live-search-results">
-            {projects
-              .filter((project) => project.name.toLocaleLowerCase().includes(search))
-              .map((project) => (
-                <button
-                  className="live-search-result"
-                  type="button"
-                  key={project.id}
-                  onClick={() => {
-                    onProject(project.id);
-                    onOpenChange(false);
-                  }}
-                >
-                  <ShellIcon name="folder" />
-                  <span>{project.name}</span>
-                </button>
-              ))}
-            {conversations
-              .filter((conversation) => conversation.title.toLocaleLowerCase().includes(search))
-              .map((conversation) => (
-                <button
-                  className="live-search-result"
-                  type="button"
-                  key={conversation.id}
-                  onClick={() => {
-                    onConversation(conversation);
-                    onOpenChange(false);
-                  }}
-                >
-                  <ShellIcon name="chat" />
-                  <span>
-                    {conversation.title}
-                    <small>{conversation.ownerName}</small>
-                  </span>
-                </button>
-              ))}
+            <div id="live-search-results" role="listbox" aria-label="搜索结果">
+              {conversationMatches.length > 0 && (
+                <section role="group" aria-label="对话结果">
+                  <h3 aria-hidden="true">对话</h3>
+                  {conversationMatches.map((conversation, index) => (
+                    <button
+                      id={`live-search-option-${optionKeys[index]}`}
+                      className={
+                        selected === index ? 'live-search-result is-current' : 'live-search-result'
+                      }
+                      type="button"
+                      role="option"
+                      aria-selected={selected === index}
+                      tabIndex={-1}
+                      key={conversation.id}
+                      onFocus={() => setActiveKey(optionKeys[index])}
+                      onClick={() => choose(index)}
+                    >
+                      <ShellIcon name="chat" />
+                      <span>
+                        {highlight(conversation.title, search)}
+                        <small>
+                          {[
+                            conversation.projectId
+                              ? projects.find((project) => project.id === conversation.projectId)
+                                  ?.name
+                              : '未关联项目',
+                            conversation.ownerName,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </small>
+                      </span>
+                    </button>
+                  ))}
+                </section>
+              )}
+              {projectMatches.length > 0 && (
+                <section role="group" aria-label="项目结果">
+                  <h3 aria-hidden="true">项目</h3>
+                  {projectMatches.map((project, projectIndex) => {
+                    const index = conversationMatches.length + projectIndex;
+                    return (
+                      <button
+                        id={`live-search-option-${optionKeys[index]}`}
+                        className={
+                          selected === index
+                            ? 'live-search-result is-current'
+                            : 'live-search-result'
+                        }
+                        type="button"
+                        role="option"
+                        aria-selected={selected === index}
+                        tabIndex={-1}
+                        key={project.id}
+                        onFocus={() => setActiveKey(optionKeys[index])}
+                        onClick={() => choose(index)}
+                      >
+                        <ShellIcon name="folder" />
+                        <span>{highlight(project.name, search)}</span>
+                      </button>
+                    );
+                  })}
+                </section>
+              )}
+            </div>
             {loading && (
               <p className="live-muted" role="status">
                 正在加载对话…
@@ -113,12 +207,9 @@ export function Search({
                 </button>
               </p>
             )}
-            {!loading &&
-              !error &&
-              !projects.some((project) => project.name.toLocaleLowerCase().includes(search)) &&
-              !conversations.some((conversation) =>
-                conversation.title.toLocaleLowerCase().includes(search),
-              ) && <p className="live-muted">当前列表没有匹配结果。</p>}
+            {!loading && !error && resultCount === 0 && (
+              <p className="live-muted">当前列表没有匹配结果。</p>
+            )}
             {hasMore && (
               <button
                 className="live-text-button"
@@ -130,6 +221,17 @@ export function Search({
               </button>
             )}
           </div>
+          <footer className="live-search-keys">
+            <span>
+              <kbd>↑</kbd> <kbd>↓</kbd> 选择
+            </span>
+            <span>
+              <kbd>Enter</kbd> 打开
+            </span>
+            <span>
+              <kbd>Ctrl K</kbd> 随时打开搜索
+            </span>
+          </footer>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
