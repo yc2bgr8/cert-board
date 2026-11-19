@@ -356,6 +356,70 @@
 .verification-settings-form > button {
   justify-self: start;
 }
+.verification-link-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+}
+.verification-link-row {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 10px 13px;
+  border: 1px solid #badbd2;
+  background: #f2f9f6;
+  border-radius: 10px;
+  color: #153f3d;
+  font-size: 13px;
+}
+.verification-link-row > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.verification-link-row > div {
+  flex: 1;
+  min-width: 0;
+}
+.verification-link-row p {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+.verification-link-row > button {
+  flex-shrink: 0;
+}
+.verification-link-counts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-inline-start: 6px;
+}
+.verification-review-form {
+  display: grid;
+  gap: 7px;
+  border: 1px solid #d1dedb;
+  border-radius: 10px;
+  padding: 12px;
+  margin: 12px 0;
+  background: #fff;
+}
+.verification-review-form label {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.verification-review-form textarea {
+  min-height: 74px;
+  width: 100%;
+  border: 1px solid #d1dedb;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 400;
+  padding: 7px;
+  resize: vertical;
+}
 
 @media (max-width: 960px) {
   .verification-aside,

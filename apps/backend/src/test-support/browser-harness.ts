@@ -41,7 +41,7 @@ import {
   type BrowserScenario,
 } from './browser-fixture.js';
 
-const origin = 'http://127.0.0.1:28080';
+const defaultOrigin = 'http://127.0.0.1:28080';
 class MemoryStore implements DocumentBlobStore {
   private values = new Map<string, Buffer>();
   async put(value: Buffer) {
@@ -58,7 +58,13 @@ class MemoryStore implements DocumentBlobStore {
 
 export async function startBrowserHarness({ useVerificationWorker = false } = {}) {
   if (process.env.NODE_ENV !== 'test') throw new Error('BROWSER_HARNESS_TEST_ONLY');
-  const dist = fileURLToPath(new URL('../../../web/dist/', import.meta.url));
+  const localUrl = new URL(process.env.WEB_ORIGIN ?? defaultOrigin);
+  if (localUrl.protocol !== 'http:' || localUrl.hostname !== '127.0.0.1' || !localUrl.port)
+    throw new Error('BROWSER_HARNESS_LOCAL_ORIGIN_REQUIRED');
+  const origin = localUrl.origin;
+  const dist =
+    process.env.BROWSER_FIXTURE_DIST ??
+    fileURLToPath(new URL('../../../web/dist/', import.meta.url));
   let index: Buffer;
   try {
     index = await readFile(path.join(dist, 'index.html'));
@@ -227,7 +233,9 @@ export async function startBrowserHarness({ useVerificationWorker = false } = {}
     app = createApp(config, {
       database: pool,
       blobStore: store,
-      ...(useVerificationWorker ? {} : { verificationRuntime: verification.runtime }),
+      ...(useVerificationWorker
+        ? {}
+        : { verificationRuntime: verification.runtime, verificationPolling: true }),
       checkDatabase: async () => {
         await pool.query('SELECT 1');
       },
@@ -261,7 +269,7 @@ export async function startBrowserHarness({ useVerificationWorker = false } = {}
         return reply.code(404).send();
       }
     });
-    await app.listen({ host: '127.0.0.1', port: 28080 });
+    await app.listen({ host: '127.0.0.1', port: Number(localUrl.port) });
     const connection = pool.options.connectionString;
     if (typeof connection !== 'string' || new URL(connection).pathname !== `/${name}`)
       throw new Error('BROWSER_QUEUE_DATABASE_REFUSED');
@@ -291,7 +299,7 @@ export async function startBrowserHarness({ useVerificationWorker = false } = {}
               store,
               gateway,
               models: browserModels,
-              definitions: (code) => buildAgentTools(store, code),
+              definitions: (code) => buildAgentTools(store, code, pool),
             },
             runId,
             { signal: controller.signal, ...(ticketId ? { ticketId } : {}) },

@@ -28,6 +28,7 @@ export interface AppDependencies extends HealthDependencies {
   blobStore?: DocumentBlobStore;
   externalModelRuntime?: ExternalModelRuntime;
   verificationRuntime?: VerificationRuntime;
+  verificationPolling?: boolean;
 }
 
 async function dependencyStatus(check: () => Promise<void>): Promise<'up' | 'down'> {
@@ -81,6 +82,7 @@ export function createApp(
       blobStore,
       dependencies.externalModelRuntime,
       dependencies.verificationRuntime,
+      dependencies.verificationPolling,
     );
   }
   app.addHook('onSend', async (_request, reply, payload) => {

@@ -88,6 +88,37 @@ export async function reviewBrowserFlow(
   ]);
   await card.getByText('保留两处原文，暂不选定正确编号。', { exact: true }).waitFor();
   await page.screenshot({ path: path.join(output, 'review-card.png'), fullPage: true });
+  actions.stage('审核卡发起外部核实并回到原对话');
+  const moderate = harness.verification.runtime.moderate;
+  harness.verification.runtime.moderate = async (context) => {
+    if (Object.values(context.attempts).reduce((sum, count) => sum + count, 0) >= 2)
+      return { text: '本轮交叉核实已完成。', call: null, finish: true };
+    return moderate(context);
+  };
+  try {
+    await card.getByRole('button', { name: '让Agent核实', exact: true }).click();
+    await card
+      .getByRole('textbox', { name: '需要核实的疑问', exact: true })
+      .fill('核实这条合成编号的出处。');
+    await card.getByRole('button', { name: '发起核实', exact: true }).click();
+    const external = card.getByRole('list', { name: '外部核实依据', exact: true });
+    await external.getByText('外部核实', { exact: true }).waitFor();
+    await external.getByRole('link', { name: '合成核实资料（外部网站）', exact: true }).waitFor();
+    await external.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(output, 'pr-d4-05-review-verification.png') });
+    await external.getByRole('button', { name: '查看核实群聊', exact: true }).click();
+    const group = page.getByRole('region', { name: '外部核实群聊', exact: true });
+    await group.getByRole('complementary', { name: '核实结论', exact: true }).waitFor();
+    await group.getByRole('button', { name: '打开原对话', exact: true }).click();
+    await page
+      .getByRole('list', { name: '对话中的外部核实', exact: true })
+      .getByText('外部核实已完成', { exact: true })
+      .waitFor();
+    await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
+    await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
+  } finally {
+    harness.verification.runtime.moderate = moderate;
+  }
   actions.stage('真实资料依据与逐字高亮');
   await card.getByRole('button', { name: '查看原文', exact: true }).first().click();
   const source = page.getByRole('region', { name: 'D035 第 1 页原文', exact: true });
@@ -156,7 +187,7 @@ export async function reviewBrowserFlow(
   await page.screenshot({ path: path.join(output, 'review-file.png'), fullPage: true });
   await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
   actions.stage('聊天批准不产生决定');
-  harness.plan('approval_text');
+  const reviewReference = harness.plan('approval_text');
   const chat = await actions.send('我已批准');
   await page
     .getByText('对话文字不能代替审批，请在审核卡上点击通过或退回修改。', { exact: false })
@@ -168,6 +199,8 @@ export async function reviewBrowserFlow(
   );
   assert.equal((await harness.pool.query('SELECT id FROM review_decision')).rowCount, 0);
   assert.equal((await harness.pool.query('SELECT id FROM submission_snapshot')).rowCount, 0);
+  assert.equal(reviewReference.observed.reviewVerificationReceived, true);
+  assert.equal(reviewReference.observed.latestUser, '我已批准');
   actions.stage('浏览器审核通过与冻结');
   await page.getByRole('button', { name: '查看审核', exact: true }).first().click();
   const approved = page.waitForResponse(

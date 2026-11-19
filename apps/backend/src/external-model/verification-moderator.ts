@@ -33,8 +33,9 @@ export function createVerificationModerator(
       `SELECT c.id,c.goal_id,c.project_id,g.direction_version
        FROM conversation c JOIN goal g ON g.id=c.goal_id AND g.project_id=c.project_id
        WHERE c.project_id=$1 AND c.user_id=$2 AND c.status='active' AND g.status='active'
+         AND ($3::uuid IS NULL OR c.id=$3)
        ORDER BY c.updated_at DESC,c.id LIMIT 1`,
-      [scope.room.projectId, scope.ownerId],
+      [scope.room.projectId, scope.ownerId, scope.room.origin?.conversationId ?? null],
     );
     const context = rows[0];
     if (!context) return null;

@@ -1587,6 +1587,36 @@ export const verificationWorkerState = pgTable('verification_worker_state', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const verificationLink = pgTable(
+  'verification_link',
+  {
+    roomId: uuid('room_id')
+      .primaryKey()
+      .references(() => externalModelConversation.id, { onDelete: 'restrict' }),
+    kind: varchar('kind', { length: 12 }).notNull(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversation.id, { onDelete: 'restrict' }),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => run.id, { onDelete: 'restrict' }),
+    reviewId: uuid('review_id').references(() => reviewCard.id, { onDelete: 'restrict' }),
+    requester: uuid('requester')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      'verification_link_kind',
+      sql`(${table.kind}='agent' AND ${table.reviewId} IS NULL) OR (${table.kind}='review' AND ${table.reviewId} IS NOT NULL)`,
+    ),
+    index('verification_link_conversation_idx').on(table.conversationId, table.createdAt),
+    index('verification_link_review_idx').on(table.reviewId, table.createdAt),
+    index('verification_link_run_idx').on(table.runId),
+  ],
+);
+
 export const runEventType = pgEnum('run_event_type', [
   'run_started',
   'model_started',

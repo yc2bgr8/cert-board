@@ -297,6 +297,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           onOpenEvidence={openEvidence}
           onOpenDiff={openDiff}
           onOpenFile={openFile}
+          onOpenVerification={openVerification}
         />
       ),
     });
@@ -615,6 +616,12 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               userId={userId}
               roomId={externalId}
               onCreated={setExternalId}
+              onOpenOrigin={(id) => {
+                void api
+                  .conversation(id)
+                  .then(openConversation)
+                  .catch(() => undefined);
+              }}
               projects={availableProjects}
               loadMoreProjects={
                 projectsQuery.hasNextPage ? () => void projectsQuery.fetchNextPage() : undefined
@@ -886,6 +893,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               onReview={openReview}
               proposalNoticeKey={proposalNoticeKey}
               onProposal={openProposal}
+              onVerification={openVerification}
             />
           </div>
         )}

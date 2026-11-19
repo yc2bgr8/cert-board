@@ -15,8 +15,9 @@ import {
 export const browserReviewPath = '交付/L08-K号核查.md';
 export const browserRevisionText =
   '补充阅读范围：本次仅核对已导入摘要的两处文字，不代表完成整包资料审阅。';
+export const browserVerificationUncertainty = 'Cursor 通道不可用，对比器械编号的外部核实待补。';
 
-export function createBrowserReviewScript(revision: boolean) {
+export function createBrowserReviewScript(revision: boolean, extraUncertainty?: string) {
   if (process.env.NODE_ENV !== 'test') throw new Error('BROWSER_FIXTURE_TEST_ONLY');
   let step = 0;
   let hits: DocumentSearchItem[] = [];
@@ -122,7 +123,7 @@ export function createBrowserReviewScript(revision: boolean) {
             },
           ],
           missing: ['原始文件核对结果'],
-          uncertain: ['正确K号待确认。'],
+          uncertain: ['正确K号待确认。', ...(extraUncertainty ? [extraUncertainty] : [])],
           nextStep: revision ? '请审核补充的阅读范围。' : '请注册人员审核差异报告。',
         });
         return { name: 'check_run', input: submission };

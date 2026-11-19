@@ -19,6 +19,7 @@ const labels: Readonly<Record<string, string>> = {
   submit_for_review: '提交审核',
   propose_external: '登记外发提案',
   queue_internal_message: '登记内部测试消息',
+  consult_external_model: '请外部模型核实',
 };
 
 const page = z.object({
@@ -52,6 +53,12 @@ export function toolSummary(name: string, data: unknown, isError: boolean): stri
       return `检索返回 ${parsed.data.items.length} 个资料位置${parsed.data.hasMore ? '，还有后续结果' : ''}`;
   }
   if (name === 'queue_internal_message') return '已排入内部本地测试队列';
+  if (name === 'consult_external_model') {
+    const result = z.object({ status: z.enum(['completed', 'unavailable']) }).safeParse(data);
+    return result.success && result.data.status === 'unavailable'
+      ? '核实暂不可用，继续核对项目资料'
+      : '已取得外部核实结论';
+  }
   if (name === 'ask_user') return toolLabel(name);
   return `${toolLabel(name)}已完成`;
 }

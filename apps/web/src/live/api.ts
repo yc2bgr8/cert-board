@@ -62,6 +62,8 @@ import {
   verificationSettingsSchema,
   verificationSettingsInputSchema,
   verificationShareSchema,
+  verificationLinkListSchema,
+  verificationReviewInputSchema,
   type AuthResponse,
   type ConversationCreateInput,
   type ConversationMessageInput,
@@ -203,6 +205,23 @@ export const api = {
       verificationDetailSchema,
       signalOption(signal),
     ),
+  linkedVerifications: (conversationId: string, signal?: AbortSignal) =>
+    request(
+      `/api/conversations/${identifier(conversationId)}/verifications`,
+      verificationLinkListSchema,
+      signalOption(signal),
+    ),
+  reviewVerifications: (reviewId: string, signal?: AbortSignal) =>
+    request(
+      `/api/reviews/${identifier(reviewId)}/verifications`,
+      verificationLinkListSchema,
+      signalOption(signal),
+    ),
+  verificationFromReview: (id: string, payload: { question: string; requestKey: string }) =>
+    request(`/api/reviews/${identifier(id)}/verification`, verificationRoomSchema, {
+      method: 'POST',
+      body: checked(verificationReviewInputSchema, payload),
+    }),
   verificationCreate: (data: VerificationCreate) =>
     request('/api/verification/rooms', verificationRoomSchema, {
       method: 'POST',
