@@ -186,12 +186,14 @@ def test_content_inspection_distinguishes_pdf_and_xfa_without_names():
     ordinary = b"<template><desc>restart at fda.gov</desc></template>"
     split_word = b"<template><desc><b>not</b>eSTAR at fda.gov</desc></template>"
     separate_fields = b"<template><field>eSTAR</field><field>FDA at fda.gov</field></template>"
+    multiline_fda = b"<template><p>Food and Drug <br/>Administration eSTAR</p></template>"
     samples = [
         (sample_pdf(), "pdf"),
         (sample_pdf(with_xfa=True), "pdf"),
         (sample_pdf(with_xfa=True, xfa_template=ordinary), "pdf"),
         (sample_pdf(with_xfa=True, xfa_template=split_word), "pdf"),
         (sample_pdf(with_xfa=True, xfa_template=separate_fields), "estar"),
+        (sample_pdf(with_xfa=True, xfa_template=multiline_fda), "estar"),
         (sample_pdf(with_xfa=True, xfa_template=fda.encode("utf-16")), "estar"),
         (sample_pdf(with_xfa=True, xfa_template=fda.encode()), "estar"),
     ]

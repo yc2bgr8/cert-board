@@ -46,7 +46,10 @@ MAX_OCR_SIDE = 3600
 MAX_OPERATION_SECONDS = 360
 LEGACY_WORD = bytes.fromhex("d0cf11e0a1b11ae1")
 ESTAR_MARKER = re.compile(r"(?<![A-Za-z0-9_])estar(?![A-Za-z0-9_])", re.IGNORECASE)
-FDA_MARKER = re.compile(r"(?<![A-Za-z0-9-])fda\.gov(?![A-Za-z0-9-]|\.[A-Za-z0-9])|food and drug administration", re.IGNORECASE)
+FDA_MARKER = re.compile(
+    r"(?<![A-Za-z0-9-])fda\.gov(?![A-Za-z0-9-]|\.[A-Za-z0-9])|food\s+and\s+drug\s+administration",
+    re.IGNORECASE,
+)
 INLINE_XFA_TEXT = {"a", "abbr", "acronym", "b", "big", "cite", "code", "del", "dfn", "em",
                    "font", "i", "ins", "kbd", "label", "mark", "nobr", "q", "s", "samp",
                    "small", "span", "strike", "strong", "sub", "sup", "time", "tt", "u", "var"}
