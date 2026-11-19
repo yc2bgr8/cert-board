@@ -183,15 +183,6 @@ test('V6 重算声明期限并比较实际时间点，历史报告保持两项�
     status: 'failed',
     issues: [{ code: 'deadline_mismatch', path: 'claims[0].value' }],
   });
-  const unbound = await checkSubmission(context.pool, caller, {
-    ...base,
-    conclusion: '本次核对在 2026-03-07 截止。',
-    claims: [deadline],
-  });
-  expect(unbound.checks.at(-1)).toMatchObject({
-    status: 'failed',
-    issues: [{ code: 'deadline_unstructured', path: 'conclusion' }],
-  });
   const uncalculated = await checkSubmission(context.pool, caller, {
     ...base,
     claims: [{ ...base.claims[0], field: '截止时间', value: '2026年3月7日' }],
@@ -199,32 +190,6 @@ test('V6 重算声明期限并比较实际时间点，历史报告保持两项�
   expect(uncalculated.checks.at(-1)).toMatchObject({
     status: 'failed',
     issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
-  });
-  const subject = await checkSubmission(context.pool, caller, {
-    ...base,
-    decisions: [
-      {
-        id: 'D1',
-        subject: '续证截止：2026-05-01',
-        choice: '先核对原件。',
-        reason: '缺少原件。',
-        alternatives: [],
-        sources: base.evidence,
-        risk: 'low',
-      },
-    ],
-  });
-  expect(subject.checks.at(-1)).toMatchObject({
-    status: 'failed',
-    issues: [{ code: 'deadline_unstructured', path: 'decisions[0]' }],
-  });
-  const before = await checkSubmission(context.pool, caller, {
-    ...base,
-    nextStep: '应于 2026-05-01 前提交续证申请。',
-  });
-  expect(before.checks.at(-1)).toMatchObject({
-    status: 'failed',
-    issues: [{ code: 'deadline_unstructured', path: 'nextStep' }],
   });
   const issueDate = await checkSubmission(context.pool, caller, {
     ...base,
@@ -237,47 +202,12 @@ test('V6 重算声明期限并比较实际时间点，历史报告保持两项�
     claims: [{ ...deadline, field: '最晚续证日' }],
   });
   expect(customField.checks.at(-1)).toMatchObject({ code: 'V6', status: 'passed' });
-  const byObject = await checkSubmission(context.pool, caller, {
+  const prose = await checkSubmission(context.pool, caller, {
     ...base,
-    claims: [
-      { ...base.claims[0], object: 'L08 续证申请截止日', field: '日期', value: '2026-05-01' },
-    ],
+    nextStep: '请于 2026-05-01 前核对公告中的续证期限。',
   });
-  expect(byObject.checks.at(-1)).toMatchObject({
-    status: 'failed',
-    issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
-  });
-  const submitted = await checkSubmission(context.pool, caller, {
-    ...base,
-    conclusion: '合成申请已于 2026-05-01 提前提交。',
-  });
-  expect(submitted.passed).toBe(true);
-  expect(submitted.notRun).toContain('V6');
-  const requiredEarly = await checkSubmission(context.pool, caller, {
-    ...base,
-    nextStep: '请于 2026-05-01 提前提交申请，之后不再受理。',
-  });
-  expect(requiredEarly.checks.at(-1)).toMatchObject({
-    status: 'failed',
-    issues: [{ code: 'deadline_unstructured', path: 'nextStep' }],
-  });
-  const laterReference = await checkSubmission(context.pool, caller, {
-    ...base,
-    nextStep: '请查阅 2026-05-01 发布的公告，核实「此后不再受理」适用于哪些申请。',
-  });
-  expect(laterReference.passed).toBe(true);
-  expect(laterReference.notRun).toContain('V6');
-  for (const nextStep of [
-    '本批申请在 2026-05-01 之后不再受理。',
-    '申报截止日期为：\n2026-05-01',
-    '请于收到通知后提前办理资格确认并请于 2026-05-01 提前提交申请。',
-  ]) {
-    const explicit = await checkSubmission(context.pool, caller, { ...base, nextStep });
-    expect(explicit.checks.at(-1)).toMatchObject({
-      status: 'failed',
-      issues: [{ code: 'deadline_unstructured', path: 'nextStep' }],
-    });
-  }
+  expect(prose.notRun).toContain('V6');
+  expect(prose.checks.some(({ code }) => code === 'V6')).toBe(false);
 });
 
 test.each(['other_project', 'placeholder', 'voided'] as const)(

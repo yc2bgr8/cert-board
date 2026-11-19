@@ -436,7 +436,9 @@ function ReviewCardContent({
           <ul className="live-review-check-list">
             {card.checks.checks.map((check) => (
               <li key={check.code}>
-                <span className="live-review-identifier">{check.code}</span>
+                <span className="live-review-identifier">
+                  {check.code === 'V6' ? 'V6 · 结构化期限' : check.code}
+                </span>
                 <span
                   className={check.status === 'passed' ? 'live-review-check-passed' : undefined}
                 >
