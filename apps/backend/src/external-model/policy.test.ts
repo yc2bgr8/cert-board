@@ -1,5 +1,22 @@
 import { describe, expect, it, test } from 'vitest';
-import { containsConfidentialOverlap, redactExternalMessages } from './policy.js';
+import {
+  containsConfidentialOverlap,
+  fitProtectedPrefix,
+  redactExternalMessages,
+} from './policy.js';
+
+test('原文和出网长度边界都必须保留保密词的完整匹配', () => {
+  const secret = '甲类合成客户私有记录';
+  const draft = '开头。' + secret + '结尾。';
+  expect(fitProtectedPrefix(draft, [secret], 6, 999)).toBe('开头。');
+  expect(fitProtectedPrefix(draft, [secret], 999, 6)).toBe('开头。');
+  const long = '秘'.repeat(120);
+  const selected = fitProtectedPrefix('前。' + long + '后。', [long], 200, 55);
+  expect(selected).toBe('前。' + long + '后。');
+  expect(
+    redactExternalMessages([{ role: 'user', content: selected }], [long]).messages[0]!.content,
+  ).not.toContain('秘');
+});
 
 test('完整短保密原文也会拦截', () => {
   expect(

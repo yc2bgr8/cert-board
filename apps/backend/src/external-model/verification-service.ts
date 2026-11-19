@@ -24,7 +24,7 @@ import { AppError } from '../api/errors.js';
 import { pickBeijingMonth } from '../budget/meter.js';
 import { sendConversationMessageTx } from '../conversations/commands.js';
 import { getProject } from '../projects/service.js';
-import { redactExternalMessages } from './policy.js';
+import { fitProtectedPrefix, redactExternalMessages } from './policy.js';
 import type { ExternalModels } from './service.js';
 import { arrangeVerificationConclusion, eligibleParticipants } from './verification-policy.js';
 import {
@@ -53,16 +53,25 @@ function outboundTextLength(messages: readonly { text: string }[], words: string
   );
   return redacted.messages.reduce((size, { content }) => size + content.length, 0);
 }
-function fittingPrefix(text: string, fits: (value: string) => boolean) {
-  const characters = Array.from(text);
-  let low = 0;
-  let high = characters.length;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (fits(characters.slice(0, middle).join(''))) low = middle;
-    else high = middle - 1;
+function fittingOutboundText(
+  text: string,
+  words: string[],
+  retained: readonly { text: string }[],
+  rawLimit: number,
+  width: number,
+  wireLimit: number,
+  prepend: boolean,
+) {
+  let available = Math.min(wireLimit, width - outboundTextLength(retained, words));
+  for (let attempt = 0; attempt < 4 && available > 0; attempt++) {
+    const chosen = fitProtectedPrefix(text, words, rawLimit, available);
+    if (!chosen) return '';
+    const combined = prepend ? [{ text: chosen }, ...retained] : [...retained, { text: chosen }];
+    const excess = outboundTextLength(combined, words) - width;
+    if (excess <= 0) return chosen;
+    available -= excess;
   }
-  return characters.slice(0, low).join('').trimEnd();
+  return '';
 }
 export const verificationWorkerStateId = '18ee6c88-011a-4e58-a207-3c5ec90700d0';
 const roomAbsent = () => new AppError(404, 'VERIFICATION_ROOM_MISSING', '未找到可访问的核实。');
@@ -687,6 +696,7 @@ export class VerificationRooms {
     history: PostRow[],
     runtime: VerificationRuntime,
     scope: Pick<ModeratorContext, 'room' | 'ownerId'>,
+    words: string[],
     active?: PostRow,
     previousHuman?: PostRow,
   ) {
@@ -701,18 +711,12 @@ export class VerificationRooms {
         [previousHuman, active].flatMap((post) => (post ? [[post.id, post] as const] : [])),
       ).values(),
     ];
-    const requiredIds = new Set(required.map(({ id }) => id));
     for (const post of required)
       if (!uncompacted.some(({ id }) => id === post.id)) uncompacted.push(post);
     uncompacted.sort((left, right) => left.position - right.position);
     const head = existing ? [publicPost(existing)] : [];
     const full = [...head, ...uncompacted.map(publicPost)];
-    const words = (await this.protection.words()).map(({ phrase }) => phrase);
-    if (
-      outboundTextLength(full, words) < promptTextLimit - hostTextReserve &&
-      history.length <= 500
-    )
-      return full;
+    if (outboundTextLength(full, words) < promptTextLimit - hostTextReserve) return full;
     const requiredCost = outboundTextLength(required, words);
     if (requiredCost >= promptTextLimit)
       throw new AppError(
@@ -723,27 +727,54 @@ export class VerificationRooms {
     const budget = Math.max(promptTextLimit - hostTextReserve - 1, requiredCost);
     const shortSummary = '较早发言已整理，完整内容可在群聊中回看。';
     const reserve = Math.min(summaryTextReserve, budget - requiredCost);
-    let kept = [...required].sort((left, right) => left.position - right.position);
+    const tail = (from: number) => {
+      const suffix = uncompacted.slice(from);
+      const ids = new Set(suffix.map(({ id }) => id));
+      return [...required.filter(({ id }) => !ids.has(id)), ...suffix].sort(
+        (left, right) => left.position - right.position,
+      );
+    };
     let cut = uncompacted.length;
     while (cut > 0) {
-      const post = uncompacted[cut - 1]!;
-      if (!requiredIds.has(post.id)) {
-        const candidate = [post, ...kept].sort((left, right) => left.position - right.position);
-        if (outboundTextLength(candidate, words) > budget - reserve) break;
-        kept = candidate;
+      const block = Math.max(0, cut - 32);
+      if (outboundTextLength(tail(block), words) > budget - reserve) {
+        while (cut > block && outboundTextLength(tail(cut - 1), words) <= budget - reserve) cut--;
+        break;
       }
-      cut--;
+      cut = block;
     }
+    const kept = tail(cut);
     const older = uncompacted.slice(0, cut);
     if (!older.length && !head.length) return full;
-    const compacted = (await runtime.compact([...head, ...older.map(publicPost)], scope))
-      .slice(0, summaryTextReserve)
-      .replace(/\p{Surrogate}$/u, '')
-      .trim();
-    const fits = (text: string) =>
-      outboundTextLength([{ text }], words) <= summaryTextReserve &&
-      outboundTextLength([{ text }, ...kept], words) <= budget;
-    const excerpt = fittingPrefix(compacted, fits) || (fits(shortSummary) ? shortSummary : '');
+    const historyToCompact = [...head, ...older.map(publicPost)];
+    const safeHistory = redactExternalMessages(
+      historyToCompact.map(({ text }) => ({ role: 'user', content: text })),
+      words,
+    );
+    await this.protection.checkConfidentialSources(this.pool, safeHistory.messages);
+    const summaryDraft = safeHistory.restore(
+      await runtime.compact(
+        historyToCompact.map((post, index) => ({
+          ...post,
+          text: safeHistory.messages[index]!.content,
+        })),
+        scope,
+      ),
+    );
+    await this.protection.checkConfidentialSources(
+      this.pool,
+      redactExternalMessages([{ role: 'user', content: summaryDraft }], words).messages,
+    );
+    const compacted = fitProtectedPrefix(summaryDraft, words, summaryTextReserve, Infinity);
+    const excerpt = fittingOutboundText(
+      compacted || shortSummary,
+      words,
+      kept,
+      summaryTextReserve,
+      budget,
+      summaryTextReserve,
+      true,
+    );
     const latest = Math.max(existing?.compactsThrough ?? 0, older.at(-1)?.position ?? 0);
     const summary = await this.transaction(async (db) => {
       const postId = await this.append(db, id, {
@@ -780,11 +811,13 @@ export class VerificationRooms {
           continue;
         }
         const scope = { room: publicRoom(work.room), ownerId: work.room.ownerId };
+        const words = (await this.protection.words()).map(({ phrase }) => phrase);
         const transcript = await this.contextTranscript(
           id,
           work.history,
           runtime,
           scope,
+          words,
           work.pending,
           work.history.find(
             ({ position, type }) => position === work.room.lastHandledPosition && type === 'human',
@@ -833,11 +866,18 @@ export class VerificationRooms {
               moderation.finish && firstRound
                 ? `@${firstRound.label} 请提供首轮核实意见。`
                 : moderation.text;
-            const words = (await this.protection.words(db)).map(({ phrase }) => phrase);
-            const text = fittingPrefix(
+            await this.protection.checkConfidentialSources(
+              db,
+              redactExternalMessages([{ role: 'user', content: candidate }], words).messages,
+            );
+            const text = fittingOutboundText(
               candidate,
-              (part) =>
-                outboundTextLength([...transcript, { text: part }], words) < promptTextLimit,
+              words,
+              transcript,
+              hostTextReserve,
+              promptTextLimit - 1,
+              promptTextLimit,
+              false,
             );
             const created = await this.append(db, id, {
               type: 'host',
@@ -854,7 +894,7 @@ export class VerificationRooms {
           if (post) transcript.push(post);
         }
         if (choice) {
-          await this.callModel(work, choice, transcript, runtime);
+          await this.callModel(work, choice, transcript, runtime, words);
         } else if (!work.pending && moderation) {
           await this.finish(work, { ...context, transcript }, runtime);
         } else {
@@ -887,6 +927,7 @@ export class VerificationRooms {
     model: VerificationModel,
     transcript: VerificationMessage[],
     runtime: VerificationRuntime,
+    plannedWords: string[],
   ) {
     const id = work.room.id;
     const round = (work.attempts[model.id] ?? 0) + 1;
@@ -912,6 +953,9 @@ export class VerificationRooms {
         return null;
       }
       await db.query('SELECT pg_advisory_xact_lock(20261119,6)');
+      const words = (await this.protection.words(db)).map(({ phrase }) => phrase);
+      if (JSON.stringify(plannedWords) !== JSON.stringify(words))
+        throw new AppError(409, 'VERIFICATION_WORDS_CHANGED', '保密词表有更新，请重新核实。');
       if (
         !(await this.preferences(db)).models.some(
           ({ id, enabled, channel }) => id === model.id && enabled && channel === model.channel,
@@ -934,10 +978,7 @@ export class VerificationRooms {
           'VERIFICATION_CONTEXT_LIMIT',
           '核实记录过长，等待主持人进一步整理。',
         );
-      const redacted = redactExternalMessages(
-        messages,
-        (await this.protection.words(db)).map(({ phrase }) => phrase),
-      );
+      const redacted = redactExternalMessages(messages, words);
       if (
         redacted.messages.reduce((size, item) => size + item.content.length, 0) >= promptTextLimit
       )
@@ -1010,10 +1051,10 @@ export class VerificationRooms {
             role: 'user' as const,
             content: text,
           }));
-          const additional = redactExternalMessages(
-            messages,
-            (await this.protection.words(db)).map(({ phrase }) => phrase),
-          );
+          const currentWords = (await this.protection.words(db)).map(({ phrase }) => phrase);
+          if (JSON.stringify(plannedWords) !== JSON.stringify(currentWords))
+            throw new AppError(409, 'VERIFICATION_WORDS_CHANGED', '保密词表有更新，请重新核实。');
+          const additional = redactExternalMessages(messages, currentWords);
           if (additional.replacementCount > 0)
             throw new AppError(409, 'VERIFICATION_WORDS_CHANGED', '保密词表有更新，请重新核实。');
           await this.protection.checkConfidentialSources(db, messages);

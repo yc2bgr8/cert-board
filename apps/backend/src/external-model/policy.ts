@@ -9,15 +9,52 @@ function literal(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function redactExternalMessages(messages: ExternalModelMessage[], words: readonly string[]) {
-  const normalizedWords = [...new Set(words.map((word) => word.normalize('NFC')))];
-  if (!normalizedWords.length) {
-    return { messages, replacementCount: 0, restore: (value: string) => value };
-  }
-  const alternatives = normalizedWords
+function protectedPattern(words: readonly string[]) {
+  return [...new Set(words.map((word) => word.normalize('NFC')))]
     .sort((left, right) => right.length - left.length)
     .map(literal)
     .join('|');
+}
+
+export function fitProtectedPrefix(
+  value: string,
+  words: readonly string[],
+  rawLimit: number,
+  wireLimit: number,
+) {
+  const content = value.normalize('NFC');
+  const alternatives = protectedPattern(words);
+  const matches = alternatives ? content.matchAll(new RegExp(alternatives, 'giu')) : [];
+  const tokenLengths = new Map<string, number>();
+  let offset = 0;
+  let used = 0;
+  function plain(until: number) {
+    const available = Math.max(0, Math.min(until - offset, rawLimit - offset, wireLimit - used));
+    const portion = content.slice(offset, offset + available).replace(/\p{Surrogate}$/u, '');
+    offset += portion.length;
+    used += portion.length;
+    return offset === until;
+  }
+  for (const match of matches) {
+    if (!plain(match.index)) return content.slice(0, offset).trimEnd();
+    const term = match[0];
+    const tokenSize =
+      tokenLengths.get(term) ?? `[[CB-${'0'.repeat(36)}-${tokenLengths.size + 1}]]`.length;
+    if (offset + term.length > rawLimit || used + tokenSize > wireLimit)
+      return content.slice(0, offset).trimEnd();
+    tokenLengths.set(term, tokenSize);
+    offset += term.length;
+    used += tokenSize;
+  }
+  plain(content.length);
+  return content.slice(0, offset).trimEnd();
+}
+
+export function redactExternalMessages(messages: ExternalModelMessage[], words: readonly string[]) {
+  const alternatives = protectedPattern(words);
+  if (!alternatives) {
+    return { messages, replacementCount: 0, restore: (value: string) => value };
+  }
   const pattern = new RegExp(alternatives, 'giu');
   const residue = new RegExp(alternatives, 'iu');
   const rawMessages = messages.map(({ role, content }) => ({

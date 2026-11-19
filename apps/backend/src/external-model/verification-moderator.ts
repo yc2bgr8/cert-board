@@ -41,7 +41,7 @@ export function createVerificationModerator(
     // 外部回复作为资料。开发主模型仍用项目和目标的路由与预算。
     const packed = transcript.slice(-24).map(({ type, text }) => ({
       role: 'user' as const,
-      content: `${type}：${Array.from(text).slice(0, 1200).join('')}`,
+      content: `${type}：${text}`,
     }));
     const prepared = redactExternalMessages(
       packed,
@@ -65,7 +65,9 @@ export function createVerificationModerator(
             },
             {
               role: 'user',
-              content: JSON.stringify(prepared.messages.map(({ content }) => content)),
+              content: JSON.stringify(
+                prepared.messages.map(({ content }) => Array.from(content).slice(0, 1200).join('')),
+              ),
             },
           ],
           max_tokens: 768,

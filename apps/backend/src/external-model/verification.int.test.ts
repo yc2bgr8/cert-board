@@ -545,3 +545,38 @@ test('多次重复同一保密词时按实际代号长度判断原话可以发�
   expect(prompts[0]!.transcript[0]!.text.length).toBeLessThan(22000);
   expect((await detail(room)).messages[0]!.text).toBe(question);
 });
+
+test('词表在握手期间变化时丢弃旧发送计划，再按最新规则继续', async () => {
+  await rounds(1);
+  let handshakeReady!: () => void;
+  let allowDispatch!: () => void;
+  const handshake = new Promise<void>((resolve) => {
+    handshakeReady = resolve;
+  });
+  const authorization = new Promise<void>((resolve) => {
+    allowDispatch = resolve;
+  });
+  const send = fixture.runtime.send;
+  fixture.runtime.send = async (model, prompt, dispatch) => {
+    if (model.id === 'gpt-flagship') {
+      handshakeReady();
+      await authorization;
+    }
+    return send(model, prompt, dispatch);
+  };
+  const id = await start('合成核实问题。');
+  await handshake;
+  try {
+    const changed = await app.inject({
+      method: 'POST',
+      url: '/api/external-model/words',
+      headers,
+      payload: { phrase: '新增词表条目', category: 'other' },
+    });
+    expect(changed.statusCode).toBe(200);
+  } finally {
+    allowDispatch();
+  }
+  await expect.poll(async () => (await detail(id)).room.status).toBe('completed');
+  expect(fixture.requests.map(({ model }) => model)).toEqual(['claude-flagship']);
+});
