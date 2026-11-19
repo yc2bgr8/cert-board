@@ -12,6 +12,7 @@ export * from './workspace.js';
 export * from './tools.js';
 export * from './proposals.js';
 export * from './budget.js';
+export * from './external-model.js';
 export * from './request-retention.js';
 export * from './run-events.js';
 export * from './model-gateway.js';

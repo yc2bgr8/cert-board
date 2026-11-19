@@ -1406,6 +1406,97 @@ export const budgetReconciliation = pgTable(
   ],
 );
 
+export const externalModelExchangeStatus = pgEnum('external_model_exchange_status', [
+  'reserved',
+  'settled',
+  'unknown',
+  'not_sent',
+]);
+
+export const externalModelConversation = pgTable(
+  'external_model_conversation',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    title: varchar('title', { length: 160 }).notNull(),
+    ...timestamps(),
+  },
+  (table) => [
+    check('external_model_conversation_title_present', sql`length(btrim(${table.title})) > 0`),
+    index('external_model_conversation_owner_idx').on(table.userId, table.updatedAt),
+  ],
+);
+
+export const externalModelWord = pgTable(
+  'external_model_word',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    phrase: varchar('phrase', { length: 120 }).notNull(),
+    normalized: varchar('normalized', { length: 240 }).notNull().unique(),
+    category: varchar('category', { length: 24 }).notNull(),
+    active: boolean('active').notNull().default(true),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    ...timestamps(),
+  },
+  (table) => [
+    check('external_model_word_phrase_present', sql`length(btrim(${table.phrase})) > 0`),
+    check(
+      'external_model_word_category_known',
+      sql`${table.category} IN ('customer','product','price','contract','other')`,
+    ),
+  ],
+);
+
+export const externalModelExchange = pgTable(
+  'external_model_exchange',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => externalModelConversation.id, { onDelete: 'restrict' }),
+    requestKey: uuid('request_key').notNull().unique(),
+    requestFingerprint: varchar('request_fingerprint', { length: 64 }).notNull(),
+    model: varchar('model', { length: 64 }).notNull(),
+    originalText: text('original_text').notNull(),
+    search: boolean('search').notNull(),
+    sent: jsonb('sent').$type<Record<string, unknown>>().notNull(),
+    returned: jsonb('returned').$type<Record<string, unknown>>(),
+    answer: text('answer'),
+    references: jsonb('references').$type<{ title: string; url: string }[]>().notNull().default([]),
+    replacementCount: integer('replacement_count').notNull(),
+    monthKey: varchar('month_key', { length: 7 }).notNull(),
+    status: externalModelExchangeStatus('status').notNull().default('reserved'),
+    reservedNano: bigint('reserved_nano', { mode: 'bigint' }).notNull(),
+    actualNano: bigint('actual_nano', { mode: 'bigint' }),
+    ...timestamps(),
+  },
+  (table) => [
+    check(
+      'external_model_exchange_fingerprint',
+      sql`${table.requestFingerprint} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check('external_model_exchange_month', sql`${table.monthKey} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
+    check(
+      'external_model_exchange_amounts',
+      sql`${table.reservedNano} >= 0 AND ${table.replacementCount} >= 0
+      AND (${table.actualNano} IS NULL OR ${table.actualNano} >= 0)`,
+    ),
+    check(
+      'external_model_exchange_state',
+      sql`
+      (${table.status}='settled' AND ${table.actualNano} IS NOT NULL AND ${table.returned} IS NOT NULL AND ${table.answer} IS NOT NULL)
+      OR (${table.status} IN ('reserved','unknown') AND ${table.actualNano} IS NULL AND ${table.answer} IS NULL)
+      OR (${table.status}='not_sent' AND ${table.actualNano} IS NOT NULL AND ${table.actualNano}=0 AND ${table.answer} IS NULL)`,
+    ),
+    index('external_model_exchange_conversation_idx').on(table.conversationId, table.createdAt),
+    index('external_model_exchange_month_idx').on(table.monthKey),
+  ],
+);
+
 export const runEventType = pgEnum('run_event_type', [
   'run_started',
   'model_started',

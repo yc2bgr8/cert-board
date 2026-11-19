@@ -48,6 +48,19 @@ import {
   workspaceReadFileSchema,
   workspaceDiffQuerySchema,
   workspaceDiffResponseSchema,
+  externalModelSetupSchema,
+  externalModelConversationInputSchema,
+  externalModelConversationSchema,
+  externalModelConversationListSchema,
+  externalModelMessageInputSchema,
+  externalModelExchangeSchema,
+  externalModelExchangeListSchema,
+  externalModelWordInputSchema,
+  externalModelWordSchema,
+  externalModelWordListSchema,
+  externalModelArchiveSchema,
+  externalModelArchivePageSchema,
+  externalModelShareInputSchema,
   type AuthResponse,
   type ConversationCreateInput,
   type ConversationMessageInput,
@@ -57,6 +70,8 @@ import {
   type ToolApprovalDecisionInput,
   type ReviewDecisionInput,
   type ProposalDecision,
+  type ExternalModelMessageInput,
+  type ExternalModelWordInput,
 } from '@cert-board/shared';
 
 export type ConversationDetail = ReturnType<typeof conversationPublicRecordSchema.parse>;
@@ -171,6 +186,64 @@ async function request<T>(
 }
 const signalOption = (signal: AbortSignal | undefined) => (signal ? { signal } : {});
 export const api = {
+  externalSetup: (signal?: AbortSignal) =>
+    request('/api/external-model/setup', externalModelSetupSchema, signalOption(signal)),
+  externalConversations: (signal?: AbortSignal) =>
+    request(
+      '/api/external-model/conversations',
+      externalModelConversationListSchema,
+      signalOption(signal),
+    ),
+  externalCreate: (data: { title: string; requestKey: string }) =>
+    request('/api/external-model/conversations', externalModelConversationSchema, {
+      method: 'POST',
+      body: checked(externalModelConversationInputSchema, data),
+    }),
+  externalMessages: (id: string, signal?: AbortSignal) =>
+    request(
+      `/api/external-model/conversations/${identifier(id)}/messages`,
+      externalModelExchangeListSchema,
+      signalOption(signal),
+    ),
+  externalSend: (id: string, data: ExternalModelMessageInput) =>
+    request(
+      `/api/external-model/conversations/${identifier(id)}/messages`,
+      externalModelExchangeSchema,
+      {
+        method: 'POST',
+        body: checked(externalModelMessageInputSchema, data),
+      },
+    ),
+  externalWords: (signal?: AbortSignal) =>
+    request('/api/external-model/words', externalModelWordListSchema, signalOption(signal)),
+  externalSaveWord: (data: ExternalModelWordInput) =>
+    request('/api/external-model/words', externalModelWordSchema, {
+      method: 'POST',
+      body: checked(externalModelWordInputSchema, data),
+    }),
+  externalRemoveWord: (id: string) =>
+    request(`/api/external-model/words/${identifier(id)}`, null, { method: 'DELETE' }),
+  externalArchive: (id: string, signal?: AbortSignal) =>
+    request(
+      `/api/external-model/exchanges/${identifier(id)}/archive`,
+      externalModelArchiveSchema,
+      signalOption(signal),
+    ),
+  externalArchiveDay: (day: string, cursor?: string | null, signal?: AbortSignal) =>
+    request(
+      `/api/external-model/archive${search({ day, cursor: cursor ?? undefined })}`,
+      externalModelArchivePageSchema,
+      signalOption(signal),
+    ),
+  externalShare: (id: string, data: { conversationId: string; requestKey: string }) =>
+    request(
+      `/api/external-model/exchanges/${identifier(id)}/share`,
+      conversationWriteResultSchema,
+      {
+        method: 'POST',
+        body: checked(externalModelShareInputSchema, data),
+      },
+    ),
   review: (id: string, signal?: AbortSignal) =>
     request(`/api/reviews/${identifier(id)}`, reviewCardViewSchema, signalOption(signal)),
   decideReview: (id: string, input: ReviewDecisionInput) =>

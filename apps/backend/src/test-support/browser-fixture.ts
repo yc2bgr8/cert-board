@@ -18,7 +18,8 @@ export type BrowserScenario =
   | 'review'
   | 'revision'
   | 'approval_text'
-  | 'proposal';
+  | 'proposal'
+  | 'external_quote';
 export const browserModels: ModelGatewayConfig = {
   version: 1,
   models: [
@@ -122,6 +123,8 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
             role: 'assistant',
             content: '对话文字不能代替审批，请在审核卡上点击通过或退回修改。',
           });
+        if (kind === 'external_quote')
+          return response({ role: 'assistant', content: '已收到外部资料，待用项目资料核对。' });
         if (reviewScript) {
           const action = reviewScript(previous);
           return call(action.name, action.input);

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { decimalUsdSchema } from './budget.js';
 import { workspaceConflictDetailsSchema } from './workspace-path.js';
 
 const databaseUrl = z
@@ -33,6 +34,7 @@ export const backendConfigSchema = z
       ])
       .default('http://127.0.0.1:28080'),
     SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(24).default(12),
+    EXTERNAL_MODEL_MONTHLY_USD: decimalUsdSchema.default('20'),
     DATABASE_URL: databaseUrl,
     TEST_DATABASE_URL: databaseUrl,
     MINIO_ENDPOINT: z

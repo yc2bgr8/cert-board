@@ -18,11 +18,14 @@ import { registerRunControlRoutes } from './api/run-control-routes.js';
 import { registerApprovalRoutes } from './api/approval-routes.js';
 import { registerConversationReadRoutes } from './api/conversation-read-routes.js';
 import { registerConversationWriteRoutes } from './api/conversation-write-routes.js';
+import { registerExternalModelRoutes } from './external-model/routes.js';
+import type { ExternalModelRuntime } from './modelgw/external.js';
 
 export interface AppDependencies extends HealthDependencies {
   database?: pg.Pool;
   storage?: MinioClient;
   blobStore?: DocumentBlobStore;
+  externalModelRuntime?: ExternalModelRuntime;
 }
 
 async function dependencyStatus(check: () => Promise<void>): Promise<'up' | 'down'> {
@@ -56,6 +59,9 @@ export function createApp(
   });
   app.register(cookie);
   if (dependencies.database) {
+    const blobStore =
+      dependencies.blobStore ??
+      (dependencies.storage ? new BlobStore(dependencies.storage, config.MINIO_BUCKET) : undefined);
     registerAuthRoutes(app, dependencies.database, config);
     registerProjectRoutes(app, dependencies.database, config);
     registerDocumentRoutes(app, dependencies.database, config);
@@ -65,14 +71,13 @@ export function createApp(
     registerApprovalRoutes(app, dependencies.database, config);
     registerConversationReadRoutes(app, dependencies.database, config);
     registerConversationWriteRoutes(app, dependencies.database, config);
-    registerWorkspaceRoutes(
+    registerWorkspaceRoutes(app, dependencies.database, config, blobStore);
+    registerExternalModelRoutes(
       app,
       dependencies.database,
       config,
-      dependencies.blobStore ??
-        (dependencies.storage
-          ? new BlobStore(dependencies.storage, config.MINIO_BUCKET)
-          : undefined),
+      blobStore,
+      dependencies.externalModelRuntime,
     );
   }
   app.addHook('onSend', async (_request, reply, payload) => {

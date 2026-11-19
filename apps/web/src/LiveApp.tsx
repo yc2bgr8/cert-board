@@ -27,6 +27,7 @@ import { EvidencePanel } from './live/EvidencePanel.js';
 import { DiffPanel } from './live/DiffPanel.js';
 import { FilePanel } from './live/FilePanel.js';
 import { displayTime, Inbox, noticeLabels, ProjectHomeAside } from './live/WorkspacePages.js';
+import { ExternalWorkbench } from './live/ExternalWorkbench.js';
 import type {
   EvidenceTarget,
   WorkspaceDiffTarget,
@@ -108,7 +109,9 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messageDrafts, setMessageDrafts] = useState(() => new Map<string, string>());
-  const [view, setView] = useState<'project' | 'conversation' | 'inbox'>('project');
+  const [view, setView] = useState<'project' | 'conversation' | 'inbox' | 'external'>('project');
+  const [externalId, setExternalId] = useState<string | null>(null);
+  const [externalDraft, setExternalDraft] = useState(0);
   const [tab, setTab] = useState<'conversation' | 'files' | 'documents'>('conversation');
   const [panels, setPanels] = useState<
     (PanelTarget & { key: number; trigger: HTMLElement | null })[]
@@ -128,6 +131,12 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const returnFocus = useRef<HTMLElement | null>(null);
   const sidebarVisible = narrow ? mobileOpen : !collapsed;
   const notifications = useMemberNotifications();
+  const externalConversations = useQuery({
+    queryKey: ['live', 'external-model-conversations', userId],
+    queryFn: ({ signal }) => api.externalConversations(signal),
+    enabled: view === 'external',
+    retry: false,
+  });
   const projectsQuery = useInfiniteQuery({
     queryKey: ['live', 'projects', userId],
     queryFn: ({ pageParam, signal }) =>
@@ -407,6 +416,18 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   };
   const closeSidebar = () => (narrow ? setMobileOpen(false) : setCollapsed(true));
   const openSidebar = () => (narrow ? setMobileOpen(true) : setCollapsed(false));
+  const openExternal = () => {
+    setDialog(null);
+    setPanels([]);
+    setView('external');
+    setTab('conversation');
+    setMobileOpen(false);
+  };
+  const newExternal = () => {
+    openExternal();
+    setExternalId(null);
+    setExternalDraft((currentDraft) => currentDraft + 1);
+  };
   const snapshot = notifications.snapshot;
   const isNewConversation = dialog === 'new';
   const isSettings = dialog === 'settings';
@@ -422,22 +443,27 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         : '设置'
       : view === 'inbox'
         ? '待我处理'
-        : hasConversationTitle
-          ? current.title
-          : projectId || conversationId
-            ? projectTitle
-            : '项目';
+        : view === 'external'
+          ? (externalConversations.data?.find((item) => item.id === externalId)?.title ??
+            '外部模型')
+          : hasConversationTitle
+            ? current.title
+            : projectId || conversationId
+              ? projectTitle
+              : '项目';
   const location = isNewConversation
     ? newHeaderAgent === 'maintenance'
       ? '维护Agent'
       : '注册Agent'
     : showMaintenance
       ? '设置'
-      : hasConversationTitle
-        ? projectTitle
-        : !isSettings && view === 'inbox'
-          ? '注册项目和维护事项'
-          : undefined;
+      : view === 'external' && !isSettings && externalId
+        ? '外部模型'
+        : hasConversationTitle
+          ? projectTitle
+          : !isSettings && view === 'inbox'
+            ? '注册项目和维护事项'
+            : undefined;
   const collapsedRail = !narrow && collapsed;
   const currentRunId = stream.state.currentRunId ?? current?.currentRunId;
   const runDetailsAvailable =
@@ -491,10 +517,24 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         count={snapshot?.items.length ?? 0}
         truncated={snapshot?.truncated ?? false}
         displayName={user.displayName}
+        external={view === 'external'}
+        externalId={externalId}
+        externalConversations={externalConversations.data ?? []}
+        externalLoading={externalConversations.isPending}
+        externalError={
+          externalConversations.isError ? errorMessage(externalConversations.error) : null
+        }
         onProject={openProject}
-        onAgent={setSidebarAgent}
+        onAgent={(agent) => {
+          setSidebarAgent(agent);
+          if (view === 'external') {
+            setView('project');
+            setConversationId(null);
+            if (selectedProject?.projectType !== agent) setProjectId(null);
+          }
+        }}
         onConversation={openConversation}
-        onNew={() => openDialog('new')}
+        onNew={() => (view === 'external' ? newExternal() : openDialog('new'))}
         onSearch={() => openDialog('search')}
         onInbox={() => {
           setPanels([]);
@@ -503,6 +543,13 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           setMobileOpen(false);
         }}
         onSettings={() => openDialog('settings')}
+        onExternal={openExternal}
+        onExternalNew={newExternal}
+        onExternalConversation={(id) => {
+          if (id !== externalId) setExternalDraft((currentDraft) => currentDraft + 1);
+          setExternalId(id);
+          setMobileOpen(false);
+        }}
         onClose={closeSidebar}
       />
       {collapsedRail && (
@@ -528,7 +575,9 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         onOpenSidebar={openSidebar}
         tab={tab}
         onTabChange={setTab}
-        showTabs={Boolean(projectId) && view !== 'inbox' && !hidesWorkspace}
+        showTabs={
+          Boolean(projectId) && (view === 'project' || view === 'conversation') && !hidesWorkspace
+        }
         headerAction={
           runDetailsAvailable &&
           currentRunId && (
@@ -552,7 +601,15 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
             (view === 'conversation' && Boolean(current?.projectId))
           }
         >
-          {view === 'inbox' ? (
+          {view === 'external' ? (
+            <ExternalWorkbench
+              key={externalDraft}
+              userId={userId}
+              conversationId={externalId}
+              onCreated={setExternalId}
+              projects={availableProjects}
+            />
+          ) : view === 'inbox' ? (
             <Inbox
               snapshot={snapshot}
               error={notifications.error}

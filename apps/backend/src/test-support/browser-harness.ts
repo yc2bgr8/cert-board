@@ -33,6 +33,7 @@ import { ModelGateway } from '../modelgw/service.js';
 import { executeAgentRun } from '../agent/runtime.js';
 import { buildAgentTools } from '../agent/default-tools.js';
 import { setTestReminderClock } from './internal-reminder-clock.js';
+import { externalModelFixture } from './external-model-fixture.js';
 import {
   browserModels,
   browserScenario,
@@ -222,9 +223,11 @@ export async function startBrowserHarness() {
       WEB_ORIGIN: origin,
       LOG_LEVEL: 'silent',
     });
+    const externalModel = externalModelFixture();
     app = createApp(config, {
       database: pool,
       blobStore: store,
+      externalModelRuntime: externalModel.runtime,
       checkDatabase: async () => {
         await pool.query('SELECT 1');
       },
@@ -336,6 +339,7 @@ export async function startBrowserHarness() {
       pool,
       projectId: developmentProjectId,
       maintenanceProjectId,
+      externalModel,
       sharedConversationId,
       credentials: { username: 'zhangsan', password: passwords.zhangsan! },
       managementCredentials: { username: 'admin', password: passwords.admin! },
