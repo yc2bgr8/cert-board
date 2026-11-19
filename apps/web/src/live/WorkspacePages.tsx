@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import type { ProjectRecord } from '@cert-board/shared';
-import { api, type ConversationDetail } from './api.js';
+import { api, errorMessage, type ConversationDetail } from './api.js';
 import type { MemberNotificationSnapshot } from './useMemberNotifications.js';
 import './pages.css';
 
@@ -13,8 +13,17 @@ export const noticeLabels: Record<Notice['kind'], string> = {
   blocked: '阻塞',
   review: '待审核结果',
   proposal: '外发提案',
+  deadline: '期限提醒',
 };
-const filters = ['all', 'approval', 'review', 'proposal', 'question', 'blocked'] as const;
+const filters = [
+  'all',
+  'approval',
+  'review',
+  'proposal',
+  'question',
+  'blocked',
+  'deadline',
+] as const;
 const time = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
   month: 'numeric',
@@ -47,7 +56,16 @@ export function Inbox({
   onOpen(item: Notice): void;
 }) {
   const [filter, setFilter] = useState<(typeof filters)[number]>('all');
+  const acknowledge = useMutation({
+    mutationFn: (item: Notice) => api.acknowledgeDeadline(item.id, item.createdAt),
+  });
   const items = snapshot?.items ?? [];
+  const upcoming = items
+    .flatMap(({ id, deadline }) =>
+      deadline && deadline.remainingDays >= 0 ? [{ id, ...deadline }] : [],
+    )
+    .sort((left, right) => Date.parse(left.dueAt) - Date.parse(right.dueAt))
+    .slice(0, 3);
   const visible = items.filter((item) => filter === 'all' || item.kind === filter);
   const groups = [
     {
@@ -83,6 +101,11 @@ export function Inbox({
               {error}
             </p>
           )}
+          {acknowledge.error && (
+            <p className="live-page-message live-error" role="alert">
+              {errorMessage(acknowledge.error)}
+            </p>
+          )}
           {!snapshot && !error && (
             <p className="live-page-message" role="status">
               正在读取待处理事项…
@@ -100,26 +123,66 @@ export function Inbox({
                 <header className="live-page-card-head">
                   <h2>{group.label}</h2>
                 </header>
-                {group.items.map((item) => (
-                  <button
-                    className="live-inbox-row live-page-list-row"
-                    type="button"
-                    key={`${item.kind}:${item.id}`}
-                    onClick={() => onOpen(item)}
-                  >
-                    <span>
-                      <strong>
-                        {projects.find((project) => project.id === item.projectId)?.name ??
-                          '项目对话'}
-                      </strong>
-                      <span className={`live-notice-chip is-${item.kind}`}>
-                        {noticeLabels[item.kind]}
+                {group.items.map((item) =>
+                  item.deadline ? (
+                    <div
+                      className="live-inbox-row live-page-list-row live-deadline-row"
+                      key={`deadline:${item.id}`}
+                    >
+                      <span>
+                        <strong>{item.deadline.title}</strong>
+                        <span
+                          className={`live-notice-chip is-${item.deadline.remainingDays < 0 ? 'blocked' : 'deadline'}`}
+                        >
+                          {item.deadline.remainingDays < 0
+                            ? `逾期 ${-item.deadline.remainingDays} 天`
+                            : item.deadline.remainingDays === 0
+                              ? '当地今日到期'
+                              : `剩余 ${item.deadline.remainingDays} 天`}
+                        </span>
                       </span>
-                    </span>
-                    <span className="live-muted">{displayTime(item.createdAt)}</span>
-                    <span className="live-row-action">{noticeAction(item.kind)}</span>
-                  </button>
-                ))}
+                      <time className="live-muted" dateTime={item.deadline.dueAt}>
+                        {item.deadline.beijingTime}（北京）
+                      </time>
+                      <span className="live-deadline-actions">
+                        <button
+                          className="live-text-button"
+                          type="button"
+                          onClick={() => onOpen(item)}
+                        >
+                          打开对话
+                        </button>
+                        <button
+                          className="live-secondary"
+                          type="button"
+                          disabled={acknowledge.isPending}
+                          onClick={() => acknowledge.mutate(item)}
+                        >
+                          知道了
+                        </button>
+                      </span>
+                    </div>
+                  ) : (
+                    <button
+                      className="live-inbox-row live-page-list-row"
+                      type="button"
+                      key={`${item.kind}:${item.id}`}
+                      onClick={() => onOpen(item)}
+                    >
+                      <span>
+                        <strong>
+                          {projects.find((project) => project.id === item.projectId)?.name ??
+                            '项目对话'}
+                        </strong>
+                        <span className={`live-notice-chip is-${item.kind}`}>
+                          {noticeLabels[item.kind]}
+                        </span>
+                      </span>
+                      <span className="live-muted">{displayTime(item.createdAt)}</span>
+                      <span className="live-row-action">{noticeAction(item.kind)}</span>
+                    </button>
+                  ),
+                )}
               </section>
             ))}
           {snapshot?.truncated && (
@@ -131,7 +194,20 @@ export function Inbox({
             <header className="live-page-card-head">
               <h2>即将到期</h2>
             </header>
-            <p className="live-page-message live-muted">到期提醒尚未接入。</p>
+            {upcoming.length ? (
+              <ul className="live-deadline-upcoming">
+                {upcoming.map(({ id, title, remainingDays }) => (
+                  <li key={id}>
+                    <span>{title}</span>
+                    <span className="live-muted">
+                      {remainingDays === 0 ? '当地今日到期' : `还有 ${remainingDays} 天`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="live-page-message live-muted">暂无待处理期限提醒。</p>
+            )}
           </section>
           <section className="live-page-card">
             <header className="live-page-card-head">

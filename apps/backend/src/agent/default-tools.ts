@@ -10,6 +10,8 @@ import type { AgentCode, BackendConfig } from '@cert-board/shared';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import type { Pool } from 'pg';
 import { consultExternalModelTool } from '../tools/consult-external-model.js';
+import { deadlineCalcTool } from '../tools/deadline-calc.js';
+import { reminderSetTool } from '../tools/reminder-set.js';
 
 export async function buildAgentTools(
   store: DocumentBlobStore,
@@ -26,6 +28,8 @@ export async function buildAgentTools(
     ...agentInteractionTools(),
     ...(pool && containerRuntime === 'host' ? [consultExternalModelTool(pool)] : []),
     checkRunTool(),
+    deadlineCalcTool(),
+    reminderSetTool(),
     submitForReviewTool(skill.reviewPolicy),
     proposeExternalTool(),
     queueInternalMessageTool(),

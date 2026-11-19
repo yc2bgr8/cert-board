@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { deadlineNoticeSchema } from './deadlines.js';
 
 const id = z.string().uuid();
 const count = z.number().int().nonnegative().safe();
@@ -186,12 +187,14 @@ export const memberNotificationSnapshotSchema = z
         z
           .object({
             id,
-            kind: z.enum(['approval', 'question', 'blocked', 'review', 'proposal']),
+            kind: z.enum(['approval', 'question', 'blocked', 'review', 'proposal', 'deadline']),
             conversationId: id,
             projectId: id.nullable(),
             createdAt: instant,
+            deadline: deadlineNoticeSchema.optional(),
           })
-          .strict(),
+          .strict()
+          .refine(({ kind, deadline }) => (kind === 'deadline') === Boolean(deadline)),
       )
       .max(50),
     truncated: z.boolean(),

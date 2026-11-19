@@ -10,10 +10,14 @@ const jobSchema = z
   .strict();
 type AgentJob = z.infer<typeof jobSchema>;
 
-export async function createAgentQueue(connectionString: string, onError: () => void) {
+export async function createAgentQueue(
+  connectionString: string,
+  onError: () => void,
+  schedule = false,
+) {
   const boss = new PgBoss({
     connectionString,
-    schedule: false,
+    schedule,
     application_name: 'cert-board-queue',
     connectionTimeoutMillis: 5000,
   });

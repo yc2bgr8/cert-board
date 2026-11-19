@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import type { StructuredSubmission, DataLevel } from '@cert-board/shared';
+import { checkReportSchema, type StructuredSubmission, type DataLevel } from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
 import { readT1Fixture } from '../documents/t1-seed.js';
 import { checkSubmission, refreshCheckDataLevel } from './service.js';
@@ -151,6 +151,116 @@ test('仅出现在判断中的资料也逐字核对并加入定位，错误落�
     path: 'decisions[0].sources[0]',
   });
   expect(bad.passed).toBe(false);
+});
+
+test('V6 重算声明期限并比较实际时间点，历史报告保持两项检查', async () => {
+  const base = submission(await addSource());
+  const legacy = await checkSubmission(context.pool, caller, base);
+  expect(legacy.checks.map(({ code }) => code)).toEqual(['V1', 'V3']);
+  expect(legacy.notRun).toContain('V6');
+  const deadline = {
+    ...base.claims[0]!,
+    field: '核对截止时间',
+    value: '2026-03-09T11:59:59.999+08:00',
+    deadlineCalculation: {
+      startDate: '2026-03-08',
+      quantity: 0,
+      unit: 'calendar_days' as const,
+      jurisdictionTz: 'America/New_York',
+    },
+  };
+  const checked = await checkSubmission(context.pool, caller, { ...base, claims: [deadline] });
+  expect(checked.passed).toBe(true);
+  expect(checked.checks.at(-1)).toEqual({ code: 'V6', status: 'passed', issues: [] });
+  expect(checked.notRun).not.toContain('V6');
+  const falseClaim = await checkSubmission(context.pool, caller, {
+    ...base,
+    claims: [{ ...deadline, value: '2026-03-08T23:59:59.999+08:00' }],
+  });
+  expect(falseClaim.passed).toBe(false);
+  expect(falseClaim.checks.at(-1)).toEqual({
+    code: 'V6',
+    status: 'failed',
+    issues: [{ code: 'deadline_mismatch', path: 'claims[0].value' }],
+  });
+  const uncalculated = await checkSubmission(context.pool, caller, {
+    ...base,
+    claims: [{ ...base.claims[0], field: '截止时间', value: '2026年3月7日' }],
+  });
+  expect(uncalculated.checks.at(-1)).toMatchObject({
+    status: 'failed',
+    issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
+  });
+  const byObject = await checkSubmission(context.pool, caller, {
+    ...base,
+    claims: [
+      { ...base.claims[0], object: 'L08 续证申请截止日', field: '日期', value: '2026-05-01' },
+    ],
+  });
+  expect(byObject.checks.at(-1)).toMatchObject({
+    status: 'failed',
+    issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
+  });
+  for (const object of ['L08 certificate expiration date', 'L08:deadline']) {
+    const byEnglishObject = await checkSubmission(context.pool, caller, {
+      ...base,
+      claims: [{ ...base.claims[0], object, field: 'date', value: '2026-05-01' }],
+    });
+    expect(byEnglishObject.checks.at(-1)).toMatchObject({
+      status: 'failed',
+      issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
+    });
+  }
+  const followUp = await checkSubmission(context.pool, caller, {
+    ...base,
+    claims: [
+      {
+        ...base.claims[0],
+        object: 'L08 follow-up post-deadline',
+        field: 'date',
+        value: '2026-05-01',
+      },
+    ],
+  });
+  expect(followUp.passed).toBe(true);
+  expect(followUp.notRun).toContain('V6');
+  const issueDate = await checkSubmission(context.pool, caller, {
+    ...base,
+    claims: [{ ...base.claims[0], object: '续证期限核对', field: '签发日期', value: '2026-04-01' }],
+  });
+  expect(issueDate.passed).toBe(true);
+  expect(issueDate.notRun).toContain('V6');
+  const customField = await checkSubmission(context.pool, caller, {
+    ...base,
+    claims: [{ ...deadline, field: '最晚续证日' }],
+  });
+  expect(customField.checks.at(-1)).toMatchObject({ code: 'V6', status: 'passed' });
+  const prose = await checkSubmission(context.pool, caller, {
+    ...base,
+    nextStep: '请于 2026-05-01 前核对公告中的续证期限。',
+  });
+  expect(prose.notRun).toContain('V6');
+  expect(prose.checks.some(({ code }) => code === 'V6')).toBe(false);
+  const mixed = await checkSubmission(context.pool, caller, {
+    ...base,
+    nextStep: '请于 2026-05-01 前核对公告中的续证期限。',
+    claims: [deadline],
+  });
+  expect(mixed.checks.at(-1)).toMatchObject({ code: 'V6', status: 'passed', issues: [] });
+  const historical = checkReportSchema.parse({
+    ...prose,
+    passed: false,
+    notRun: ['V2', 'V4', 'V5', 'V7', 'V8'],
+    checks: [
+      ...prose.checks,
+      {
+        code: 'V6',
+        status: 'failed',
+        issues: [{ code: 'deadline_unstructured', path: 'nextStep' }],
+      },
+    ],
+  });
+  expect(historical.checks.at(-1)?.issues[0]?.path).toBe('nextStep');
 });
 
 test.each(['other_project', 'placeholder', 'voided'] as const)(

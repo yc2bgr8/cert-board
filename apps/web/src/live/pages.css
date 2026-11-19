@@ -83,6 +83,30 @@
 .live-page-list-row:hover {
   background: var(--color-cb-bg);
 }
+.live-deadline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.live-deadline-row time {
+  white-space: normal;
+}
+.live-deadline-upcoming {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 16px;
+  list-style: none;
+}
+.live-deadline-upcoming li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+.live-deadline-upcoming li > :last-child {
+  flex-shrink: 0;
+}
 .live-notice-chip {
   display: inline-flex;
   width: fit-content;

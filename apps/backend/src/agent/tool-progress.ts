@@ -22,6 +22,8 @@ const labels: Readonly<Record<string, string>> = {
   consult_external_model: '请外部模型核实',
   web_search: '检索公开网页',
   web_fetch: '抓取并保存网页出处',
+  deadline_calc: '计算法域期限',
+  reminder_set: '设置站内期限提醒',
 };
 
 const page = z.object({

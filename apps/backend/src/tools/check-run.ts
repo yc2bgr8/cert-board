@@ -23,12 +23,12 @@ const metadata: ToolMetadata = {
   outputDataLevel: 'dynamic',
   authorizationAction: 'project.read',
   description: {
-    purpose: '提交审核前核对结构化结果与资料库原文；当前执行V1原文逐字核验和V3结构检查。',
+    purpose: '提交审核前核对结构化结果与资料库原文，执行 V1、V3 和适用的 V6 期限复算。',
     whenToUse: '已有doc_read取得的真实引用和本项目已保存工作区版本，准备检查交付时使用。',
     avoid:
       '不要用它代替doc_read或法规判断；它不证明模型实际读过，不验证哪个K号正确。通过后仍须submit_for_review，审批只能由人在浏览器完成。',
     parameters:
-      '直接传skill、workspaceVersion、conclusion、claims、decisions、evidence、missing、uncertain、nextStep。decisions必填，没有过程判断时显式传[]；每项含id/subject/choice/alternatives/reason/sources/risk(low或high)，至少一条原文。陈述与判断合计最多20条，全部引用合计40条。引用只用documentId/version整数/page/quote，禁止草稿路径；K号是字符串且unit为null，数量换算未支持。V1只核验引文，不证明判断正确。例子为虚构格式，必须换成真实定位。',
+      '直接传skill、workspaceVersion、conclusion、claims、decisions、evidence、missing、uncertain、nextStep。decisions必填，没有过程判断时显式传[]；每项含id/subject/choice/alternatives/reason/sources/risk(low或high)，至少一条原文。计算期限只写在claims中的期限陈述，value取deadline_calc的毫秒级ISO到期点，deadlineCalculation填同一计算参数；结论和判断中用文字指向该陈述。陈述与判断合计最多20条，全部引用合计40条。引用只用documentId/version整数/page/quote，禁止草稿路径；K号是字符串且unit为null，数量换算未支持。V1只核验引文，不证明判断正确。例子为虚构格式，必须换成真实定位。',
     example: {
       skill: { id: 'R09', version: '0.1.0' },
       workspaceVersion: '10000000-0000-4000-8000-000000000002',

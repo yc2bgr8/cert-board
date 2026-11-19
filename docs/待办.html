@@ -17,7 +17,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
 </style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#v4-实施顺序">v4 实施顺序</a><a class="level-2" href="#已有待办">已有待办</a><a class="level-2" href="#需要-lan-处理">需要 Lan 处理</a><a class="level-2" href="#各-pr-未完成验收">各 PR 未完成验收</a></nav><main><h1 id="待办">待办</h1>
 <h2 id="v4-实施顺序">v4 实施顺序</h2>
-<p>PR-D6、PR-D4、PR-13、PR-D3 和 PR-40 已合并。当前做 PR-D5，其余按 v2 附录 B.1 第九项与执行方案继续。<a href="变更单/需求变更单_2026-11-19_外部模型核实.html#附录b-对pr的调整">v4 附录 B</a></p>
+<p>PR-D6、PR-D4、PR-13、PR-D3、PR-40 和 PR-D5 已合并。当前做 PR-15，其余按 v2 附录 B.1 第九项与执行方案继续。<a href="变更单/需求变更单_2026-11-19_外部模型核实.html#附录b-对pr的调整">v4 附录 B</a></p>
 <p>界面 PR 按 17 页设计稿验收。D6 验收 14a、14b、15、16，D4 验收 04、05 的核实部分。外发检查、替换与换回、存档和 Cursor 通道先在 D6 交付，供 D4 复用。</p>
 <p>PR-U2 已有资料引用使用现有项目资料列表，仅把编号及版本写入可编辑消息。原始文件上传、二进制附件及运行详情中的计量和子 Agent 数据随其后端接口接入。SSE 按事件增量显示，上游 token 流式仍在模型网关待办。</p>
 <p>PR-U2 内联 CSS 图片来源：Chromium 157 在工作台已返回 <code>Referrer-Policy: no-referrer</code> 时，内联 CSS 的 <code>url()</code> 仍可能发送来源站点。Playwright 拦截、测试服务记录实际请求和双环回端口独立复测均复现。逐 URL 用 <code>referrer-policy(no-referrer)</code> 在本机有效。按 v3 保留正文内联 CSS，部署验收时用目标浏览器复核并决定兼容方式。正文普通图片已单独验收无来源头。</p>
@@ -41,6 +41,8 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="需要-lan-处理">需要 Lan 处理</h2>
 <ul><li>GitHub 私有仓库分支保护：API 返回403，当前套餐需要升级 GitHub Pro 才能启用。保留私有仓库，今晚手动强制遵循 PR、CI 和禁止强推纪律；Lan 后续决定是否升级。GitHub 登录已完成，仓库身份已改为账号 noreply 邮箱；初始提交保留原 Lan 身份，不改写历史。</li><li>界面稿和技能内容的注册人员确认；正式业务使用仍需审阅。</li><li>顶级闭源模型的真实比选预算，今晚只做脚本和剧本测试。</li></ul>
 <h2 id="各-pr-未完成验收">各 PR 未完成验收</h2>
+<ul><li>PR-15：V6 只复算结构化期限陈述。尝试过段落关键词、分句识别和日期直接限定动作，在公告日期、标签续行、并列指令及否认表述等场景反复出现误报和漏报。首版用显式计算字段和期限陈述绑定，审核卡标明复算范围。后续用注册人员确认的期限表达数据构建回归集，再接入自由文本期限核对。真实证照台账的期限来源随 PR-43 衔接。</li></ul>
+<ul><li>PR-D5：真实公司本地模型地址按 X4 待提供，保密原文改写和真实端点联调继续保留。PDF 逐页核对随 PR-17 接入。没有归档项目或没有可用本地计量上下文的独立群聊，分别按 D-044 的证据与派发规则处理。</li></ul>
 <ul><li>PR-40：自建 SearXNG 和获准的检索引擎待部署联调，当前使用 JSON 测试服务验收协议。网页 PDF 的解析和逐页引用待 PR-17。将下载的二进制文件复制到工作副本待文件工具支持。外部核实的摘录逐字校验与本地模型出网复核随 PR-D5；真实本地模型地址按 X4 待提供。部分公开域名可能被开发机的 Fake-IP DNS 映射拦截，联调时核对公共解析，继续拒绝保留地址。检索词不进入通用执行事件，见 D-043。</li></ul>
 <ul><li>PR-D3：真实公司模型地址及容器至真实内网端点的路由按 X4 在后续联调。本地模型出网检查、关联保密对话改写和出处逐字核验随后续任务接入。</li></ul>
 <ul><li>PR-13：解析服务、沙箱执行和网页抓取分别由 PR-17、PR-22、PR-40 接入。隔离库的 Cursor 执行路径待后续部署，日常工作台继续提供核实。公司本地模型实际地址及正式内网 TLS 仍待对应任务。部分已批准官方域名受本机 Fake-IP 影响，实际工具接入时核对地址与证书。</li></ul>

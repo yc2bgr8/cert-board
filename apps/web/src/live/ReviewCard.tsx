@@ -436,7 +436,9 @@ function ReviewCardContent({
           <ul className="live-review-check-list">
             {card.checks.checks.map((check) => (
               <li key={check.code}>
-                <span className="live-review-identifier">{check.code}</span>
+                <span className="live-review-identifier">
+                  {check.code === 'V6' ? 'V6 · 结构化期限' : check.code}
+                </span>
                 <span
                   className={check.status === 'passed' ? 'live-review-check-passed' : undefined}
                 >
@@ -446,6 +448,7 @@ function ReviewCardContent({
             ))}
           </ul>
           <p className="live-review-meta">未执行 {card.checks.notRun.join('、')}</p>
+          <p className="live-review-meta">V6 复算结构化期限。请人工核对叙述中的期限。</p>
           <details className="live-review-claims">
             <summary>核对的陈述</summary>
             <ul>
@@ -453,7 +456,19 @@ function ReviewCardContent({
                 <li key={claim.id}>
                   {claim.object} · {claim.field}{' '}
                   <span className="live-review-identifier">
-                    {claim.value}
+                    {'deadlineCalculation' in claim &&
+                    claim.deadlineCalculation &&
+                    typeof claim.value === 'string' ? (
+                      <time dateTime={claim.value}>
+                        {new Date(claim.value).toLocaleString('zh-CN', {
+                          timeZone: 'Asia/Shanghai',
+                          hour12: false,
+                        })}
+                        （北京时间）
+                      </time>
+                    ) : (
+                      claim.value
+                    )}
                     {claim.unit && ` ${claim.unit}`}
                   </span>{' '}
                   <span className="live-review-meta">{claimStatus[claim.status]}</span>

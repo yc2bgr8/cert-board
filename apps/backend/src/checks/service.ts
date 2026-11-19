@@ -10,6 +10,7 @@ import {
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
+import { checkDeadlineClaims } from './deadline-claims.js';
 import { quoteAppears } from './quotes.js';
 
 type Database = Pick<Pool, 'query'>;
@@ -215,14 +216,18 @@ export async function checkSubmission(
   if (submission.evidence.length === 0) v1.push({ code: 'missing_evidence', path: 'evidence' });
   for (const [index, citation] of submission.evidence.entries())
     await checkCitation(citation, `evidence[${index}]`);
+  const v6 = checkDeadlineClaims(submission);
   return checkReportSchema.parse({
-    passed: v1.length === 0 && v3.length === 0,
+    passed: v1.length === 0 && v3.length === 0 && v6.issues.length === 0,
     dataLevel,
     checks: [
       { code: 'V1', status: v1.length ? 'failed' : 'passed', issues: v1 },
       { code: 'V3', status: v3.length ? 'failed' : 'passed', issues: v3 },
+      ...(v6.ran
+        ? [{ code: 'V6', status: v6.issues.length ? 'failed' : 'passed', issues: v6.issues }]
+        : []),
     ],
-    notRun,
+    notRun: v6.ran ? ['V2', 'V4', 'V5', 'V7', 'V8'] : notRun,
     citations: [...citations.values()],
   });
 }

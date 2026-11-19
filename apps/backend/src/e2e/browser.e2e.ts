@@ -10,6 +10,9 @@ import {
 } from 'playwright-core';
 import { startBrowserHarness } from '../test-support/browser-harness.js';
 import { reviewBrowserFlow } from '../test-support/browser-review-flow.js';
+import { calculateDeadline } from '../deadlines/calendar.js';
+import { scanDeadlineReminders } from '../deadlines/scan.js';
+import { developmentGoalId } from '../projects/seed.js';
 import {
   browserReviewPath,
   browserVerificationUncertainty,
@@ -842,6 +845,40 @@ async function main() {
           .getByRole('region', { name: '待我处理事项' })
           .getByRole('button', { name: /外发提案.*查看提案/ })
           .waitFor({ state: 'hidden' });
+        stage = '站内期限提醒出现并确认';
+        const now = new Date();
+        const deadline = calculateDeadline({
+          startDate: now.toISOString().slice(0, 10),
+          quantity: 0,
+          unit: 'calendar_days',
+          jurisdictionTz: 'UTC',
+        });
+        await harness.pool.query(
+          `INSERT INTO timer(id,goal_id,project_id,conversation_id,title,profile,calculation,due_on,due_at,jurisdiction_tz)
+           VALUES($1,$1,$2,$3,'验收示例证照到期','certificate',$4,$5,$6,'UTC')`,
+          [
+            developmentGoalId,
+            harness.projectId,
+            draftConversation,
+            JSON.stringify(deadline.calculation),
+            deadline.dueDate,
+            deadline.dueAt,
+          ],
+        );
+        await scanDeadlineReminders(harness.pool, now);
+        const notices = page.getByRole('group', { name: '按类型筛选待处理事项', exact: true });
+        await notices.getByRole('button', { name: '期限提醒 1', exact: true }).waitFor();
+        await notices.getByRole('button', { name: '期限提醒 1', exact: true }).click();
+        const reminder = page.locator('.live-deadline-row').filter({ hasText: '验收示例证照到期' });
+        await reminder.getByText('当地今日到期', { exact: true }).waitFor();
+        await reminder.getByText(`${deadline.beijingTime}（北京）`, { exact: true }).waitFor();
+        await page
+          .getByRole('complementary', { name: '到期和完成记录', exact: true })
+          .getByText('验收示例证照到期', { exact: true })
+          .waitFor();
+        await captureWorkbench(page, output, 'pr-15-12-deadline-inbox.png');
+        await reminder.getByRole('button', { name: '知道了', exact: true }).click();
+        await reminder.waitFor({ state: 'hidden' });
         await page.getByRole('button', { name: 'L08 年度注册（验收示例）', exact: true }).click();
         await page.getByRole('button', { name: '打开对话：年度注册提案复验', exact: true }).click();
       }
@@ -1174,6 +1211,7 @@ async function main() {
             'pr-u4-08-files.png',
             'pr-u4-09-documents.png',
             'pr-u4-12-inbox.png',
+            'pr-15-12-deadline-inbox.png',
             'pr-u4-15-settings.png',
             'pr-u4-16-management.png',
             'pr-d6-14a-verification.png',

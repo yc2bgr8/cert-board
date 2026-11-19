@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { deadlineCalculationSchema } from './deadlines.js';
 import { documentLocatorKindSchema, documentPageMethodSchema } from './documents.js';
 import { workspaceDataLevelSchema } from './workspace.js';
 
@@ -86,6 +87,14 @@ export const structuredDecisionSchema = z
 export type StructuredDecision = z.infer<typeof structuredDecisionSchema>;
 export const structuredSubmissionSchema = legacyStructuredSubmissionSchema
   .safeExtend({
+    claims: z
+      .array(
+        structuredClaimSchema.safeExtend({
+          deadlineCalculation: deadlineCalculationSchema.optional(),
+        }),
+      )
+      .min(1)
+      .max(20),
     decisions: z.array(structuredDecisionSchema).max(20),
   })
   .superRefine((submission, context) => {
@@ -119,19 +128,22 @@ export const checkIssueSchema = z
       'workspace_version_unavailable',
       'unsupported_quantity',
       'missing_evidence',
+      'deadline_mismatch',
+      'deadline_invalid',
+      'deadline_unstructured',
     ]),
     path: z
       .string()
       .max(80)
       .regex(
-        /^(?:submission|workspaceVersion|claims(?:\[[0-9]{1,2}\])?(?:\.(?:value|unit|sources)(?:\[[0-9]{1,2}\])?)?|decisions(?:\[[0-9]{1,2}\])?(?:\.sources(?:\[[0-9]{1,2}\])?)?|evidence(?:\[[0-9]{1,2}\])?)$/,
+        /^(?:submission|workspaceVersion|conclusion|nextStep|claims(?:\[[0-9]{1,2}\])?(?:\.(?:value|unit|sources)(?:\[[0-9]{1,2}\])?)?|decisions(?:\[[0-9]{1,2}\])?(?:\.(?:choice|reason|alternatives|sources)(?:\[[0-9]{1,2}\])?)?|evidence(?:\[[0-9]{1,2}\])?)$/,
         '检查路径必须由程序按固定结构生成。',
       ),
   })
   .strict();
 const itemSchema = z
   .object({
-    code: z.enum(['V1', 'V3']),
+    code: z.enum(['V1', 'V3', 'V6']),
     status: z.enum(['passed', 'failed', 'not_run']),
     issues: z.array(checkIssueSchema).max(80),
   })
@@ -155,23 +167,38 @@ export const checkReportSchema = z
   .object({
     passed: z.boolean(),
     dataLevel: workspaceDataLevelSchema,
-    checks: z.array(itemSchema).length(2),
-    notRun: z.tuple([
-      z.literal('V2'),
-      z.literal('V4'),
-      z.literal('V5'),
-      z.literal('V6'),
-      z.literal('V7'),
-      z.literal('V8'),
+    checks: z.array(itemSchema).min(2).max(3),
+    notRun: z.union([
+      z.tuple([
+        z.literal('V2'),
+        z.literal('V4'),
+        z.literal('V5'),
+        z.literal('V6'),
+        z.literal('V7'),
+        z.literal('V8'),
+      ]),
+      z.tuple([
+        z.literal('V2'),
+        z.literal('V4'),
+        z.literal('V5'),
+        z.literal('V7'),
+        z.literal('V8'),
+      ]),
     ]),
     citations: z.array(checkedCitationSchema).max(40),
   })
   .strict()
   .superRefine((report, context) => {
-    if (new Set(report.checks.map((check) => check.code)).size !== 2)
+    const codes = new Set(report.checks.map((check) => check.code));
+    if (
+      codes.size !== report.checks.length ||
+      !codes.has('V1') ||
+      !codes.has('V3') ||
+      codes.has('V6') === (report.notRun as readonly string[]).includes('V6')
+    )
       context.addIssue({
         code: 'custom',
-        message: '本切片只分别报告V1和V3，不能重复或冒称其它检查已完成。',
+        message: 'V1 和 V3 必须报告，期限 V6 不得重复出现或同时列入未执行。',
       });
     if (report.passed !== report.checks.every((check) => check.status === 'passed'))
       context.addIssue({ code: 'custom', message: '整体结果不能与分项检查状态矛盾。' });
