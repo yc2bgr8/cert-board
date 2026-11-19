@@ -51,7 +51,10 @@ export type VerificationPrompt = {
 };
 
 export class VerificationChannelError extends Error {
-  constructor(readonly code: CursorCallState) {
+  constructor(
+    readonly code: CursorCallState,
+    readonly confirmedNotSent = false,
+  ) {
     super(code);
     this.name = 'VerificationChannelError';
   }

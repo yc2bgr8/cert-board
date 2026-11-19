@@ -151,6 +151,7 @@ export async function callCursorAcp(
   let size = 0;
   let error: VerificationChannelError | null = null;
   let sessionId: string | null = null;
+  let promptAttempted = false;
   function abort(reason: VerificationChannelError) {
     error ??= reason;
     for (const waiter of waits.values()) waiter.reject(error);
@@ -238,6 +239,9 @@ export async function callCursorAcp(
     });
     if (!allowedOption(configured, 'model', model)) throw new VerificationChannelError('failed');
     await beforeDispatch();
+    if (error || child.exitCode !== null || child.killed || !child.stdin.writable)
+      throw new VerificationChannelError('failed', true);
+    promptAttempted = true;
     const completed = await rpc('session/prompt', {
       sessionId,
       prompt: [{ type: 'text', text: JSON.stringify(prompt) }],
@@ -258,8 +262,9 @@ export async function callCursorAcp(
       return { text: answer, claims: [], providerText: answer };
     }
   } catch (cause) {
-    if (cause instanceof VerificationChannelError) throw cause;
-    throw new VerificationChannelError('failed');
+    if (cause instanceof VerificationChannelError)
+      throw new VerificationChannelError(cause.code, cause.confirmedNotSent || !promptAttempted);
+    throw new VerificationChannelError('failed', !promptAttempted);
   } finally {
     clearTimeout(timer);
     if (sessionId && error && !child.stdin.destroyed)

@@ -443,9 +443,47 @@ test('按长度整理旧答复，优先保留待处理发言，成功回应会�
   await expect.poll(() => calls.length).toBe(4);
   expect(calls.at(-1)?.model).toBe('gpt-flagship');
   expect(calls.at(-1)?.prompt.transcript.some(({ text }) => text === instruction)).toBe(true);
+  expect(calls.at(-1)?.prompt.transcript.some(({ text }) => text === '请 GPT 恢复回答。')).toBe(
+    true,
+  );
   expect(calls.at(-1)?.prompt.transcript.some(({ role }) => role === '主持人压缩稿')).toBe(true);
   expect(
     calls.at(-1)!.prompt.transcript.reduce((size, item) => size + item.text.length, 0),
   ).toBeLessThan(24000);
   expect((await detail(id)).messages.some(({ type }) => type === 'summary')).toBe(true);
+});
+
+test('授权后传输明确未写入时不计次，跨月握手用实际派发日期与月份', async () => {
+  await rounds(1);
+  const send = fixture.runtime.send;
+  fixture.runtime.send = (model, prompt, dispatch) =>
+    send(model, prompt, async () => {
+      await dispatch();
+      if (model.id === 'gpt-flagship') throw new VerificationChannelError('failed', true);
+    });
+  const id = await start('合成：计次和握手中断。');
+  await expect.poll(async () => (await detail(id)).room.status).toBe('completed');
+  const gpt = await context.pool.query(
+    'SELECT status,dispatched_at FROM external_model_exchange WHERE conversation_id=$1 AND model=$2',
+    [id, 'gpt-flagship'],
+  );
+  expect(gpt.rows[0]).toMatchObject({ status: 'not_sent', dispatched_at: expect.any(Date) });
+  const saved = await context.pool.query(
+    `INSERT INTO external_model_exchange(conversation_id,request_key,request_fingerprint,model,channel,
+       original_text,search,sent,returned,replacement_count,month_key,status,reserved_nano,actual_nano,dispatched_at,created_at)
+     VALUES($1,gen_random_uuid(),repeat('a',64),'claude-flagship','cursor','合成跨月',false,'{}','{}',0,
+       to_char((clock_timestamp() AT TIME ZONE 'Asia/Shanghai')-interval '40 days','YYYY-MM'),'settled',0,0,clock_timestamp(),clock_timestamp()-interval '40 days')
+     RETURNING id`,
+    [id],
+  );
+  const monthly = verificationSettingsSchema.parse(
+    (await app.inject({ url: `${prefix}/settings`, headers })).json(),
+  );
+  expect(monthly.usage).toEqual([{ model: 'claude-flagship', calls: 2 }]);
+  const day = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  const dayArchive = await app.inject({ url: `/api/external-model/archive?day=${day}`, headers });
+  expect(dayArchive.json().items.map(({ id }: { id: string }) => id)).toContain(saved.rows[0]!.id);
+  expect(
+    dayArchive.json().items.every(({ model }: { model: string }) => model === 'claude-flagship'),
+  ).toBe(true);
 });

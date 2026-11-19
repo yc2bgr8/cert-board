@@ -45,9 +45,11 @@ const exchangeColumns = `id,conversation_id AS "conversationId",model,original_t
   CASE WHEN status='awaiting_receipt' THEN 'unknown' ELSE status::text END AS status,
   replacement_count AS "replacementCount",search,answer,"references",
   actual_nano AS "costNano",created_at AS "createdAt"`;
+const archiveTime = (alias: 'e' | 'prior') =>
+  `(CASE WHEN ${alias}.channel='cursor' THEN COALESCE(${alias}.dispatched_at,${alias}.created_at) ELSE ${alias}.created_at END)`;
 const archiveColumns = `e.id,e.conversation_id AS "conversationId",c.title,e.model,e.channel,e.sent,e.returned,
   CASE WHEN e.status='awaiting_receipt' THEN 'unknown' ELSE e.status::text END AS status,
-  e.actual_nano AS "costNano",e.created_at AS "createdAt"`;
+  e.actual_nano AS "costNano",${archiveTime('e')} AS "createdAt"`;
 const lock = (db: ExternalDb) => db.query('SELECT pg_advisory_xact_lock(20261119,6)');
 const contextLimit = 32000;
 const attachmentReferences = z.array(externalModelAttachmentSchema).max(3);
@@ -563,14 +565,14 @@ export class ExternalModels {
   async archiveDay(actor: BrowserIdentity, day: string, cursor?: string) {
     const { rows } = await this.pool.query<Record<string, unknown>>(
       `SELECT ${archiveColumns} FROM external_model_exchange e JOIN external_model_conversation c ON c.id=e.conversation_id
-       WHERE (c.user_id=$1 OR c.project_id IS NOT NULL) AND (e.created_at AT TIME ZONE 'Asia/Shanghai')::date=$2::date
-       AND e.status IN ('settled','unknown','awaiting_receipt') AND ($3::uuid IS NULL OR (e.created_at,e.id)<(
-          SELECT prior.created_at,prior.id FROM external_model_exchange prior
+       WHERE (c.user_id=$1 OR c.project_id IS NOT NULL) AND (${archiveTime('e')} AT TIME ZONE 'Asia/Shanghai')::date=$2::date
+       AND e.status IN ('settled','unknown','awaiting_receipt') AND ($3::uuid IS NULL OR (${archiveTime('e')},e.id)<(
+          SELECT ${archiveTime('prior')},prior.id FROM external_model_exchange prior
           JOIN external_model_conversation prior_conversation ON prior_conversation.id=prior.conversation_id
           WHERE prior.id=$3 AND (prior_conversation.user_id=$1 OR prior_conversation.project_id IS NOT NULL)
-            AND (prior.created_at AT TIME ZONE 'Asia/Shanghai')::date=$2::date
+            AND (${archiveTime('prior')} AT TIME ZONE 'Asia/Shanghai')::date=$2::date
             AND prior.status IN ('settled','unknown','awaiting_receipt')
-       )) ORDER BY e.created_at DESC,e.id DESC LIMIT 51`,
+       )) ORDER BY ${archiveTime('e')} DESC,e.id DESC LIMIT 51`,
       [actor.userId, day, cursor ?? null],
     );
     const items = rows.slice(0, 50).map(archiveDto);

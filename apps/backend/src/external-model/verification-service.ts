@@ -210,8 +210,9 @@ export class VerificationRooms {
   async settings() {
     const { rows } = await this.pool.query<{ model: string; calls: number }>(
       `SELECT model,COUNT(*)::integer AS calls FROM external_model_exchange
-       WHERE channel='cursor' AND dispatched_at IS NOT NULL AND status<>'not_sent' AND month_key=$1 GROUP BY model ORDER BY model`,
-      [pickBeijingMonth(new Date())],
+       WHERE channel='cursor' AND dispatched_at IS NOT NULL AND status<>'not_sent'
+         AND date_trunc('month',dispatched_at AT TIME ZONE 'Asia/Shanghai')=date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Shanghai')
+       GROUP BY model ORDER BY model`,
     );
     return verificationSettingsSchema.parse({
       ...(await this.preferences(this.pool)),
@@ -665,6 +666,7 @@ export class VerificationRooms {
     runtime: VerificationRuntime,
     scope: Pick<ModeratorContext, 'room' | 'ownerId'>,
     active?: PostRow,
+    previousHuman?: PostRow,
   ) {
     const existing = history.findLast(
       ({ type, compactsThrough }) => type === 'summary' && compactsThrough !== null,
@@ -672,7 +674,15 @@ export class VerificationRooms {
     const uncompacted = history.filter(
       ({ position, type }) => position > (existing?.compactsThrough ?? 0) && type !== 'summary',
     );
-    if (active && !uncompacted.some(({ id }) => id === active.id)) uncompacted.unshift(active);
+    const required = [
+      ...new Map(
+        [previousHuman, active].flatMap((post) => (post ? [[post.id, post] as const] : [])),
+      ).values(),
+    ];
+    const requiredIds = new Set(required.map(({ id }) => id));
+    for (const post of required)
+      if (!uncompacted.some(({ id }) => id === post.id)) uncompacted.push(post);
+    uncompacted.sort((left, right) => left.position - right.position);
     const head = existing ? [publicPost(existing)] : [];
     const full = [...head, ...uncompacted.map(publicPost)];
     if (
@@ -680,22 +690,22 @@ export class VerificationRooms {
       history.length <= 500
     )
       return full;
-    let remaining = 19000 - (active?.text.length ?? 0);
+    let remaining = 21000 - required.reduce((length, post) => length + post.text.length, 0);
     let cut = uncompacted.length;
     while (cut > 0) {
       const post = uncompacted[cut - 1]!;
-      const size = post.id === active?.id ? 0 : post.text.length;
+      const size = requiredIds.has(post.id) ? 0 : post.text.length;
       if (size > remaining) break;
       remaining -= size;
       cut--;
     }
-    const older = uncompacted.slice(0, cut).filter(({ id }) => id !== active?.id);
+    const older = uncompacted.slice(0, cut);
     if (!older.length) return full;
     const text = (await runtime.compact([...head, ...older.map(publicPost)], scope))
       .slice(0, 3800)
       .replace(/\p{Surrogate}$/u, '')
       .trim();
-    const latest = older.at(-1)!.position;
+    const latest = Math.max(existing?.compactsThrough ?? 0, older.at(-1)!.position);
     const summary = await this.transaction(async (db) => {
       const postId = await this.append(db, id, {
         type: 'summary',
@@ -710,7 +720,8 @@ export class VerificationRooms {
       return publicPost(rows[0]!);
     });
     const kept = uncompacted.slice(cut);
-    if (active && !kept.some(({ id }) => id === active.id)) kept.unshift(active);
+    for (const post of required) if (!kept.some(({ id }) => id === post.id)) kept.push(post);
+    kept.sort((left, right) => left.position - right.position);
     return [summary, ...kept.map(publicPost)];
   }
 
@@ -739,6 +750,9 @@ export class VerificationRooms {
           runtime,
           scope,
           work.pending,
+          work.history.find(
+            ({ position, type }) => position === work.room.lastHandledPosition && type === 'human',
+          ),
         );
         const context: ModeratorContext = {
           ...scope,
@@ -997,6 +1011,7 @@ export class VerificationRooms {
       };
     } catch (error) {
       const state = error instanceof VerificationChannelError ? error.code : 'failed';
+      if (error instanceof VerificationChannelError && error.confirmedNotSent) dispatched = false;
       if (!dispatched) raw = null;
       else if (!raw) raw = { error: state };
       post = {
