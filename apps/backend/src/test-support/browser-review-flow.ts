@@ -87,6 +87,7 @@ export async function reviewBrowserFlow(
     '操作',
   ]);
   await card.getByText('保留两处原文，暂不选定正确编号。', { exact: true }).waitFor();
+  await card.getByText('V6 复算结构化期限。请人工核对叙述中的期限。', { exact: true }).waitFor();
   await page.screenshot({ path: path.join(output, 'review-card.png'), fullPage: true });
   actions.stage('审核卡发起外部核实并回到原对话');
   const moderate = harness.verification.runtime.moderate;

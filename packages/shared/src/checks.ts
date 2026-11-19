@@ -136,7 +136,7 @@ export const checkIssueSchema = z
       .string()
       .max(80)
       .regex(
-        /^(?:submission|workspaceVersion|claims(?:\[[0-9]{1,2}\])?(?:\.(?:value|unit|sources)(?:\[[0-9]{1,2}\])?)?|decisions(?:\[[0-9]{1,2}\])?(?:\.sources(?:\[[0-9]{1,2}\])?)?|evidence(?:\[[0-9]{1,2}\])?)$/,
+        /^(?:submission|workspaceVersion|conclusion|nextStep|claims(?:\[[0-9]{1,2}\])?(?:\.(?:value|unit|sources)(?:\[[0-9]{1,2}\])?)?|decisions(?:\[[0-9]{1,2}\])?(?:\.(?:choice|reason|alternatives|sources)(?:\[[0-9]{1,2}\])?)?|evidence(?:\[[0-9]{1,2}\])?)$/,
         '检查路径必须由程序按固定结构生成。',
       ),
   })

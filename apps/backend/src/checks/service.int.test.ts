@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import type { StructuredSubmission, DataLevel } from '@cert-board/shared';
+import { checkReportSchema, type StructuredSubmission, type DataLevel } from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
 import { readT1Fixture } from '../documents/t1-seed.js';
 import { checkSubmission, refreshCheckDataLevel } from './service.js';
@@ -191,6 +191,16 @@ test('V6 重算声明期限并比较实际时间点，历史报告保持两项�
     status: 'failed',
     issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
   });
+  const byObject = await checkSubmission(context.pool, caller, {
+    ...base,
+    claims: [
+      { ...base.claims[0], object: 'L08 续证申请截止日', field: '日期', value: '2026-05-01' },
+    ],
+  });
+  expect(byObject.checks.at(-1)).toMatchObject({
+    status: 'failed',
+    issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
+  });
   const issueDate = await checkSubmission(context.pool, caller, {
     ...base,
     claims: [{ ...base.claims[0], object: '续证期限核对', field: '签发日期', value: '2026-04-01' }],
@@ -208,6 +218,20 @@ test('V6 重算声明期限并比较实际时间点，历史报告保持两项�
   });
   expect(prose.notRun).toContain('V6');
   expect(prose.checks.some(({ code }) => code === 'V6')).toBe(false);
+  const historical = checkReportSchema.parse({
+    ...prose,
+    passed: false,
+    notRun: ['V2', 'V4', 'V5', 'V7', 'V8'],
+    checks: [
+      ...prose.checks,
+      {
+        code: 'V6',
+        status: 'failed',
+        issues: [{ code: 'deadline_unstructured', path: 'nextStep' }],
+      },
+    ],
+  });
+  expect(historical.checks.at(-1)?.issues[0]?.path).toBe('nextStep');
 });
 
 test.each(['other_project', 'placeholder', 'voided'] as const)(
