@@ -329,9 +329,9 @@ export async function createConversationTx(
   if (!parsed.success || (projectId !== undefined && !identifier.safeParse(projectId).success))
     throw invalid();
   const data = parsed.data;
-  // 旧版本在散列请求前填充 ask。省略权限的旧请求仍需返回原会话。
+  // 旧版本省略权限时散列 ask。新版回执带版本标记，不能通过旧签名重放。
   const legacyPayload = Object.hasOwn(input as object, 'permissionMode')
-    ? undefined
+    ? data
     : { ...data, permissionMode: 'ask' };
   const intent = await command(
     tx,
@@ -339,7 +339,7 @@ export async function createConversationTx(
     data.requestKey,
     'create',
     projectId ?? null,
-    data,
+    { ...data, schemaVersion: 2 },
     legacyPayload,
   );
   if (intent.prior) return conversationCreateResultSchema.parse(intent.prior);
