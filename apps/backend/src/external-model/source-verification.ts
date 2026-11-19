@@ -85,12 +85,12 @@ async function scopeAllowed(db: PoolClient, scope: SourceScope, lock = false) {
   if (lock) {
     await db.query(
       `SELECT goal.id FROM verification_link link JOIN run r ON r.id=link.run_id
-       JOIN goal ON goal.id=r.goal_id WHERE link.room_id=$1 FOR SHARE OF goal`,
+       JOIN goal ON goal.id=r.goal_id WHERE link.room_id=$1 FOR SHARE OF goal NOWAIT`,
       [scope.roomId],
     );
     await db.query(
       `SELECT c.id FROM verification_link link JOIN conversation c ON c.id=link.conversation_id
-       WHERE link.room_id=$1 FOR SHARE OF c`,
+       WHERE link.room_id=$1 FOR SHARE OF c NOWAIT`,
       [scope.roomId],
     );
   }
@@ -110,7 +110,7 @@ async function scopeAllowed(db: PoolClient, scope: SourceScope, lock = false) {
       )) AND NOT EXISTS (
         SELECT 1 FROM document doc JOIN document_version ver ON ver.document_id=doc.id
         WHERE doc.project_id=room.project_id AND ver.data_level='confidential'
-      ) ${lock ? 'FOR SHARE OF room,initiator' : ''}`,
+      ) ${lock ? 'FOR SHARE OF room,initiator NOWAIT' : ''}`,
     [scope.roomId, scope.leaseId, scope.projectId],
   );
   return !!allowed.rowCount;
@@ -132,9 +132,11 @@ export function createVerificationSourceChecker(
       await db.query("SET LOCAL statement_timeout='5000ms'");
       const projectId = scope.projectId;
       if (!projectId || signal.aborted || !(await scopeAllowed(db, scope))) return null;
-      await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
-        `${projectId}:${webSourceKey(url)}`,
-      ]);
+      const lock = await db.query<{ locked: boolean }>(
+        'SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) AS locked',
+        [`${projectId}:${webSourceKey(url)}`],
+      );
+      if (!lock.rows[0]?.locked) return null;
       if (signal.aborted || !(await scopeAllowed(db, scope))) return null;
       const addresses = [{ role: 'user' as const, content: `${url}\n${decodeURIComponent(url)}` }];
       const words = (await protection.words(db)).map(({ phrase }) => phrase);
@@ -152,6 +154,7 @@ export function createVerificationSourceChecker(
 
       const downloaded = await downloadPublicWebSnapshot(fetcher, url, signal);
       if (signal.aborted || !(await scopeAllowed(db, scope, true))) return null;
+      if (signal.aborted) return null;
       const { saved, archive } = await archivePublicWebSnapshot(
         pool,
         store,

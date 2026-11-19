@@ -99,6 +99,43 @@ test('关联目标在抓取时取消，回来的网页不能登记到项目资�
   ).toBe(0);
 });
 
+test('目标被其他事务锁定时，核实及时退回且不登记原件', async () => {
+  const { scope, run } = await evidenceScope();
+  const owner = await context.pool.connect();
+  const put = vi.fn(async (raw: Buffer) => ({ sha256: hash(raw), byteSize: raw.byteLength }));
+  let lockedAt = 0;
+  const fetchPage = vi.fn(async (url: string) => {
+    await owner.query('BEGIN');
+    await owner.query(
+      'SELECT id FROM goal WHERE id=(SELECT goal_id FROM run WHERE id=$1) FOR UPDATE',
+      [run.runId],
+    );
+    lockedAt = performance.now();
+    return fixturePage(url);
+  });
+  const check = createVerificationSourceChecker(
+    context.pool,
+    { put, get: async () => Buffer.alloc(0) },
+    { fetchPage },
+  );
+  const ref = {
+    title: '公开出处',
+    url: 'https://www.fda.gov/blocked-by-lock',
+    excerpt: '合成原文。',
+  };
+  try {
+    expect((await check(scope, [ref])).get(sourceCheckKey(ref))).toEqual({
+      status: 'source_unavailable',
+    });
+    expect(lockedAt).toBeGreaterThan(0);
+    expect(performance.now() - lockedAt).toBeLessThan(1500);
+    expect(put).not.toHaveBeenCalled();
+  } finally {
+    await owner.query('ROLLBACK').catch(() => undefined);
+    owner.release();
+  }
+});
+
 test('独立的归档失败保留已核实出处，耗尽抓取时间后仍可核对已载入页面', async () => {
   const { scope } = await evidenceScope();
   const signal = new AbortController();
