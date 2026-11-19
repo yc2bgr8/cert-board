@@ -46,7 +46,7 @@ export function canonicalPublicWebUrl(value: string) {
     if (hasWebControlCharacters(decoded) || decoded.includes('\\')) return null;
     const parameters = Array.from(url.searchParams.keys());
     if (
-      parameters.length > 64 ||
+      url.search.split('&').length > 64 ||
       url.search.includes(';') ||
       parameters.some((key) =>
         credentialParameter.test(key.trim().toLowerCase().replace(/[-_]/gu, '')),
@@ -157,6 +157,7 @@ const readOnlyFetch = z
     sourceType: webSourceTypeSchema,
     title: z.string().max(255),
     preview: z.string().max(4000),
+    truncated: z.boolean(),
     guidance: z.string().max(400),
   })
   .strict();

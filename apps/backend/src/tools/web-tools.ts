@@ -73,6 +73,21 @@ export function buildWebTools(
     return extendedHosts.includes(host) ? 'extended' : 'general';
   };
 
+  function readOnlyPreview(url: string, title: string, text: string, extractedTruncated: boolean) {
+    const truncated = extractedTruncated || text.length > 4000;
+    return {
+      status: 'read_only',
+      url,
+      sourceType: classify(url),
+      title,
+      preview: preview(text),
+      truncated,
+      guidance: truncated
+        ? '预览已截断。可切换到可写模式后重新抓取，通过 doc_read 继续读取已提取正文，或由人下载原件核对。'
+        : '只读会话只提供临时预览。需要可引用的存档时，请切换到可写模式后重新抓取。',
+    };
+  }
+
   async function protect(ctx: ToolExecutionContext, content: string, address: boolean) {
     if (!ctx.projectId)
       throw new AppError(409, 'WEB_PROJECT_REQUIRED', '请先进入项目再使用网页工具。');
@@ -191,26 +206,18 @@ export function buildWebTools(
         if (!url)
           throw new AppError(400, 'WEB_URL_INVALID', '请提供不含凭据的公开 HTTPS 域名地址。');
         const { projectId } = await protect(ctx, url, true);
-        if (ctx.permissionMode === 'read_only') {
-          const { snapshot } = await download(ctx, url);
-          return {
-            status: 'read_only',
-            url,
-            sourceType: classify(url),
-            title: snapshot.title,
-            preview: preview(snapshot.text),
-            guidance: '只读会话只提供临时预览。需要可引用的存档时，请切换到可写模式后重新抓取。',
-          };
-        }
+        const readOnly = ctx.permissionMode === 'read_only';
         if (
-          !authorize(ctx.actor, 'document.write', { projectId }) ||
-          (ctx.goalId && ctx.goalStatus !== 'active')
+          !readOnly &&
+          (!authorize(ctx.actor, 'document.write', { projectId }) ||
+            (ctx.goalId && ctx.goalStatus !== 'active'))
         )
           throw new AppError(403, 'WEB_ARCHIVE_FORBIDDEN', '当前项目或目标不允许登记网页存档。');
         const sourceKey = `W-${digest(url)}`;
-        await ctx.tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
-          `${projectId}:${sourceKey}`,
-        ]);
+        if (!readOnly)
+          await ctx.tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+            `${projectId}:${sourceKey}`,
+          ]);
         const known = await ctx.tx.query<{
           document_id: string;
           version_no: number;
@@ -237,6 +244,13 @@ export function buildWebTools(
           cached.data.url === url &&
           Date.now() - Date.parse(cached.data.fetchedAt) <= cacheMs
         ) {
+          if (readOnly)
+            return readOnlyPreview(
+              url,
+              current.name,
+              current.text ?? '',
+              cached.data.extractedTruncated,
+            );
           const guidance = archiveGuidance(cached.data, current.is_placeholder);
           return {
             archive: cached.data,
@@ -252,6 +266,8 @@ export function buildWebTools(
         }
         await protect(ctx, url, true);
         const { snapshot, bytes } = await download(ctx, url);
+        if (readOnly)
+          return readOnlyPreview(url, snapshot.title, snapshot.text, snapshot.truncated);
         const archive = webArchiveInfoSchema.parse({
           url,
           fetchedAt: snapshot.fetchedAt,

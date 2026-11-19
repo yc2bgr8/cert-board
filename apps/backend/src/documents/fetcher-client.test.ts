@@ -7,6 +7,13 @@ const client = new FetcherClient('http://127.0.0.1:28084', 'host');
 
 afterEach(() => vi.unstubAllGlobals());
 
+test('网址查询字段上限包含空分隔符，与抓取服务一致', () => {
+  const valid = `${address.split('?')[0]}?${'&'.repeat(63)}item=1`;
+  const invalid = `${address.split('?')[0]}?${'&'.repeat(64)}item=1`;
+  expect(canonicalPublicWebUrl(valid)).toBe(valid);
+  expect(canonicalPublicWebUrl(invalid)).toBeNull();
+});
+
 test('抓取客户端收到含方括号的规范地址与 UTF-16 边界内容', async () => {
   const text = '😀'.repeat(32_000);
   const snapshot = {

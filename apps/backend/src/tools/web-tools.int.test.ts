@@ -77,7 +77,7 @@ async function scenario(mode: PermissionMode = 'full') {
   ]);
   const invoke = (name: string, input: object, callId = randomUUID()) =>
     registry.execute({ runId: run.runId, userId: run.userId, callId }, name, input);
-  return { store, client, invoke, run };
+  return { store, client, invoke, run, registry };
 }
 
 test('公开网页原件可用浏览器会话下载，页码原文与缓存稳定可重放', async () => {
@@ -132,7 +132,7 @@ test('公开网页原件可用浏览器会话下载，页码原文与缓存稳�
 test('只读会话只取临时预览，不写入资料库或原件存储', async () => {
   const { client, store, invoke } = await scenario('read_only');
   const result = await invoke('web_fetch', { url });
-  expect(result.data).toMatchObject({ status: 'read_only', preview: text, url });
+  expect(result.data).toMatchObject({ status: 'read_only', preview: text, url, truncated: false });
   expect(result.data).not.toHaveProperty('documentId');
   expect(result.data).not.toHaveProperty('archive');
   expect(client.fetchPage).toHaveBeenCalledOnce();
@@ -140,6 +140,28 @@ test('只读会话只取临时预览，不写入资料库或原件存储', async
   expect(
     (await context.pool.query("SELECT 1 FROM document WHERE source_key LIKE 'W-%'")).rowCount,
   ).toBe(0);
+});
+
+test('只读会话复用已有页面并提示截断，无须重新出网', async () => {
+  const { client, invoke, registry } = await scenario('full');
+  client.fetchPage.mockResolvedValueOnce({ ...snapshot(), text: '公'.repeat(5000) });
+  expect((await invoke('web_fetch', { url })).data).toMatchObject({ cached: false });
+  client.fetchPage.mockRejectedValue(
+    new AppError(502, 'FETCH_PROXY_UNAVAILABLE', '仅允许读取缓存。'),
+  );
+  const reader = await context.run('MEMBER_B', 'read_only');
+  const result = await registry.execute(
+    { runId: reader.runId, userId: reader.userId, callId: randomUUID() },
+    'web_fetch',
+    { url },
+  );
+  expect(result.data).toMatchObject({
+    status: 'read_only',
+    truncated: true,
+    preview: '公'.repeat(4000),
+  });
+  expect(result.data).not.toHaveProperty('archive');
+  expect(client.fetchPage).toHaveBeenCalledOnce();
 });
 
 test('请求批准模式可存档证据，跳转与提取上限给出不同的下一步', async () => {

@@ -14,8 +14,9 @@ from datetime import datetime, timezone
 from email.message import Message
 from html.parser import HTMLParser
 from ipaddress import ip_address
+from queue import Empty, Queue
 from time import monotonic
-from threading import Event, Timer
+from threading import BoundedSemaphore, Event, Thread, Timer
 from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlsplit, urlunsplit
 
 from fastapi import FastAPI
@@ -36,6 +37,7 @@ CREDENTIAL_PARAMETER = re.compile(
     r"auth|authorization|bearer|code|key|policy|sig|session|jwt)"
 )
 HTML_MEDIA = {"text/html", "application/xhtml+xml"}
+RESOLVERS = BoundedSemaphore(2)
 
 
 class FetchError(Exception):
@@ -48,7 +50,7 @@ class FetchError(Exception):
 
 def canonical_url(value):
     if (not isinstance(value, str) or not 1 <= len(value) <= MAX_URL
-            or re.search(r"[\s\x00-\x1f\x7f\\]", value)):
+            or re.search(r"[\s\x00-\x1f\x7f\ud800-\udfff\\]", value)):
         raise FetchError("FETCH_URL_INVALID")
     try:
         split = urlsplit(value)
@@ -129,7 +131,7 @@ def plain_text(value):
 
 
 def truncate_utf16(value, limit):
-    return value.encode("utf-16-le")[:limit * 2].decode("utf-16-le", errors="ignore")
+    return value.encode("utf-16-le", errors="replace")[:limit * 2].decode("utf-16-le", errors="ignore")
 
 
 def header_charset(content_type):
@@ -151,6 +153,8 @@ class HtmlEncoding(HTMLParser):
 
 
 def decode_text(body, content_type, media_type):
+    if body.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
+        return None
     if body.startswith(codecs.BOM_UTF8):
         charset = "utf-8-sig"
     elif body.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
@@ -190,15 +194,79 @@ def extract(body, content_type, media_type, url):
     return title, truncated, truncated != text
 
 
+def remaining(deadline):
+    seconds = deadline - monotonic()
+    if seconds <= 0:
+        raise FetchError("FETCH_TIMEOUT", 504)
+    return seconds
+
+
+def resolve_service(host, port, deadline):
+    if not RESOLVERS.acquire(blocking=False):
+        raise FetchError("FETCH_PROXY_UNAVAILABLE", 502)
+    result = Queue(maxsize=1)
+
+    def resolve():
+        try:
+            result.put(socket.getaddrinfo(host, port, type=socket.SOCK_STREAM))
+        except OSError as error:
+            result.put(error)
+        finally:
+            RESOLVERS.release()
+
+    Thread(target=resolve, daemon=True).start()
+    try:
+        addresses = result.get(timeout=remaining(deadline))
+    except Empty as error:
+        raise FetchError("FETCH_TIMEOUT", 504) from error
+    if isinstance(addresses, OSError):
+        raise addresses
+    return addresses
+
+
+class ServiceConnection(http.client.HTTPConnection):
+    def __init__(self, host, port, context=None):
+        super().__init__(host, port, timeout=TIMEOUT)
+        self.context = context
+        self.deadline = monotonic() + TIMEOUT
+
+    def connect(self):
+        last_error = None
+        for family, kind, protocol, _, address in resolve_service(self.host, self.port, self.deadline):
+            self.sock = socket.socket(family, kind, protocol)
+            try:
+                self.sock.settimeout(remaining(self.deadline))
+                self.sock.connect(address)
+                break
+            except OSError as error:
+                self.sock.close()
+                self.sock = None
+                last_error = error
+        if self.sock is None:
+            raise last_error or OSError("internal service endpoint unavailable")
+        if self.context is not None:
+            if not self._tunnel_host:
+                raise OSError("proxy tunnel is required")
+            self.sock.settimeout(remaining(self.deadline))
+            self._tunnel()
+            # Publish the SSL socket before beginning the handshake so the deadline can interrupt it.
+            self.sock = self.context.wrap_socket(
+                self.sock, server_hostname=self._tunnel_host, do_handshake_on_connect=False
+            )
+            self.sock.settimeout(remaining(self.deadline))
+            self.sock.do_handshake()
+        self.sock.settimeout(remaining(self.deadline))
+
+
 def public_connection():
-    return http.client.HTTPSConnection(
-        "fetch-egress", 3128, timeout=TIMEOUT, context=ssl.create_default_context()
-    )
+    return ServiceConnection("fetch-egress", 3128, ssl.create_default_context())
 
 
 @contextmanager
 def request_deadline(connection):
     deadline = monotonic() + TIMEOUT
+    if isinstance(connection, ServiceConnection):
+        connection.deadline = deadline
     timed_out = Event()
     upstream = None
 
@@ -223,7 +291,8 @@ def request_deadline(connection):
         if timed_out.is_set() or monotonic() >= deadline:
             raise FetchError("FETCH_TIMEOUT", 504)
     except (OSError, FetchError, http.client.HTTPException) as error:
-        if timed_out.is_set() and not (isinstance(error, FetchError) and error.code == "FETCH_TIMEOUT"):
+        if ((timed_out.is_set() or monotonic() >= deadline)
+                and not (isinstance(error, FetchError) and error.code == "FETCH_TIMEOUT")):
             raise FetchError("FETCH_TIMEOUT", 504) from error
         raise
     finally:
@@ -299,7 +368,7 @@ def fetch_page(value, connect=public_connection):
 def search_pages(query, limit, connect=None):
     if connect is None and os.environ.get("CERT_SEARXNG_ENABLED") != "1":
         raise FetchError("SEARCH_PROVIDER_UNAVAILABLE", 503)
-    connection = connect() if connect is not None else http.client.HTTPConnection("searxng", 8080, timeout=TIMEOUT)
+    connection = connect() if connect is not None else ServiceConnection("searxng", 8080)
     try:
         with request_deadline(connection) as (receive, deadline):
             path = "/search?" + urlencode({"q": query, "format": "json"})

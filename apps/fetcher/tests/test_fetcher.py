@@ -4,6 +4,8 @@ import http.client
 import io
 import json
 import socket
+import ssl
+from threading import Event, Thread
 from time import monotonic
 
 import pytest
@@ -80,6 +82,16 @@ def test_url_preserves_node_serialization_of_square_brackets_and_query():
     assert proxy.calls[1][1] == "/guides/[public]?item=%27known%27"
 
 
+@pytest.mark.parametrize("count,valid", [(63, True), (64, False)])
+def test_query_field_limit_counts_empty_separators(count, valid):
+    address = "https://www.fda.gov/guide?" + "&" * count + "item=1"
+    if valid:
+        assert canonical_url(address) == address
+    else:
+        with pytest.raises(FetchError, match="FETCH_URL_INVALID"):
+            canonical_url(address)
+
+
 @pytest.mark.parametrize("location,next_url", [
     ("/updated", "https://www.fda.gov/updated"),
     ("https://127.0.0.1/private", None),
@@ -139,6 +151,49 @@ def test_total_deadline_interrupts_incomplete_upstream_headers(monkeypatch):
         assert client.closed
 
 
+def test_total_deadline_interrupts_tls_handshake_after_proxy_tunnel(monkeypatch):
+    monkeypatch.setattr(fetcher, "TIMEOUT", 0.65)
+    with socket.socket() as proxy:
+        proxy.bind(("127.0.0.1", 0))
+        proxy.listen()
+        proxy.settimeout(1)
+        connected = Event()
+        handshake_started = Event()
+        shutdown = Event()
+
+        def tunnel_then_wait():
+            upstream, _ = proxy.accept()
+            with upstream:
+                upstream.settimeout(1)
+                request = b""
+                while b"\r\n\r\n" not in request:
+                    block = upstream.recv(4096)
+                    if not block:
+                        return
+                    request += block
+                if not request.startswith(b"CONNECT www.fda.gov:443 "):
+                    return
+                connected.set()
+                upstream.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                if upstream.recv(4096):
+                    handshake_started.set()
+                shutdown.wait(1)
+
+        thread = Thread(target=tunnel_then_wait, daemon=True)
+        thread.start()
+        client = fetcher.ServiceConnection("127.0.0.1", proxy.getsockname()[1], ssl.create_default_context())
+        before = monotonic()
+        try:
+            with pytest.raises(FetchError, match="FETCH_TIMEOUT"):
+                fetch_page("https://www.fda.gov/source", lambda: client)
+            assert monotonic() - before < 1.25
+            assert connected.is_set() and handshake_started.is_set()
+            assert client.sock is None
+        finally:
+            shutdown.set()
+            thread.join(1.5)
+
+
 def test_html_meta_charset_and_undecodable_body_preserve_original():
     domain = "https://www.fda.gov/localized"
     headers = {"Content-Type": "text/html"}
@@ -151,6 +206,11 @@ def test_html_meta_charset_and_undecodable_body_preserve_original():
     assert placeholder["text"] == ""
     assert base64.b64decode(placeholder["bodyBase64"]) == bad
 
+    utf32 = '公开😀正文'.encode('utf-32')
+    result = fetch_page(domain, lambda: Connection(Reply(200, utf32, {"Content-Type": "text/html; charset=utf-32"})))
+    assert result["text"] == ""
+    assert base64.b64decode(result["bodyBase64"]) == utf32
+
 
 def test_non_bmp_text_and_search_fit_the_shared_utf16_contract(monkeypatch):
     monkeypatch.setattr(fetcher, "MAX_TEXT", 3)
@@ -161,7 +221,8 @@ def test_non_bmp_text_and_search_fit_the_shared_utf16_contract(monkeypatch):
     assert output["truncated"] is True
     reply = Reply(200, json.dumps({"results": [
         {"url": "https://www.fda.gov/" + "x" * 2048},
-        {"url": "https://www.fda.gov/guide", "title": "😀" * 120, "content": "😀" * 280},
+        {"url": "https://www.fda.gov/\ud800", "title": "invalid URL"},
+        {"url": "https://www.fda.gov/guide", "title": "😀" * 120 + "\ud800", "content": "😀" * 280 + "\ud800"},
     ]}).encode())
     selected = search_pages("public", 5, lambda: Connection(reply))["items"]
     assert len(selected) == 1
