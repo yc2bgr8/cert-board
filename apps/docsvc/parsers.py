@@ -47,6 +47,9 @@ MAX_OPERATION_SECONDS = 360
 LEGACY_WORD = bytes.fromhex("d0cf11e0a1b11ae1")
 ESTAR_MARKER = re.compile(r"(?<![A-Za-z0-9_])estar(?![A-Za-z0-9_])", re.IGNORECASE)
 FDA_MARKER = re.compile(r"(?<![A-Za-z0-9-])fda\.gov(?![A-Za-z0-9-]|\.[A-Za-z0-9])|food and drug administration", re.IGNORECASE)
+INLINE_XFA_TEXT = {"a", "abbr", "acronym", "b", "big", "cite", "code", "del", "dfn", "em",
+                   "font", "i", "ins", "kbd", "label", "mark", "nobr", "q", "s", "samp",
+                   "small", "span", "strike", "strong", "sub", "sup", "time", "tt", "u", "var"}
 logging.getLogger("pypdf").disabled = True
 logging.getLogger("pypdf").propagate = False
 logging.getLogger("pypdf").addHandler(logging.NullHandler())
@@ -157,28 +160,28 @@ def pdf_reader(data):
 
 
 def bounded_xfa_data(stream, limit):
-    reference = stream.get("/Filter")
-    value = reference.get_object() if reference is not None else None
-    filters = [str(item.get_object()) for item in value] if isinstance(value, ArrayObject) else [str(value)] if value is not None else []
-    if filters and filters not in (["/FlateDecode"], ["/Fl"]):
-        raise DocError("DOC_XFA_TEMPLATE_FILTER")
-    raw = stream._data  # pypdf 7.1.1 的 PDF 流此处已解密。
-    if not isinstance(raw, bytes):
-        raise DocError("DOC_XFA_INVALID")
-    if not filters:
-        if len(raw) > limit:
-            raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
-        return raw
-    reference = stream.get("/DecodeParms")
-    parameters = reference.get_object() if reference is not None else None
-    if isinstance(parameters, ArrayObject):
-        parameters = parameters[0].get_object() if parameters else None
-    predictor = parameters.get("/Predictor", 1) if isinstance(parameters, DictionaryObject) else 1
-    if not isinstance(predictor, int) or predictor not in (1, 2, 10, 11, 12, 13, 14, 15):
-        raise DocError("DOC_XFA_INVALID")
-    # PNG Predictor 最多为每字节增加一个行标记。
-    intermediate_limit = 2 * limit if predictor >= 10 else limit
     try:
+        reference = stream.get("/Filter")
+        value = reference.get_object() if reference is not None else None
+        filters = [str(item.get_object()) for item in value] if isinstance(value, ArrayObject) else [str(value)] if value is not None else []
+        if filters and filters not in (["/FlateDecode"], ["/Fl"]):
+            raise DocError("DOC_XFA_TEMPLATE_FILTER")
+        raw = stream._data  # pypdf 7.1.1 的 PDF 流此处已解密。
+        if not isinstance(raw, bytes):
+            raise DocError("DOC_XFA_INVALID")
+        if not filters:
+            if len(raw) > limit:
+                raise DocError("DOC_XFA_TEMPLATE_LIMIT", 413)
+            return raw
+        reference = stream.get("/DecodeParms")
+        parameters = reference.get_object() if reference is not None else None
+        if isinstance(parameters, ArrayObject):
+            parameters = parameters[0].get_object() if parameters else None
+        predictor = parameters.get("/Predictor", 1) if isinstance(parameters, DictionaryObject) else 1
+        if not isinstance(predictor, int) or predictor not in (1, 2, 10, 11, 12, 13, 14, 15):
+            raise DocError("DOC_XFA_INVALID")
+        # PNG Predictor 最多为每字节增加一个行标记。
+        intermediate_limit = 2 * limit if predictor >= 10 else limit
         inflater = zlib.decompressobj()
         data = inflater.decompress(raw, intermediate_limit + 1)
         if len(data) > intermediate_limit or inflater.unconsumed_tail:
@@ -220,6 +223,24 @@ def xfa_template(form):
     return None
 
 
+def xfa_text(root):
+    parts = []
+    stack = [(root, False)]
+    while stack:
+        element, leaving = stack.pop()
+        if element.tag.rsplit("}", 1)[-1] not in INLINE_XFA_TEXT:
+            parts.append(" ")
+        if leaving:
+            if element is not root and element.tail:
+                parts.append(element.tail)
+        else:
+            if element.text:
+                parts.append(element.text)
+            stack.append((element, True))
+            stack.extend((child, False) for child in reversed(element))
+    return "".join(parts)
+
+
 def inspect_pdf(data):
     check_kind(data, "pdf")
     reader = pdf_reader(data)
@@ -228,7 +249,7 @@ def inspect_pdf(data):
     template = xfa_template(form)
     has_estar = has_fda = False
     if template is not None:
-        values = ["".join(template.itertext())]
+        values = [xfa_text(template)]
         values.extend(value for element in template.iter() for value in element.attrib.values())
         for value in values:
             has_estar = has_estar or bool(ESTAR_MARKER.search(value))

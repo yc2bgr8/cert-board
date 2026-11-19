@@ -185,11 +185,13 @@ def test_content_inspection_distinguishes_pdf_and_xfa_without_names():
     fda = '<template><desc><b>FDA</b> eSTAR fictional fixture at fda.gov.</desc></template>'
     ordinary = b"<template><desc>restart at fda.gov</desc></template>"
     split_word = b"<template><desc><b>not</b>eSTAR at fda.gov</desc></template>"
+    separate_fields = b"<template><field>eSTAR</field><field>FDA at fda.gov</field></template>"
     samples = [
         (sample_pdf(), "pdf"),
         (sample_pdf(with_xfa=True), "pdf"),
         (sample_pdf(with_xfa=True, xfa_template=ordinary), "pdf"),
         (sample_pdf(with_xfa=True, xfa_template=split_word), "pdf"),
+        (sample_pdf(with_xfa=True, xfa_template=separate_fields), "estar"),
         (sample_pdf(with_xfa=True, xfa_template=fda.encode("utf-16")), "estar"),
         (sample_pdf(with_xfa=True, xfa_template=fda.encode()), "estar"),
     ]
@@ -216,7 +218,13 @@ def test_template_and_envelope_limits_are_independent_and_apply_during_decode(mo
 
 def test_bounded_flate_decoding_applies_prediction():
     import pytest
+    from pypdf.errors import PdfReadError
+    from pypdf.generic import IndirectObject
     from parsers import DocError, bounded_xfa_data
+
+    class MissingReference(IndirectObject):
+        def get_object(self):
+            raise PdfReadError("synthetic missing object")
 
     template = b"<template>fictional XML</template>"
     stream = DecodedStreamObject()
@@ -235,6 +243,13 @@ def test_bounded_flate_decoding_applies_prediction():
         bounded_xfa_data(encoded, len(template))
     assert invalid.value.code == "DOC_XFA_INVALID"
     parameters[NameObject("/Predictor")] = NumberObject(12)
+    missing = MissingReference(999, 0, writer)
+    for reference in (missing, ArrayObject([missing])):
+        encoded[NameObject("/DecodeParms")] = reference
+        with pytest.raises(DocError) as broken:
+            bounded_xfa_data(encoded, len(template))
+        assert broken.value.code == "DOC_XFA_INVALID"
+    encoded[NameObject("/DecodeParms")] = parameters
     encoded._data = encoded._data[:-2]
     with pytest.raises(DocError) as truncated:
         bounded_xfa_data(encoded, len(template))
