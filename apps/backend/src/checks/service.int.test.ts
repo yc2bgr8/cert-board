@@ -211,6 +211,19 @@ test('V6 重算声明期限并比较实际时间点，历史报告保持两项�
       issues: [{ code: 'deadline_unstructured', path: 'claims[0].value' }],
     });
   }
+  const followUp = await checkSubmission(context.pool, caller, {
+    ...base,
+    claims: [
+      {
+        ...base.claims[0],
+        object: 'L08 follow-up post-deadline',
+        field: 'date',
+        value: '2026-05-01',
+      },
+    ],
+  });
+  expect(followUp.passed).toBe(true);
+  expect(followUp.notRun).toContain('V6');
   const issueDate = await checkSubmission(context.pool, caller, {
     ...base,
     claims: [{ ...base.claims[0], object: '续证期限核对', field: '签发日期', value: '2026-04-01' }],

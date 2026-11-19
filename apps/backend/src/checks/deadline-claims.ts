@@ -24,7 +24,8 @@ const namedDeadline = (object: string) => {
   const label = object.normalize('NFKC').trim().toLowerCase();
   return Array.from(deadlineFields).some((suffix) => {
     if (!label.endsWith(suffix)) return false;
-    return !/^[a-z]/u.test(suffix) || !/\w/u.test(label.at(-(suffix.length + 1)) ?? '');
+    const separator = label.at(-(suffix.length + 1));
+    return !/^[a-z]/u.test(suffix) || separator === undefined || /[\s:]/u.test(separator);
   });
 };
 
