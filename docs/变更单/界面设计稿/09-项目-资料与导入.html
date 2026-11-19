@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计稿：项目：资料与导入（cert-board）</title>
+<!-- cert-board 界面设计稿。说明见同目录 README.md，共用样式见 cb.css，截图见同名 png（1440 宽）。
+     字体以 Inter 为准（应用内用 @fontsource/inter 打包）；本机没有 Inter 时会回落到系统字体。 -->
+<link rel="stylesheet" href="cb.css">
+<style>
+body{margin:0}
+a{color:#146b62}a:hover{color:#0f554e}
+</style>
+</head>
+<body>
+<div class="app" style="font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #142b2e">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.89 6.18A7.6 7.6 0 1 0 15.89 17.82" stroke-width="1.9"></path><path d="M7.9 12.9L10.9 15.9L20.4 6.4" stroke-width="2.1"></path></svg></div>
+      <div><div class="wordmark">cert<span class="hy">-</span>board</div><small>器械认证工作台</small></div>
+    </div>
+    <div class="side-actions">
+      <button type="button" class="btn-new"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新对话</button>
+      <button type="button" class="btn-sq" aria-label="搜索（Ctrl+K）"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+    </div>
+    <a class="nav" href="#inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>待我处理<span class="count">3</span></a>
+    <div class="side-group">
+      <div class="side-cap">助手</div>
+      <a class="agent active" href="#reg"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span>注册Agent</a>
+      <a class="agent" href="#mnt"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>维护Agent</a>
+      <a class="agent" href="#ext"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path><path d="M19 16v4M17 18h4"></path></svg></span>外部模型<span class="tag">外部</span></a>
+    </div>
+    <div class="side-group">
+      <div class="side-cap">注册项目<button type="button" class="cap-btn" aria-label="新建注册项目"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button></div>
+      <div class="tree">
+        <a class="proj open" href="#p1" style="background: #f0f4f3; color: #142b2e"><span class="chev"></span>L08 510(k)<span class="dot"></span></a>
+        <a class="convi" href="#c1">K号写法检查</a>
+        <a class="convi" href="#c2">申报包一致性检查</a>
+        <a class="convi" href="#c3">来函：FDA 补充资料请求</a>
+        <a class="proj" href="#p2"><span class="chev"></span>CPAP 510(k)<span class="dot warn"></span></a>
+        <a class="proj" href="#p3"><span class="chev"></span>JB-C1 加拿大 MDL</a>
+      </div>
+    </div>
+    <div class="side-foot"><span class="avatar">张</span>张三<a class="foot-btn" href="#settings"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>设置</a></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="tb-left">
+        <div><div class="crumb">注册项目</div><div class="ttl proj-ttl">L08 510(k)</div></div>
+        <nav class="tabs" aria-label="项目内容"><a href="#chat">对话</a><a href="#files">文件</a><a class="on" href="#library">资料</a></nav>
+      </div>
+      <div class="tb-right"><span class="muted small">本项目资料 122 份</span></div>
+    </div>
+
+    <div class="page" style="max-width: 1240px">
+      <div class="drop"><svg class="i lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m17 8-5-5-5 5"></path><path d="M12 3v12"></path></svg><span>拖入文件、文件夹或压缩包，导入本项目资料库</span><button type="button" class="pill" style="margin-left: 8px">导入为：内部<svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button><button type="button" class="btn sm">选择文件</button></div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>整包导入：<span class="mono" style="font-weight: 600">L08_申报资料_补充.zip</span><span class="chip good">已完成</span></h3>
+          <div class="row"><span class="muted small">今天 09:57，张三导入</span><button type="button" class="btn sm">查看导入报告</button><button type="button" class="btn primary sm">确认类别（3）</button></div>
+        </div>
+        <div class="card-body" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px">
+          <div><div class="muted small">文件总数</div><div style="font-size: 20px; font-weight: 600">128</div></div>
+          <div><div class="muted small">重复（已去重）</div><div style="font-size: 20px; font-weight: 600">6</div></div>
+          <div><div class="muted small">已分类</div><div style="font-size: 20px; font-weight: 600">119</div></div>
+          <div><div class="muted small">待确认类别</div><div style="font-size: 20px; font-weight: 600; color: #8a5a12">3</div></div>
+          <div><div class="muted small">解析失败</div><div style="font-size: 20px; font-weight: 600; color: #a8402f">2</div></div>
+          <div><div class="muted small">解析进度</div><div class="progress" style="margin-top: 10px"><span style="width: 96%"></span></div><div class="muted small" style="margin-top: 4px">117 / 122</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="filters">
+            <button type="button" class="fchip on">全部 <b>122</b></button>
+            <button type="button" class="fchip">申报表格 <b>8</b></button>
+            <button type="button" class="fchip">测试报告 <b>31</b></button>
+            <button type="button" class="fchip">说明书与标签 <b>12</b></button>
+            <button type="button" class="fchip">对比器械 <b>5</b></button>
+            <button type="button" class="fchip">风险管理 <b>9</b></button>
+            <button type="button" class="fchip">软件与网络安全 <b>14</b></button>
+            <button type="button" class="fchip">其他 <b>43</b></button>
+          </div>
+          <div class="row"><button type="button" class="fchip">只看低置信度页</button></div>
+        </div>
+        <div class="twrap">
+          <table class="table">
+            <thead><tr><th>名称</th><th>类别</th><th>版本</th><th>数据级别</th><th>解析</th><th>识别置信度低的页</th><th>更新</th><th></th></tr></thead>
+            <tbody>
+              <tr><td class="mono">对比器械对照表.pdf</td><td>对比器械</td><td>第1版</td><td><span class="chip">内部</span></td><td><span class="chip good">已解析</span></td><td class="muted">无</td><td class="muted">11月3日</td><td><a href="#open" class="small">打开</a></td></tr>
+              <tr><td class="mono">510(k)摘要.docx</td><td>申报表格</td><td>第2版</td><td><span class="chip">内部</span></td><td><span class="chip good">已解析</span></td><td class="muted">无</td><td class="muted">昨天</td><td><a href="#open" class="small">打开</a></td></tr>
+              <tr><td class="mono">生物相容性报告_ISO10993.pdf</td><td>测试报告</td><td>第1版</td><td><span class="chip">内部</span></td><td><span class="chip good">已解析</span></td><td><span class="chip warn">3 页</span></td><td class="muted">11月3日</td><td><a href="#open" class="small">查看原页</a></td></tr>
+              <tr><td class="mono">电气安全测试报告.pdf</td><td>测试报告</td><td>第1版</td><td><span class="chip">内部</span></td><td><span class="chip info">解析中</span></td><td class="muted">—</td><td class="muted">今天 09:58</td><td></td></tr>
+              <tr><td class="mono">测试机构报价单.xlsx</td><td>其他</td><td>第1版</td><td><span class="chip warn">保密</span></td><td><span class="chip good">已解析</span></td><td class="muted">无</td><td class="muted">11月10日</td><td><a href="#open" class="small">打开</a></td></tr>
+              <tr><td class="mono">标签照片/IMG_0412.jpg</td><td><span class="chip line">待确认</span></td><td>第1版</td><td><span class="chip">内部</span></td><td><span class="chip bad">解析失败</span></td><td class="muted">—</td><td class="muted">今天 09:57</td><td><a href="#retry" class="small">重试</a></td></tr>
+              <tr><td class="mono">测试机构往来邮件.eml</td><td><span class="chip line">待确认</span></td><td>第1版</td><td><span class="chip">内部</span></td><td><span class="chip good">已解析</span></td><td class="muted">无</td><td class="muted">今天 09:57</td><td><a href="#open" class="small">打开</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

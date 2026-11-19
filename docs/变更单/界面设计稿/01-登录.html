@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计稿：登录（cert-board）</title>
+<!-- cert-board 界面设计稿。说明见同目录 README.md，共用样式见 cb.css，截图见同名 png（1440 宽）。
+     字体以 Inter 为准（应用内用 @fontsource/inter 打包）；本机没有 Inter 时会回落到系统字体。 -->
+<link rel="stylesheet" href="cb.css">
+<style>
+body{margin:0}
+a{color:#146b62}a:hover{color:#0f554e}
+</style>
+</head>
+<body>
+<div class="app" style="font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #142b2e; align-items: center; justify-content: center; padding: 40px 16px">
+  <div style="width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 24px">
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 14px">
+      <div class="mark" style="width: 52px; height: 52px; border-radius: 15px"><svg viewBox="0 0 24 24" style="width: 30px; height: 30px" aria-hidden="true"><path d="M15.89 6.18A7.6 7.6 0 1 0 15.89 17.82" stroke-width="1.9"></path><path d="M7.9 12.9L10.9 15.9L20.4 6.4" stroke-width="2.1"></path></svg></div>
+      <div style="text-align: center">
+        <div class="wordmark" style="font-size: 28px; letter-spacing: -0.8px">cert<span class="hy">-</span>board</div>
+        <div class="muted" style="font-size: 13px; letter-spacing: 2px; margin-top: 4px">器械认证工作台</div>
+      </div>
+    </div>
+    <div class="card" style="padding: 24px; display: flex; flex-direction: column; gap: 16px">
+      <h1 style="margin: 0; font-size: 18px; font-weight: 600">登录</h1>
+      <div class="field"><label for="login-user">账号</label><input id="login-user" class="input" value="zhangsan" autocomplete="username"></div>
+      <div class="field"><label for="login-pass">密码</label><input id="login-pass" class="input" type="password" value="password1234" autocomplete="current-password"></div>
+      <button type="button" class="btn primary full" style="height: 44px; font-size: 14px">登录</button>
+      <p class="muted small" style="margin: 0">账号由管理员建立。忘记密码请联系管理员重置。</p>
+    </div>
+    <p class="muted small" style="margin: 0; text-align: center">仅限注册部门成员使用</p>
+  </div>
+</div>
+</body>
+</html>

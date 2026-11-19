@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计稿：待我处理（cert-board）</title>
+<!-- cert-board 界面设计稿。说明见同目录 README.md，共用样式见 cb.css，截图见同名 png（1440 宽）。
+     字体以 Inter 为准（应用内用 @fontsource/inter 打包）；本机没有 Inter 时会回落到系统字体。 -->
+<link rel="stylesheet" href="cb.css">
+<style>
+body{margin:0}
+a{color:#146b62}a:hover{color:#0f554e}
+</style>
+</head>
+<body>
+<div class="app" style="font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #142b2e">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.89 6.18A7.6 7.6 0 1 0 15.89 17.82" stroke-width="1.9"></path><path d="M7.9 12.9L10.9 15.9L20.4 6.4" stroke-width="2.1"></path></svg></div>
+      <div><div class="wordmark">cert<span class="hy">-</span>board</div><small>器械认证工作台</small></div>
+    </div>
+    <div class="side-actions">
+      <button type="button" class="btn-new"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新对话</button>
+      <button type="button" class="btn-sq" aria-label="搜索（Ctrl+K）"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+    </div>
+    <a class="nav active" href="#inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>待我处理<span class="count">5</span></a>
+    <div class="side-group">
+      <div class="side-cap">助手</div>
+      <a class="agent" href="#reg"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span>注册Agent</a>
+      <a class="agent" href="#mnt"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>维护Agent</a>
+      <a class="agent" href="#ext"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path><path d="M19 16v4M17 18h4"></path></svg></span>外部模型<span class="tag">外部</span></a>
+    </div>
+    <div class="side-group">
+      <div class="side-cap">注册项目<button type="button" class="cap-btn" aria-label="新建注册项目"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button></div>
+      <div class="tree">
+        <a class="proj" href="#p1"><span class="chev"></span>L08 510(k)<span class="dot"></span></a>
+        <a class="proj" href="#p2"><span class="chev"></span>CPAP 510(k)<span class="dot warn"></span></a>
+        <a class="proj" href="#p3"><span class="chev"></span>JB-C1 加拿大 MDL</a>
+      </div>
+    </div>
+    <div class="side-foot"><span class="avatar">张</span>张三<a class="foot-btn" href="#settings"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>设置</a></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="tb-left"><div><div class="crumb">注册项目和维护事项</div><div class="ttl proj-ttl">待我处理</div></div></div>
+      <div class="tb-right"><span class="muted small">不需要动作的完成事项合并进日摘要，18:00 发到企业微信</span></div>
+    </div>
+
+    <div class="page" style="max-width: 1240px">
+      <div class="filters">
+        <button type="button" class="fchip on">全部 <b>5</b></button>
+        <button type="button" class="fchip">批准请求 <b>1</b></button>
+        <button type="button" class="fchip">待审核 <b>2</b></button>
+        <button type="button" class="fchip">提问 <b>1</b></button>
+        <button type="button" class="fchip">阻塞 <b>1</b></button>
+      </div>
+
+      <div class="split">
+        <div class="a card">
+          <div class="card-head"><h3>立即处理</h3><span class="muted small">法定时限、阻塞和等待你决定的事</span></div>
+          <div>
+            <div class="row" style="padding: 14px 16px; border-bottom: 1px solid #eef2f0; flex-wrap: nowrap">
+              <span class="chip teal sq">批准请求</span>
+              <div class="grow"><div style="font-weight: 600">写入台账并记录判断</div><div class="muted small">L08 510(k)，K号写法检查，注册Agent，由你发起</div></div>
+              <span class="muted small" style="white-space: nowrap">等待 12 分钟</span>
+              <button type="button" class="btn primary sm">处理</button>
+            </div>
+            <div class="row" style="padding: 14px 16px; flex-wrap: nowrap">
+              <span class="chip bad sq">阻塞</span>
+              <div class="grow"><div style="font-weight: 600">等待品质部提供生物相容性报告，已超期 2 天</div><div class="muted small">CPAP 510(k)，生物相容性资料催办，注册Agent已催办 2 次</div></div>
+              <span class="muted small" style="white-space: nowrap">需要你协调</span>
+              <button type="button" class="btn sm">查看</button>
+            </div>
+          </div>
+          <div class="card-head" style="border-top: 1px solid #e3e9e8"><h3>今天</h3></div>
+          <div>
+            <div class="row" style="padding: 14px 16px; border-bottom: 1px solid #eef2f0; flex-wrap: nowrap">
+              <span class="chip info sq">待审核</span>
+              <div class="grow"><div style="font-weight: 600">对比器械K号核查</div><div class="muted small">L08 510(k)，K号写法检查，注册Agent</div></div>
+              <span class="muted small" style="white-space: nowrap">10:42 提交</span>
+              <button type="button" class="btn primary sm">审核</button>
+            </div>
+            <div class="row" style="padding: 14px 16px; border-bottom: 1px solid #eef2f0; flex-wrap: nowrap">
+              <span class="chip info sq">待审核</span>
+              <div class="grow"><div style="font-weight: 600">外发提案：美国代理人协议续签确认</div><div class="muted small">L08 年度注册，年度注册核查，维护Agent</div></div>
+              <span class="muted small" style="white-space: nowrap">11:06 生成</span>
+              <button type="button" class="btn sm">审核</button>
+            </div>
+            <div class="row" style="padding: 14px 16px; flex-wrap: nowrap">
+              <span class="chip warn sq">提问</span>
+              <div class="grow"><div style="font-weight: 600">eSTAR 中的产品分类代码选哪个？Agent 给出了两个候选</div><div class="muted small">CPAP 510(k)，申报路径研判，注册Agent，由你发起</div></div>
+              <span class="muted small" style="white-space: nowrap">昨天 17:40</span>
+              <button type="button" class="btn sm">回答</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="b" style="display: flex; flex-direction: column; gap: 18px">
+          <div class="card">
+            <div class="card-head"><h3>即将到期</h3><span class="muted small">90 天内</span></div>
+            <div class="card-body stack" style="gap: 12px">
+              <div class="row" style="flex-wrap: nowrap"><span class="dot warn"></span><span class="grow">JB-C1 加拿大 MDL 年度续期</span><span class="small" style="white-space: nowrap">还有 28 天</span></div>
+              <div class="row" style="flex-wrap: nowrap"><span class="dot idle"></span><span class="grow">L08 年度注册与年费</span><span class="small" style="white-space: nowrap">还有 41 天</span></div>
+              <div class="row" style="flex-wrap: nowrap"><span class="dot idle"></span><span class="grow">MDSAP 年度审核准备</span><span class="small" style="white-space: nowrap">还有 63 天</span></div>
+              <p class="muted small" style="margin: 0">到期前 90、60、30 天和当天提醒，同时发到企业微信。</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>今天已完成</h3><span class="muted small">进日摘要，不单独推送</span></div>
+            <div class="card-body stack" style="gap: 8px">
+              <div class="row small"><svg class="i sm ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>证照台账与 FDA 公开数据比对，无差异</div>
+              <div class="row small"><svg class="i sm ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>FDA 指南更新监测：新增 1 份，与在研项目无关</div>
+              <div class="row small"><svg class="i sm ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>向王敏催办代理人协议签署页</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

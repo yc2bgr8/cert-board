@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计稿：维护页（cert-board）</title>
+<!-- cert-board 界面设计稿。说明见同目录 README.md，共用样式见 cb.css，截图见同名 png（1440 宽）。
+     字体以 Inter 为准（应用内用 @fontsource/inter 打包）；本机没有 Inter 时会回落到系统字体。 -->
+<link rel="stylesheet" href="cb.css">
+<style>
+body{margin:0}
+a{color:#146b62}a:hover{color:#0f554e}
+</style>
+</head>
+<body>
+<div class="app" style="font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #142b2e">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.89 6.18A7.6 7.6 0 1 0 15.89 17.82" stroke-width="1.9"></path><path d="M7.9 12.9L10.9 15.9L20.4 6.4" stroke-width="2.1"></path></svg></div>
+      <div><div class="wordmark">cert<span class="hy">-</span>board</div><small>器械认证工作台</small></div>
+    </div>
+    <div class="side-actions">
+      <button type="button" class="btn-new"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新对话</button>
+      <button type="button" class="btn-sq" aria-label="搜索（Ctrl+K）"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+    </div>
+    <a class="nav" href="#inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>待我处理<span class="count">5</span></a>
+    <div class="side-group">
+      <div class="side-cap">助手</div>
+      <a class="agent" href="#reg"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span>注册Agent</a>
+      <a class="agent" href="#mnt"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>维护Agent</a>
+      <a class="agent" href="#ext"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path><path d="M19 16v4M17 18h4"></path></svg></span>外部模型<span class="tag">外部</span></a>
+    </div>
+    <div class="side-group">
+      <div class="side-cap">注册项目</div>
+      <div class="tree">
+        <a class="proj" href="#p1"><span class="chev"></span>L08 510(k)<span class="dot"></span></a>
+        <a class="proj" href="#p2"><span class="chev"></span>CPAP 510(k)<span class="dot warn"></span></a>
+        <a class="proj" href="#p3"><span class="chev"></span>JB-C1 加拿大 MDL</a>
+      </div>
+    </div>
+    <div class="side-foot"><span class="avatar">张</span>张三<a class="foot-btn active" href="#settings"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>设置</a></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="tb-left">
+        <div><div class="crumb">设置</div><div class="ttl proj-ttl">维护</div></div>
+        <nav class="tabs" aria-label="维护内容"><a class="on" href="#overview">概览</a><a href="#users">用户与权限</a><a href="#models">模型配置</a><a href="#budget">预算与用量</a><a href="#goals">目标与运行</a><a href="#alerts">告警</a><a href="#skills">技能与Agent定义</a></nav>
+      </div>
+      <div class="tb-right"><span class="chip line">仅管理权限可见</span></div>
+    </div>
+
+    <div class="page" style="max-width: 1240px">
+      <div class="metrics">
+        <div class="metric"><div class="lbl">本月费用</div><div class="val">14.40<span class="muted" style="font-size: 14px; font-weight: 400"> 美元</span></div><div class="bar" style="margin: 6px 0 4px"><span style="width: 21%"></span></div><div class="note">三项上限合计 70 美元</div></div>
+        <div class="metric"><div class="lbl">进行中的目标</div><div class="val">6</div><div class="note">2 个在等外部回复</div></div>
+        <div class="metric"><div class="lbl">告警</div><div class="val" style="color: #8a5a12">1</div><div class="note">定时器扫描延迟</div></div>
+        <div class="metric"><div class="lbl">待审阅发布</div><div class="val">2</div><div class="note">技能 1 个，Agent 说明 1 份</div></div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 18px; align-items: start">
+        <section class="card">
+          <div class="card-head"><h3>预算与用量</h3><span class="muted small">费用不明的调用：0 笔</span></div>
+          <div class="twrap">
+            <table class="table">
+              <thead><tr><th>用途</th><th>本月</th><th>上限</th><th style="width: 30%">用量</th></tr></thead>
+              <tbody>
+                <tr><td>主模型<div class="muted small">开发期由 OpenRouter 模拟</div></td><td>8.10 美元</td><td>30 美元</td><td><div class="bar"><span style="width: 27%"></span></div></td></tr>
+                <tr><td>Agent 调用外部模型</td><td>2.10 美元</td><td>20 美元</td><td><div class="bar"><span style="width: 11%"></span></div></td></tr>
+                <tr><td>外部模型入口</td><td>4.20 美元</td><td>20 美元</td><td><div class="bar"><span style="width: 21%"></span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h3>告警</h3><span class="muted small">未接企业微信时只在这里显示</span></div>
+          <div class="card-body stack" style="gap: 10px">
+            <div class="row" style="flex-wrap: nowrap"><span class="chip warn sq">处理中</span><span class="grow">定时器超过 2 小时未扫描</span><span class="muted small" style="white-space: nowrap">今天 09:10</span></div>
+            <div class="row" style="flex-wrap: nowrap"><span class="chip good sq">已恢复</span><span class="grow">OpenRouter 余额低于 10 美元</span><span class="muted small" style="white-space: nowrap">昨天 16:40</span></div>
+            <div class="row" style="flex-wrap: nowrap"><span class="chip good sq">已恢复</span><span class="grow">解析服务不可用</span><span class="muted small" style="white-space: nowrap">11月17日</span></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h3>模型配置</h3><button type="button" class="btn sm">编辑</button></div>
+          <div class="twrap">
+            <table class="table">
+              <thead><tr><th>用途</th><th>模型</th><th>可处理的数据</th><th>状态</th></tr></thead>
+              <tbody>
+                <tr><td>主模型</td><td>DeepSeek V4.1 Flash<div class="muted small">本地 Mac Studio，MLX</div></td><td>公开、内部、保密</td><td><span class="chip warn">未接入</span></td></tr>
+                <tr><td>外部模型</td><td>GPT（OpenAI）</td><td>公开、内部；保密替换后</td><td><span class="chip good">可用</span></td></tr>
+                <tr><td>外部模型</td><td>Claude（Anthropic）</td><td>公开、内部；保密替换后</td><td><span class="chip good">可用</span></td></tr>
+                <tr><td>外部模型</td><td>Gemini（Google）</td><td>公开、内部；保密替换后</td><td><span class="chip good">可用</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card-body muted small" style="border-top: 1px solid #e3e9e8">外部模型都强制零数据保留、不用于训练；不满足的服务商不出现在列表中。</div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h3>技能与Agent定义</h3><span class="muted small">发布前由注册人员审阅</span></div>
+          <div class="twrap">
+            <table class="table">
+              <thead><tr><th>名称</th><th>版本</th><th>状态</th><th></th></tr></thead>
+              <tbody>
+                <tr><td>R09 申报一致性检查</td><td>第3版</td><td><span class="chip good">已发布</span></td><td></td></tr>
+                <tr><td>M02 美国注册与列名核查</td><td>第2版</td><td><span class="chip warn">待审阅</span></td><td><a href="#review" class="small">审阅</a></td></tr>
+                <tr><td>注册Agent 说明</td><td>第5版</td><td><span class="chip good">已发布</span></td><td></td></tr>
+                <tr><td>维护Agent 说明</td><td>第4版</td><td><span class="chip warn">待审阅</span></td><td><a href="#review" class="small">审阅</a></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h3>用户与权限</h3><button type="button" class="btn sm">新建账号</button></div>
+          <div class="twrap">
+            <table class="table">
+              <thead><tr><th>姓名</th><th>账号</th><th>管理权限</th><th>企业微信</th><th>最近登录</th></tr></thead>
+              <tbody>
+                <tr><td>张三</td><td class="mono">zhangsan</td><td><span class="chip teal">有</span></td><td>已绑定</td><td class="muted">今天</td></tr>
+                <tr><td>李四</td><td class="mono">lisi</td><td class="muted">无</td><td>已绑定</td><td class="muted">昨天</td></tr>
+                <tr><td>王敏</td><td class="mono">wangmin</td><td class="muted">无</td><td class="muted">未绑定</td><td class="muted">11月15日</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h3>目标与运行</h3><a href="#goals" class="small" style="text-decoration: none">全部目标</a></div>
+          <div class="twrap">
+            <table class="table">
+              <thead><tr><th>目标</th><th>状态</th><th>下次唤醒</th></tr></thead>
+              <tbody>
+                <tr><td>L08 年度注册</td><td><span class="chip warn">等待外部</span></td><td class="muted">王敏回复后</td></tr>
+                <tr><td>证照台账月度盘点</td><td><span class="chip">定时</span></td><td class="muted">12月1日 09:00</td></tr>
+                <tr><td>FDA 指南更新监测</td><td><span class="chip">定时</span></td><td class="muted">每天 08:00</td></tr>
+                <tr><td>CPAP 510(k) 申报包检查</td><td><span class="chip bad">已停止</span></td><td class="muted">等待追加预算</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

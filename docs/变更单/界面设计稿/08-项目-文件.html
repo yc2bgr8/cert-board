@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计稿：项目：文件（cert-board）</title>
+<!-- cert-board 界面设计稿。说明见同目录 README.md，共用样式见 cb.css，截图见同名 png（1440 宽）。
+     字体以 Inter 为准（应用内用 @fontsource/inter 打包）；本机没有 Inter 时会回落到系统字体。 -->
+<link rel="stylesheet" href="cb.css">
+<style>
+body{margin:0}
+a{color:#146b62}a:hover{color:#0f554e}
+</style>
+</head>
+<body>
+<div class="app" style="font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #142b2e">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.89 6.18A7.6 7.6 0 1 0 15.89 17.82" stroke-width="1.9"></path><path d="M7.9 12.9L10.9 15.9L20.4 6.4" stroke-width="2.1"></path></svg></div>
+      <div><div class="wordmark">cert<span class="hy">-</span>board</div><small>器械认证工作台</small></div>
+    </div>
+    <div class="side-actions">
+      <button type="button" class="btn-new"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新对话</button>
+      <button type="button" class="btn-sq" aria-label="搜索（Ctrl+K）"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+    </div>
+    <a class="nav" href="#inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>待我处理<span class="count">3</span></a>
+    <div class="side-group">
+      <div class="side-cap">助手</div>
+      <a class="agent active" href="#reg"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span>注册Agent</a>
+      <a class="agent" href="#mnt"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>维护Agent</a>
+      <a class="agent" href="#ext"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path><path d="M19 16v4M17 18h4"></path></svg></span>外部模型<span class="tag">外部</span></a>
+    </div>
+    <div class="side-group">
+      <div class="side-cap">注册项目<button type="button" class="cap-btn" aria-label="新建注册项目"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button></div>
+      <div class="tree">
+        <a class="proj open" href="#p1" style="background: #f0f4f3; color: #142b2e"><span class="chev"></span>L08 510(k)<span class="dot"></span></a>
+        <a class="convi" href="#c1">K号写法检查</a>
+        <a class="convi" href="#c2">申报包一致性检查</a>
+        <a class="convi" href="#c3">来函：FDA 补充资料请求</a>
+        <a class="proj" href="#p2"><span class="chev"></span>CPAP 510(k)<span class="dot warn"></span></a>
+        <a class="proj" href="#p3"><span class="chev"></span>JB-C1 加拿大 MDL</a>
+      </div>
+    </div>
+    <div class="side-foot"><span class="avatar">张</span>张三<a class="foot-btn" href="#settings"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>设置</a></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="tb-left">
+        <div><div class="crumb">注册项目</div><div class="ttl proj-ttl">L08 510(k)</div></div>
+        <nav class="tabs" aria-label="项目内容"><a href="#chat">对话</a><a class="on" href="#files">文件</a><a href="#library">资料</a></nav>
+      </div>
+      <div class="tb-right"><span class="chip line">工作区第3版</span><button type="button" class="btn sm"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m17 8-5-5-5 5"></path><path d="M12 3v12"></path></svg>上传文件</button></div>
+    </div>
+
+    <div class="page" style="max-width: 1240px">
+      <div class="split">
+        <div class="a card">
+          <div class="card-head"><h3>工作区文件<span class="muted small" style="font-weight: 400">第3版，6 个文件</span></h3><button type="button" class="pill">版本：第3版（当前）<svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+          <div class="twrap">
+            <table class="table">
+              <thead><tr><th>名称</th><th>版本</th><th>最后修改</th><th>大小</th></tr></thead>
+              <tbody>
+                <tr><td colspan="4" class="muted small" style="background: #fafcfb; padding-top: 8px; padding-bottom: 8px">交付物</td></tr>
+                <tr class="sel"><td><span class="mono" style="font-weight: 600">510(k)摘要.docx</span></td><td>第2版</td><td>张三上传修改稿<div class="muted small">昨天 15:06</div></td><td class="muted">182 KB</td></tr>
+                <tr><td><span class="mono">对比器械对照表.xlsx</span></td><td>第1版</td><td>整包导入<div class="muted small">11月3日</div></td><td class="muted">64 KB</td></tr>
+                <tr><td><span class="mono">eSTAR填报单.md</span></td><td>第3版</td><td>注册Agent代张三<div class="muted small">11月15日</div></td><td class="muted">21 KB</td></tr>
+                <tr><td colspan="4" class="muted small" style="background: #fafcfb; padding-top: 8px; padding-bottom: 8px">核查记录</td></tr>
+                <tr><td><span class="mono">对比器械K号核查记录.md</span> <span class="chip teal">本版新增</span></td><td>第3版</td><td>注册Agent代张三<div class="muted small">今天 10:42</div></td><td class="muted">3 KB</td></tr>
+                <tr><td colspan="4" class="muted small" style="background: #fafcfb; padding-top: 8px; padding-bottom: 8px">检查清单</td></tr>
+                <tr><td><span class="mono">申报一致性检查清单.md</span> <span class="chip">本版修改</span></td><td>第3版</td><td>注册Agent代张三<div class="muted small">今天 10:42</div></td><td class="muted">5 KB</td></tr>
+                <tr><td colspan="4" class="muted small" style="background: #fafcfb; padding-top: 8px; padding-bottom: 8px">资料</td></tr>
+                <tr><td><span class="mono">资料引用清单</span></td><td>第3版</td><td>引用资料库中的 46 份资料<div class="muted small">在「资料」中查看</div></td><td class="muted">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="b card" style="flex-basis: 420px">
+          <div class="card-head">
+            <h3><span class="mono">510(k)摘要.docx</span><span class="chip line">第2版</span><span class="chip info">人修改</span></h3>
+          </div>
+          <div class="card-body stack" style="gap: 12px">
+            <div class="row">
+              <button type="button" class="btn sm"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path><path d="M12 15V3"></path></svg>下载</button>
+              <button type="button" class="btn sm"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m17 8-5-5-5 5"></path><path d="M12 3v12"></path></svg>上传修改稿</button>
+              <button type="button" class="btn sm">对比改动</button>
+              <span class="muted small" style="margin-left: auto">第4页，共12页</span>
+            </div>
+            <div class="docpage" style="min-height: 380px">
+              <h5>510(k) Summary</h5>
+              <p><b>Submitter:</b> [申报企业]</p>
+              <div class="ln"></div><div class="ln m"></div>
+              <p style="margin-top: 12px"><b>Predicate device</b></p>
+              <p>Predicate device 510(k) number: K123465.</p>
+              <p>The predicate identifier is repeated in the submission summary.</p>
+              <div class="ln"></div><div class="ln s"></div><div class="ln m"></div><div class="ln"></div><div class="ln s"></div><div class="ln m"></div>
+            </div>
+            <p class="muted small" style="margin: 0">版面由解析服务渲染（Word、Excel 先转成 PDF）。版面预览不代替文字对比。</p>
+            <div style="border-top: 1px solid #e3e9e8; padding-top: 12px">
+              <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px">版本历史</div>
+              <ul class="timeline">
+                <li><time>昨天 15:06</time>第2版，张三用 WPS 修改后上传，AI 已记录修改内容</li>
+                <li><time>11月3日</time>第1版，整包导入</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

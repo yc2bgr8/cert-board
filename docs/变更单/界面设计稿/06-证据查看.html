@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计稿：证据查看（cert-board）</title>
+<!-- cert-board 界面设计稿。说明见同目录 README.md，共用样式见 cb.css，截图见同名 png（1440 宽）。
+     字体以 Inter 为准（应用内用 @fontsource/inter 打包）；本机没有 Inter 时会回落到系统字体。 -->
+<link rel="stylesheet" href="cb.css">
+<style>
+body{margin:0}
+a{color:#146b62}a:hover{color:#0f554e}
+</style>
+</head>
+<body>
+<div class="app" style="font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #142b2e">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.89 6.18A7.6 7.6 0 1 0 15.89 17.82" stroke-width="1.9"></path><path d="M7.9 12.9L10.9 15.9L20.4 6.4" stroke-width="2.1"></path></svg></div>
+      <div><div class="wordmark">cert<span class="hy">-</span>board</div><small>器械认证工作台</small></div>
+    </div>
+    <div class="side-actions">
+      <button type="button" class="btn-new"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新对话</button>
+      <button type="button" class="btn-sq" aria-label="搜索（Ctrl+K）"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+    </div>
+    <a class="nav" href="#inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>待我处理<span class="count">3</span></a>
+    <div class="side-group">
+      <div class="side-cap">助手</div>
+      <a class="agent active" href="#reg"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span>注册Agent</a>
+      <a class="agent" href="#mnt"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>维护Agent</a>
+      <a class="agent" href="#ext"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path><path d="M19 16v4M17 18h4"></path></svg></span>外部模型<span class="tag">外部</span></a>
+    </div>
+    <div class="side-group">
+      <div class="side-cap">注册项目<button type="button" class="cap-btn" aria-label="新建注册项目"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button></div>
+      <div class="tree">
+        <a class="proj open" href="#p1"><span class="chev"></span>L08 510(k)<span class="dot"></span></a>
+        <a class="convi active" href="#c1">K号写法检查</a>
+        <a class="convi" href="#c2">申报包一致性检查</a>
+        <a class="convi" href="#c3">来函：FDA 补充资料请求</a>
+        <a class="proj" href="#p2"><span class="chev"></span>CPAP 510(k)<span class="dot warn"></span></a>
+        <a class="proj" href="#p3"><span class="chev"></span>JB-C1 加拿大 MDL</a>
+      </div>
+    </div>
+    <div class="side-foot"><span class="avatar">张</span>张三<a class="foot-btn" href="#settings"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>设置</a></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="tb-left">
+        <div><div class="crumb">L08 510(k)</div><div class="ttl">K号写法检查</div></div>
+        <nav class="tabs" aria-label="项目内容"><a class="on" href="#chat">对话</a><a href="#files">文件</a><a href="#library">资料</a></nav>
+      </div>
+      <div class="tb-right"><button type="button" class="btn ghost sm"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>运行详情</button></div>
+    </div>
+
+    <div class="body wide">
+      <div class="conv">
+        <div class="thread" style="padding: 22px 18px 8px; gap: 18px">
+          <div class="m-user" style="font-size: 14px; max-width: 92%">检查L08申报资料中对比器械K号的写法</div>
+          <div class="m-agent">
+            <div class="m-head"><span class="m-ava"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span><span class="who">注册Agent</span><span>10:31</span></div>
+            <div class="prose" style="font-size: 14px"><p>两处K号写法不一致：对比器械对照表第2页写作 <span class="mono">K123456</span><a class="cite on" href="#e1">1</a>，510(k)摘要第4页写作 <span class="mono">K123465</span><a class="cite on" href="#e2">2</a>。</p></div>
+          </div>
+          <div class="rowcard teal" style="font-size: 12.5px"><div class="lead"><span>结果已提交审核</span></div><button type="button" class="btn primary sm">审核</button></div>
+        </div>
+      </div>
+
+      <section class="panel wide" aria-label="证据查看">
+        <div class="panel-head">
+          <div class="row"><h2>依据：对比器械K号</h2><span class="chip">2 处来源</span></div>
+          <div class="row">
+            <div class="tabs" role="tablist" aria-label="显示方式"><a class="on" href="#side">并排对照</a><a href="#single">单份</a></div>
+            <button type="button" class="btn ghost sm" aria-label="关闭右栏"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+            <div class="stack">
+              <div class="row"><span class="cite on">1</span><strong style="font-weight: 600">对比器械对照表</strong><span class="chip line">第1版</span><span class="muted small">第2页，共8页</span><span class="chip good" style="margin-left: auto">解析置信度高</span></div>
+              <div class="docpage" style="min-height: 430px">
+                <h5>Device comparison</h5>
+                <p>The subject device and the predicate device are compared in the table below.</p>
+                <div class="ln"></div><div class="ln m"></div><div class="ln"></div>
+                <p style="margin-top: 14px"><span class="hl">Predicate device 510(k) number: K123456.</span></p>
+                <p>The predicate identifier is listed in the device comparison table.</p>
+                <div class="ln"></div><div class="ln s"></div><div class="ln m"></div><div class="ln"></div><div class="ln s"></div><div class="ln m"></div><div class="ln"></div><div class="ln s"></div>
+              </div>
+              <div class="parsed">Device comparison
+<span class="mark-hl">Predicate device 510(k) number: K123456.</span>
+The predicate identifier is listed in the device comparison table.</div>
+            </div>
+            <div class="stack">
+              <div class="row"><span class="cite on">2</span><strong style="font-weight: 600">510(k)摘要</strong><span class="chip line">第2版</span><span class="muted small">第4页，共12页</span><span class="chip good" style="margin-left: auto">解析置信度高</span></div>
+              <div class="docpage" style="min-height: 430px">
+                <h5>Submission summary</h5>
+                <div class="ln"></div><div class="ln m"></div><div class="ln s"></div>
+                <p style="margin-top: 14px"><span class="hl">Predicate device 510(k) number: K123465.</span></p>
+                <p>The predicate identifier is repeated in the submission summary.</p>
+                <div class="ln m"></div><div class="ln"></div><div class="ln s"></div><div class="ln"></div><div class="ln m"></div><div class="ln"></div><div class="ln s"></div><div class="ln m"></div><div class="ln"></div>
+              </div>
+              <div class="parsed">Submission summary
+<span class="mark-hl">Predicate device 510(k) number: K123465.</span>
+The predicate identifier is repeated in the submission summary.</div>
+            </div>
+          </div>
+          <div class="rowcard"><div class="lead"><svg class="i wait" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg><span>两处只差末两位：<span class="mono">K1234<b>56</b></span> 与 <span class="mono">K1234<b>65</b></span></span></div><span class="muted small">原页由解析服务渲染，只读</span></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

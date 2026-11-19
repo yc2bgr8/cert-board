@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计稿：设置（cert-board）</title>
+<!-- cert-board 界面设计稿。说明见同目录 README.md，共用样式见 cb.css，截图见同名 png（1440 宽）。
+     字体以 Inter 为准（应用内用 @fontsource/inter 打包）；本机没有 Inter 时会回落到系统字体。 -->
+<link rel="stylesheet" href="cb.css">
+<style>
+body{margin:0}
+a{color:#146b62}a:hover{color:#0f554e}
+</style>
+</head>
+<body>
+<div class="app" style="font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif; color: #142b2e">
+  <aside class="side">
+    <div class="brand">
+      <div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.89 6.18A7.6 7.6 0 1 0 15.89 17.82" stroke-width="1.9"></path><path d="M7.9 12.9L10.9 15.9L20.4 6.4" stroke-width="2.1"></path></svg></div>
+      <div><div class="wordmark">cert<span class="hy">-</span>board</div><small>器械认证工作台</small></div>
+    </div>
+    <div class="side-actions">
+      <button type="button" class="btn-new"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>新对话</button>
+      <button type="button" class="btn-sq" aria-label="搜索（Ctrl+K）"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+    </div>
+    <a class="nav" href="#inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>待我处理<span class="count">5</span></a>
+    <div class="side-group">
+      <div class="side-cap">助手</div>
+      <a class="agent" href="#reg"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></span>注册Agent</a>
+      <a class="agent" href="#mnt"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>维护Agent</a>
+      <a class="agent" href="#ext"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3L13.9 8.6L19.5 10.5L13.9 12.4L12 18L10.1 12.4L4.5 10.5L10.1 8.6Z"></path><path d="M19 16v4M17 18h4"></path></svg></span>外部模型<span class="tag">外部</span></a>
+    </div>
+    <div class="side-group">
+      <div class="side-cap">注册项目</div>
+      <div class="tree">
+        <a class="proj" href="#p1"><span class="chev"></span>L08 510(k)<span class="dot"></span></a>
+        <a class="proj" href="#p2"><span class="chev"></span>CPAP 510(k)<span class="dot warn"></span></a>
+        <a class="proj" href="#p3"><span class="chev"></span>JB-C1 加拿大 MDL</a>
+      </div>
+    </div>
+    <div class="side-foot"><span class="avatar">张</span>张三<a class="foot-btn active" href="#settings"><svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>设置</a></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar"><div class="tb-left"><div class="ttl proj-ttl">设置</div></div></div>
+    <div class="page" style="max-width: 1180px; flex-direction: row; align-items: flex-start; flex-wrap: wrap">
+      <nav class="subnav" aria-label="设置分类" style="flex: 1 1 180px; max-width: 220px">
+        <a class="on" href="#me">个人与通知</a>
+        <a href="#words">保密词表</a>
+        <a href="#outbound">外发记录</a>
+        <a href="#admin">维护（管理权限）</a>
+        <a href="#about">关于</a>
+      </nav>
+      <div style="flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 18px">
+        <section class="card" id="me">
+          <div class="card-head"><h3>个人与通知</h3></div>
+          <div class="card-body" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px">
+            <div class="field"><label>姓名</label><div>张三</div></div>
+            <div class="field"><label>账号</label><div class="mono">zhangsan</div></div>
+            <div class="field"><label>企业微信</label><div class="row"><span class="chip good">已绑定</span><button type="button" class="btn ghost sm">解除绑定</button></div></div>
+            <div class="field"><label for="digest">日摘要</label><button id="digest" type="button" class="pill" style="align-self: flex-start">工作日 18:00<svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+            <p class="muted small" style="margin: 0; grid-column: 1 / -1">批准请求、提问、阻塞和最终结果立即推送；其余进度合并进日摘要。</p>
+          </div>
+        </section>
+
+        <section class="card" id="words">
+          <div class="card-head"><h3>保密词表<span class="muted small" style="font-weight: 400">3 个词</span></h3><span class="muted small">所有注册人员都可以维护</span></div>
+          <div class="card-body stack" style="gap: 12px">
+            <p class="muted small" style="margin: 0">发给外部模型之前，这些词在本地替换成代号；回复回来后换回原文。也用于出网检查。</p>
+            <div class="row" style="flex-wrap: nowrap">
+              <input class="input grow" aria-label="新词" placeholder="输入客户名、未公开的产品代号、价格或合同条款">
+              <button type="button" class="pill">客户名<svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+              <button type="button" class="btn primary">添加</button>
+            </div>
+            <div class="twrap" style="border: 1px solid #e3e9e8; border-radius: 10px">
+              <table class="table">
+                <thead><tr><th>词</th><th>类别</th><th>替换成</th><th>添加</th><th></th></tr></thead>
+                <tbody>
+                  <tr><td>甲公司</td><td>客户名</td><td><span class="chip">客户A</span></td><td class="muted small">张三，11月18日</td><td><a href="#del" class="small">删除</a></td></tr>
+                  <tr><td class="mono">JB-C2</td><td>未公开的产品代号</td><td><span class="chip">产品A</span></td><td class="muted small">李四，11月18日</td><td><a href="#del" class="small">删除</a></td></tr>
+                  <tr><td>星河项目</td><td>内部项目代号</td><td><span class="chip">项目A</span></td><td class="muted small">张三，11月19日</td><td><a href="#del" class="small">删除</a></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="card" id="outbound">
+          <div class="card-head"><h3>外发记录<span class="chip">今天 4 次</span></h3><div class="row"><button type="button" class="pill">今天<svg class="i sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button><button type="button" class="btn sm">下载今日外发清单</button></div></div>
+          <div class="twrap">
+            <table class="table">
+              <thead><tr><th>时间</th><th>来源</th><th>模型</th><th>数据级别</th><th>替换</th><th>费用</th><th></th></tr></thead>
+              <tbody>
+                <tr><td>10:12</td><td>外部模型对话（张三）</td><td>GPT（OpenAI）</td><td><span class="chip">内部</span></td><td>1 处</td><td>0.03 美元</td><td><a href="#full" class="small">查看全文</a></td></tr>
+                <tr><td>10:40</td><td>注册Agent：申报包一致性检查</td><td>Claude（Anthropic）</td><td><span class="chip info">公开</span></td><td>无</td><td>0.01 美元</td><td><a href="#full" class="small">查看全文</a></td></tr>
+                <tr><td>11:20</td><td>维护Agent：法规更新监测</td><td>Gemini（Google）</td><td><span class="chip info">公开</span></td><td>无</td><td>0.02 美元</td><td><a href="#full" class="small">查看全文</a></td></tr>
+                <tr><td>11:31</td><td>注册Agent：申报路径研判</td><td>GPT（OpenAI）</td><td><span class="chip warn">保密，已替换</span></td><td>3 处</td><td>0.04 美元</td><td><a href="#full" class="small">查看全文</a></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card-body muted small" style="border-top: 1px solid #e3e9e8">发出和返回的全文都在本地存档。今日外发清单进入日摘要。</div>
+        </section>
+
+        <section class="card" id="about">
+          <div class="card-head"><h3>关于</h3></div>
+          <div class="card-body stack small" style="gap: 6px">
+            <div>cert-board 的对话界面基于 Craft Agents（Apache-2.0）修改，许可证和声明见「第三方许可」。</div>
+            <div class="muted">开发环境：主模型暂由 OpenRouter 上的同系列模型模拟。</div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>
