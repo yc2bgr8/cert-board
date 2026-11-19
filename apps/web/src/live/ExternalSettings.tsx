@@ -1,9 +1,141 @@
 import { useState, type FormEvent } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { externalModelWordCategorySchema, type ExternalModelWordInput } from '@cert-board/shared';
+import {
+  externalModelWordCategorySchema,
+  verificationChannelSchema,
+  type ExternalModelWordInput,
+  type VerificationSettings,
+  type VerificationSettingsInput,
+} from '@cert-board/shared';
 import { api, errorMessage } from './api.js';
 import { useBrowserCommand } from './ApprovalCard.js';
-import { formatExternalUsd, useExternalModelSetup } from './ExternalWorkbench.js';
+import { useVerificationSettings, verificationSettingsKey } from './VerificationWorkbench.js';
+import './external-model.css';
+
+const channelStates: Record<VerificationSettings['channelStatus'], string> = {
+  ready: 'Cursor 命令行可用。',
+  fixture: '模拟 Cursor 通道。',
+  not_installed: '开发机的 Cursor 命令行尚未配置。',
+  not_signed_in: 'Cursor 命令行尚未登录。',
+  privacy_unverified: 'Cursor 隐私模式待确认。',
+  quota: 'Cursor 订阅额度已用完。',
+  unavailable: 'Cursor 通道暂不可用。',
+};
+
+function VerificationPreferences({
+  settings,
+  userId,
+  management,
+}: {
+  settings: VerificationSettings;
+  userId: string;
+  management: boolean;
+}) {
+  const [autoRounds, setRounds] = useState(String(settings.autoRounds));
+  const [models, setModels] = useState<VerificationSettingsInput['models']>(settings.models);
+  const [saved, setSaved] = useState(false);
+  const command = useBrowserCommand();
+  const client = useQueryClient();
+  function revise(id: string, patch: Partial<VerificationSettingsInput['models'][number]>) {
+    setSaved(false);
+    setModels((current) =>
+      current.map((model) => (model.id === id ? { ...model, ...patch } : model)),
+    );
+  }
+  return (
+    <form
+      className="verification-settings-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!management) return;
+        const input = { autoRounds: Number(autoRounds), models };
+        void command
+          .run([input], () => api.verificationSaveSettings(input))
+          .then((result) => {
+            if (!result) return;
+            client.setQueryData(verificationSettingsKey(userId), result);
+            setSaved(true);
+          });
+      }}
+    >
+      <p role="status">{channelStates[settings.channelStatus]}</p>
+      <fieldset disabled={!management || command.busy}>
+        <legend>通道和默认参与模型</legend>
+        {models.map((model) => {
+          const catalog = settings.catalog.find(({ id }) => id === model.id);
+          return (
+            <div className="verification-config-row" key={model.id}>
+              <strong>{catalog?.label ?? model.id}</strong>
+              <label>
+                通道{' '}
+                <select
+                  value={model.channel}
+                  onChange={(event) =>
+                    revise(model.id, {
+                      channel: verificationChannelSchema.parse(event.target.value),
+                    })
+                  }
+                >
+                  <option value="cursor">Cursor（开发机）</option>
+                  <option value="gateway">模型网关（待配置）</option>
+                </select>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={model.enabled}
+                  onChange={(event) =>
+                    revise(model.id, {
+                      enabled: event.target.checked,
+                      ...(event.target.checked ? {} : { defaultParticipant: false }),
+                    })
+                  }
+                />{' '}
+                启用
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  disabled={!model.enabled}
+                  checked={model.defaultParticipant}
+                  onChange={(event) =>
+                    revise(model.id, { defaultParticipant: event.target.checked })
+                  }
+                />{' '}
+                默认参与
+              </label>
+              <span>{settings.usage.find(({ model: id }) => id === model.id)?.calls ?? 0} 次</span>
+            </div>
+          );
+        })}
+        <label>
+          每个模型最多自动讨论{' '}
+          <input
+            aria-label="每个模型最多自动讨论轮数"
+            type="number"
+            min={1}
+            max={20}
+            value={autoRounds}
+            onChange={(event) => {
+              setRounds(event.target.value);
+              setSaved(false);
+            }}
+            required
+          />{' '}
+          轮
+        </label>
+        <small>有人在群里发言后，轮数上限解除。</small>
+      </fieldset>
+      {management && (
+        <button className="live-primary" type="submit" disabled={command.busy}>
+          保存外部模型设置
+        </button>
+      )}
+      {saved && <p role="status">外部模型设置已保存。</p>}
+      {command.error && <p role="alert">{command.error}</p>}
+    </form>
+  );
+}
 
 const categories: Record<ExternalModelWordInput['category'], string> = {
   customer: '客户名',
@@ -21,7 +153,16 @@ const clock = new Intl.DateTimeFormat('zh-CN', {
   hour12: false,
 });
 
-export function ExternalSettings({ userId }: { userId: string }) {
+export function ExternalSettings({
+  userId,
+  management,
+  openRoom,
+}: {
+  userId: string;
+  management: boolean;
+  openRoom(id: string): void;
+}) {
+  const verification = useVerificationSettings(userId);
   const client = useQueryClient();
   const wordsKey = ['live', 'external-model-words', userId];
   const words = useQuery({
@@ -92,6 +233,23 @@ export function ExternalSettings({ userId }: { userId: string }) {
   }
   return (
     <>
+      <section
+        id="external-verification-settings"
+        className="live-page-card"
+        aria-label="外部模型设置"
+      >
+        <header className="live-page-card-head">
+          <h2>外部模型</h2>
+        </header>
+        {verification.data && (
+          <VerificationPreferences
+            settings={verification.data}
+            userId={userId}
+            management={management}
+          />
+        )}
+        {verification.isError && <p role="alert">{errorMessage(verification.error)}</p>}
+      </section>
       <section id="external-model-words" className="live-page-card" aria-label="保密词表">
         <header className="live-page-card-head">
           <h2>保密词表</h2>
@@ -195,9 +353,16 @@ export function ExternalSettings({ userId }: { userId: string }) {
             <li key={entry.id}>
               <details className="external-archive">
                 <summary>
-                  {entry.title} · {clock.format(new Date(entry.createdAt))} ·{' '}
-                  {entry.status === 'settled' ? '已结算' : '费用待核对'}
+                  核实：{entry.title} · {clock.format(new Date(entry.createdAt))} ·{' '}
+                  {entry.channel === 'cursor' ? 'Cursor' : '模型网关'}
                 </summary>
+                <button
+                  type="button"
+                  className="live-text-button"
+                  onClick={() => openRoom(entry.conversationId)}
+                >
+                  打开核实群聊
+                </button>
                 <h3>发出内容</h3>
                 <pre>{JSON.stringify(entry.sent, null, 2)}</pre>
                 <h3>返回内容</h3>
@@ -225,18 +390,39 @@ export function ExternalSettings({ userId }: { userId: string }) {
   );
 }
 
-export function ExternalModelBudgetLine({ userId }: { userId: string }) {
-  const setup = useExternalModelSetup(userId);
-  const budget = setup.data?.budget;
-  return budget ? (
-    <p className="live-page-message" aria-label="外部模型入口预算">
-      外部模型入口 · {formatExternalUsd(budget.usedNano)} / {formatExternalUsd(budget.limitNano)}{' '}
-      美元
-      {budget.blocked && ' · 已暂停'}
-    </p>
-  ) : (
-    <p className="live-page-message live-muted">
-      {setup.isError ? '外部模型预算暂不可用。' : '正在读取外部模型预算…'}
+export function ExternalUsageSummary({
+  userId,
+  view,
+}: {
+  userId: string;
+  view: 'budget' | 'models' | 'alert';
+}) {
+  const { data, isError } = useVerificationSettings(userId);
+  if (!data) return isError ? <p className="live-page-message">外部核实状态暂不可用。</p> : null;
+  if (view === 'alert')
+    return data.channelStatus !== 'ready' && data.channelStatus !== 'fixture' ? (
+      <p className="live-page-message" role="status">
+        外部核实 · {channelStates[data.channelStatus]}
+      </p>
+    ) : null;
+  if (view === 'models')
+    return (
+      <ul className="live-page-message" aria-label="外部核实的模型">
+        {data.catalog.map((model) => {
+          const config = data.models.find(({ id }) => id === model.id);
+          return (
+            <li key={model.id}>
+              {model.label} · {config?.channel === 'cursor' ? '经 Cursor' : '经模型网关'} ·{' '}
+              {config?.enabled ? '已启用' : '已停用'}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  return (
+    <p className="live-page-message" aria-label="外部核实用量">
+      外部核实 · 经 Cursor 订阅 · 本月 {data.usage.reduce((total, entry) => total + entry.calls, 0)}{' '}
+      次
     </p>
   );
 }

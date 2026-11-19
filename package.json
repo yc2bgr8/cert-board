@@ -37,6 +37,7 @@
     "dev:status": "node scripts/dev.mjs status",
     "dev:api": "node scripts/start-backend.mjs api",
     "dev:worker": "node scripts/start-backend.mjs worker",
+    "dev:verification": "node scripts/start-backend.mjs verification",
     "dev:web": "pnpm --filter @cert-board/web dev",
     "build": "pnpm --filter @cert-board/web build",
     "preview": "pnpm --filter @cert-board/web preview",

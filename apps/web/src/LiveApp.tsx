@@ -27,7 +27,7 @@ import { EvidencePanel } from './live/EvidencePanel.js';
 import { DiffPanel } from './live/DiffPanel.js';
 import { FilePanel } from './live/FilePanel.js';
 import { displayTime, Inbox, noticeLabels, ProjectHomeAside } from './live/WorkspacePages.js';
-import { ExternalWorkbench } from './live/ExternalWorkbench.js';
+import { VerificationWorkbench } from './live/VerificationWorkbench.js';
 import type {
   EvidenceTarget,
   WorkspaceDiffTarget,
@@ -132,8 +132,8 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const sidebarVisible = narrow ? mobileOpen : !collapsed;
   const notifications = useMemberNotifications();
   const externalConversations = useInfiniteQuery({
-    queryKey: ['live', 'external-model-conversations', userId],
-    queryFn: ({ pageParam, signal }) => api.externalConversations(pageParam, signal),
+    queryKey: ['live', 'verification-rooms', userId],
+    queryFn: ({ pageParam, signal }) => api.verificationRooms(pageParam, '', signal),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor,
     enabled: view === 'external',
@@ -431,6 +431,13 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     setExternalId(null);
     setExternalDraft((currentDraft) => currentDraft + 1);
   };
+  const openVerification = (id: string) => {
+    openExternal();
+    if (id !== externalId) {
+      setExternalId(id);
+      setExternalDraft((currentDraft) => currentDraft + 1);
+    }
+  };
   const snapshot = notifications.snapshot;
   const isNewConversation = dialog === 'new';
   const isSettings = dialog === 'settings';
@@ -550,11 +557,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         onSettings={() => openDialog('settings')}
         onExternal={openExternal}
         onExternalNew={newExternal}
-        onExternalConversation={(id) => {
-          if (id !== externalId) setExternalDraft((currentDraft) => currentDraft + 1);
-          setExternalId(id);
-          setMobileOpen(false);
-        }}
+        onExternalConversation={openVerification}
         onClose={closeSidebar}
       />
       {collapsedRail && (
@@ -607,10 +610,10 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           }
         >
           {view === 'external' ? (
-            <ExternalWorkbench
+            <VerificationWorkbench
               key={externalDraft}
               userId={userId}
-              conversationId={externalId}
+              roomId={externalId}
               onCreated={setExternalId}
               projects={availableProjects}
               loadMoreProjects={
@@ -930,6 +933,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           maintenance={showMaintenance}
           onMaintenanceChange={setMaintenanceSettings}
           notificationConnection={notifications.connection}
+          openVerification={openVerification}
         />
       </ProjectShell>
       <Search
@@ -947,6 +951,8 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         returnFocus={returnFocus}
         onProject={openProject}
         onConversation={openConversation}
+        userId={userId}
+        onVerification={openVerification}
       />
     </div>
   );

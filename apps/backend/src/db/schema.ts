@@ -1,4 +1,10 @@
 import { sql } from 'drizzle-orm';
+import type {
+  VerificationClaim,
+  VerificationConclusion,
+  VerificationModel,
+  VerificationSettingsInput,
+} from '@cert-board/shared';
 import {
   boolean,
   date,
@@ -1413,6 +1419,19 @@ export const externalModelExchangeStatus = pgEnum('external_model_exchange_statu
   'unknown',
   'not_sent',
 ]);
+export const verificationStatus = pgEnum('verification_status', [
+  'discussing',
+  'completed',
+  'paused',
+]);
+export const verificationChannel = pgEnum('verification_channel', ['cursor', 'gateway']);
+export const verificationPostKind = pgEnum('verification_post_kind', [
+  'host',
+  'human',
+  'model',
+  'system',
+  'summary',
+]);
 
 export const externalModelConversation = pgTable(
   'external_model_conversation',
@@ -1422,11 +1441,24 @@ export const externalModelConversation = pgTable(
       .notNull()
       .references(() => appUser.id, { onDelete: 'restrict' }),
     title: varchar('title', { length: 160 }).notNull(),
+    projectId: uuid('project_id').references(() => certProject.id, { onDelete: 'restrict' }),
+    hostAgent: agentCode('host_agent').notNull().default('registration'),
+    state: verificationStatus('state').notNull().default('discussing'),
+    participants: jsonb('participants').$type<VerificationModel[]>().notNull().default([]),
+    nextPosition: integer('next_position').notNull().default(1),
+    lastHandledPosition: integer('last_handled_position').notNull().default(0),
+    humanJoined: boolean('human_joined').notNull().default(false),
+    stoppedBy: uuid('stopped_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    activeModel: varchar('active_model', { length: 64 }),
+    leaseId: uuid('lease_id'),
+    leasedAt: timestamp('leased_at', { withTimezone: true }),
+    conclusion: jsonb('conclusion').$type<VerificationConclusion>(),
     ...timestamps(),
   },
   (table) => [
     check('external_model_conversation_title_present', sql`length(btrim(${table.title})) > 0`),
     index('external_model_conversation_owner_idx').on(table.userId, table.updatedAt),
+    index('external_model_conversation_project_idx').on(table.projectId, table.updatedAt),
   ],
 );
 
@@ -1462,6 +1494,7 @@ export const externalModelExchange = pgTable(
     requestKey: uuid('request_key').notNull().unique(),
     requestFingerprint: varchar('request_fingerprint', { length: 64 }).notNull(),
     model: varchar('model', { length: 64 }).notNull(),
+    channel: verificationChannel('channel').notNull().default('gateway'),
     originalText: text('original_text').notNull(),
     attachments: jsonb('attachments')
       .$type<{ versionId: string; path: string }[]>()
@@ -1503,6 +1536,54 @@ export const externalModelExchange = pgTable(
     index('external_model_exchange_month_idx').on(table.monthKey),
   ],
 );
+
+export const verificationPost = pgTable(
+  'verification_post',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => externalModelConversation.id, { onDelete: 'restrict' }),
+    position: integer('position').notNull(),
+    type: verificationPostKind('type').notNull(),
+    author: varchar('author', { length: 120 }).notNull(),
+    userId: uuid('user_id').references(() => appUser.id, { onDelete: 'restrict' }),
+    model: varchar('model', { length: 64 }),
+    channel: verificationChannel('channel'),
+    round: integer('round'),
+    text: text('text').notNull(),
+    mention: varchar('mention', { length: 64 }),
+    compactsThrough: integer('compacts_through'),
+    claims: jsonb('claims').$type<VerificationClaim[]>().notNull().default([]),
+    archiveId: uuid('archive_id').references(() => externalModelExchange.id, {
+      onDelete: 'restrict',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('verification_post_position_unique').on(table.roomId, table.position),
+    check('verification_post_position_positive', sql`${table.position}>0`),
+    check('verification_post_text_present', sql`length(btrim(${table.text}))>0`),
+  ],
+);
+
+export const verificationPreference = pgTable(
+  'verification_preference',
+  {
+    id: uuid('id').primaryKey(),
+    autoRounds: integer('auto_rounds').notNull().default(7),
+    models: jsonb('models').$type<VerificationSettingsInput['models']>().notNull(),
+    ...timestamps(),
+  },
+  (table) => [check('verification_auto_rounds_range', sql`${table.autoRounds} BETWEEN 1 AND 20`)],
+);
+
+export const verificationWorkerState = pgTable('verification_worker_state', {
+  id: uuid('id').primaryKey(),
+  workerId: uuid('worker_id').notNull(),
+  status: varchar('status', { length: 32 }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const runEventType = pgEnum('run_event_type', [
   'run_started',

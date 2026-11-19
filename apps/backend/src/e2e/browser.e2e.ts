@@ -601,7 +601,7 @@ async function main() {
     assert.equal(await settings.getByRole('button', { name: '维护页', exact: true }).count(), 0);
     await captureWorkbench(page, output, 'pr-u4-15-settings.png');
     await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
-    stage = '外部模型替换、联网开关及全文存档';
+    stage = '外部核实：发起、人工插话和原样存档';
     await page.getByRole('button', { name: '设置', exact: true }).click();
     const lexicon = settings.getByRole('region', { name: '保密词表', exact: true });
     await lexicon.getByRole('textbox', { name: '新保密词', exact: true }).fill('示例客户甲');
@@ -609,83 +609,88 @@ async function main() {
     await lexicon.getByText('示例客户甲', { exact: true }).waitFor();
     await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
     await page.getByRole('button', { name: '外部模型', exact: true }).click();
-    const external = page.getByRole('region', { name: '外部模型对话', exact: true });
-    const input = external.getByRole('textbox', { name: '外部模型消息', exact: true });
-    const search = external.getByRole('checkbox', { name: '联网搜索', exact: true });
-    assert.equal(await search.isChecked(), true);
-    const externalTitle = '请核对示例客户甲的申报草案。';
-    await input.fill(externalTitle);
-    await external.getByRole('button', { name: '发送给外部模型', exact: true }).click();
-    const firstTurn = external.getByRole('article').first();
-    await firstTurn.getByText('已替换 1 处保密信息', { exact: true }).waitFor();
-    await firstTurn.getByRole('link', { name: '浏览器验收来源', exact: true }).waitFor();
-    assert.match(
-      (await firstTurn.locator('.external-answer > p').textContent()) ?? '',
-      /示例客户甲/,
+    const group = page.getByRole('region', { name: '外部核实群聊', exact: true });
+    const title = '请核对示例客户甲的合成清单。';
+    const nativeSend = harness.verification.runtime.send;
+    let releaseInitial!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      releaseInitial = resolve;
+    });
+    let calls = 0;
+    harness.verification.runtime.send = async (model, prompt) => {
+      if (++calls === 1) await waiting;
+      return nativeSend(model, prompt);
+    };
+    try {
+      const stream = page.waitForResponse((response) =>
+        /^\/api\/verification\/rooms\/[^/]+\/events$/.test(new URL(response.url()).pathname),
+      );
+      await group.getByRole('textbox', { name: '核实问题', exact: true }).fill(title);
+      await group
+        .getByRole('combobox', { name: '关联项目', exact: true })
+        .selectOption(harness.projectId);
+      await group.getByRole('button', { name: '发起核实', exact: true }).click();
+      assert.match((await stream).headers()['content-type'] ?? '', /text\/event-stream/u);
+      await group.getByText('GPT 正在回答…', { exact: true }).waitFor();
+      await group.getByRole('button', { name: '@Claude', exact: true }).click();
+      await group
+        .getByRole('textbox', { name: '在群里说话', exact: true })
+        .fill('补充：示例客户甲要同时核对附件。');
+      await group.getByRole('button', { name: '发送群聊发言', exact: true }).click();
+      await group.getByText('补充：示例客户甲要同时核对附件。', { exact: true }).waitFor();
+      await captureWorkbench(page, output, 'pr-d6-14a-verification.png');
+    } finally {
+      releaseInitial();
+    }
+    await group.getByRole('link', { name: '合成核实资料 ↗', exact: true }).nth(1).waitFor();
+    const second = harness.verification.requests[1];
+    assert.ok(second);
+    assert.equal(second.model, 'claude-flagship');
+    assert.equal(
+      second.prompt.transcript.some(({ role }) => role === 'gpt-flagship 第1轮'),
+      true,
     );
-    assert.equal(harness.externalModel.requests.length, 1);
-    await captureWorkbench(page, output, 'pr-d6-14-external.png');
-    await firstTurn.getByText('查看出网内容', { exact: true }).click();
-    const sent = firstTurn.locator('.external-sent pre');
+    assert.match(JSON.stringify(second.prompt), /补充：/u);
+    assert.equal(JSON.stringify(second.prompt).includes('示例客户甲'), false);
+    await group
+      .getByText(/发送前已自动替换.*查看实际发出的内容/u)
+      .last()
+      .click();
+    const sent = group.locator('.verification-sent pre').last();
     await sent.waitFor();
     const snapshot = JSON.parse((await sent.textContent())!);
-    const firstRequest = harness.externalModel.requests[0];
-    assert.ok(firstRequest);
-    assert.deepEqual(snapshot, firstRequest);
-    assert.equal(JSON.stringify(snapshot).includes('示例客户甲'), false);
-    assert.equal(snapshot.provider.zdr, true);
-    assert.equal(snapshot.provider.data_collection, 'deny');
-    await firstTurn.getByText('查看出网内容', { exact: true }).click();
-    stage = '继续外部对话及关闭搜索';
-    await search.uncheck();
-    await input.fill('请补充一个核对条目。');
-    const continuation = page.waitForResponse(
-      (candidate) =>
-        candidate.request().method() === 'POST' &&
-        /\/api\/external-model\/conversations\/[^/]+\/messages$/.test(
-          new URL(candidate.url()).pathname,
-        ),
-    );
-    await external.getByRole('button', { name: '发送给外部模型', exact: true }).click();
-    const continueResponse = await continuation;
-    assert.equal(continueResponse.status(), 200);
-    assert.equal((await continueResponse.json()).status, 'settled');
-    const continuationAnswer = external.locator('.external-answer > p').nth(1);
-    await continuationAnswer.waitFor();
-    assert.match((await continuationAnswer.textContent()) ?? '', /请补充一个核对条目/u);
-    const secondRequest = harness.externalModel.requests[1];
-    assert.ok(secondRequest);
-    assert.equal('tools' in secondRequest, false);
-    stage = '外部对话的附件与重新打开';
-    await external.getByRole('button', { name: '添加附件', exact: true }).click();
-    const picker = external.getByRole('region', { name: '选择外部模型附件', exact: true });
-    await picker
-      .getByRole('combobox', { name: '附件所属项目', exact: true })
-      .selectOption(harness.projectId);
-    await picker.getByRole('button', { name: 'AGENTS.md', exact: true }).click();
-    await external.getByRole('button', { name: '移除附件 AGENTS.md', exact: true }).click();
-    await page.getByRole('button', { name: '新建外部模型对话', exact: true }).click();
-    await page.getByRole('button', { name: `打开外部对话：${externalTitle}`, exact: true }).click();
-    await external.getByText('已替换 1 处保密信息', { exact: true }).first().waitFor();
-    stage = '发给 Agent 和外发档案下载';
-    await firstTurn.getByRole('button', { name: '发给 Agent', exact: true }).click();
-    const share = firstTurn.getByRole('region', { name: '发给 Agent', exact: true });
+    assert.deepEqual(snapshot, { model: 'claude-flagship', channel: 'cursor', ...second.prompt });
+
+    stage = '停止并整理，跳回原发言和发送引用';
+    await group.getByRole('button', { name: '停止并整理', exact: true }).click();
+    const conclusions = group.getByRole('complementary', { name: '核实结论', exact: true });
+    await conclusions.getByText(/^可信 1$/u).waitFor();
+    await conclusions.getByText(/^有分歧 1$/u).waitFor();
+    await conclusions.getByText(/^待核实 1$/u).waitFor();
+    await conclusions.getByText(/^人工提供 1$/u).waitFor();
+    await captureWorkbench(page, output, 'pr-d6-14b-verification.png');
+    await conclusions.getByRole('button', { name: 'GPT的发言', exact: true }).first().click();
+    const focusedPost = page.locator('article.verification-post:focus');
+    await focusedPost.waitFor();
+    assert.match((await focusedPost.textContent()) ?? '', /GPT/u);
+    await conclusions.getByRole('button', { name: '发给 Agent', exact: true }).click();
+    const share = group.getByRole('form', { name: '把核实结论发给 Agent' });
     await share
-      .getByRole('combobox', { name: '目标项目', exact: true })
+      .getByRole('combobox', { name: '关联项目', exact: true })
       .selectOption(harness.projectId);
     await share
       .getByRole('combobox', { name: '目标对话', exact: true })
       .selectOption(draftConversation);
     harness.plan('external_quote');
     await share.getByRole('button', { name: '发送引用', exact: true }).click();
-    await share.getByText('引用已交给目标对话。', { exact: true }).waitFor();
+    await share.getByText('结论已发给目标对话。', { exact: true }).waitFor();
     const quote = (
       await harness.pool.query<{ text: string }>(
-        "SELECT message_json->>'content' AS text FROM conversation_message WHERE conversation_id=$1 AND message_json->>'role'='user'",
+        "SELECT message_json->>'content' AS text FROM conversation_message WHERE conversation_id=$1 AND message_json->>'role'='user' ORDER BY seq DESC LIMIT 1",
         [draftConversation],
       )
     ).rows[0]!.text;
-    assert.match(quote, /请用项目资料逐条核对/);
+    assert.match(quote, /外部核实的引用资料/u);
     assert.equal(quote.includes('示例客户甲'), false);
     await until(
       async () =>
@@ -696,16 +701,21 @@ async function main() {
           )
         ).rowCount === 1,
     );
+    stage = '外发清单下载和打开对应群聊';
     await page.getByRole('button', { name: '设置', exact: true }).click();
+    await settings
+      .getByRole('region', { name: '外部模型设置', exact: true })
+      .getByText('模拟 Cursor 通道。', { exact: true })
+      .waitFor();
     const externalArchive = settings.getByRole('region', { name: '外发记录', exact: true });
     await externalArchive
-      .getByText(/请核对示例客户甲的申报草案。.*已结算/u)
+      .getByText(/核实：请核对示例客户甲的合成清单。.*Cursor/u)
       .first()
       .waitFor();
     await captureWorkbench(page, output, 'pr-d6-15-privacy.png');
-    const fileDownload = page.waitForEvent('download');
+    const downloadEvent = page.waitForEvent('download');
     await externalArchive.getByRole('button', { name: '下载外发清单', exact: true }).click();
-    const downloaded = await fileDownload;
+    const downloaded = await downloadEvent;
     assert.match(downloaded.suggestedFilename(), /^外发清单-\d{4}-\d{2}-\d{2}\.json$/u);
     const archiveChunks: Buffer[] = [];
     for await (const chunk of await downloaded.createReadStream())
@@ -713,123 +723,33 @@ async function main() {
     const exported = JSON.parse(Buffer.concat(archiveChunks).toString('utf8'));
     assert.equal(exported.length, 2);
     assert.equal(JSON.stringify(exported).includes('示例客户甲'), false);
-    await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
-    stage = '首轮迟到时保留当前对话';
-    const createPattern = '**/api/external-model/conversations';
-    let markWaiting!: () => void;
-    const waiting = new Promise<void>((resolve) => {
-      markWaiting = resolve;
-    });
-    let deliver!: () => void;
-    const delivered = new Promise<void>((resolve) => {
-      deliver = resolve;
-    });
-    await page.route(createPattern, async (route) => {
-      if (route.request().method() !== 'POST') return route.fallback();
-      markWaiting();
-      await delivered;
-      await route.fallback();
-    });
-    await page.getByRole('button', { name: '新建外部模型对话', exact: true }).click();
-    await input.fill('迟到的独立对话。');
-    await external.getByRole('button', { name: '发送给外部模型', exact: true }).click();
-    const late = page.waitForResponse(
-      (response) =>
-        response.request().method() === 'POST' &&
-        /^\/api\/external-model\/conversations\/[^/]+\/messages$/.test(
-          new URL(response.url()).pathname,
-        ),
-    );
-    try {
-      await bounded(waiting);
-      await page
-        .getByRole('button', { name: `打开外部对话：${externalTitle}`, exact: true })
-        .click();
-      await input.fill('当前对话的新草稿。');
-    } finally {
-      deliver();
-    }
-    stage = '首轮迟到后的请求应完成';
-    assert.equal((await late).status(), 200);
-    stage = '首轮迟到后仍展示已选对话';
-    await external.getByRole('article').first().getByText(externalTitle, { exact: true }).waitFor();
+    await externalArchive
+      .getByText(/核实：请核对示例客户甲的合成清单。.*Cursor/u)
+      .first()
+      .click();
+    await externalArchive
+      .getByRole('button', { name: '打开核实群聊', exact: true })
+      .first()
+      .click();
+    await conclusions.getByText(/^可信 1$/u).waitFor();
+    stage = '核实结束后在原群继续发言';
+    await group.getByRole('button', { name: '@GPT', exact: true }).click();
+    await group
+      .getByRole('textbox', { name: '在群里说话', exact: true })
+      .fill('请在原核实群继续检查。');
+    await group.getByRole('button', { name: '发送群聊发言', exact: true }).click();
+    await group.getByRole('link', { name: '合成核实资料 ↗', exact: true }).nth(2).waitFor();
+    await group.getByRole('button', { name: '停止并整理', exact: true }).click();
+    await conclusions.getByText(/^人工提供 2$/u).waitFor();
+    await page.keyboard.press('Control+k');
+    const verificationSearch = page.getByRole('combobox', { name: '搜索项目或对话', exact: true });
+    await verificationSearch.fill('示例客户甲');
     await page
-      .getByRole('button', { name: '打开外部对话：迟到的独立对话。', exact: true })
-      .waitFor();
-    assert.equal(await input.inputValue(), '当前对话的新草稿。');
-    assert.equal(
-      await page
-        .getByRole('button', { name: `打开外部对话：${externalTitle}`, exact: true })
-        .getAttribute('aria-current'),
-      'page',
-    );
-    await page.unroute(createPattern);
-    stage = '首轮失败后复用对话及 Unicode 标题';
-    const sendPattern = '**/api/external-model/conversations/*/messages';
-    await page.route(sendPattern, async (route) => {
-      if (route.request().method() !== 'POST') return route.fallback();
-      await route.fulfill({
-        status: 413,
-        json: {
-          error: {
-            code: 'TEST_ATTACHMENT_LIMIT',
-            message: '验收模拟附件受限。',
-            requestId: 'fixture',
-          },
-        },
-      });
-    });
-    const unicodeTitle = `${'段'.repeat(59)}😀`;
-    const thread = page.getByRole('button', { name: `打开外部对话：${unicodeTitle}`, exact: true });
-    await page.getByRole('button', { name: '新建外部模型对话', exact: true }).click();
-    await input.fill(`${unicodeTitle} 原问题`);
-    await external.getByRole('button', { name: '发送给外部模型', exact: true }).click();
-    await external.getByRole('alert').filter({ hasText: '验收模拟附件受限。' }).waitFor();
-    await thread.waitFor();
-    await page.unroute(sendPattern);
-    await input.fill('修正后继续原对话。');
-    await external.getByRole('button', { name: '发送给外部模型', exact: true }).click();
-    await external
-      .locator('.external-answer > p')
-      .filter({ hasText: /修正后继续原对话/u })
-      .waitFor();
-    assert.equal(await thread.getAttribute('aria-current'), 'page');
-    assert.equal(
-      (
-        await harness.pool.query(
-          "SELECT id FROM external_model_conversation WHERE title IN ($1,'修正后继续原对话。')",
-          [unicodeTitle],
-        )
-      ).rowCount,
-      1,
-    );
-    stage = '创建被校验拒绝后可修改标题';
-    await page.route(createPattern, async (route) => {
-      if (route.request().method() !== 'POST') return route.fallback();
-      await route.fulfill({
-        status: 400,
-        json: {
-          error: {
-            code: 'TEST_TITLE_INVALID',
-            message: '验收模拟标题受限。',
-            requestId: 'fixture',
-          },
-        },
-      });
-    });
-    await page.getByRole('button', { name: '新建外部模型对话', exact: true }).click();
-    await search.uncheck();
-    await input.fill('原草稿的标题。');
-    await external.getByRole('button', { name: '发送给外部模型', exact: true }).click();
-    await external.getByRole('alert').filter({ hasText: '验收模拟标题受限。' }).waitFor();
-    await page.unroute(createPattern);
-    await input.fill('修改后的标题。');
-    await external.getByRole('button', { name: '发送给外部模型', exact: true }).click();
-    await page.getByRole('button', { name: '打开外部对话：修改后的标题。', exact: true }).waitFor();
-    await external
-      .locator('.external-answer > p')
-      .filter({ hasText: /修改后的标题/u })
-      .waitFor();
+      .getByRole('group', { name: '核实记录', exact: true })
+      .getByRole('option')
+      .first()
+      .click();
+    await conclusions.getByText(/^人工提供 2$/u).waitFor();
     stage = '维护对话和外发提案';
     await page.getByRole('button', { name: '维护Agent', exact: true }).click();
     await page.getByRole('button', { name: 'L08 年度注册（验收示例）', exact: true }).click();
@@ -959,8 +879,8 @@ async function main() {
     await management.getByRole('heading', { name: '预算与用量', exact: true }).waitFor();
     await management.getByText('管理权限已启用', { exact: false }).waitFor();
     await management
-      .getByLabel('外部模型入口预算')
-      .filter({ hasText: /0\.060002/ })
+      .getByLabel('外部核实用量')
+      .filter({ hasText: /本月 3 次/u })
       .waitFor();
     assert.ok((await management.getByText('尚未接入', { exact: true }).count()) > 0);
     await captureWorkbench(page, output, 'pr-u4-16-management.png');
@@ -1064,14 +984,14 @@ async function main() {
             'inbox_type_filter',
             'profile_reads_actual_account_and_stream',
             'management_entry_only_with_permission',
-            'external_model_thread_and_search_switch',
-            'external_model_redaction_and_raw_archive',
-            'external_model_reference_sent_to_agent',
-            'external_model_project_attachment_selection',
-            'external_model_archive_download_and_budget_line',
-            'external_model_late_create_preserves_current_draft',
-            'external_model_first_send_retry_preserves_unicode_thread',
-            'external_model_rejected_create_allows_corrected_title',
+            'verification_start_and_manual_mention',
+            'verification_order_and_redaction_archive',
+            'verification_four_categories_and_source_anchor',
+            'verification_conclusion_shared_to_agent',
+            'verification_archive_download_and_reopen',
+            'verification_resumed_after_stop',
+            'verification_cursor_count_and_settings',
+            'verification_realtime_stream_and_global_search',
             'width_1280',
           ],
           externalRequests,
@@ -1106,7 +1026,8 @@ async function main() {
             'pr-u4-12-inbox.png',
             'pr-u4-15-settings.png',
             'pr-u4-16-management.png',
-            'pr-d6-14-external.png',
+            'pr-d6-14a-verification.png',
+            'pr-d6-14b-verification.png',
             'pr-d6-15-privacy.png',
             'pr-d6-16-budget.png',
           ],

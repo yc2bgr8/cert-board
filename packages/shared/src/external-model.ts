@@ -116,6 +116,8 @@ export const externalModelArchiveSchema = z
     id,
     conversationId: id,
     title: text(160),
+    model: externalModelIdSchema,
+    channel: z.enum(['cursor', 'gateway']),
     sent: z.record(z.string(), z.unknown()),
     returned: z.record(z.string(), z.unknown()).nullable(),
     createdAt: instant,

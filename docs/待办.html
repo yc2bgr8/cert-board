@@ -15,10 +15,10 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;backgrou
 img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
 @media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
-</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#v3-实施顺序">v3 实施顺序</a><a class="level-2" href="#已有待办">已有待办</a><a class="level-2" href="#需要-lan-处理">需要 Lan 处理</a><a class="level-2" href="#各-pr-未完成验收">各 PR 未完成验收</a></nav><main><h1 id="待办">待办</h1>
-<h2 id="v3-实施顺序">v3 实施顺序</h2>
-<p>PR-D1 同步两份变更单和默认模式后，依次做 PR-U1 外框、PR-U2 对话、PR-U3 审核与证据、PR-U4 其他页面、PR-D2 核账、PR-D6 外部模型入口，然后做 PR-13、PR-D3、PR-40、PR-D4、PR-D5。其余按 v2 附录 B.1 第九项与执行方案继续。<a href="变更单/需求变更单_2026-11-19_界面重做与外部模型入口.html#附录b-对pr的调整">v3 附录 B</a></p>
-<p>界面 PR 按 16 页设计稿验收。外发检查、替换与换回、存档、预算和白名单先在 PR-D6 交付，供 PR-D4 复用。</p>
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#v4-实施顺序">v4 实施顺序</a><a class="level-2" href="#已有待办">已有待办</a><a class="level-2" href="#需要-lan-处理">需要 Lan 处理</a><a class="level-2" href="#各-pr-未完成验收">各 PR 未完成验收</a></nav><main><h1 id="待办">待办</h1>
+<h2 id="v4-实施顺序">v4 实施顺序</h2>
+<p>接下来依次做 PR-D6 外部核实群聊、PR-D4 Agent 发起以及审核卡核实、PR-13、PR-D3、PR-40、PR-D5。其余按 v2 附录 B.1 第九项与执行方案继续。<a href="变更单/需求变更单_2026-11-19_外部模型核实.html#附录b-对pr的调整">v4 附录 B</a></p>
+<p>界面 PR 按 17 页设计稿验收。D6 验收 14a、14b、15、16，D4 验收 04、05 的核实部分。外发检查、替换与换回、存档和 Cursor 通道先在 D6 交付，供 D4 复用。</p>
 <p>PR-U2 已有资料引用使用现有项目资料列表，仅把编号及版本写入可编辑消息。原始文件上传、二进制附件及运行详情中的计量和子 Agent 数据随其后端接口接入。SSE 按事件增量显示，上游 token 流式仍在模型网关待办。</p>
 <p>PR-U2 内联 CSS 图片来源：Chromium 157 在工作台已返回 <code>Referrer-Policy: no-referrer</code> 时，内联 CSS 的 <code>url()</code> 仍可能发送来源站点。Playwright 拦截、测试服务记录实际请求和双环回端口独立复测均复现。逐 URL 用 <code>referrer-policy(no-referrer)</code> 在本机有效。按 v3 保留正文内联 CSS，部署验收时用目标浏览器复核并决定兼容方式。正文普通图片已单独验收无来源头。</p>
 <p>PR-U3 的后续接口：</p>
@@ -26,7 +26,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <p>PR-U4 的后续接口：</p>
 <ul><li>03 项目首页沿用新对话表单。会话状态展示已经得到的待处理和归档状态，历史运行进度随运行查询接入。</li><li>08 文件列表与工作区版本可用。Office/PDF 版面随 PR-17 接入，上传修改稿随人工改稿接口交付。当前版本摘要是工作区版本级信息。</li><li>09 资料列表与解析文字可用。解析任务状态、上传和整包导入报告等待 PR-17、PR-19。</li><li>12 处理池使用当前通知接口。首页的到期、已完成和日摘要待相应数据接口。</li><li>15 站内通知显示实时连接。企业微信绑定和日摘要设置待对应接口。保密词表和外发记录由 PR-D6 接入。</li><li>16 管理页权限入口已实现。账号管理、模型配置、预算、目标与运行、告警、技能与 Agent 发布待管理端接口。</li></ul>
 <h2 id="已有待办">已有待办</h2>
-<ul><li>PR-D6 真实外发依赖本地模型内容检查、服务商白名单及搜索后端的留存验证。D6 的发送在测试环境用剧本能力验收。默认运行开放本地对话与词表、档案和预算查询，真实发送保持关闭。二进制附件解析、外部账本未知用量的人工核账和定时发出的日摘要待对应接口。</li></ul>
+<ul><li>PR-D6 已用合成问题验证真实 Cursor 群聊。日常环境待合并及进程切换。联网查询、外部来源逐字核验、本地模型出网检查和核实日摘要待对应接口。其他外部模型通道还需验证服务商留存策略与预算。</li></ul>
 <ul><li>PR-21 L08 真实验收：Flash 已读取两处不同写法并写稿保存为工作区第 2、3 版，第 2 版完成 V1/V3。两次在下一请求预占时超过运行 token 上限，第三次遇上游失败及未知用量。缩小阅读片段、增加命中位置及新文件可省略空哈希后已回归。PR-D2 已按 Lan 授权的 0.00952992 美元预占额核账，并单独复验真实 Flash 网关。真实模型从 L08 对话到最终送审仍待完整复验。</li></ul>
 <ul><li>PR-C5 对齐项：PR-21 修正催办工作日并验证周末拒绝入队及处理。PR-25 的主路径插话和断线续读随对话接口交付。PR-27 的原页和版面预览依赖 PR-17，L08 整包导入报告待 PR-19。总体架构图的模型用语和页脚与新版正文有偏差，模型策略按正文第 5 章和 Lan 的当次预算执行。见决定记录 D-025。</li></ul>
 <ul><li>PR-C4：后端已有完整八部分审核内容。浏览器展现、原文抽屉、文件改动与版本提示在 PR-27 接入。修改后通过、追问、转交及唤醒续作仍按执行方案推进。</li></ul>

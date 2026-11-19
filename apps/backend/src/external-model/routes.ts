@@ -18,6 +18,12 @@ import {
   externalModelShareInputSchema,
   externalModelWordInputSchema,
   externalModelWordListSchema,
+  verificationCreateSchema,
+  verificationInviteSchema,
+  verificationMessageInputSchema,
+  verificationRoomPageSchema,
+  verificationSettingsInputSchema,
+  verificationShareSchema,
   type BackendConfig,
   type BrowserIdentity,
 } from '@cert-board/shared';
@@ -27,6 +33,8 @@ import { usdToNano } from '../budget/meter.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import type { ExternalModelRuntime } from '../modelgw/external.js';
 import { ExternalModels } from './service.js';
+import { VerificationRooms } from './verification-service.js';
+import type { VerificationRuntime } from './verification-runtime.js';
 
 const identifier = z.object({ id: z.string().uuid() }).strict();
 function checked<T>(
@@ -53,12 +61,20 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
   config: BackendConfig,
   blobStore?: DocumentBlobStore,
   runtime?: ExternalModelRuntime,
+  verificationRuntime?: VerificationRuntime,
 ) {
   if (
     runtime &&
     (config.NODE_ENV !== 'test' || process.env.NODE_ENV !== 'test' || runtime.kind !== 'fixture')
   )
     throw new Error('EXTERNAL_MODEL_FIXTURE_TEST_ONLY');
+  if (
+    verificationRuntime &&
+    (config.NODE_ENV !== 'test' ||
+      process.env.NODE_ENV !== 'test' ||
+      verificationRuntime.kind !== 'fixture')
+  )
+    throw new Error('VERIFICATION_FIXTURE_TEST_ONLY');
   const service = new ExternalModels(
     pool,
     blobStore,
@@ -66,6 +82,7 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
     usdToNano(config.EXTERNAL_MODEL_MONTHLY_USD),
   );
   const prefix = '/api/external-model';
+  const verification = new VerificationRooms(pool, service, verificationRuntime);
   const read = (request: FastifyRequest) => requireBrowserIdentity(request, pool, config);
   const write = async <T>(
     request: FastifyRequest,
@@ -96,6 +113,137 @@ export function registerExternalModelRoutes<Logger extends FastifyBaseLogger>(
     }
   };
   const bounds = { bodyLimit: 64 * 1024 };
+  const verify = '/api/verification';
+  const openRoomStreams = new Set<() => void>();
+  app.addHook('preClose', async () => {
+    for (const close of openRoomStreams) close();
+  });
+  const schedule = (roomId: string) =>
+    verification.kick(roomId, () => {
+      app.log.warn({ event: 'verification_unavailable' }, '核实暂时暂停，请核对本地通道。');
+    });
+  app.addHook('onClose', async () => verification.close());
+  app.get(`${verify}/settings`, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    await read(request);
+    return verification.settings();
+  });
+  app.put(`${verify}/settings`, bounds, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    await write(request, (db, actor) =>
+      verification.saveSettings(db, actor, checked(verificationSettingsInputSchema, request.body)),
+    );
+    return verification.settings();
+  });
+  app.get(`${verify}/rooms`, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const paging = checked(
+      z
+        .object({
+          cursor: externalModelConversationCursorSchema.optional(),
+          query: z.string().trim().max(100).default(''),
+        })
+        .strict(),
+      request.query,
+    );
+    const actor = await read(request);
+    return verificationRoomPageSchema.parse(
+      await verification.list(actor, paging.cursor, paging.query),
+    );
+  });
+  app.post(`${verify}/rooms`, bounds, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const room = await write(request, (db, actor) =>
+      verification.create(db, actor, checked(verificationCreateSchema, request.body)),
+    );
+    schedule(room.id);
+    return room;
+  });
+  app.get(`${verify}/rooms/:id`, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    return verification.detail(await read(request), id(request), cursor(request));
+  });
+  app.get(`${verify}/rooms/:id/events`, async (request, reply) => {
+    checked(z.object({}).strict(), request.query);
+    const roomId = id(request);
+    let revision = await verification.revision(await read(request), roomId);
+    let pending = false;
+    let active = true;
+    let lastWrite = Date.now();
+    function close() {
+      if (!active) return;
+      active = false;
+      clearInterval(tick);
+      openRoomStreams.delete(close);
+      request.raw.removeListener('aborted', close);
+      if (!reply.raw.destroyed) reply.raw.end();
+    }
+    function emit(text: string) {
+      if (!active || reply.raw.destroyed) return close();
+      lastWrite = Date.now();
+      if (!reply.raw.write(text)) close();
+    }
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+      'referrer-policy': 'same-origin',
+      'x-accel-buffering': 'no',
+    });
+    openRoomStreams.add(close);
+    request.raw.once('aborted', close);
+    reply.raw.once('close', close);
+    const tick = setInterval(() => {
+      if (!active || pending) return;
+      pending = true;
+      void read(request)
+        .then((actor) => verification.revision(actor, roomId))
+        .then((next) => {
+          if (revision !== next) {
+            revision = next;
+            emit('event: verification_updated\ndata: {}\n\n');
+          } else if (Date.now() - lastWrite >= 15000) emit(': keepalive\n\n');
+        })
+        .catch(close)
+        .finally(() => {
+          pending = false;
+        });
+    }, 700).unref();
+    emit('event: verification_updated\ndata: {}\n\n');
+  });
+  app.post(`${verify}/rooms/:id/posts`, bounds, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const roomId = id(request);
+    await write(request, (db, actor) =>
+      verification.speak(db, actor, roomId, checked(verificationMessageInputSchema, request.body)),
+    );
+    schedule(roomId);
+    return reply.code(204).send();
+  });
+  app.post(`${verify}/rooms/:id/stop`, bounds, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const roomId = id(request);
+    await write(request, (db, actor) => verification.stop(db, actor, roomId));
+    schedule(roomId);
+    return reply.code(204).send();
+  });
+  app.post(`${verify}/rooms/:id/models`, bounds, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const roomId = id(request);
+    await write(request, (db, actor) =>
+      verification.invite(db, actor, roomId, checked(verificationInviteSchema, request.body).model),
+    );
+    schedule(roomId);
+    return reply.code(204).send();
+  });
+  app.post(`${verify}/rooms/:id/share`, bounds, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    return write(request, (db, actor) => {
+      const input = checked(verificationShareSchema, request.body);
+      return verification.share(db, actor, id(request), input.conversationId, input.requestKey);
+    });
+  });
   if (runtime) {
     let recovery: NodeJS.Timeout | undefined;
     app.addHook('onReady', async () => {

@@ -45,7 +45,7 @@ const exchangeColumns = `id,conversation_id AS "conversationId",model,original_t
   CASE WHEN status='awaiting_receipt' THEN 'unknown' ELSE status::text END AS status,
   replacement_count AS "replacementCount",search,answer,"references",
   actual_nano AS "costNano",created_at AS "createdAt"`;
-const archiveColumns = `e.id,e.conversation_id AS "conversationId",c.title,e.sent,e.returned,
+const archiveColumns = `e.id,e.conversation_id AS "conversationId",c.title,e.model,e.channel,e.sent,e.returned,
   CASE WHEN e.status='awaiting_receipt' THEN 'unknown' ELSE e.status::text END AS status,
   e.actual_nano AS "costNano",e.created_at AS "createdAt"`;
 const lock = (db: ExternalDb) => db.query('SELECT pg_advisory_xact_lock(20261119,6)');
@@ -279,7 +279,7 @@ export class ExternalModels {
       await audit(db, actor, 'external_model.word_disabled', 'external_model_word', id);
   }
 
-  private async checkConfidentialSources(db: ExternalDb, messages: ExternalModelMessage[]) {
+  async checkConfidentialSources(db: ExternalDb, messages: ExternalModelMessage[]) {
     const pages = await db.query<{ text: string; oversized: boolean }>(
       `SELECT left(p.text,16000) AS text,length(p.text)>16000 AS oversized
        FROM document_page p JOIN document_version v ON v.id=p.version_id
@@ -553,7 +553,7 @@ export class ExternalModels {
   async archive(actor: BrowserIdentity, id: string) {
     const { rows } = await this.pool.query<Record<string, unknown>>(
       `SELECT ${archiveColumns} FROM external_model_exchange e JOIN external_model_conversation c ON c.id=e.conversation_id
-       WHERE e.id=$1 AND c.user_id=$2`,
+       WHERE e.id=$1 AND (c.user_id=$2 OR c.project_id IS NOT NULL)`,
       [id, actor.userId],
     );
     if (!rows[0]) throw missing();
@@ -563,11 +563,11 @@ export class ExternalModels {
   async archiveDay(actor: BrowserIdentity, day: string, cursor?: string) {
     const { rows } = await this.pool.query<Record<string, unknown>>(
       `SELECT ${archiveColumns} FROM external_model_exchange e JOIN external_model_conversation c ON c.id=e.conversation_id
-       WHERE c.user_id=$1 AND (e.created_at AT TIME ZONE 'Asia/Shanghai')::date=$2::date
+       WHERE (c.user_id=$1 OR c.project_id IS NOT NULL) AND (e.created_at AT TIME ZONE 'Asia/Shanghai')::date=$2::date
        AND e.status IN ('settled','unknown','awaiting_receipt') AND ($3::uuid IS NULL OR (e.created_at,e.id)<(
           SELECT prior.created_at,prior.id FROM external_model_exchange prior
           JOIN external_model_conversation prior_conversation ON prior_conversation.id=prior.conversation_id
-          WHERE prior.id=$3 AND prior_conversation.user_id=$1
+          WHERE prior.id=$3 AND (prior_conversation.user_id=$1 OR prior_conversation.project_id IS NOT NULL)
             AND (prior.created_at AT TIME ZONE 'Asia/Shanghai')::date=$2::date
             AND prior.status IN ('settled','unknown','awaiting_receipt')
        )) ORDER BY e.created_at DESC,e.id DESC LIMIT 51`,

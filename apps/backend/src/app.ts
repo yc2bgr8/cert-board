@@ -20,12 +20,14 @@ import { registerConversationReadRoutes } from './api/conversation-read-routes.j
 import { registerConversationWriteRoutes } from './api/conversation-write-routes.js';
 import { registerExternalModelRoutes } from './external-model/routes.js';
 import type { ExternalModelRuntime } from './modelgw/external.js';
+import type { VerificationRuntime } from './external-model/verification-runtime.js';
 
 export interface AppDependencies extends HealthDependencies {
   database?: pg.Pool;
   storage?: MinioClient;
   blobStore?: DocumentBlobStore;
   externalModelRuntime?: ExternalModelRuntime;
+  verificationRuntime?: VerificationRuntime;
 }
 
 async function dependencyStatus(check: () => Promise<void>): Promise<'up' | 'down'> {
@@ -78,6 +80,7 @@ export function createApp(
       config,
       blobStore,
       dependencies.externalModelRuntime,
+      dependencies.verificationRuntime,
     );
   }
   app.addHook('onSend', async (_request, reply, payload) => {

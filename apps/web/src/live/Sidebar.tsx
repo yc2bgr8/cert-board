@@ -211,13 +211,13 @@ export function Sidebar(props: Props) {
       </section>
       <div className="live-navigation-scroll">
         {props.external ? (
-          <section className="live-project-group" aria-label="外部模型的对话">
+          <section className="live-project-group" aria-label="外部核实记录">
             <div className="external-sidebar-heading">
-              <h2>外部模型的对话</h2>
+              <h2>核实记录</h2>
               <button
                 type="button"
                 className="live-icon-button"
-                aria-label="新建外部模型对话"
+                aria-label="发起外部核实"
                 onClick={props.onExternalNew}
               >
                 <ShellIcon name="plus" />
@@ -237,7 +237,7 @@ export function Sidebar(props: Props) {
               <button
                 type="button"
                 key={conversation.id}
-                aria-label={`打开外部对话：${conversation.title}`}
+                aria-label={`打开核实：${conversation.title}`}
                 aria-current={props.externalId === conversation.id ? 'page' : undefined}
                 className={`live-thread-item${props.externalId === conversation.id ? ' is-selected' : ''}`}
                 onClick={() => props.onExternalConversation(conversation.id)}
@@ -252,7 +252,7 @@ export function Sidebar(props: Props) {
                 disabled={props.externalLoadingMore}
                 onClick={props.onExternalMore}
               >
-                加载更多外部对话
+                加载更多核实记录
               </button>
             )}
           </section>
