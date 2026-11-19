@@ -27,6 +27,7 @@ export async function queueOriginalDocument(
   actor: ServiceIdentity,
   input: unknown,
   bytes: Buffer,
+  earlierSnapshot?: string,
 ) {
   const checked = documentOriginalInputSchema.safeParse(input);
   if (!checked.success || !Buffer.isBuffer(bytes) || !bytes.length)
@@ -39,9 +40,11 @@ export async function queueOriginalDocument(
     throw new AppError(413, 'DOCUMENT_UPLOAD_LIMIT', '原件超过 96 MiB，请拆分资料后导入。');
   const data = checked.data;
   const sha256 = createHash('sha256').update(bytes).digest('hex');
-  const fingerprint = createHash('sha256')
-    .update(JSON.stringify({ ...data, sha256 }))
-    .digest('hex');
+  const importFingerprint = (sourceSnapshot: string) =>
+    createHash('sha256')
+      .update(JSON.stringify({ ...data, sourceSnapshot, sha256 }))
+      .digest('hex');
+  const fingerprint = importFingerprint(data.sourceSnapshot);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -66,14 +69,20 @@ export async function queueOriginalDocument(
       throw new AppError(409, 'DOCUMENT_VOIDED', '该资料已作废，请新建资料并保留旧版本。');
     const prior = existing
       ? (
-          await client.query<{ id: string; version_no: number; fingerprint: string | null }>(
-            `SELECT id,version_no,source_metadata->'_certImport'->>'fingerprint' AS fingerprint
-       FROM document_version WHERE document_id=$1 AND source_snapshot=$2`,
-            [existing.id, data.sourceSnapshot],
+          await client.query<{
+            id: string;
+            version_no: number;
+            source_snapshot: string;
+            fingerprint: string | null;
+          }>(
+            `SELECT id,version_no,source_snapshot,source_metadata->'_certImport'->>'fingerprint' AS fingerprint
+       FROM document_version WHERE document_id=$1 AND source_snapshot IN ($2,$3)
+       ORDER BY (source_snapshot=$2) DESC LIMIT 1`,
+            [existing.id, data.sourceSnapshot, earlierSnapshot ?? data.sourceSnapshot],
           )
         ).rows[0]
       : undefined;
-    if (prior && prior.fingerprint !== fingerprint)
+    if (prior && prior.fingerprint !== importFingerprint(prior.source_snapshot))
       throw new AppError(
         409,
         'DOCUMENT_SNAPSHOT_CONFLICT',

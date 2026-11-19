@@ -25,5 +25,5 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <ul><li>其余 L08 原件及 eSTAR 内嵌附件通过 PR-19 的整包入口重导。当前其余参考资料以已有 T1 快照参加中英文检索验收。</li><li>文件选择器、目录及压缩包导入、分类和导入报告由 PR-19 接入。现有浏览器资料页提供解析状态与文本，原页和原件下载需要后续授权接线。</li></ul>
 <h2 id="开发运行">开发运行</h2>
 <p>运行 <code>pnpm dev:up</code>、<code>pnpm dev:docsvc:up</code>、<code>pnpm db:migrate</code>。在 <code>.env.local</code> 配置 <code>CERT_DOCSVC_URL=http://127.0.0.1:28082</code>，重新启动 API 及 <code>pnpm dev:worker</code>。容器部署使用 <code>pnpm dev:isolated:web:up</code> 的内部解析中继。</p>
-<p>浏览器单原件入口为 <code>POST /api/projects/:id/documents/original</code>，正文是 <code>application/octet-stream</code>。查询字段为 <code>name</code>、<code>format</code>、可选的 <code>sourceKey</code> 和 <code>dataLevel</code>。该入口允许最多 96 MiB、同时最多两份上传。新版本返回 202，重复版本返回 200，未启用解析时返回 503。通过资料版本接口查看解析进度。</p>
+<p>浏览器单原件入口为 <code>POST /api/projects/:id/documents/original</code>，正文是 <code>application/octet-stream</code>。查询字段为 <code>name</code>、<code>format</code>、可选的 <code>sourceKey</code> 和 <code>dataLevel</code>。该入口允许最多 96 MiB、同时最多两份上传。请求体连续空闲 30 秒或传输超过 12 分钟时终止。新版本返回 202，重复版本返回 200，未启用解析时返回 503。通过资料版本接口查看解析进度。</p>
 <p>真实模型用量为 0 美元。没有新增软件依赖。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

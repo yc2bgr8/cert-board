@@ -64,9 +64,12 @@ export function ProjectDocuments({
           </p>
         )}
         {items.map((document) => {
-          const readable = document.parseState
-            ? document.readablePage
-            : { version: document.currentVersion, page: 1 };
+          const readable =
+            document.readablePage !== undefined
+              ? document.readablePage
+              : document.parseState === undefined || document.parseState === 'ready'
+                ? { version: document.currentVersion, page: 1 }
+                : null;
           return (
             <button
               className="live-asset-row"

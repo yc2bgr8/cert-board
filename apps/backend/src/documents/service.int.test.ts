@@ -368,6 +368,37 @@ test('浏览器单原件入口需要会话和 CSRF，同一原件重传只领取
     const explicit = await submit(true, true, undefined, explicitKey);
     expect(explicit.statusCode).toBe(200);
     expect(explicit.json()).toEqual(replay.json());
+    const legacyName = 'fixture-legacy-default.pdf';
+    const legacySnapshot = createHash('sha256')
+      .update('cert-board-original-v1\0')
+      .update(JSON.stringify({ name: legacyName, format: 'pdf', dataLevel: 'internal' }))
+      .update('\0')
+      .update(payload)
+      .digest('hex');
+    const legacy = await queueOriginalDocument(
+      database.pool,
+      blobs.store,
+      ra,
+      {
+        projectId,
+        name: legacyName,
+        sourcePath: legacyName,
+        format: 'pdf',
+        dataLevel: 'internal',
+        authorType: 'human',
+        sourceKey: `file-${digest(legacyName)}`,
+        sourceSnapshot: legacySnapshot,
+      },
+      payload,
+    );
+    const legacyReplay = await submit(
+      true,
+      true,
+      legacyName,
+      `&sourceKey=file-${digest(legacyName)}`,
+    );
+    expect(legacyReplay.statusCode).toBe(200);
+    expect(legacyReplay.json()).toMatchObject({ ...legacy, created: false });
     const versions = await listDocumentVersions(database.pool, ra, saved.json().documentId);
     expect(versions.items).toHaveLength(1);
     expect(versions.items[0]).toMatchObject({

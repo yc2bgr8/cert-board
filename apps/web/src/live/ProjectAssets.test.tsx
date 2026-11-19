@@ -262,3 +262,27 @@ it('新版排队时，资料库仍可打开上一可读版本的实际页码', a
   expect(screen.getByText(/可查看第 2 版/)).toBeTruthy();
   expect(onOpenEvidence).toHaveBeenCalledWith([{ documentId, version: 2, page: 4 }]);
 });
+
+it('兼容旧接口的已解析状态，并识别新接口明确报告的无可读页', async () => {
+  const onOpenEvidence = vi.fn();
+  const common = {
+    sourceKey: 'RAW-READY',
+    dataLevel: 'internal',
+    currentVersion: 3,
+    parseState: 'ready',
+  };
+  mocks.documents.mockResolvedValue({
+    items: [
+      { ...common, id: documentId, name: '旧接口资料' },
+      { ...common, id: workspaceId, name: '暂无正文资料', readablePage: null },
+    ],
+    hasMore: false,
+    nextCursor: null,
+  });
+  show(<ProjectDocuments projectId={projectId} userId="member" onOpenEvidence={onOpenEvidence} />);
+  fireEvent.click(await screen.findByRole('button', { name: '打开资料：旧接口资料' }));
+  expect(onOpenEvidence).toHaveBeenCalledWith([{ documentId, version: 3, page: 1 }]);
+  expect(
+    (screen.getByRole('button', { name: '打开资料：暂无正文资料' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+});

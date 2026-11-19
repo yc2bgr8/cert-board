@@ -8,6 +8,7 @@ import type {
 } from 'fastify';
 import type { Pool } from 'pg';
 import { createHash } from 'node:crypto';
+import { Transform } from 'node:stream';
 import {
   documentParamsSchema,
   documentPageParamsSchema,
@@ -58,9 +59,19 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
 ) {
   if (originals)
     app.register(async (upload) => {
-      const receiving = new Map<FastifyRequest, ReturnType<typeof setTimeout>>();
+      const receiving = new Map<
+        FastifyRequest,
+        { idle: NodeJS.Timeout; deadline: NodeJS.Timeout }
+      >();
+      const stopUploadTimers = (request: FastifyRequest) => {
+        const timers = receiving.get(request);
+        if (timers) {
+          clearTimeout(timers.idle);
+          clearTimeout(timers.deadline);
+        }
+      };
       const release = async (request: FastifyRequest) => {
-        clearTimeout(receiving.get(request));
+        stopUploadTimers(request);
         receiving.delete(request);
       };
       upload.addContentTypeParser(
@@ -84,12 +95,31 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
               throw new AppError(400, 'DOCUMENT_UPLOAD_INCOMPLETE', '原件传输中断，请重新提交。');
             if (receiving.size >= 2)
               throw new AppError(429, 'DOCUMENT_UPLOAD_BUSY', '当前有原件正在上传，请稍后重试。');
-            const timeout = setTimeout(() => request.raw.destroy(), 45_000);
-            timeout.unref();
-            receiving.set(request, timeout);
+            const abort = () => request.raw.destroy();
+            receiving.set(request, {
+              idle: setTimeout(abort, 30_000).unref(),
+              deadline: setTimeout(abort, 12 * 60_000).unref(),
+            });
+          },
+          preParsing: (request, _reply, payload, done) => {
+            const timers = receiving.get(request);
+            const monitored = Object.assign(
+              new Transform({
+                transform(chunk: Buffer, _encoding, callback) {
+                  timers?.idle.refresh();
+                  monitored.receivedEncodedLength += chunk.length;
+                  callback(null, chunk);
+                },
+              }),
+              { receivedEncodedLength: 0 },
+            );
+            payload.once('error', (error) => {
+              monitored.destroy(error);
+            });
+            done(null, payload.pipe(monitored));
           },
           preHandler: async (request) => {
-            clearTimeout(receiving.get(request));
+            stopUploadTimers(request);
           },
           onResponse: release,
           onRequestAbort: release,
@@ -105,19 +135,24 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
               '请选择支持的原件，并填写有效资料名。',
             );
           const { name, format, dataLevel } = input.data;
-          const nameHash = createHash('sha256').update(name).digest('hex');
+          const defaultKey = `file-${createHash('sha256').update(name).digest('hex')}`;
           const fields = {
             name,
             format,
             dataLevel,
-            sourceKey: input.data.sourceKey ?? `file-${nameHash}`,
+            sourceKey: input.data.sourceKey ?? defaultKey,
           };
-          const sourceSnapshot = createHash('sha256')
-            .update('cert-board-original-v1\0')
-            .update(JSON.stringify(fields))
-            .update('\0')
-            .update(request.body)
-            .digest('hex');
+          const content = request.body;
+          const snapshot = (metadata: object) =>
+            createHash('sha256')
+              .update('cert-board-original-v1\0')
+              .update(JSON.stringify(metadata))
+              .update('\0')
+              .update(content)
+              .digest('hex');
+          const sourceSnapshot = snapshot(fields);
+          const earlierSnapshot =
+            fields.sourceKey === defaultKey ? snapshot({ name, format, dataLevel }) : undefined;
           const saved = await queueOriginalDocument(
             pool,
             originals,
@@ -129,7 +164,8 @@ export function registerDocumentRoutes<Logger extends FastifyBaseLogger>(
               sourcePath: fields.name,
               authorType: 'human',
             },
-            request.body,
+            content,
+            earlierSnapshot,
           );
           return reply
             .code(saved.created ? 202 : 200)
