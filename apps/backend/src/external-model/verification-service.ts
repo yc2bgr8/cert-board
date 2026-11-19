@@ -45,6 +45,19 @@ const preferencesId = 'e78e2bd8-2e90-49a8-91c9-ba189c2746ab';
 const promptTextLimit = 24000;
 const hostTextReserve = 2000;
 const summaryTextReserve = 3800;
+function outboundTextCosts(messages: readonly { text: string }[], words: string[]) {
+  const redacted = redactExternalMessages(
+    messages.map(({ text }) => ({ role: 'user', content: text })),
+    words,
+  );
+  // 新上下文里代号的编号可能变长，按快照所容纳的最大代号长度估算。
+  return redacted.messages.map(({ content }, index) =>
+    Math.max(
+      messages[index]!.text.length,
+      content.replace(/\[\[CB-[a-f0-9-]{36}-\d+\]\]/gu, 'x'.repeat(52)).length,
+    ),
+  );
+}
 export const verificationWorkerStateId = '18ee6c88-011a-4e58-a207-3c5ec90700d0';
 const roomAbsent = () => new AppError(404, 'VERIFICATION_ROOM_MISSING', '未找到可访问的核实。');
 const hostName = (host: VerificationRoom['host']) =>
@@ -688,33 +701,44 @@ export class VerificationRooms {
     uncompacted.sort((left, right) => left.position - right.position);
     const head = existing ? [publicPost(existing)] : [];
     const full = [...head, ...uncompacted.map(publicPost)];
+    const words = (await this.protection.words()).map(({ phrase }) => phrase);
+    const costs = outboundTextCosts(full, words);
     if (
-      full.reduce((size, message) => size + message.text.length, 0) <
-        promptTextLimit - hostTextReserve &&
+      costs.reduce((size, item) => size + item, 0) < promptTextLimit - hostTextReserve &&
       history.length <= 500
     )
       return full;
-    let remaining =
-      promptTextLimit -
-      hostTextReserve -
-      summaryTextReserve -
-      1 -
-      required.reduce((length, post) => length + post.text.length, 0);
+    const postCosts = new Map(full.map((post, index) => [post.id, costs[index]!]));
+    const requiredCost = required.reduce((length, post) => length + postCosts.get(post.id)!, 0);
+    const afterRequired = promptTextLimit - hostTextReserve - 1 - requiredCost;
+    const shortSummary = '较早发言已整理，完整内容可在群聊中回看。';
+    const maxSummary = Math.min(summaryTextReserve, afterRequired);
+    if (maxSummary < outboundTextCosts([{ text: shortSummary }], words)[0]!)
+      throw new AppError(
+        413,
+        'VERIFICATION_CONTEXT_LIMIT',
+        '待回复的原话在保密替换后过长，请缩短再发起。',
+      );
+    let remaining = afterRequired - maxSummary;
     let cut = uncompacted.length;
     while (cut > 0) {
       const post = uncompacted[cut - 1]!;
-      const size = requiredIds.has(post.id) ? 0 : post.text.length;
+      const size = requiredIds.has(post.id) ? 0 : postCosts.get(post.id)!;
       if (size > remaining) break;
       remaining -= size;
       cut--;
     }
     const older = uncompacted.slice(0, cut);
-    if (!older.length) return full;
-    const text = (await runtime.compact([...head, ...older.map(publicPost)], scope))
-      .slice(0, summaryTextReserve)
+    if (!older.length && !head.length) return full;
+    const compacted = (await runtime.compact([...head, ...older.map(publicPost)], scope))
+      .slice(0, maxSummary)
       .replace(/\p{Surrogate}$/u, '')
       .trim();
-    const latest = Math.max(existing?.compactsThrough ?? 0, older.at(-1)!.position);
+    const text =
+      compacted && outboundTextCosts([{ text: compacted }], words)[0]! <= maxSummary
+        ? compacted
+        : shortSummary;
+    const latest = Math.max(existing?.compactsThrough ?? 0, older.at(-1)?.position ?? 0);
     const summary = await this.transaction(async (db) => {
       const postId = await this.append(db, id, {
         type: 'summary',
@@ -802,13 +826,19 @@ export class VerificationRooms {
           const post = await this.transaction(async (db) => {
             const current = await this.room(db, id, true);
             if (current.stopUserId || current.leaseId !== work.leaseId) return null;
+            const candidate =
+              moderation.finish && firstRound
+                ? `@${firstRound.label} 请提供首轮核实意见。`
+                : moderation.text;
+            const words = (await this.protection.words(db)).map(({ phrase }) => phrase);
+            const text =
+              outboundTextCosts([{ text: candidate }], words)[0]! <= hostTextReserve
+                ? candidate
+                : '请围绕群中问题继续核实。';
             const created = await this.append(db, id, {
               type: 'host',
               author: hostName(current.host),
-              text:
-                moderation.finish && firstRound
-                  ? `@${firstRound.label} 请提供首轮核实意见。`
-                  : moderation.text,
+              text,
               ...(choice ? { mention: choice.id } : {}),
             });
             const { rows } = await db.query<PostRow>(
@@ -828,14 +858,17 @@ export class VerificationRooms {
             this.release(db, id, work.leaseId, work.pending?.position),
           );
         }
-      } catch {
+      } catch (error) {
         await this.transaction(async (db) => {
           const current = await this.room(db, id, true);
           if (current.leaseId !== work.leaseId) return;
           await this.append(db, id, {
             type: 'system',
             author: '系统',
-            text: '核实暂停，请检查本地通道后重新发言。',
+            text:
+              error instanceof AppError && error.code === 'VERIFICATION_CONTEXT_LIMIT'
+                ? error.message
+                : '核实暂停，请检查本地通道后重新发言。',
           });
           await db.query("UPDATE external_model_conversation SET state='paused' WHERE id=$1", [id]);
           await this.release(db, id, work.leaseId);

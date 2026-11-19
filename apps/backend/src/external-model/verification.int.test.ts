@@ -488,3 +488,36 @@ test('授权后传输明确未写入时不计次，跨月握手用实际派发�
     dayArchive.json().items.every(({ model }: { model: string }) => model === 'claude-flagship'),
   ).toBe(true);
 });
+
+test('按保密词替换后的长度整理较早回复并继续派发', async () => {
+  await rounds(1);
+  const word = '隐';
+  await app.inject({
+    method: 'POST',
+    url: '/api/external-model/words',
+    headers,
+    payload: { phrase: word, category: 'other' },
+  });
+  const calls: VerificationPrompt[] = [];
+  fixture.runtime.compact = async () => '较早的答复已归档。';
+  fixture.runtime.send = async (model, prompt, dispatch) => {
+    await dispatch();
+    calls.push(prompt);
+    return { text: model.id === 'gpt-flagship' ? word.repeat(650) : '核实已完成。', claims: [] };
+  };
+  const id = await start('合成问题保持原话。');
+  await expect.poll(async () => (await detail(id)).room.status).toBe('completed');
+  expect(calls).toHaveLength(2);
+  expect(
+    calls[1]!.transcript.some(
+      ({ role, text }) => role === '主持人压缩稿' && text === '较早的答复已归档。',
+    ),
+  ).toBe(true);
+  expect(calls[1]!.transcript.some(({ text }) => text === '合成问题保持原话。')).toBe(true);
+  expect(
+    calls[1]!.transcript
+      .map(({ text }) => text)
+      .join('')
+      .includes(word),
+  ).toBe(false);
+});
