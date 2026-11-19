@@ -101,7 +101,7 @@ function FileContent({ target }: { target: WorkspaceFileTarget }) {
         <>
           <div className="review-file-text">
             {first.mediaType === 'text/markdown' ? (
-              <SafeMarkdown>{combined.text}</SafeMarkdown>
+              <SafeMarkdown workbench>{combined.text}</SafeMarkdown>
             ) : (
               <pre>{combined.text || '此文本文件为空。'}</pre>
             )}

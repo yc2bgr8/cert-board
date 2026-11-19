@@ -8,6 +8,7 @@ import {
   type MemberNotificationSnapshot,
 } from './live/useMemberNotifications.js';
 import { LiveConversation } from './live/LiveConversation.js';
+import { RunDetails } from './live/RunDetails.js';
 import { Login } from './live/Login.js';
 import { Logo } from './live/Logo.js';
 import { Sidebar } from './live/Sidebar.js';
@@ -119,6 +120,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const userId = user.id;
   const [projectId, setProjectId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [firstMessageDraft, setFirstMessageDraft] = useState<{ id: string; text: string }>();
   const [view, setView] = useState<'project' | 'conversation' | 'inbox'>('project');
   const [tab, setTab] = useState<'conversation' | 'files' | 'documents'>('conversation');
   const [panels, setPanels] = useState<(InspectorEntry & { trigger: HTMLElement | null })[]>([]);
@@ -320,6 +322,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   }, [current, userId]);
 
   const openProject = (id: string) => {
+    setFirstMessageDraft(undefined);
     const project = availableProjects.find((item) => item.id === id);
     if (project) setSidebarAgent(project.projectType);
     setPanels([]);
@@ -330,6 +333,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     setMobileOpen(false);
   };
   const openConversation = (conversation: ConversationDetail) => {
+    setFirstMessageDraft(undefined);
     setSidebarAgent(conversation.agentCode);
     setPanels([]);
     setTab('conversation');
@@ -353,7 +357,13 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     setView('conversation');
     setMobileOpen(false);
   };
-  const created = (id: string, selectedProjectId: string | null, agentCode: AgentCode) => {
+  const created = (
+    id: string,
+    selectedProjectId: string | null,
+    agentCode: AgentCode,
+    firstMessage: string,
+  ) => {
+    setFirstMessageDraft(firstMessage ? { id, text: firstMessage } : undefined);
     setSidebarAgent(agentCode);
     setPanels([]);
     setTab('conversation');
@@ -696,7 +706,11 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
             <LiveConversation
               key={conversationId}
               conversationId={conversationId}
+              {...(firstMessageDraft?.id === conversationId
+                ? { initialMessage: firstMessageDraft.text }
+                : {})}
               onReview={openReview}
+              onRunDetails={(run) => pushPanel('运行详情', <RunDetails run={run} />)}
             />
           </div>
         )}

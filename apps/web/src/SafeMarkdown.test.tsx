@@ -6,6 +6,26 @@ import { SafeMarkdown } from './SafeMarkdown.js';
 afterEach(cleanup);
 
 describe('模型 Markdown 显示安全', () => {
+  test('正式界面保留语义 HTML 和 HTTPS 图片，移除嵌套样式表', () => {
+    const markdown = [
+      '<section><strong>报告片段</strong><style>p { color: red }</style></section>',
+      '<link rel="alternate stylesheet" href="https://example.invalid/demo.css">',
+      '<title>资料标题</title><meta name="description" content="资料摘要">',
+      '| 字段 | 结果 |\n| --- | --- |\n| 版本 | 已核对 |',
+      '```javascript\nconst state = "review";\n```',
+      '![示例](https://example.invalid/sample.png)',
+    ].join('\n\n');
+    const { container } = render(<SafeMarkdown workbench>{markdown}</SafeMarkdown>);
+    expect(container.querySelector('section strong')?.textContent).toBe('报告片段');
+    expect(container.querySelector('style, link')).toBeNull();
+    expect(document.title).not.toBe('资料标题');
+    expect(document.head.querySelector('meta[content="资料摘要"]')).toBeNull();
+    expect(screen.getByRole('table')).toBeTruthy();
+    expect(container.querySelector('code.hljs')?.textContent).toContain('const state');
+    const image = screen.getByRole('img', { name: '示例' });
+    expect(image.getAttribute('src')).toBe('https://example.invalid/sample.png');
+    expect(image.getAttribute('referrerpolicy')).toBe('no-referrer');
+  });
   test('保留普通Markdown和代码，原始HTML不成为页面元素', () => {
     const { container } = render(
       <SafeMarkdown>

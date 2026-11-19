@@ -112,68 +112,73 @@ export function ApprovalCard({ approvalId, disabled }: { approvalId: string; dis
       <h2>批准请求</h2>
       {approval ? (
         <>
-          <p>{approval.preview.summary}</p>
-          {approval.preview.changes.map((change, index) => (
-            <div className="live-preview-change" key={index}>
-              <p>{fieldNames[change.field] ?? change.field}</p>
-              <p className="live-conversation-meta">
-                {change.recordType} · {change.recordId}
-              </p>
-              <dl>
+          <div className="live-approval-body">
+            <p>{approval.preview.summary}</p>
+            {approval.preview.changes.map((change, index) => (
+              <div className="live-preview-change" key={index}>
+                <p>{fieldNames[change.field] ?? change.field}</p>
+                <p className="live-conversation-meta">
+                  {change.recordType} · {change.recordId}
+                </p>
+                <dl>
+                  <div>
+                    <dt>改前</dt>
+                    <dd>{previewValue(change.before)}</dd>
+                  </div>
+                  <div>
+                    <dt>改后</dt>
+                    <dd>{previewValue(change.after)}</dd>
+                  </div>
+                </dl>
+              </div>
+            ))}
+            {approval.preview.message && (
+              <dl className="live-preview-message">
                 <div>
-                  <dt>改前</dt>
-                  <dd>{previewValue(change.before)}</dd>
+                  <dt>收件人</dt>
+                  <dd>{approval.preview.message.recipientName}</dd>
                 </div>
                 <div>
-                  <dt>改后</dt>
-                  <dd>{previewValue(change.after)}</dd>
+                  <dt>主题</dt>
+                  <dd>{approval.preview.message.subject}</dd>
+                </div>
+                <div>
+                  <dt>内容</dt>
+                  <dd>{approval.preview.message.body}</dd>
                 </div>
               </dl>
-            </div>
-          ))}
-          {approval.preview.message && (
-            <dl className="live-preview-message">
-              <div>
-                <dt>收件人</dt>
-                <dd>{approval.preview.message.recipientName}</dd>
-              </div>
-              <div>
-                <dt>主题</dt>
-                <dd>{approval.preview.message.subject}</dd>
-              </div>
-              <div>
-                <dt>内容</dt>
-                <dd>{approval.preview.message.body}</dd>
-              </div>
-            </dl>
-          )}
+            )}
+            {status === 'pending' && (
+              <details className="live-reject-details">
+                <summary>填写拒绝原因（可选）</summary>
+                <label className="live-reject-reason">
+                  拒绝原因（可选）
+                  <textarea
+                    rows={2}
+                    value={reason}
+                    maxLength={2000}
+                    onChange={(event) => setReason(event.target.value)}
+                  />
+                </label>
+              </details>
+            )}
+          </div>
           {status === 'pending' && (
-            <>
-              <label className="live-reject-reason">
-                拒绝原因（可选）
-                <textarea
-                  rows={2}
-                  value={reason}
-                  maxLength={2000}
-                  onChange={(event) => setReason(event.target.value)}
-                />
-              </label>
-              <div className="live-approval-actions">
-                {actions.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={value === 'allow_once' ? 'live-approval-primary' : undefined}
-                    disabled={
-                      disabled || command.busy || query.isFetching || refreshing || query.isError
-                    }
-                    onClick={() => decide(value)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </>
+            <div className="live-approval-actions">
+              {actions.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={value === 'allow_once' ? 'live-approval-primary' : undefined}
+                  disabled={
+                    disabled || command.busy || query.isFetching || refreshing || query.isError
+                  }
+                  onClick={() => decide(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           )}
           {status && status !== 'pending' && (
             <p className="live-conversation-meta" role="status">

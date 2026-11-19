@@ -1,17 +1,22 @@
 .live-conversation {
   --conversation-width: 760px;
-  --conversation-muted: #5f6670;
-  --conversation-line: #e4e6e9;
-  --conversation-accent: #2a4d8f;
+  --conversation-muted: var(--color-cb-muted);
+  --conversation-line: var(--color-cb-line);
+  --conversation-accent: var(--color-cb-teal);
   display: flex;
   flex: 1;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   height: 100%;
-  color: #1c1f23;
+  color: var(--color-cb-ink);
+  background: var(--color-cb-bg);
 }
 .live-conversation-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   width: min(100%, var(--conversation-width));
   margin-inline: auto;
   padding: 10px clamp(16px, 4vw, 28px) 0;
@@ -45,7 +50,7 @@
 }
 .live-empty-chat,
 .live-conversation-loading {
-  color: #5f6670;
+  color: var(--color-cb-muted);
   padding: 16px;
   text-align: center;
 }
@@ -57,22 +62,39 @@
 }
 .live-user-message {
   justify-self: end;
-  max-width: min(88%, 590px);
-  padding: 8px 14px;
-  border-radius: 12px;
-  background: #f5f6f7;
+  max-width: min(80%, 590px);
+  padding: 10px 14px;
+  border-radius: 14px 14px 4px 14px;
+  background: var(--color-cb-user-bubble);
+  font-size: 15px;
   white-space: pre-wrap;
 }
 .live-agent-message {
   min-width: 0;
   line-height: 1.75;
 }
-.live-agent-message pre {
-  overflow: auto;
-  max-width: 100%;
-  padding: 12px;
-  background: #f5f6f7;
-  white-space: pre-wrap;
+.live-agent-message-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.live-agent-message-heading strong {
+  font-weight: 600;
+}
+.live-agent-message-heading time {
+  color: var(--conversation-muted);
+  font-size: 12px;
+}
+.live-agent-message-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--color-cb-teal-soft-2);
+  color: var(--color-cb-teal-ink);
 }
 .live-agent-message a,
 .live-conversation-notice button,
@@ -85,8 +107,8 @@
   font-size: 14px;
 }
 .live-tool-process {
-  padding: 8px 0;
-  border-block: 1px solid var(--conversation-line);
+  padding: 0;
+  color: var(--conversation-muted);
 }
 .live-tool-process summary,
 .live-plan summary {
@@ -94,9 +116,29 @@
 }
 .live-tool-process ol,
 .live-plan ol {
-  list-style: decimal;
-  padding-left: 24px;
+  padding-left: 14px;
   margin: 6px 0 0;
+}
+.live-tool-process ol {
+  border-left: 2px solid var(--conversation-line);
+  margin-inline-start: 5px;
+}
+.live-tool-process li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+.live-step-mark {
+  min-width: 14px;
+  color: var(--color-cb-teal);
+}
+.live-step-failed {
+  color: var(--color-cb-bad);
+}
+.live-step-awaiting_approval {
+  color: var(--color-cb-warn);
 }
 .live-tool-process li + li {
   margin-top: 4px;
@@ -105,8 +147,21 @@
 .live-approval {
   margin-top: 8px;
   border: 1px solid var(--conversation-line);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 12px 16px;
+  background: var(--color-cb-paper);
+}
+.live-approval {
+  border-color: var(--conversation-accent);
+  box-shadow: var(--shadow-cb-dock);
+  margin-bottom: 8px;
+}
+.live-approval-body {
+  max-height: min(26dvh, 270px);
+  overflow-y: auto;
+}
+.live-approval-actions {
+  margin-block-start: 8px;
 }
 .live-conversation-notice button {
   margin-left: 10px;
@@ -117,14 +172,31 @@
 .live-composer-wrap {
   flex: none;
   padding-block: 6px 16px;
-  border-top: 1px solid var(--conversation-line);
 }
 .live-run-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   padding-block: 4px 8px;
 }
-.live-composer {
+.live-plan {
+  order: -1;
+  padding: 9px 12px;
   border: 1px solid var(--conversation-line);
-  border-radius: 12px;
+  border-radius: 10px;
+  background: var(--color-cb-paper);
+  max-height: 18dvh;
+  overflow-y: auto;
+}
+.live-run-progress [role='status'] {
+  color: var(--color-cb-ink);
+  font-weight: 600;
+}
+.live-composer {
+  border: 1px solid var(--color-cb-line-2);
+  background: var(--color-cb-paper);
+  box-shadow: var(--shadow-cb-dock);
+  border-radius: 14px;
   padding: 8px;
 }
 .live-composer textarea,
@@ -157,14 +229,59 @@
   border-radius: 6px;
   line-height: 1.5;
 }
+.live-composer select {
+  border-radius: 20px;
+  color: var(--color-cb-teal-ink);
+  background: var(--color-cb-teal-soft);
+  border-color: var(--color-cb-teal-line);
+}
+.live-permission button.live-reference-toggle {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-cb-line-2);
+  border-radius: 50%;
+  color: var(--color-cb-teal-ink);
+}
+.live-reference-picker {
+  display: grid;
+  gap: 4px;
+  max-height: 24dvh;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--conversation-line);
+  background: var(--color-cb-paper);
+}
+.live-reference-picker button {
+  text-align: left;
+  padding: 5px;
+  border-radius: 5px;
+}
+.live-reference-picker button:hover {
+  background: var(--color-cb-teal-soft);
+}
+.live-reference-picker button span {
+  color: var(--color-cb-muted);
+  font: 12px var(--font-workbench-mono);
+}
 .live-composer .live-send,
 .live-approval-actions .live-approval-primary {
   color: #fff;
   border-color: var(--conversation-accent);
   background: var(--conversation-accent);
 }
+.live-composer .live-send {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 12px;
+}
 .live-command-error {
-  color: #b42318;
+  color: var(--color-cb-bad);
   padding-top: 6px;
   font-size: 14px;
   overflow-wrap: anywhere;
@@ -180,6 +297,20 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
+.live-preview-message > div {
+  display: grid;
+  grid-template-columns: 65px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+}
+.live-approval .live-preview-message dd {
+  padding-block: 3px;
+}
+.live-reject-details summary {
+  color: var(--color-cb-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
 .live-approval dt,
 .live-reject-reason {
   font-size: 13px;
@@ -188,7 +319,7 @@
 .live-approval dd {
   margin: 0;
   padding: 6px 8px;
-  background: #f5f6f7;
+  background: var(--color-cb-soft);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -199,6 +330,55 @@
 .live-reject-reason textarea {
   border: 1px solid var(--conversation-line);
   border-radius: 6px;
+}
+.live-stop-report {
+  padding: 12px 16px;
+  border: 1px solid var(--color-cb-warn-line);
+  border-radius: 12px;
+  background: var(--color-cb-warn-bg);
+  color: var(--color-cb-ink);
+}
+.live-stop-report h2 {
+  margin-block-end: 5px;
+  font-size: 15px;
+}
+.live-run-details {
+  display: grid;
+  gap: 16px;
+}
+.live-run-details section {
+  padding-block-end: 14px;
+  border-block-end: 1px solid var(--color-cb-line);
+}
+.live-run-details section:last-child {
+  border-block-end: none;
+}
+.live-run-details h3 {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+.live-run-details dl {
+  display: grid;
+  grid-template-columns: minmax(100px, auto) 1fr;
+  gap: 5px 12px;
+  margin-bottom: 8px;
+}
+.live-run-details :where(dt, time) {
+  color: var(--color-cb-muted);
+}
+.live-run-details ol {
+  list-style: none;
+  padding: 0;
+}
+.live-run-details .live-run-timeline {
+  border-left: 2px solid var(--color-cb-teal-line);
+  padding-inline-start: 14px;
+}
+.live-run-timeline li + li {
+  margin-block-start: 8px;
+}
+.live-run-timeline time {
+  font: 12px var(--font-workbench-mono);
 }
 @media (max-width: 540px) {
   .live-composer-controls {

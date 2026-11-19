@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import type { PgBoss } from 'pg-boss';
-import { parseBackendConfig } from '@cert-board/shared';
+import { browserContentSecurityPolicy, parseBackendConfig } from '@cert-board/shared';
 import { createTestDatabase } from '../db/test-database.js';
 import { migrateDatabase } from '../db/migrate.js';
 import { seedDevelopmentAccounts } from '../db/seed.js';
@@ -37,8 +37,6 @@ import {
 } from './browser-fixture.js';
 
 const origin = 'http://127.0.0.1:28080';
-const policy =
-  "default-src 'self'; script-src 'self'; img-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; style-src 'self'; connect-src 'self'";
 class MemoryStore implements DocumentBlobStore {
   private values = new Map<string, Buffer>();
   async put(value: Buffer) {
@@ -186,7 +184,7 @@ export async function startBrowserHarness() {
       close: async () => undefined,
     });
     app.addHook('onSend', async (_request, reply, payload) => {
-      reply.header('content-security-policy', policy);
+      reply.header('content-security-policy', browserContentSecurityPolicy);
       return payload;
     });
     app.get('/', async (_request, reply) => reply.type('text/html; charset=utf-8').send(index));
