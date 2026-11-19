@@ -399,14 +399,14 @@ test('项目和对话由真实接口结果展示，不补造维护事项；可�
   expect(screen.queryByRole('combobox', { name: '原型角色' })).toBeNull();
 });
 
-test('项目内新对话固定真实Agent和目标，默认ask，创建成功打开持久对话', async () => {
+test('项目内新对话固定真实Agent和目标，默认完全允许，创建成功打开持久对话', async () => {
   app();
   const dialog = await newProjectDialog();
   expect(within(dialog).getByText('注册Agent')).toBeTruthy();
   expect(within(dialog).queryByRole('combobox', { name: '选择Agent' })).toBeNull();
   expect(
     (within(dialog).getByRole('combobox', { name: '权限模式' }) as HTMLSelectElement).value,
-  ).toBe('ask');
+  ).toBe('full');
   fireEvent.change(within(dialog).getByLabelText('对话标题'), {
     target: { value: '新的核对对话' },
   });
@@ -416,7 +416,7 @@ test('项目内新对话固定真实Agent和目标，默认ask，创建成功打
     expect.objectContaining({
       title: '新的核对对话',
       agentCode: 'registration',
-      permissionMode: 'ask',
+      permissionMode: 'full',
       goalId,
       requestKey: expect.any(String),
     }),
@@ -465,7 +465,7 @@ test('项目外新对话可选择维护Agent，保存后明确尚不能运行', 
   await screen.findByText('对话已保存，尚未关联项目，暂不能启动任务。');
   expect(screen.queryByRole('region', { name: '已打开的真实对话' })).toBeNull();
   expect(mocks.api.createConversation).toHaveBeenCalledWith(
-    expect.objectContaining({ agentCode: 'maintenance', permissionMode: 'ask' }),
+    expect.objectContaining({ agentCode: 'maintenance', permissionMode: 'full' }),
     undefined,
   );
 });

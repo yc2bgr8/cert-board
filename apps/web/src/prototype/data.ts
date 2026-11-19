@@ -1,5 +1,7 @@
+import { defaultPermissionMode, type PermissionMode } from '@cert-board/shared';
+
 export type ProjectKey = 'registration' | 'maintenance';
-export type Permission = 'read_only' | 'ask' | 'full';
+export type Permission = PermissionMode;
 export type Phase =
   | 'ready'
   | 'reading'
@@ -105,7 +107,7 @@ export const permissionDescriptions: Record<Permission, string> = {
   ask: '可整理文件；写业务记录、发内部消息和关键判断前先请你批准。',
   full: '按依据继续工作；公司外部消息仍逐条批准，最终结果仍需审核。',
 };
-export function newThread(permission: Permission = 'ask'): Thread {
+export function newThread(permission: Permission = defaultPermissionMode): Thread {
   return {
     phase: 'ready',
     permission,

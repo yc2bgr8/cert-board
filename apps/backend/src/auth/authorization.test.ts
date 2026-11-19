@@ -121,10 +121,10 @@ describe('身份与新默认模式边界', () => {
     expect(authResponseSchema.safeParse(response).success).toBe(true);
     expect(authResponseSchema.safeParse({ ...response, sessionId }).success).toBe(false);
   });
-  it('新对话默认ask和注册Agent，三模式明确，不沿用execute', () => {
+  it('新对话默认完全允许和注册Agent，三模式明确，不沿用execute', () => {
     const input = { projectId, title: '核查' };
     expect(conversationCreateSchema.parse(input)).toMatchObject({
-      permissionMode: 'ask',
+      permissionMode: 'full',
       agentCode: 'registration',
     });
     for (const mode of ['read_only', 'ask', 'full'])

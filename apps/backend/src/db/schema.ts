@@ -577,7 +577,7 @@ export const conversation = pgTable(
       .notNull()
       .references(() => appUser.id, { onDelete: 'restrict' }),
     title: varchar('title', { length: 255 }).notNull(),
-    permissionMode: permissionMode('permission_mode').notNull().default('ask'),
+    permissionMode: permissionMode('permission_mode').notNull().default('full'),
     permissionVersion: integer('permission_version').notNull().default(1),
     currentRunId: uuid('current_run_id'),
     agentCode: agentCode('agent_code').notNull().default('registration'),
@@ -2009,6 +2009,7 @@ export const conversationCommand = pgTable(
     action: varchar('action', { length: 24 }).notNull(),
     payloadHash: varchar('payload_hash', { length: 64 }).notNull(),
     resultJson: jsonb('result_json').notNull(),
+    createDefaultMode: permissionMode('create_default_mode').notNull().default('ask'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

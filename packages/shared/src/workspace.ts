@@ -11,6 +11,7 @@ export const workspaceDataLevelSchema = z.enum(['internal', 'confidential'], {
 });
 export const permissionModeSchema = z.enum(['read_only', 'ask', 'full']);
 export type PermissionMode = z.infer<typeof permissionModeSchema>;
+export const defaultPermissionMode: PermissionMode = 'full';
 export const agentCodeSchema = z.enum(['registration', 'maintenance']);
 export type AgentCode = z.infer<typeof agentCodeSchema>;
 export const conversationStatusSchema = z.enum(['active', 'archived']);
@@ -39,7 +40,7 @@ export const conversationCreateSchema = z
     projectId: idSchema.nullable(),
     goalId: idSchema.nullable().default(null),
     title: z.string().trim().min(1).max(255),
-    permissionMode: permissionModeSchema.default('ask'),
+    permissionMode: permissionModeSchema.default(defaultPermissionMode),
     agentCode: agentCodeSchema.default('registration'),
   })
   .strict()

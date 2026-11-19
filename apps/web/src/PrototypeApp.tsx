@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Dialog from '@radix-ui/react-dialog';
+import { defaultPermissionMode } from '@cert-board/shared';
 import { SafeMarkdown } from './SafeMarkdown.js';
 import {
   conclusion,
@@ -84,7 +85,7 @@ export function PrototypeApp() {
   const [tab, setTab] = useState('conversation');
   const [newAgent, setNewAgent] = useState<ProjectKey>('registration');
   const [newDraft, setNewDraft] = useState('');
-  const [newPermission, setNewPermission] = useState<Permission>('ask');
+  const [newPermission, setNewPermission] = useState<Permission>(defaultPermissionMode);
   const [panel, setPanel] = useState<Panel>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -557,7 +558,7 @@ export function PrototypeApp() {
             onClick={() => {
               setView('new');
               setNewAgent('registration');
-              setNewPermission('ask');
+              setNewPermission(defaultPermissionMode);
               setNewDraft('');
               setPanel(null);
               setSidebarOpen(false);

@@ -1,0 +1,1 @@
+ALTER TABLE "conversation_command" ADD COLUMN "create_default_mode" "permission_mode" DEFAULT 'ask' NOT NULL;

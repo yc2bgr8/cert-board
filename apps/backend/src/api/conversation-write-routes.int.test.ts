@@ -44,6 +44,7 @@ const post = (
 async function conversation() {
   const created = await post(`/api/projects/${c.projectId}/conversations`, {
     requestKey: randomUUID(),
+    permissionMode: 'ask',
   });
   expect(created.statusCode).toBe(200);
   return created.json().conversation.id as string;
@@ -70,7 +71,7 @@ async function waitWithoutLease(run: Awaited<ReturnType<typeof running>>) {
   });
   await c.pool.query("UPDATE run SET status='waiting',version=version+1 WHERE id=$1", [run.runId]);
 }
-it('项目内默认Agent/ask，项目外保存基本信息且禁止无项目发送，项目类型不接受伪造', async () => {
+it('项目内外新对话默认完全允许，项目外禁止发送，项目类型不接受伪造', async () => {
   const scoped = await post(`/api/projects/${c.projectId}/conversations`, {
     requestKey: randomUUID(),
   });
@@ -81,7 +82,7 @@ it('项目内默认Agent/ask，项目外保存基本信息且禁止无项目发�
       projectId: c.projectId,
       goalId: c.goalId,
       agentCode: 'registration',
-      permissionMode: 'ask',
+      permissionMode: 'full',
       userId: c.userId('MEMBER_A'),
     },
   });
@@ -91,7 +92,7 @@ it('项目内默认Agent/ask，项目外保存基本信息且禁止无项目发�
     projectId: null,
     goalId: null,
     agentCode: 'registration',
-    permissionMode: 'ask',
+    permissionMode: 'full',
   });
   expect(
     (
@@ -120,6 +121,57 @@ it('项目内默认Agent/ask，项目外保存基本信息且禁止无项目发�
   });
   expect(created.statusCode).toBe(200);
   expect(created.json().conversation.agentCode).toBe('maintenance');
+});
+it('数据库省略权限时采用完全允许，既有请求批准回执仍可重放', async () => {
+  const direct = await c.pool.query(
+    "INSERT INTO conversation(user_id,title) VALUES($1,'数据库默认模式回归') RETURNING permission_mode",
+    [c.userId('MEMBER_A')],
+  );
+  expect(direct.rows[0]?.permission_mode).toBe('full');
+  const url = `/api/projects/${c.projectId}/conversations`;
+  const title = '创建回执升级回归';
+  const currentKey = randomUUID();
+  const first = await post(url, { requestKey: currentKey, title, permissionMode: 'ask' });
+  expect(first.statusCode).toBe(200);
+  expect((await post(url, { requestKey: currentKey, title })).statusCode).toBe(409);
+  expect(
+    (await post(url, { requestKey: currentKey, title, permissionMode: 'ask' })).json().replayed,
+  ).toBe(true);
+
+  const beforeUpgradeHash = (requestKey: string) =>
+    createHash('sha256')
+      .update(
+        JSON.stringify({
+          action: 'create',
+          payload: { permissionMode: 'ask', requestKey, title },
+          target: c.projectId,
+        }),
+      )
+      .digest('hex');
+  expect(
+    (
+      await c.pool.query(
+        'SELECT payload_hash,create_default_mode FROM conversation_command WHERE request_key=$1',
+        [currentKey],
+      )
+    ).rows[0],
+  ).toEqual({ payload_hash: beforeUpgradeHash(currentKey), create_default_mode: 'full' });
+  const oldKey = randomUUID();
+  await c.pool.query(
+    `INSERT INTO conversation_command(user_id,session_id,conversation_id,request_key,action,payload_hash,result_json)
+     SELECT user_id,session_id,conversation_id,$2,action,$3,result_json
+     FROM conversation_command WHERE request_key=$1`,
+    [currentKey, oldKey, beforeUpgradeHash(oldKey)],
+  );
+  const replay = await post(url, { requestKey: oldKey, title });
+  expect(replay.statusCode).toBe(200);
+  expect(replay.json()).toMatchObject({
+    replayed: true,
+    conversation: { id: first.json().conversation.id, permissionMode: 'ask' },
+  });
+  expect((await post(url, { requestKey: oldKey, title, permissionMode: 'full' })).statusCode).toBe(
+    409,
+  );
 });
 it('同一创建手势并发重试只建一次，改换正文或目标409', async () => {
   const payload = { requestKey: randomUUID(), title: '幂等新对话' };

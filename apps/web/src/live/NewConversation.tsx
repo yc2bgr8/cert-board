@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import type { AgentCode, PermissionMode, ProjectRecord } from '@cert-board/shared';
+import {
+  defaultPermissionMode,
+  type AgentCode,
+  type PermissionMode,
+  type ProjectRecord,
+} from '@cert-board/shared';
 import { api, createRequestKey, errorMessage } from './api.js';
 import { ShellIcon } from './ShellIcon.js';
 
@@ -29,7 +34,7 @@ export function NewConversation({
 }) {
   const [projectId, setProjectId] = useState('');
   const [agentCode, setAgentCode] = useState<AgentCode>('registration');
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>('ask');
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(defaultPermissionMode);
   const [goalId, setGoalId] = useState('');
   const [title, setTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +65,7 @@ export function NewConversation({
     setGoalId('');
     setTitle('');
     setAgentCode('registration');
-    setPermissionMode('ask');
+    setPermissionMode(defaultPermissionMode);
     setError(null);
     intent.current = null;
     completed.current = false;
