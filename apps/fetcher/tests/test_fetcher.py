@@ -5,7 +5,8 @@ import io
 import json
 import socket
 import ssl
-from threading import Event, Thread
+from concurrent.futures import ThreadPoolExecutor
+from threading import BoundedSemaphore, Event, Semaphore, Thread
 from time import monotonic
 
 import pytest
@@ -192,6 +193,66 @@ def test_total_deadline_interrupts_tls_handshake_after_proxy_tunnel(monkeypatch)
         finally:
             shutdown.set()
             thread.join(1.5)
+
+
+def test_dns_lookups_wait_for_a_free_slot_within_the_deadline(monkeypatch):
+    monkeypatch.setattr(fetcher, "RESOLVERS", BoundedSemaphore(2))
+    entered = Semaphore(0)
+    allow_lookup = Event()
+    address = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 3128))
+
+    def lookup(_host, _port, **_options):
+        entered.release()
+        assert allow_lookup.wait(1)
+        return [address]
+
+    monkeypatch.setattr(socket, "getaddrinfo", lookup)
+    with ThreadPoolExecutor(max_workers=3) as requests:
+        def request():
+            return fetcher.resolve_service("fetch-egress", 3128, monotonic() + 1)
+
+        first = [requests.submit(request) for _ in range(2)]
+        try:
+            assert entered.acquire(timeout=1) and entered.acquire(timeout=1)
+            queued = requests.submit(request)
+            assert not entered.acquire(timeout=0.05)
+        finally:
+            allow_lookup.set()
+        for response in [*first, queued]:
+            assert response.result(timeout=1) == [address]
+
+
+def test_connection_falls_back_when_the_first_socket_family_is_unavailable(monkeypatch):
+    addresses = [
+        (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 3128, 0, 0)),
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 3128)),
+    ]
+    monkeypatch.setattr(fetcher, "resolve_service", lambda *_args: addresses)
+    attempts = []
+
+    class LocalSocket:
+        def settimeout(self, seconds):
+            assert seconds > 0
+
+        def connect(self, address):
+            assert address == addresses[1][4]
+
+        def close(self):
+            pass
+
+    def create_socket(family, _kind, _protocol):
+        attempts.append(family)
+        if family == socket.AF_INET6:
+            raise OSError("address family unavailable")
+        return LocalSocket()
+
+    monkeypatch.setattr(socket, "socket", create_socket)
+    client = fetcher.ServiceConnection("fetch-egress", 3128)
+    client.connect()
+    try:
+        assert attempts == [socket.AF_INET6, socket.AF_INET]
+    finally:
+        client.close()
 
 
 def test_html_meta_charset_and_undecodable_body_preserve_original():

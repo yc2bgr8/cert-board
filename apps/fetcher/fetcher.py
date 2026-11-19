@@ -202,8 +202,9 @@ def remaining(deadline):
 
 
 def resolve_service(host, port, deadline):
-    if not RESOLVERS.acquire(blocking=False):
-        raise FetchError("FETCH_PROXY_UNAVAILABLE", 502)
+    slots = RESOLVERS
+    if not slots.acquire(timeout=remaining(deadline)):
+        raise FetchError("FETCH_TIMEOUT", 504)
     result = Queue(maxsize=1)
 
     def resolve():
@@ -212,9 +213,13 @@ def resolve_service(host, port, deadline):
         except OSError as error:
             result.put(error)
         finally:
-            RESOLVERS.release()
+            slots.release()
 
-    Thread(target=resolve, daemon=True).start()
+    try:
+        Thread(target=resolve, daemon=True).start()
+    except RuntimeError as error:
+        slots.release()
+        raise FetchError("FETCH_PROXY_UNAVAILABLE", 502) from error
     try:
         addresses = result.get(timeout=remaining(deadline))
     except Empty as error:
@@ -233,13 +238,14 @@ class ServiceConnection(http.client.HTTPConnection):
     def connect(self):
         last_error = None
         for family, kind, protocol, _, address in resolve_service(self.host, self.port, self.deadline):
-            self.sock = socket.socket(family, kind, protocol)
             try:
+                self.sock = socket.socket(family, kind, protocol)
                 self.sock.settimeout(remaining(self.deadline))
                 self.sock.connect(address)
                 break
             except OSError as error:
-                self.sock.close()
+                if self.sock is not None:
+                    self.sock.close()
                 self.sock = None
                 last_error = error
         if self.sock is None:
