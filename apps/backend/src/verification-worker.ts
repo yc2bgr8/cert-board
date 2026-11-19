@@ -1,4 +1,4 @@
-import { parseBackendConfig } from '@cert-board/shared';
+import { parseBackendConfig, selectGatewayModel } from '@cert-board/shared';
 import { readFile } from 'node:fs/promises';
 import { createDependencies } from './dependencies.js';
 import { startVerificationWorker } from './external-model/verification-worker.js';
@@ -13,22 +13,20 @@ async function start() {
   const logger = createLogger(config);
   const dependencies = createDependencies(config);
   const proxyUrl = process.env.HTTPS_PROXY;
+  const models = await loadModelGatewayConfig({ environment: config.NODE_ENV });
+  const localReady = selectGatewayModel(models, 'agent')?.transport === 'local';
+  const remoteProxy = proxyUrl && process.env.OPENROUTER_API_KEY ? proxyUrl : undefined;
   const transport =
-    proxyUrl && process.env.OPENROUTER_API_KEY
+    localReady || remoteProxy
       ? new RealGatewayTransport({
-          proxyUrl,
+          ...(remoteProxy ? { proxyUrl: remoteProxy } : {}),
           allowedHosts: parseAllowedModelHosts(
             await readFile(new URL('../../../deploy/egress/allowlist', import.meta.url), 'utf8'),
           ),
         })
       : undefined;
   const gateway = transport
-    ? new ModelGateway(
-        dependencies.database,
-        await loadModelGatewayConfig({ environment: config.NODE_ENV }),
-        transport,
-        { environment: config.NODE_ENV },
-      )
+    ? new ModelGateway(dependencies.database, models, transport, { environment: config.NODE_ENV })
     : undefined;
   const dispose = await startVerificationWorker(
     dependencies.database,

@@ -11,6 +11,7 @@ import {
   agentQuestionSchema,
   workspaceToolSaveSchema,
   verificationTicketSchema,
+  selectGatewayModel,
   type AgentCode,
   type AgentIdentity,
   type ModelGatewayConfig,
@@ -385,9 +386,7 @@ export async function executeAgentRun(
         'AGENT_INPUT_UNAVAILABLE',
         '本次消息缺失或历史过长，请缩小任务后重试。',
       );
-    const model = dependencies.models.models.find(
-      (item) => item.enabled && item.purposes.includes('agent'),
-    );
+    const model = selectGatewayModel(dependencies.models, 'agent');
     if (!model) throw new Error('model_missing');
     const registry = authority.registry;
     const catalog = registry.registeredToolDescriptions();

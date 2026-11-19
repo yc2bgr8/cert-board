@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
+import { selectGatewayModel } from '@cert-board/shared';
 import {
   ModelConfigError,
   loadModelGatewayConfig,
@@ -12,8 +13,9 @@ const hosts = ['openrouter.ai'];
 describe('唯一YAML模型配置来源', () => {
   it('读出精确模型、价格、提供方和用途，不包含密钥值', () => {
     const config = parseModelGatewayConfig(source, hosts, 'test');
-    expect(config.models).toHaveLength(1);
-    expect(config.models[0]).toMatchObject({
+    expect(config.models).toHaveLength(3);
+    const qwen = config.models.find(({ id }) => id === 'qwen-flash');
+    expect(qwen).toMatchObject({
       id: 'qwen-flash',
       upstreamModel: 'qwen/qwen3.8-flash',
       apiKeyEnv: 'OPENROUTER_API_KEY',
@@ -27,15 +29,61 @@ describe('唯一YAML模型配置来源', () => {
       },
       provider: { only: ['alibaba/us-east-1'], allow_fallbacks: false, require_parameters: true },
     });
-    expect(config.models[0]).not.toHaveProperty('apiKey');
+    expect(qwen).not.toHaveProperty('apiKey');
     expect(() => parseModelGatewayConfig(source, hosts, 'production')).toThrow(ModelConfigError);
     expect(
       parseModelGatewayConfig(
-        source.replace('accepted: false', 'accepted: true'),
+        source.replaceAll('accepted: false', 'accepted: true'),
         hosts,
         'production',
       ).models[0]?.accepted,
     ).toBe(true);
+  });
+
+  it('开发默认使用同代模拟模型，可切换 Qwen，配置本地内网端点后优先路由', () => {
+    const development = parseModelGatewayConfig(source, hosts, 'development');
+    expect(development.models[0]).toMatchObject({
+      transport: 'local',
+      baseUrl: null,
+      maxDataLevel: 'confidential',
+    });
+    expect(selectGatewayModel(development, 'agent')).toMatchObject({
+      id: 'deepseek-flash-1017',
+      provider: { only: ['deepinfra/fp8'], zdr: true, data_collection: 'deny' },
+    });
+    const switched = parseModelGatewayConfig(source, hosts, 'development', {
+      developmentModel: 'qwen-flash',
+    });
+    expect(selectGatewayModel(switched, 'agent')?.id).toBe('qwen-flash');
+    const local = parseModelGatewayConfig(source, hosts, 'development', {
+      localEndpoint: 'http://192.168.2.12:8081/v1',
+    });
+    expect(selectGatewayModel(local, 'agent')?.id).toBe('deepseek-local');
+    expect(() =>
+      parseModelGatewayConfig(source, hosts, 'development', { developmentModel: 'unknown-model' }),
+    ).toThrow(ModelConfigError);
+  });
+
+  it('本地模型拒绝公网、DNS 名称、保留地址、URL 凭据和非兼容基路径', () => {
+    for (const localEndpoint of [
+      'https://openrouter.ai/v1',
+      'http://8.8.8.8/v1',
+      'http://198.18.0.1/v1',
+      'http://user:secret@127.0.0.1/v1',
+      'http://127.0.0.1/admin',
+      'http://127.0.0.1/v1?key=fixture',
+    ]) {
+      expect(() =>
+        parseModelGatewayConfig(source, hosts, 'development', { localEndpoint }),
+      ).toThrow(ModelConfigError);
+    }
+    expect(() =>
+      parseModelGatewayConfig(
+        source.replace("outputUsdPerMillion: '0'", "outputUsdPerMillion: '1'"),
+        hosts,
+        'development',
+      ),
+    ).toThrow(ModelConfigError);
   });
   it('拒绝重复键、别名、锚点、标签、多文档及未知字段', () => {
     for (const invalid of [

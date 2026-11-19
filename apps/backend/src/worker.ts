@@ -83,7 +83,9 @@ export async function startWorker() {
       await readFile(new URL('../../../deploy/egress/allowlist', import.meta.url), 'utf8'),
     );
     transport = new RealGatewayTransport({
-      proxyUrl: process.env.HTTPS_PROXY ?? '',
+      ...(models.models.some((model) => model.enabled && model.transport !== 'local')
+        ? { proxyUrl: process.env.HTTPS_PROXY ?? '' }
+        : {}),
       containerRuntime: config.CONTAINER_RUNTIME,
       allowedHosts,
     });

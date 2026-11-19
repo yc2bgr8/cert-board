@@ -37,6 +37,7 @@ export function parseModelGatewayConfig(
   source: string,
   allowedHosts: readonly string[],
   environment: string,
+  overrides: { localEndpoint?: string; developmentModel?: string } = {},
 ): ModelGatewayConfig {
   try {
     if (
@@ -62,12 +63,32 @@ export function parseModelGatewayConfig(
       if (isAlias(node) || (isNode(node) && (('anchor' in node && node.anchor) || node.tag)))
         throw new ModelConfigError();
     });
-    const config = modelGatewayConfigSchema.parse(document.toJS({ maxAliasCount: 0 }));
+    const parsed = modelGatewayConfigSchema.parse(document.toJS({ maxAliasCount: 0 }));
+    const localEndpoint = overrides.localEndpoint?.trim();
+    if (localEndpoint && parsed.models.filter((model) => model.transport === 'local').length !== 1)
+      throw new ModelConfigError();
+    const developmentDefault =
+      environment === 'development'
+        ? overrides.developmentModel?.trim() || parsed.developmentDefault
+        : undefined;
+    const config = modelGatewayConfigSchema.parse({
+      version: parsed.version,
+      models: parsed.models.map((model) =>
+        model.transport === 'local' && localEndpoint ? { ...model, baseUrl: localEndpoint } : model,
+      ),
+      ...(developmentDefault ? { developmentDefault } : {}),
+    });
+    if (
+      developmentDefault &&
+      !config.models.some(
+        (model) => model.transport !== 'local' && model.enabled && model.id === developmentDefault,
+      )
+    )
+      throw new ModelConfigError();
     for (const model of config.models) {
-      const endpoint = new URL(model.baseUrl);
       if (
-        !hosts.has(endpoint.hostname) ||
-        (environment === 'production' && model.enabled && !model.accepted)
+        (model.transport !== 'local' && !hosts.has(new URL(model.baseUrl).hostname)) ||
+        (environment === 'production' && model.enabled && model.baseUrl !== null && !model.accepted)
       )
         throw new ModelConfigError();
     }
@@ -79,7 +100,12 @@ export function parseModelGatewayConfig(
 }
 
 export async function loadModelGatewayConfig(
-  options: { configPath?: string; allowlistPath?: string; environment?: string } = {},
+  options: {
+    configPath?: string;
+    allowlistPath?: string;
+    environment?: string;
+    sourceEnv?: NodeJS.ProcessEnv;
+  } = {},
 ): Promise<ModelGatewayConfig> {
   try {
     const configPath =
@@ -92,11 +118,14 @@ export async function loadModelGatewayConfig(
       readFile(configPath, 'utf8'),
       readFile(allowlistPath, 'utf8'),
     ]);
-    return parseModelGatewayConfig(
-      source,
-      parseAllowedModelHosts(allowlist),
-      options.environment ?? process.env.NODE_ENV ?? 'production',
-    );
+    const environment = options.environment ?? process.env.NODE_ENV ?? 'production';
+    const sourceEnv = options.sourceEnv ?? (environment === 'test' ? {} : process.env);
+    const localEndpoint = sourceEnv.CERT_LOCAL_MODEL_BASE_URL;
+    const developmentModel = sourceEnv.CERT_DEV_MODEL_ID;
+    return parseModelGatewayConfig(source, parseAllowedModelHosts(allowlist), environment, {
+      ...(localEndpoint ? { localEndpoint } : {}),
+      ...(developmentModel ? { developmentModel } : {}),
+    });
   } catch {
     throw new ModelConfigError();
   }

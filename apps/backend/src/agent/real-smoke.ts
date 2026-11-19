@@ -26,14 +26,19 @@ const l08 = process.argv.includes('--l08');
 async function main() {
   const config = parseBackendConfig(process.env);
   if (config.NODE_ENV !== 'development') throw new Error('REAL_TEST_ENVIRONMENT');
-  const models = await loadModelGatewayConfig({ environment: 'development' });
-  const model = models.models.find((entry) => entry.enabled && entry.purposes.includes('agent'));
-  if (!model || !process.env[model.apiKeyEnv]) throw new Error('REAL_TEST_MODEL_MISSING');
+  const configured = await loadModelGatewayConfig({ environment: 'development' });
+  const model = configured.models.find(
+    (entry) => entry.id === 'qwen-flash' && entry.enabled && entry.purposes.includes('agent'),
+  );
+  if (!model || model.transport === 'local' || !process.env[model.apiKeyEnv])
+    throw new Error('REAL_TEST_MODEL_MISSING');
+  const models = { version: 1 as const, models: [model] };
   const hosts = parseAllowedModelHosts(
     await readFile(new URL('../../../../deploy/egress/allowlist', import.meta.url), 'utf8'),
   );
   const transport = new RealGatewayTransport({
     proxyUrl: process.env.HTTPS_PROXY ?? '',
+    containerRuntime: config.CONTAINER_RUNTIME,
     allowedHosts: hosts,
   });
   const dependencies = createDependencies(config);

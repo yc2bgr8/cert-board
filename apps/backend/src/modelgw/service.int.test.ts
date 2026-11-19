@@ -3,11 +3,16 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { GatewayContext, ModelGatewayConfig } from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
 import {
+  startLocalModelFixture,
+  type LocalModelFixtureRequest,
+} from '../test-support/local-model-fixture.js';
+import {
   seedDevelopmentBudgetPolicy,
   getBudgetSummary,
   reconcileUsage,
 } from '../budget/service.js';
 import { ModelGateway, type GatewayTransport, type UpstreamChatRequest } from './service.js';
+import { RealGatewayTransport } from './transport.js';
 
 let context: Awaited<ReturnType<typeof createIntegrationContext>>;
 let caller: GatewayContext;
@@ -109,6 +114,132 @@ afterEach(async () => {
   if (context) await context.close();
 });
 
+async function localEndpoint(mock: () => unknown, timeoutMs = 2000) {
+  await context.pool.query("UPDATE conversation SET max_data_level='confidential' WHERE id=$1", [
+    caller.conversationId,
+  ]);
+  const received: LocalModelFixtureRequest[] = [];
+  const server = await startLocalModelFixture((input) => {
+    received.push(input);
+    return mock();
+  });
+  const transport = new RealGatewayTransport({
+    allowedHosts: ['openrouter.ai'],
+    timeoutMs,
+    environment: { OPENROUTER_API_KEY: 'synthetic-remote-key' },
+  });
+  const models: ModelGatewayConfig = {
+    ...configuration,
+    models: [
+      ...configuration.models,
+      {
+        id: 'local-fixture',
+        transport: 'local',
+        upstreamModel: 'deepseek-flash',
+        baseUrl: server.baseUrl,
+        family: 'deepseek',
+        enabled: true,
+        accepted: false,
+        purposes: ['agent'],
+        maxDataLevel: 'confidential',
+        contextLength: 100000,
+        maxOutputTokens: 256,
+        supportsImages: false,
+        prices: { inputUsdPerMillion: '0', cacheReadUsdPerMillion: '0', outputUsdPerMillion: '0' },
+        reasoning: { enabled: false },
+      },
+    ],
+  };
+  return {
+    received,
+    gateway: new ModelGateway(context.pool, models, transport, { environment: 'test' }),
+    async close() {
+      await Promise.all([server.close(), transport.close()]);
+    },
+  };
+}
+
+test('本地 OpenAI 兼容端点接收保密请求，保留工具参数并按实际令牌零费结算', async () => {
+  const fixture = await localEndpoint(() => {
+    const raw = response();
+    return {
+      ...raw,
+      choices: [
+        {
+          index: 0,
+          finish_reason: 'tool_calls',
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: 'call_fixture_local',
+                type: 'function',
+                function: { name: 'read_example', arguments: { sample: '合成资料' } },
+              },
+            ],
+          },
+        },
+      ],
+    };
+  });
+  try {
+    await expect(
+      fixture.gateway.complete({ ...request, model: 'fixture-model' }, caller),
+    ).rejects.toMatchObject({ code: 'MODEL_LOCAL_REQUIRED' });
+    const result = await fixture.gateway.complete(request, caller);
+    expect(result).toMatchObject({
+      model: 'local-fixture',
+      dataLevel: 'confidential',
+      usage: { inputTokens: 100, outputTokens: 10, totalTokens: 110, costNano: '0' },
+    });
+    expect(result.message.tool_calls?.[0]?.function.arguments).toBe(
+      JSON.stringify({ sample: '合成资料' }),
+    );
+    expect(fixture.received).toEqual([
+      {
+        pathname: '/v1/chat/completions',
+        authorization: undefined,
+        body: expect.objectContaining({ model: 'deepseek-flash', tools: request.tools }),
+      },
+    ]);
+    expect(fixture.received[0]?.body).not.toHaveProperty('provider');
+    expect(fixture.received[0]?.body).not.toHaveProperty('reasoning');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test.each([
+  { scenario: '超时', response: () => undefined, code: 'MODEL_UPSTREAM_FAILED' },
+  {
+    scenario: '回复格式错误',
+    response: () => response({ choices: [] }),
+    code: 'MODEL_RESPONSE_INVALID',
+  },
+  {
+    scenario: '缺少用量',
+    response: () => response({ usage: undefined }),
+    code: 'MODEL_USAGE_INCOMPLETE',
+  },
+])('本地端点$scenario时停止该请求并记录零费用', async ({ response: mock, code }) => {
+  const fixture = await localEndpoint(mock, 1000);
+  try {
+    await expect(fixture.gateway.complete(request, caller)).rejects.toMatchObject({ code });
+    expect(fixture.received).toHaveLength(1);
+    const ledger = await context.pool.query(
+      'SELECT status,actual_nano,input_tokens,output_tokens FROM usage_ledger WHERE request_key=$1',
+      [caller.requestKey],
+    );
+    expect(ledger.rows[0]).toMatchObject({ status: 'settled', actual_nano: '0' });
+    expect(Number(ledger.rows[0]?.input_tokens)).toBeGreaterThan(0);
+    expect(Number(ledger.rows[0]?.output_tokens)).toBeGreaterThan(0);
+    expect((await getBudgetSummary(context.pool)).counts.unknown).toBe(0);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('配置模型和限价透传，工具调用保留，用量先结算且只新预占派发一次', async () => {
   const source = transport(response());
   const gateway = new ModelGateway(context.pool, configuration, source.handler, {
@@ -119,9 +250,9 @@ test('配置模型和限价透传，工具调用保留，用量先结算且只�
   expect(result.upstreamModel).toBe('fixture/upstream');
   expect(result.message.tool_calls?.[0]?.function.name).toBe('read_example');
   expect(result.usage.costNano).toBe('1000000');
-  expect(source.body()?.provider.max_price).toEqual({ prompt: 10, completion: 20 });
-  expect(source.body()?.provider.allow_fallbacks).toBe(false);
-  expect(source.body()?.reasoning.enabled).toBe(false);
+  expect(source.body()?.provider?.max_price).toEqual({ prompt: 10, completion: 20 });
+  expect(source.body()?.provider?.allow_fallbacks).toBe(false);
+  expect(source.body()?.reasoning?.enabled).toBe(false);
   expect(source.body()?.model).toBe('fixture/upstream');
   expect(source.body()?.stream).toBe(false);
   await expect(gateway.complete(request, caller)).rejects.toMatchObject({
@@ -288,6 +419,23 @@ test.each(['conversation', 'run', 'workspace', 'draft', 'document'])(
     expect((await getBudgetSummary(context.pool)).counts.reserved).toBe(0);
   },
 );
+
+test('执行权检查期间升密时拒绝远端派发，并归还尚未消耗的预占', async () => {
+  const source = transport(response());
+  const gateway = new ModelGateway(context.pool, configuration, source.handler, {
+    environment: 'test',
+  });
+  await expect(
+    gateway.complete(request, caller, undefined, async () => {
+      await context.pool.query(
+        "UPDATE conversation SET max_data_level='confidential' WHERE id=$1",
+        [caller.conversationId],
+      );
+    }),
+  ).rejects.toMatchObject({ code: 'MODEL_DISPATCH_BLOCKED' });
+  expect(source.calls()).toBe(0);
+  expect((await getBudgetSummary(context.pool)).counts).toMatchObject({ reserved: 0, unknown: 0 });
+});
 
 test('运行和对话归属不能伪造，模型和用途只能从已启用配置选择', async () => {
   const source = transport(response());

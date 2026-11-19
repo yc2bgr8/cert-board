@@ -6,8 +6,10 @@ import {
   upstreamUsageSchema,
   upstreamAssistantResponseSchema,
   gatewayResponseSchema,
+  selectGatewayModel,
   type ModelGatewayConfig,
   type GatewayModelConfig,
+  type OpenRouterGatewayModel,
   type ChatRequest,
   type GatewayContext,
   type GatewayResponse,
@@ -28,8 +30,10 @@ export type UpstreamChatRequest = Omit<ChatRequest, 'model' | 'stream'> & {
   model: string;
   stream: false;
   max_tokens: number;
-  provider: GatewayModelConfig['provider'] & { max_price: { prompt: number; completion: number } };
-  reasoning: GatewayModelConfig['reasoning'];
+  provider?: OpenRouterGatewayModel['provider'] & {
+    max_price: { prompt: number; completion: number };
+  };
+  reasoning?: GatewayModelConfig['reasoning'];
 };
 export interface GatewayTransport {
   readonly kind: 'real' | 'fixture';
@@ -53,6 +57,27 @@ function object(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function normalizeLocalToolArguments(value: unknown) {
+  const raw = object(value);
+  if (!raw || !Array.isArray(raw.choices)) return value;
+  return {
+    ...raw,
+    choices: raw.choices.map((entry: unknown) => {
+      const choice = object(entry);
+      const message = object(choice?.message);
+      if (!message || !Array.isArray(message.tool_calls)) return entry;
+      const calls = message.tool_calls.map((entry: unknown) => {
+        const call = object(entry);
+        const args = object(call?.function);
+        return args && object(args.arguments)
+          ? { ...call, function: { ...args, arguments: JSON.stringify(args.arguments) } }
+          : entry;
+      });
+      return { ...choice, message: { ...message, tool_calls: calls } };
+    }),
+  };
 }
 
 // 上游数字可能采用科学记数法；转成整数nano时只使用十进制字符串与BigInt并向上取整。
@@ -116,13 +141,7 @@ export class ModelGateway {
   }
 
   private choose(request: ChatRequest, context: GatewayContext) {
-    const candidates = this.config.models.filter(
-      (model) =>
-        model.enabled &&
-        model.purposes.includes(context.purpose) &&
-        (!request.model || model.id === request.model),
-    );
-    const model = candidates[0];
+    const model = selectGatewayModel(this.config, context.purpose, request.model);
     if (!model)
       throw rejected('MODEL_UNAVAILABLE', '当前用途没有已启用的模型，请维护人员核对配置。');
     if (this.environment === 'production' && !model.accepted)
@@ -130,7 +149,7 @@ export class ModelGateway {
     return model;
   }
 
-  private async routing(context: GatewayContext) {
+  private async routing(context: GatewayContext, model: GatewayModelConfig) {
     const result = await this.pool.query<{
       conversation_id: string;
       user_id: string;
@@ -169,12 +188,12 @@ export class ModelGateway {
       row.user_status !== 'active'
     )
       throw rejected('MODEL_RUN_INACTIVE', '运行、对话或用户已停止，不能继续调用模型。', 409);
-    if (row.data_level === 'confidential')
+    if (row.data_level === 'confidential' && model.transport !== 'local')
       throw rejected(
         'MODEL_LOCAL_REQUIRED',
         '当前项目或对话涉及保密资料，尚未配置可用的本地模型；已拒绝向远端发送。',
       );
-    return 'internal' as const;
+    return row.data_level === 'confidential' ? 'confidential' : 'internal';
   }
 
   private usage(raw: unknown): UpstreamUsage | null {
@@ -195,8 +214,13 @@ export class ModelGateway {
     return parsed.success ? parsed.data : null;
   }
 
-  private async account(context: GatewayContext, usage: UpstreamUsage, rawUsage: unknown) {
-    const cost = providerCostNano(object(rawUsage)?.cost);
+  private async account(
+    context: GatewayContext,
+    usage: UpstreamUsage,
+    rawUsage: unknown,
+    local = false,
+  ) {
+    const cost = local ? '0' : providerCostNano(object(rawUsage)?.cost);
     try {
       const settled = await settleUsage(this.pool, {
         requestKey: context.requestKey,
@@ -282,6 +306,7 @@ export class ModelGateway {
     const request = requestResult.data,
       context = contextResult.data,
       model = this.choose(request, context);
+    const local = model.transport === 'local';
     const requested = request.max_tokens ?? model.maxOutputTokens;
     if (requested > model.maxOutputTokens)
       throw rejected('MODEL_OUTPUT_LIMIT', '请求输出上限超过该模型配置，请缩小输出范围。', 400);
@@ -291,14 +316,18 @@ export class ModelGateway {
       model: model.upstreamModel,
       max_tokens: requested,
       stream: false,
-      provider: {
-        ...model.provider,
-        max_price: {
-          prompt: Number(model.prices.inputUsdPerMillion),
-          completion: Number(model.prices.outputUsdPerMillion),
-        },
-      },
-      reasoning: model.reasoning,
+      ...(model.transport === 'local'
+        ? {}
+        : {
+            provider: {
+              ...model.provider,
+              max_price: {
+                prompt: Number(model.prices.inputUsdPerMillion),
+                completion: Number(model.prices.outputUsdPerMillion),
+              },
+            },
+            reasoning: model.reasoning,
+          }),
     };
     const size = Buffer.byteLength(JSON.stringify(body), 'utf8');
     if (size > 256 * 1024)
@@ -315,7 +344,7 @@ export class ModelGateway {
         '请求的保守token上界超过模型上下文，请缩小资料或历史后重试。',
         413,
       );
-    await this.routing(context);
+    await this.routing(context, model);
     const reservation = await reserveUsage(this.pool, {
       requestKey: context.requestKey,
       runId: context.runId,
@@ -334,24 +363,30 @@ export class ModelGateway {
       );
     // 预占后再次检查源级别，旧会话不能利用窗口或历史缓存绕过项目升密。
     try {
-      await this.routing(context);
+      await this.routing(context, model);
       if (signal?.aborted) throw rejected('MODEL_ABORTED', '运行已停止，未继续发出模型请求。', 409);
     } catch (error) {
-      await this.incomplete(context, signal?.aborted ? 'aborted' : 'request_uncertain');
+      try {
+        await markUsageNotDispatched(this.pool, context);
+      } catch {
+        await this.incomplete(context, signal?.aborted ? 'aborted' : 'request_uncertain');
+      }
       throw error;
     }
     if (beforeDispatch) {
       try {
         await beforeDispatch();
         if (signal?.aborted) throw new Error('dispatch_cancelled');
+        if (!this.meteringBlocks.size) await this.routing(context, model);
       } catch {
-        // 可信执行权校验发生在send之前，能确定本请求未发出；不能当作未知费用冻结。
-        await this.account(context, { prompt_tokens: 0, completion_tokens: 0 }, { cost: '0' });
-        throw rejected(
-          'MODEL_DISPATCH_BLOCKED',
-          '发送前执行权或取消状态未通过校验，请求未发出，预占已按零费用结算；请核对运行状态。',
-          409,
-        );
+        if (!this.meteringBlocks.size) {
+          await this.account(context, { prompt_tokens: 0, completion_tokens: 0 }, { cost: '0' });
+          throw rejected(
+            'MODEL_DISPATCH_BLOCKED',
+            '发送前执行权、资料级别或取消状态未通过校验。请求未发出，预占已按零费用结算。',
+            409,
+          );
+        }
       }
     }
     if (this.meteringBlocks.size) {
@@ -367,37 +402,49 @@ export class ModelGateway {
       );
     }
     let raw: unknown;
+    const estimatedLocalUsage = {
+      prompt_tokens: estimatedInputTokens,
+      completion_tokens: maxOutputTokens,
+    };
     try {
       raw = await this.transport.send(model, body, signal);
     } catch (error) {
       const rawUsage = object(error)?.usage,
         usage = this.usage(rawUsage);
-      if (usage) await this.account(context, usage, rawUsage);
+      if (usage || local)
+        await this.account(context, usage ?? estimatedLocalUsage, rawUsage, local);
       else await this.incomplete(context, signal?.aborted ? 'aborted' : 'request_uncertain');
       throw rejected(
         signal?.aborted ? 'MODEL_ABORTED' : 'MODEL_UPSTREAM_FAILED',
-        usage
-          ? '上游请求未成功，已登记返回的用量费用；本次结果不能用于业务操作。'
-          : '上游请求未形成完整用量回执，已保留预占并停止追加调用，请核对计量状态。',
+        local
+          ? '本地端点请求未完成。令牌和步数已登记，费用为零。'
+          : usage
+            ? '上游请求未成功，已登记返回的用量费用；本次结果不能用于业务操作。'
+            : '上游请求未形成完整用量回执，已保留预占并停止追加调用，请核对计量状态。',
         502,
       );
     }
     const rawUsage = object(raw)?.usage,
       usage = this.usage(rawUsage);
     if (!usage) {
-      await this.incomplete(context, 'missing_usage');
+      if (local) await this.account(context, estimatedLocalUsage, undefined, true);
+      else await this.incomplete(context, 'missing_usage');
       throw rejected(
         'MODEL_USAGE_INCOMPLETE',
-        '上游未返回完整用量，已保留全部预占并冻结追加调用，请负责人核对。',
+        local
+          ? '本地端点未返回用量。已按保守上界记入令牌，费用为零。'
+          : '上游未返回完整用量，已保留全部预占并冻结追加调用，请负责人核对。',
         502,
       );
     }
-    const costNano = await this.account(context, usage, rawUsage);
+    const costNano = await this.account(context, usage, rawUsage, local);
     // 已发生的费用到此已入账。停机、取消和坏消息都不能进入后续工具执行。
     if (signal?.aborted)
       throw rejected('MODEL_ABORTED', '运行已停止，用量已登记，不再处理模型输出。', 409);
-    const dataLevel = await this.routing(context);
-    const response = upstreamAssistantResponseSchema.safeParse(raw);
+    const dataLevel = await this.routing(context, model);
+    const response = upstreamAssistantResponseSchema.safeParse(
+      local ? normalizeLocalToolArguments(raw) : raw,
+    );
     if (!response.success)
       throw rejected(
         'MODEL_RESPONSE_INVALID',
