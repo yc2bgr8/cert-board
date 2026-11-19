@@ -59,7 +59,7 @@ async function createConversation(
   else
     assert.equal(
       await dialog.getByRole('combobox', { name: '权限模式', exact: true }).inputValue(),
-      'ask',
+      'full',
     );
   const request = page.waitForResponse(
     (response) =>
@@ -69,7 +69,8 @@ async function createConversation(
   await dialog.getByRole('button', { name: '创建对话', exact: true }).click();
   const response = await request;
   assert.equal(response.status(), 200);
-  const value = (await response.json()) as { conversation: { id: string } };
+  const value = (await response.json()) as { conversation: { id: string; permissionMode: string } };
+  assert.equal(value.conversation.permissionMode, mode ?? 'full');
   return value.conversation.id;
 }
 async function send(page: Page, text: string, action = '发送') {
@@ -159,6 +160,8 @@ async function main() {
     const cookie = (await context.cookies()).find((value) => value.name === 'cert_board_session');
     assert.equal(cookie?.httpOnly, true);
     assert.equal(cookie?.sameSite, 'Strict');
+    stage = '新对话默认完全允许';
+    await createConversation(page, harness.projectId, undefined, '默认权限验证');
     stage = 'L08资料与安全Markdown';
     await createConversation(page, harness.projectId, 'read_only');
     const read = harness.plan('read');
@@ -340,7 +343,7 @@ async function main() {
       page,
       harness,
       {
-        create: (title) => createConversation(page!, harness.projectId, undefined, title),
+        create: (title) => createConversation(page!, harness.projectId, 'ask', title),
         send: (text) => send(page!, text),
         until,
         async beforeReload() {
@@ -426,6 +429,7 @@ async function main() {
             'plan_two_steps',
             'steering_next_turn',
             'mode_next_catalog',
+            'default_full_permission_mode',
             'stop_without_sse',
             'reject',
             'allow_once',

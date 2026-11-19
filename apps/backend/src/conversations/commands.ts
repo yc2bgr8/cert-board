@@ -75,6 +75,7 @@ async function command(
   action: string,
   target: unknown,
   payload: unknown,
+  legacyPayload?: unknown,
 ) {
   const hash = digest({ action, target, payload });
   await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
@@ -86,7 +87,13 @@ async function command(
       [actor.userId, requestKey],
     )
   ).rows[0];
-  if (prior && (prior.action !== action || prior.payload_hash !== hash))
+  if (
+    prior &&
+    (prior.action !== action ||
+      (prior.payload_hash !== hash &&
+        (legacyPayload === undefined ||
+          prior.payload_hash !== digest({ action, target, payload: legacyPayload }))))
+  )
     throw new AppError(
       409,
       'CONVERSATION_REQUEST_CONFLICT',
@@ -322,7 +329,19 @@ export async function createConversationTx(
   if (!parsed.success || (projectId !== undefined && !identifier.safeParse(projectId).success))
     throw invalid();
   const data = parsed.data;
-  const intent = await command(tx, actor, data.requestKey, 'create', projectId ?? null, data);
+  // 旧版本在散列请求前填充 ask。省略权限的旧请求仍需返回原会话。
+  const legacyPayload = Object.hasOwn(input as object, 'permissionMode')
+    ? undefined
+    : { ...data, permissionMode: 'ask' };
+  const intent = await command(
+    tx,
+    actor,
+    data.requestKey,
+    'create',
+    projectId ?? null,
+    data,
+    legacyPayload,
+  );
   if (intent.prior) return conversationCreateResultSchema.parse(intent.prior);
   let agentCode = data.agentCode ?? 'registration';
   let goalId: string | null = null;
@@ -627,10 +646,17 @@ export async function preflightConversationStopTx(
   if (intent.prior) return conversationStopResultSchema.parse(intent.prior);
   // 只读身份和范围，不拿会话/运行写锁；命令锁保留到外层事务提交。
   const conversation = await located(tx, actor, conversationId);
-  if (conversation.status !== 'active' || !(await tx.query(
-    'SELECT id FROM run WHERE id=$1 AND conversation_id=$2 AND user_id=$3',
-    [data.runId, conversationId, actor.userId],
-  )).rowCount) throw missing();
+  if (
+    conversation.status !== 'active' ||
+    !(
+      await tx.query('SELECT id FROM run WHERE id=$1 AND conversation_id=$2 AND user_id=$3', [
+        data.runId,
+        conversationId,
+        actor.userId,
+      ])
+    ).rowCount
+  )
+    throw missing();
   return null;
 }
 

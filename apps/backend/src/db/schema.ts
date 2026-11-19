@@ -577,7 +577,7 @@ export const conversation = pgTable(
       .notNull()
       .references(() => appUser.id, { onDelete: 'restrict' }),
     title: varchar('title', { length: 255 }).notNull(),
-    permissionMode: permissionMode('permission_mode').notNull().default('ask'),
+    permissionMode: permissionMode('permission_mode').notNull().default('full'),
     permissionVersion: integer('permission_version').notNull().default(1),
     currentRunId: uuid('current_run_id'),
     agentCode: agentCode('agent_code').notNull().default('registration'),

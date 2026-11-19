@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { agentCodeSchema, permissionModeSchema, conversationRecordSchema } from './workspace.js';
+import {
+  agentCodeSchema,
+  permissionModeSchema,
+  conversationRecordSchema,
+  defaultPermissionMode,
+} from './workspace.js';
 
 const id = z.string().uuid('对话、运行或请求编号无效，请刷新后重试。');
 const sequence = z.number().int().positive().safe();
@@ -21,7 +26,7 @@ export const conversationCreateInputSchema = z
       .refine(validText, '标题包含无效字符。')
       .optional(),
     agentCode: agentCodeSchema.optional(),
-    permissionMode: permissionModeSchema.default('ask'),
+    permissionMode: permissionModeSchema.default(defaultPermissionMode),
     goalId: id.optional(),
   })
   .strict();

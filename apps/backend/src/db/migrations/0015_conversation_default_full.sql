@@ -1,0 +1,1 @@
+ALTER TABLE "conversation" ALTER COLUMN "permission_mode" SET DEFAULT 'full';

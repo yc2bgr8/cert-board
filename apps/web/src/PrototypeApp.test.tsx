@@ -33,12 +33,19 @@ async function approvalRequest() {
   return screen.findByRole('region', { name: '批准请求' }, { timeout: 3_000 });
 }
 
+function selectAskMode() {
+  fireEvent.change(screen.getByRole('combobox', { name: '权限模式' }), {
+    target: { value: 'ask' },
+  });
+}
+
 async function openReview() {
   fireEvent.click(await screen.findByRole('button', { name: '审核' }, { timeout: 3_000 }));
   return screen.getByRole('complementary', { name: '审核详情' });
 }
 
 async function completeRegistration() {
+  selectAskMode();
   sendMessage();
   const approval = await approvalRequest();
   fireEvent.click(within(approval).getByRole('button', { name: '允许' }));
@@ -58,6 +65,7 @@ describe('按新变更单设计的可点击界面稿', () => {
   test('注册请求批准路径先展示计划和进度，批准判断后提交八部分审核并通过', async () => {
     render(<PrototypeApp />);
     expectActiveTabPanel('对话');
+    selectAskMode();
     expect((screen.getByRole('combobox', { name: '权限模式' }) as HTMLSelectElement).value).toBe(
       'ask',
     );
@@ -91,6 +99,7 @@ describe('按新变更单设计的可点击界面稿', () => {
 
   test('拒绝判断并填写原因后，Agent保留待确认差异并调整结果', async () => {
     render(<PrototypeApp />);
+    selectAskMode();
     sendMessage();
     const approval = await approvalRequest();
     fireEvent.click(within(approval).getByRole('button', { name: '拒绝' }));
@@ -199,6 +208,7 @@ describe('按新变更单设计的可点击界面稿', () => {
 
   test('待我处理分别打开批准请求和待审核结果，项目状态不混用', async () => {
     render(<PrototypeApp />);
+    selectAskMode();
     sendMessage();
     await approvalRequest();
     await completeMaintenance();
@@ -266,6 +276,7 @@ describe('按新变更单设计的可点击界面稿', () => {
   test('等待批准时短暂切为完全允许再切回请求批准，仍须等待批准', async () => {
     render(<PrototypeApp />);
     fireEvent.click(screen.getByRole('button', { name: 'L08 年度注册' }));
+    selectAskMode();
     sendMessage('核查年度注册资料，更新提醒并催办。');
     await approvalRequest();
     const mode = screen.getByRole('combobox', { name: '权限模式' });
@@ -277,14 +288,14 @@ describe('按新变更单设计的可点击界面稿', () => {
     expect(screen.queryByRole('button', { name: '审核' })).toBeNull();
   });
 
-  test('新对话默认注册Agent和请求批准，可选择维护Agent，项目对话不切换Agent', () => {
+  test('新对话默认注册Agent和完全允许，可选择维护Agent，项目对话不切换Agent', () => {
     render(<PrototypeApp />);
     expect(screen.queryByRole('combobox', { name: '选择Agent' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '新对话' }));
     const agent = screen.getByRole('combobox', { name: '选择Agent' }) as HTMLSelectElement;
     expect(agent.value).toBe('registration');
     expect((screen.getByRole('combobox', { name: '权限模式' }) as HTMLSelectElement).value).toBe(
-      'ask',
+      'full',
     );
     fireEvent.change(agent, { target: { value: 'maintenance' } });
     expect(screen.getByPlaceholderText('让维护Agent做什么？')).toBeTruthy();
@@ -305,6 +316,7 @@ describe('按新变更单设计的可点击界面稿', () => {
     expect(document.body.hasAttribute('data-scroll-locked')).toBe(false);
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '搜索' })).toBeNull());
+    selectAskMode();
     const input = screen.getByRole('textbox', { name: '给Agent的消息' });
     fireEvent.change(input, { target: { value: '检查L08申报资料中对比器械K号的写法' } });
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
@@ -334,6 +346,7 @@ describe('按新变更单设计的可点击界面稿', () => {
     vi.useFakeTimers();
     try {
       render(<PrototypeApp />);
+      selectAskMode();
       sendMessage();
       await act(async () => {
         vi.advanceTimersByTime(250);
@@ -390,6 +403,7 @@ describe('按新变更单设计的可点击界面稿', () => {
 
   test('本对话中允许可继续本项目，不能替另一项目的内部催办批准', async () => {
     render(<PrototypeApp />);
+    selectAskMode();
     sendMessage();
     const registrationApproval = await approvalRequest();
     fireEvent.click(within(registrationApproval).getByRole('button', { name: '本对话中都允许' }));
@@ -398,6 +412,7 @@ describe('按新变更单设计的可点击界面稿', () => {
     await openReview();
     expect(screen.queryByRole('region', { name: '批准请求' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'L08 年度注册' }));
+    selectAskMode();
     sendMessage('核查年度注册资料并催办。');
     const maintenanceApproval = await approvalRequest();
     expect(maintenanceApproval.textContent).toContain('催办');
@@ -444,6 +459,7 @@ describe('按新变更单设计的可点击界面稿', () => {
 
   test('新对话发送不能覆盖项目中仍待批准的对话', async () => {
     render(<PrototypeApp />);
+    selectAskMode();
     sendMessage();
     await approvalRequest();
     fireEvent.click(screen.getByRole('button', { name: '新对话' }));

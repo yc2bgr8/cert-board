@@ -11,11 +11,16 @@ import {
 } from './conversation-api.js';
 
 const id = '10000000-0000-4000-8000-000000000001';
-test('浏览器命令不接替代身份、固定project或自报执行结果，权限默认请求批准', () => {
+test('浏览器命令不接替代身份、固定project或自报执行结果，权限默认完全允许', () => {
   expect(conversationCreateInputSchema.parse({ requestKey: id })).toEqual({
     requestKey: id,
-    permissionMode: 'ask',
+    permissionMode: 'full',
   });
+  for (const permissionMode of ['read_only', 'ask', 'full']) {
+    expect(
+      conversationCreateInputSchema.parse({ requestKey: id, permissionMode }).permissionMode,
+    ).toBe(permissionMode);
+  }
   for (const field of ['userId', 'projectId', 'maxDataLevel', 'status'])
     expect(conversationCreateInputSchema.safeParse({ requestKey: id, [field]: id }).success).toBe(
       false,
