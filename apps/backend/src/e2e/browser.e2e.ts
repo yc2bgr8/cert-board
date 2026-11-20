@@ -1012,13 +1012,14 @@ async function main() {
       unblock = resolve;
     });
     let seen = 0;
+    let verificationRunId: string;
     harness.verification.runtime.send = (profile, prompt, dispatch) =>
       verificationSend(profile, prompt, async () => {
         await dispatch();
         if (++seen === 1) await gate;
       });
     try {
-      await send(page, '请做合成版本核查，遇到不确定可自行核实。');
+      verificationRunId = (await send(page, '请做合成版本核查，遇到不确定可自行核实。')).runId;
       const linked = page.getByRole('list', { name: '对话中的外部核实', exact: true });
       await linked.getByText('正在请外部模型核实…', { exact: true }).waitFor();
       await linked.getByText(/你的消息会和结论一起交给它/u).waitFor();
@@ -1054,6 +1055,43 @@ async function main() {
       unblock();
       harness.verification.runtime.send = verificationSend;
     }
+    stage = '核实提醒在成功刷新详情后才确认';
+    const reminder = (
+      await harness.pool.query<{ id: string; room_id: string }>(
+        `INSERT INTO verification_notice(room_id,recipient_user_id,kind,position)
+       SELECT l.room_id,l.requester,'late',10000 FROM verification_link l WHERE l.run_id=$1
+       RETURNING id,room_id`,
+        [verificationRunId],
+      )
+    ).rows[0]!;
+    const openInbox = page.getByRole('button', { name: /待我处理/u });
+    const reminderItem = page
+      .getByRole('region', { name: '待我处理事项' })
+      .getByRole('button', { name: /迟到的核实结论/u });
+    const details = (url: URL) => url.pathname === `/api/verification/rooms/${reminder.room_id}`;
+    await page.route(
+      details,
+      (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }),
+      { times: 1 },
+    );
+    await openInbox.click();
+    await reminderItem.click();
+    await page.getByRole('region', { name: '外部核实群聊', exact: true }).waitFor();
+    const acknowledged = async () =>
+      (
+        await harness.pool.query('SELECT acknowledged_at FROM verification_notice WHERE id=$1', [
+          reminder.id,
+        ])
+      ).rows[0]?.acknowledged_at;
+    assert.equal(await acknowledged(), null);
+    await openInbox.click();
+    await reminderItem.click();
+    await until(async () => (await acknowledged()) instanceof Date);
+    await page
+      .getByRole('region', { name: '外部核实群聊', exact: true })
+      .getByRole('button', { name: '打开原对话', exact: true })
+      .click();
+    await page.getByText('收到核实结论及人工补充，继续核查页码与版本。', { exact: true }).waitFor();
     stage = '停止对话时连带停止外部核实';
     await createConversation(page, harness.projectId, 'read_only', '停止外部核实验收');
     const stoppedVerificationModel = harness.plan('consult_verification');

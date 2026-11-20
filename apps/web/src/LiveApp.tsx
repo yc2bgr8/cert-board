@@ -27,7 +27,7 @@ import { EvidencePanel } from './live/EvidencePanel.js';
 import { DiffPanel } from './live/DiffPanel.js';
 import { FilePanel } from './live/FilePanel.js';
 import { displayTime, Inbox, noticeLabels, ProjectHomeAside } from './live/WorkspacePages.js';
-import { VerificationWorkbench } from './live/VerificationWorkbench.js';
+import { VerificationWorkbench, verificationRoomKey } from './live/VerificationWorkbench.js';
 import type {
   EvidenceTarget,
   WorkspaceDiffTarget,
@@ -112,13 +112,6 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const [view, setView] = useState<'project' | 'conversation' | 'inbox' | 'external'>('project');
   const [externalId, setExternalId] = useState<string | null>(null);
   const [externalDraft, setExternalDraft] = useState(0);
-  const openingVerificationNotice = useRef<{ id: string; roomId: string } | null>(null);
-  const acknowledgeLoadedVerification = useCallback((roomId: string) => {
-    const notice = openingVerificationNotice.current;
-    if (notice?.roomId !== roomId) return;
-    openingVerificationNotice.current = null;
-    void api.acknowledgeVerificationNotice(notice.id).catch(() => undefined);
-  }, []);
   const [tab, setTab] = useState<'conversation' | 'files' | 'documents'>('conversation');
   const [panels, setPanels] = useState<
     (PanelTarget & { key: number; trigger: HTMLElement | null })[]
@@ -392,8 +385,18 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   };
   const openNotice = (item: MemberNotificationSnapshot['items'][number]) => {
     if (item.verification) {
-      openingVerificationNotice.current = { id: item.id, roomId: item.verification.roomId };
-      openVerification(item.verification.roomId);
+      const { roomId } = item.verification;
+      void api.verificationRoom(roomId, null).then(
+        (detail) => {
+          queryClient.setQueryData(verificationRoomKey(userId, roomId), {
+            pages: [detail],
+            pageParams: [null],
+          });
+          openVerification(roomId);
+          void api.acknowledgeVerificationNotice(item.id).catch(() => undefined);
+        },
+        () => openVerification(roomId),
+      );
       return;
     }
     if (item.kind === 'review') {
@@ -633,7 +636,6 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               userId={userId}
               roomId={externalId}
               onCreated={setExternalId}
-              onRoomLoaded={acknowledgeLoadedVerification}
               onOpenOrigin={(id) => {
                 void api
                   .conversation(id)

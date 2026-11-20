@@ -144,8 +144,8 @@ export function submitForReviewTool(policyInput: ReviewPolicy): ToolDefinition {
               ON question.room_id=newer.room_id AND question.position=1
             WHERE newer.conversation_id=w.conversation_id AND newer.user_id=w.user_id
               AND newer.created_at>w.created_at AND NOT newer.fallback AND newer.receipt->>'status'='completed'
-              AND lower(regexp_replace(btrim(normalize(question.text)), '[[:space:]]+', ' ', 'g'))
-                =lower(regexp_replace(btrim(normalize(original_question.text)), '[[:space:]]+', ' ', 'g'))
+              AND lower(btrim(regexp_replace(normalize(question.text), '[[:space:]]+', ' ', 'g')))
+                =lower(btrim(regexp_replace(normalize(original_question.text), '[[:space:]]+', ' ', 'g')))
           ) LIMIT 1`,
         [ctx.goalId, ctx.conversationId, ctx.actor.userId],
       );
