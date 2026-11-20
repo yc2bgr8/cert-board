@@ -2,6 +2,22 @@ import { z } from 'zod';
 import { decimalUsdSchema } from './budget.js';
 import { workspaceConflictDetailsSchema } from './workspace-path.js';
 
+export const previewSlots = {
+  lan: { webPort: 28380, apiPort: 28381, database: 'cert_board_lan', bucket: 'cert-board-lan' },
+  walkthrough: {
+    webPort: 28280,
+    apiPort: 28281,
+    database: 'cert_board_walkthrough',
+    bucket: 'cert-board-walkthrough',
+  },
+} as const;
+
+export function previewSlotForOrigin(origin: string) {
+  return Object.entries(previewSlots).find(
+    ([, slot]) => origin === `http://127.0.0.1:${slot.webPort}`,
+  );
+}
+
 const databaseUrl = z
   .string()
   .url()
@@ -99,8 +115,10 @@ export const backendConfigSchema = z
     const isolatedPort = Number(
       /^http:\/\/127\.0\.0\.1:([1-9][0-9]{3,4})$/u.exec(config.WEB_ORIGIN)?.[1],
     );
+    const preview = previewSlotForOrigin(config.WEB_ORIGIN)?.[1];
     if (
       !defaultWebOrigins.has(config.WEB_ORIGIN) &&
+      !(preview && config.NODE_ENV === 'development' && config.CONTAINER_RUNTIME === 'host') &&
       !(
         config.CONTAINER_RUNTIME === 'docker' &&
         config.NODE_ENV === 'development' &&
@@ -133,6 +151,21 @@ export const backendConfigSchema = z
         code: 'custom',
         path: ['TEST_DATABASE_URL'],
         message: '测试数据库必须与日常数据库分离',
+      });
+    }
+    if (
+      preview &&
+      (config.HOST !== '127.0.0.1' ||
+        config.PORT !== preview.apiPort ||
+        primary.hostname !== '127.0.0.1' ||
+        primary.port !== '25435' ||
+        primaryName !== `/${preview.database}` ||
+        config.MINIO_BUCKET !== preview.bucket)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['WEB_ORIGIN'],
+        message: '预览须使用专属回环端口、数据库及存储桶',
       });
     }
     if (!testName.endsWith('_test')) {

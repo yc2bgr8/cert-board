@@ -233,7 +233,7 @@ it('服务端拒绝过期决定后先刷新，更新卡片并等待人工确认'
   const approve = await screen.findByRole<HTMLButtonElement>('button', { name: '通过' });
   await waitFor(() => expect(approve.disabled).toBe(false));
   fireEvent.click(approve);
-  await screen.findByText('审核版本已变化。');
+  await screen.findByText('审核版本已变化。（错误编号 REVIEW_CONFLICT）');
   expect(approve.disabled).toBe(true);
   vi.mocked(api.review).mockResolvedValue({ ...card, status: 'cancelled', version: 2 });
   fireEvent.click(screen.getByRole('button', { name: '刷新审核卡' }));

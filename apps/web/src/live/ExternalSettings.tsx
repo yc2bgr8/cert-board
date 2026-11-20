@@ -61,10 +61,18 @@ function VerificationPreferences({
       }}
     >
       <p role="status">{settings.unavailableReason ?? channelStates[settings.channelStatus]}</p>
+      {settings.catalog.some(({ channel }) => channel === 'gateway') && (
+        <p role="status">
+          {settings.gatewayReady
+            ? 'OpenRouter 核实通道已就绪。'
+            : 'OpenRouter 核实通道暂不可用，请查看维护页。'}
+        </p>
+      )}
       <fieldset disabled={!management || !!settings.unavailableReason || command.busy}>
         <legend>通道和默认参与模型</legend>
         {models.map((model) => {
           const catalog = settings.catalog.find(({ id }) => id === model.id);
+          const expenses = settings.gatewayUsage?.find(({ model: id }) => id === model.id);
           return (
             <div className="verification-config-row" key={model.id}>
               <strong>{catalog?.label ?? model.id}</strong>
@@ -78,9 +86,11 @@ function VerificationPreferences({
                     })
                   }
                 >
-                  <option value="cursor">Cursor（开发机）</option>
-                  <option value="gateway" disabled={model.enabled}>
-                    模型网关（待配置）
+                  <option value="cursor" disabled={catalog?.channel !== 'cursor'}>
+                    Cursor（开发机）
+                  </option>
+                  <option value="gateway" disabled={catalog?.channel !== 'gateway'}>
+                    OpenRouter（模型网关）
                   </option>
                 </select>
               </label>
@@ -108,7 +118,16 @@ function VerificationPreferences({
                 />{' '}
                 默认参与
               </label>
-              <span>{settings.usage.find(({ model: id }) => id === model.id)?.calls ?? 0} 次</span>
+              {model.channel === 'cursor' ? (
+                <span>
+                  {settings.usage.find(({ model: id }) => id === model.id)?.calls ?? 0} 次
+                </span>
+              ) : (
+                <span>
+                  {(Number(expenses?.actualNano ?? 0) / 1e9).toFixed(6)} 美元
+                  {!!expenses?.unknown && `，${expenses.unknown} 次待核账`}
+                </span>
+              )}
             </div>
           );
         })}
@@ -460,7 +479,7 @@ export function ExternalUsageSummary({
           const config = data.models.find(({ id }) => id === model.id);
           return (
             <li key={model.id}>
-              {model.label} · {config?.channel === 'cursor' ? '经 Cursor' : '经模型网关'} ·{' '}
+              {model.label} · {config?.channel === 'cursor' ? '经 Cursor' : '经 OpenRouter'} ·{' '}
               {config?.enabled ? '已启用' : '已停用'}
             </li>
           );
@@ -471,6 +490,15 @@ export function ExternalUsageSummary({
     <p className="live-page-message" aria-label="外部核实用量">
       外部核实 · 经 Cursor 订阅 · 本月 {data.usage.reduce((total, entry) => total + entry.calls, 0)}{' '}
       次
+      {data.catalog.some(({ channel }) => channel === 'gateway') && (
+        <>
+          。OpenRouter 本月已计{' '}
+          {(data.gatewayUsage?.reduce((total, value) => total + Number(value.actualNano), 0) ?? 0) /
+            1e9}{' '}
+          美元，
+          {data.gatewayUsage?.reduce((total, value) => total + value.unknown, 0) ?? 0} 次待核账。
+        </>
+      )}
     </p>
   );
 }

@@ -53,6 +53,7 @@ export function composeInvocation(
     up: ['up', '--detach', '--wait', '--wait-timeout', '120'],
     down: ['down'],
     status: ['ps'],
+    'preview-up': ['up', '--detach', '--wait', '--wait-timeout', '120'],
     'isolated-up': ['up', '--detach', '--build', '--wait', '--wait-timeout', '120'],
     'isolated-web-up': ['up', '--detach', '--build', '--wait', '--wait-timeout', '120'],
     'isolated-down': ['--profile', 'network-check', 'down'],
@@ -84,13 +85,15 @@ export function composeInvocation(
     throw new Error('未知操作。请使用 up、down、status 或对应的 isolated 操作。');
   }
   const isolated = action.startsWith('isolated-');
+  const preview = action === 'preview-up';
   const withFetcher = action.startsWith('isolated-web-');
-  const missing = requiredVariables.filter((key) => !credentials[key]);
+  const required = preview ? ['POSTGRES_PASSWORD'] : requiredVariables;
+  const missing = required.filter((key) => !credentials[key]);
   if (missing.length)
     throw new Error(`缺少配置：${missing.join('、')}。请补充仓库 .env.local 后重试。`);
   const environment = localProcessEnvironment(inheritedEnvironment);
-  for (const key of requiredVariables) environment[key] = credentials[key];
-  const passedVariables = [...requiredVariables];
+  for (const key of required) environment[key] = credentials[key];
+  const passedVariables = [...required];
   if (isolated) {
     const port = inheritedEnvironment.CERT_ISOLATED_WEB_PORT ?? '28080';
     if (!['28080', '28186'].includes(port))
@@ -108,13 +111,13 @@ export function composeInvocation(
     }
   }
   const projectDirectory = platform === 'win32' ? toWslPath(root) : path.resolve(root);
-  const profile = isolated ? 'isolated' : 'dev';
+  const profile = isolated ? 'isolated' : preview ? 'preview' : 'dev';
   const composeFile = `${projectDirectory.replace(/\/$/, '')}/deploy/compose.${profile}.yml`;
   const args = [
     ...(isolated ? ['--context', 'default'] : []),
     'compose',
     '--project-name',
-    isolated ? 'cert-board-isolated' : 'cert-board',
+    isolated ? 'cert-board-isolated' : preview ? 'cert-board-preview' : 'cert-board',
     '--project-directory',
     projectDirectory,
     '--env-file',

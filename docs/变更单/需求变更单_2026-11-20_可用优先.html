@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>需求变更单（2026-11-20，二）：先能用，再加功能</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#1-变更内容">1 变更内容</a><a class="level-3" href="#1-1-模型-直接用最好的">1.1 模型：直接用最好的</a><a class="level-3" href="#1-2-费用-开发期不设上限">1.2 费用：开发期不设上限</a><a class="level-3" href="#1-3-先能用-稳定预览-真实走查和修错">1.3 先能用：稳定预览、真实走查和修错</a><a class="level-3" href="#1-4-技能按流程文件写-注册人员完工后再审">1.4 技能按流程文件写，注册人员完工后再审</a><a class="level-3" href="#1-5-邮件-先停-最后补">1.5 邮件：先停，最后补</a><a class="level-3" href="#1-6-什么时候算-开发好了">1.6 什么时候算「开发好了」</a><a class="level-2" href="#2-已决定事项">2 已决定事项</a><a class="level-2" href="#附录a-传递方式">附录A 传递方式</a><a class="level-2" href="#附录b-对pr的调整">附录B 对PR的调整</a><a class="level-3" href="#b-1-顺序">B.1 顺序</a><a class="level-3" href="#b-2-pr范围">B.2 PR范围</a><a class="level-3" href="#b-3-agents-md-的修改-pr-q1执行">B.3 AGENTS.md 的修改（PR-Q1执行）</a><a class="level-2" href="#附录c-连续开发">附录C 连续开发</a></nav><main><h1 id="需求变更单-2026-11-20-二-先能用-再加功能">需求变更单（2026-11-20，二）：先能用，再加功能</h1>
+<p>文档版本：1</p>
+<p>编制日期：2026年11月20日</p>
+<p>文档状态：<strong>待Lan合并确认</strong>。Lan合并进 <code>main</code> 即确认。</p>
+<p>适用对象：Lan；在开发机上开发的Codex；注册人员</p>
+<p>Lan于2026-11-20决定：</p>
+<ol><li>系统真正能用以后，才交给注册人员。注册人员拿到的，应该是能真正对话、能自己按流程做事的Agent，不是点几下就报错的样品。</li><li>开发和测试的模型费用不设上限，直接用最好的模型。</li><li>公司邮箱先停止开发，放到最后再补。</li><li>技能按注册人员的流程文件编写，开发期间不需要注册人员审阅。完工后由注册人员体验测试，并审阅技能。</li></ol>
+<p>本变更单（下称「v6」）调整以下内容，并新增PR-Q1、PR-Q2。冲突处以本变更单为准。</p>
+<ul><li>v2的预算条款（X2、附录C.3第2条）和v3 Y4；</li><li>v5中邮件部分的时间；</li><li>执行方案中内容任务的审阅方式，以及PR-29、PR-54的位置；</li><li><code>AGENTS.md</code> 的相关条款。</li></ul>
+<p>不变的部分：</p>
+<ul><li>保密原文不出公司；资料级别和保密路由不变。L08资料为「内部」，已确认可以用于OpenRouter；</li><li>批准、审核和外发提案只接受浏览器里人的点击；</li><li>不向真实对象发送消息、邮件或企业微信；</li><li>每次真实调用照常计量、记账。</li></ul>
+<h2 id="1-变更内容">1 变更内容</h2>
+<h3 id="1-1-模型-直接用最好的">1.1 模型：直接用最好的</h3>
+<ol><li>开发期主模型换成目前最强的旗舰模型，即Claude或GPT的最新旗舰版，按OpenRouter上实际可用的选：<ul><li>经现有模型网关和OpenRouter密钥调用；</li><li>提供方要满足v2 X3「不用于训练、零数据保留」，选OpenRouter的零保留端点；</li><li>两个Agent都用它；</li><li>Codex直接选定，记入决定记录，不用等Lan确认。拿不准时，在L08主路径上把两家各跑一遍再定。</li></ul></li><li>PR-29不再做原定的「第一轮模型比选」，只做测试运行器和真实模型的回归基线。生产用哪个模型，到PR-37和本地模型（D02）时再定。</li><li>外部核实的模型不变，仍是Cursor中GPT和Claude的旗舰版。「一致只算不同家」照旧。</li></ol>
+<h3 id="1-2-费用-开发期不设上限">1.2 费用：开发期不设上限</h3>
+<ol><li>开发和测试的真实模型费用不设美元上限：<ul><li>每次运行、每个目标、每月都不设美元上限；</li><li>v2 X2、v3 Y4的「每月20美元」取消；</li><li>v2附录C.3第2条取消，即单个PR超过10美元、累计超过当月预算、不明用量预占超过1美元时不再停下。</li></ul></li><li>保留的部分：<ul><li>每次调用照常计量、记账；</li><li>每次运行的步数上限照旧，防止死循环；</li><li>PR说明和晨报写明真实费用。</li></ul></li><li>费用算不出来时不再停下，照常记录，事后核账。</li><li>影子运行前，月度上限和告警阈值由Lan再定（D13）。</li><li>用现有OpenRouter密钥调用其他模型，不算新的付费服务。</li></ol>
+<h3 id="1-3-先能用-稳定预览-真实走查和修错">1.3 先能用：稳定预览、真实走查和修错</h3>
+<ol><li><strong>稳定预览</strong>：在开发机上另起一套给Lan用的预览。<ul><li>端口和数据库都和Codex开发用的那套分开，仍只绑定 <code>127.0.0.1</code>；</li><li>只有通过真实走查的版本才升级上去；升级时等正在进行的对话结束；</li><li>启动方式和账号写进晨报。</li></ul></li><li><strong>真实走查</strong>：每个PR合并前，在和稳定预览部署方式相同的环境里，用1.1的主模型和真实浏览器，把主路径从头走一遍：<ul><li>在「L08 510(k)」新建对话，让注册Agent检查申报包；Agent自己读资料、加载技能、执行检查、汇报进度；</li><li>出现批准请求时，在浏览器里批准；</li><li>生成审核卡后提一条修改意见；Agent修改后重新提交，再批准；</li><li>维护Agent做一次M02核查；</li><li>再把这个PR新增或改动的功能走一遍。</li></ul></li></ol>
+<p>要求：</p>
+<ul><li>不能用剧本模型代替；</li><li>走不通、报错或卡住，在同一个PR里修好；</li><li>走查记录写进PR说明，包括对话链接、截图和费用；</li><li>剧本模型的测试照旧保留，作为补充。</li></ul><ol><li><strong>报错说人话、带编号</strong>：<ul><li>界面上的每条报错都用中文说明发生了什么、可以怎么做，并带一个错误编号；</li><li>后端按编号记录完整上下文；</li><li>Lan截图发给Codex，Codex按编号能查到原因。</li></ul></li><li><strong>修错一轮（PR-Q2）</strong>：<ul><li>Codex用真实模型在真实浏览器里跑至少30场真实对话。要覆盖：R09、M02、外部核实、批准、插话、停止、提问、审核卡修改、出错后重试、刷新页面和断线重连、两个对话同时运行；</li><li>以下情况都记进一张问题清单，写明现象、错误编号、原因和修法：报错、卡住、Agent不按流程做、回答明显不对；</li><li>清单上的问题全部修完，或写明为什么不修；</li><li>修完后再完整跑一遍，没有新问题才算完成。</li></ul></li><li><strong>对Agent的要求</strong>：<ul><li>在真实模型下，Agent要能真正对话；</li><li>按 <code>AGENTS.md</code> 中系统提示词的工作方法做事：先读项目说明和技能，列计划，执行、自查，提交审核；</li><li>遇到不确定的事，主动核实或提问，不报错停下；</li><li>走查中Agent没按技能做、跳步或编造的，按问题处理。</li></ul></li></ol>
+<h3 id="1-4-技能按流程文件写-注册人员完工后再审">1.4 技能按流程文件写，注册人员完工后再审</h3>
+<ol><li><strong>流程文件</strong>：<ul><li>Lan提供了公司的《设计和开发控制程序》（SY-QP-15，A3版，2026-03-30）及其各阶段的记录模板，包括策划、输入、输出、样品试制、验证、确认、转换、设计变更，以及DHF、DMR；</li><li>《设计开发流程》是同一程序的另一份副本，以SY-QP-15 A3版为准；</li><li>开发机上已有一份。Codex把它们放进 <code>docs/参考/注册流程/</code>；不适合放进仓库的，只留在开发机上。</li></ul></li><li><strong>这份程序管什么</strong>：它规定研发各阶段要产出哪些文件、怎么编号、什么时候评审。技能用它来：<ul><li>按阶段和编号，在DHF和设计开发输出清单中找到申报要用的文件，检查名称、编号、版本和状态；</li><li>判断缺哪些文件，该找哪个部门要（研发部、品质部、生产部等）；</li><li>发现设计变更或工程变更时，评估对注册的影响（M07）。模板中的《设计变更评审记录》没有注册影响一栏，由Agent在自己的结果里给出这一判断，不改公司模板。</li></ul></li></ol>
+<p>申报本身的步骤这份程序没有写，例如路径判断、eSTAR、提交、发补答复、年度注册和续期。这些仍依据需求文档、<code>docs/参考/认证线</code>，以及FDA和加拿大卫生部的官方规则（K03、K04）。</p>
+<ol><li>内容任务K01–K11的起草照旧由Codex做，依据改为：<ul><li>上面的流程文件和记录模板；</li><li>需求文档和 <code>docs/参考/认证线</code>；</li><li>L08的实际文件；</li><li>公开回放数据。</li></ul></li></ol>
+<p>技能的每个步骤都注明依据，写到文件名和章节。</p>
+<ol><li>开发期间不需要注册人员审阅：<ul><li>技能以草稿在开发和测试环境运行（D-052），不用发布；</li><li>评测题的标准答案优先取客观来源：L08的实际文件和结果，以及FDA和加拿大卫生部的公开记录（数据集A、C）；</li><li>需要人判断的题标为「待注册人员确认」，不阻塞开发；</li><li>Lan可以抽查；不抽查也不阻塞。</li></ul></li><li>完工后（见1.6），由注册人员体验测试，并审阅技能、规则包和评测答案，在浏览器里正式发布技能。审阅中的修改按PR-24产生新版本。</li><li>K06（台账、证照清单、在途项目的原始表格）和K07（已购标准的副本）：<ul><li>Lan提供的文件里有的，就用；</li><li>没有的，相关PR先用L08和合成数据做，缺的写进「需要Lan处理」，不停下。</li></ul></li></ol>
+<h3 id="1-5-邮件-先停-最后补">1.5 邮件：先停，最后补</h3>
+<ol><li>PR-54（邮件往来）移到最后，在PR-64之前做。<ul><li>v5中请IT确认「已发送」的事项暂时撤下；</li><li>已合并的PR-D7模拟外发判定保留，到PR-54时直接沿用。</li></ul></li><li>在此之前：<ul><li>需要发邮件的步骤（询价、催办、发补答复等）做成邮件草稿加外发提案，由人从自己的邮箱发出，Agent不自己发；</li><li>收到的回信由人上传到项目里，按「资料到达」唤醒。</li></ul></li><li>企业微信（PR-50）不变：IT条件不具备时，只用界面内提醒。</li></ol>
+<h3 id="1-6-什么时候算-开发好了">1.6 什么时候算「开发好了」</h3>
+<p>同时满足以下两条，才交给注册人员：</p>
+<ol><li>V1验收（PR-52）通过；</li><li>Lan在稳定预览上，用真实模型连续两天完成下面这组任务，过程中没有报错、没有卡住，也没有需要Codex介入的情况：<ul><li>L08申报包一致性检查（R09），从发起到审核卡通过；</li><li>L08年度注册资料核查（M02）；</li><li>台账问答；</li><li>证照到期提醒；</li><li>一次Agent自己发起的外部核实；</li><li>V1的M01、R01、R02、R04、S01各做一次，用L08或公开回放数据。</li></ul></li></ol>
+<p>之后由注册人员体验测试，再按执行方案6.2开始影子运行。</p>
+<h2 id="2-已决定事项">2 已决定事项</h2>
+<table><thead><tr><th>编号</th><th>事项</th><th>决定</th></tr></thead><tbody><tr><td>G1</td><td>什么时候交给注册人员</td><td>真正能用以后：V1验收通过，且Lan连续两天真实使用没有问题（1.6）</td></tr><tr><td>G2</td><td>开发期主模型</td><td>直接用最强的旗舰模型，由Codex选定；不做第一轮比选（1.1）</td></tr><tr><td>G3</td><td>开发期费用</td><td>不设美元上限，照常计量记账；影子运行前再定月度上限（1.2）</td></tr><tr><td>G4</td><td>合并前的验收</td><td>每个PR都做真实走查：真实模型、真实浏览器，走主路径加本PR的功能（1.3）</td></tr><tr><td>G5</td><td>修错</td><td>先做一轮修错（PR-Q2），问题清单清零</td></tr><tr><td>G6</td><td>技能的依据</td><td>公司《设计和开发控制程序》SY-QP-15 A3版及记录模板，加上需求文档和官方规则；开发期不需要注册人员审阅，完工后审阅并发布（1.4）</td></tr><tr><td>G7</td><td>邮件</td><td>PR-54移到最后；在此之前用邮件草稿加外发提案，由人自己发（1.5）</td></tr></tbody></table>
+<h2 id="附录a-传递方式">附录A 传递方式</h2>
+<p>同v2附录A：本文件放在 <code>docs/变更单/</code>，Lan合并进 <code>main</code> 即确认。</p>
+<h2 id="附录b-对pr的调整">附录B 对PR的调整</h2>
+<h3 id="b-1-顺序">B.1 顺序</h3>
+<p>PR-Q1 → PR-Q2 → PR-D8 → PR-29 → 按执行方案继续。PR-54移到PR-64之前。</p>
+<p>已经开始的PR先做完，再按这个顺序。</p>
+<h3 id="b-2-pr范围">B.2 PR范围</h3>
+<h4 id="pr-q1-最强模型-稳定预览与真实走查">PR-Q1 最强模型、稳定预览与真实走查</h4>
+<ul><li><strong>范围</strong>：<ul><li>1.1、1.2，以及1.3第1～3条；</li><li>把真实走查做成一条命令，以后每个PR都用。</li></ul></li><li><strong>验收</strong>：<ul><li>选定开发期主模型，选择理由和费用写进PR说明和决定记录；</li><li>取消费用上限后，长对话不再因预算停下；步数上限仍然生效；</li><li>稳定预览能用晨报里的账号登录；Codex切换28080时，稳定预览不受影响；</li><li>真实走查命令能跑通主路径，产出对话链接、截图和费用；</li><li>故意制造一个后端错误，界面显示中文说明和错误编号，按编号能在日志中查到上下文。</li></ul></li></ul>
+<h4 id="pr-q2-修错一轮">PR-Q2 修错一轮</h4>
+<ul><li><strong>依赖</strong>：PR-Q1。</li><li><strong>范围</strong>：1.3第4、5条。</li><li><strong>验收</strong>：<ul><li>问题清单放在 <code>docs/</code>，每条写明现象、错误编号、原因、修法和验证结果；</li><li>最后一轮完整跑完，没有新问题；</li><li>稳定预览升级到这个版本。</li></ul></li></ul>
+<h4 id="pr-29-调整">PR-29 调整</h4>
+<p>只做测试运行器和真实模型的回归基线，用1.1选定的主模型，不做第一轮模型比选。</p>
+<h4 id="其余pr">其余PR</h4>
+<ul><li>每个PR按1.3第2条做真实走查；</li><li>需要邮件的功能按1.5第2条。</li></ul>
+<h3 id="b-3-agents-md-的修改-pr-q1执行">B.3 <code>AGENTS.md</code> 的修改（PR-Q1执行）</h3>
+<table><thead><tr><th>位置</th><th>修改</th></tr></thead><tbody><tr><td>开头的文档表</td><td>增加一行：「<code>docs/变更单/需求变更单_2026-11-20_可用优先.md</code>｜v6。先能用再加功能：最强模型、不设费用上限、每个PR真实走查、修错一轮、技能按流程文件写、邮件移到最后」</td></tr><tr><td>原则第7条「预算」</td><td>改为：「每次调用照常计量记账，每次运行有步数上限。开发期不设美元上限（v6）；费用算不出来时照常记录，事后核账。」</td></tr><tr><td>界面PR截图一条（「涉及对话时用剧本模型」）</td><td>后面增加：「另按v6 1.3做真实走查。」</td></tr><tr><td>技能一条（「发布要经注册人员审阅」）</td><td>增加：「开发期间技能以草稿运行，不需要注册人员审阅；完工后由注册人员审阅并发布（v6 1.4）。」</td></tr><tr><td>测试中「Agent的行为用剧本模型测试」和「真实模型测试在本地运行」两条</td><td>剧本模型测试照旧；增加每个PR的真实走查；删除「费用触及附录C.3上限时停下」</td></tr><tr><td>什么时候停下来问Lan，第2条</td><td>删除，后面各条顺延</td></tr><tr><td>什么时候停下来问Lan，第3条</td><td>增加：「用现有OpenRouter密钥调用其他模型不算新的付费服务。」</td></tr></tbody></table>
+<h2 id="附录c-连续开发">附录C 连续开发</h2>
+<ol><li>v2～v5的附录C都适用。自行合并的范围包括PR-Q1、PR-Q2。</li><li>真实模型费用不受限制，但每个PR的真实费用写进PR说明，晨报写当日合计。</li><li>SY-QP-15如果还没放到开发机上，先按需求文档和 <code>docs/参考/认证线</code> 写；文件到了，再对照修订。</li></ol><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

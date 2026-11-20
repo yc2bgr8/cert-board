@@ -126,18 +126,20 @@ export function fromPiMessage(message: Message): KernelMessage {
   };
 }
 export function responseUsage(response: GatewayResponse): Usage {
+  const usage = response.usage;
+  if (!usage) return emptyUsage();
   return {
-    input: response.usage.inputTokens - response.usage.cacheReadTokens,
-    output: response.usage.outputTokens,
-    cacheRead: response.usage.cacheReadTokens,
+    input: usage.inputTokens - usage.cacheReadTokens,
+    output: usage.outputTokens,
+    cacheRead: usage.cacheReadTokens,
     cacheWrite: 0,
-    totalTokens: response.usage.totalTokens,
+    totalTokens: usage.totalTokens,
     cost: {
       input: 0,
       output: 0,
       cacheRead: 0,
       cacheWrite: 0,
-      total: Number(response.usage.costNano) / 1e9,
+      total: Number(usage.costNano) / 1e9,
     },
   };
 }

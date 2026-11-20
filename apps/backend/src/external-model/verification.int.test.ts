@@ -8,6 +8,8 @@ import {
 } from '@cert-board/shared';
 import { createApp } from '../app.js';
 import { AppError } from '../api/errors.js';
+import { recoverAbandonedAgentRuns } from '../queue/agent-queue.js';
+import { reserveUsage, seedDevelopmentBudgetPolicy, settleUsage } from '../budget/service.js';
 import { createIntegrationContext } from '../test-support/context.js';
 import { verificationFixture } from '../test-support/verification-fixture.js';
 import { createVerificationModerator } from './verification-moderator.js';
@@ -76,6 +78,88 @@ async function rounds(value: number) {
   const changed = await app.inject({ method: 'PUT', url, headers: administrator.headers, payload });
   expect(verificationSettingsSchema.parse(changed.json()).autoRounds).toBe(value);
 }
+
+const gatewayPeer = {
+  id: 'claude-opus-5-5-gateway',
+  label: 'Claude Opus 5.5',
+  family: 'anthropic',
+  channel: 'gateway',
+} as const;
+
+test('增加网关成员时保留管理员停用的旧成员，无项目时提示关联要求', async () => {
+  const previous = verificationSettingsSchema.parse(
+    (await app.inject({ headers, url: `${prefix}/settings` })).json(),
+  );
+  const administrator = await context.login('ADMIN');
+  const savedModels = previous.models.map((model) =>
+    model.id === 'gpt-flagship' ? { ...model, enabled: false, defaultParticipant: false } : model,
+  );
+  const saved = await app.inject({
+    method: 'PUT',
+    url: `${prefix}/settings`,
+    headers: administrator.headers,
+    payload: { autoRounds: 3, models: savedModels },
+  });
+  expect(saved.statusCode).toBe(200);
+  fixture.runtime.catalog = [...fixture.runtime.catalog, gatewayPeer];
+  fixture.runtime.gatewayReady = true;
+  fixture.runtime.status = 'not_signed_in';
+  const settings = verificationSettingsSchema.parse(
+    (await app.inject({ headers, url: `${prefix}/settings` })).json(),
+  );
+  expect(settings.models).toEqual(
+    expect.arrayContaining([
+      { id: 'gpt-flagship', channel: 'cursor', enabled: false, defaultParticipant: false },
+      { id: gatewayPeer.id, channel: 'gateway', enabled: true, defaultParticipant: true },
+    ]),
+  );
+  const roomId = await start('无关联项目的合成核实。');
+  const snapshot = await detail(roomId);
+  expect(snapshot.room.status).toBe('paused');
+  expect(snapshot.messages.some(({ text }) => text.includes('需要关联项目'))).toBe(true);
+  await speak(roomId, '继续补充合成信息。', null);
+  expect((await detail(roomId)).room.status).toBe('paused');
+  expect(fixture.requests).toHaveLength(0);
+});
+
+test('网关已结算但无可用回复时，在本月核实用量中计入实扣', async () => {
+  fixture.runtime.gatewayReady = true;
+  fixture.runtime.catalog = [...fixture.runtime.catalog, gatewayPeer];
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const origin = await context.run();
+  fixture.runtime.send = async (_model, _prompt, beforeDispatch, scope) => {
+    await beforeDispatch();
+    const reference = { requestKey: scope!.exchangeId, runId: origin.runId, userId: origin.userId };
+    await reserveUsage(context.pool, {
+      ...reference,
+      modelId: 'fixture/claude',
+      purpose: 'verification',
+      estimatedInputTokens: 10,
+      maxOutputTokens: 10,
+      prices: {
+        inputUsdPerMillion: '4',
+        cacheReadUsdPerMillion: '0.20',
+        outputUsdPerMillion: '20',
+      },
+    });
+    await settleUsage(context.pool, {
+      ...reference,
+      inputTokens: 10,
+      cacheReadTokens: 0,
+      outputTokens: 10,
+      actualCostNano: '240000',
+    });
+    throw new VerificationChannelError('failed');
+  };
+  const roomId = await start('模拟已计费的网关失败。', context.projectId);
+  await expect.poll(async () => (await detail(roomId)).room.status).toBe('completed');
+  const result = verificationSettingsSchema.parse(
+    (await app.inject({ headers, url: `${prefix}/settings` })).json(),
+  );
+  expect(result.gatewayUsage).toEqual([
+    { model: gatewayPeer.id, actualNano: '240000', unknown: 0 },
+  ]);
+});
 
 test('按默认 7 轮和管理员设置的 3 轮调度，通道只记次数', async () => {
   for (const cap of [7, 3]) {
@@ -356,6 +440,12 @@ test('主模型主持使用已有本人目标和主网关，先替换保密词�
       userId: review.userId,
       purpose: 'agent',
     });
+    const { runId } = caller as { runId: string };
+    await recoverAbandonedAgentRuns(context.pool);
+    const during = await context.pool.query('SELECT status,lease_owner FROM run WHERE id=$1', [
+      runId,
+    ]);
+    expect(during.rows[0]).toEqual({ status: 'running', lease_owner: expect.any(String) });
     return gatewayResponseSchema.parse({
       requestKey: randomUUID(),
       model: 'qwen-flash',

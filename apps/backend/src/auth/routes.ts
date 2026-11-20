@@ -15,7 +15,7 @@ import {
   readBrowserSession,
   requireBrowserIdentity,
   requireBrowserSource,
-  sessionCookieName,
+  browserSessionCookieName,
 } from './session.js';
 
 export function registerAuthRoutes<Logger extends FastifyBaseLogger>(
@@ -51,11 +51,11 @@ export function registerAuthRoutes<Logger extends FastifyBaseLogger>(
       pool,
       config,
       parsed.data,
-      request.cookies[sessionCookieName],
+      request.cookies[browserSessionCookieName(config)],
     );
     users.reset(userKey);
     reply.header('cache-control', 'no-store');
-    reply.setCookie(sessionCookieName, result.token, {
+    reply.setCookie(browserSessionCookieName(config), result.token, {
       httpOnly: true,
       sameSite: 'strict',
       secure: config.NODE_ENV === 'production',
@@ -84,7 +84,7 @@ export function registerAuthRoutes<Logger extends FastifyBaseLogger>(
     const identity = await requireBrowserIdentity(request, pool, config, { write: true });
     await logoutSession(pool, identity);
     reply.header('cache-control', 'no-store');
-    reply.clearCookie(sessionCookieName, {
+    reply.clearCookie(browserSessionCookieName(config), {
       path: '/api',
       httpOnly: true,
       sameSite: 'strict',

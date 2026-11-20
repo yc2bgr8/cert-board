@@ -105,9 +105,10 @@ export function createApp(
       dependencies.verificationPolling,
     );
   }
-  app.addHook('onSend', async (_request, reply, payload) => {
+  app.addHook('onSend', async (request, reply, payload) => {
     reply.header('x-content-type-options', 'nosniff');
     reply.header('referrer-policy', 'same-origin');
+    reply.header('x-request-id', request.id);
     return payload;
   });
 
@@ -122,7 +123,28 @@ export function createApp(
     const publicError = error instanceof AppError ? error : undefined;
     const statusCode = publicError?.statusCode ?? (invalidRequest ? 400 : 500);
     const code = publicError?.code ?? (invalidRequest ? 'INVALID_REQUEST' : 'INTERNAL_ERROR');
-    app.log.warn({ event: 'request_failed', requestId: request.id, code }, '请求未完成');
+    const diagnostic =
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      typeof error.code === 'string' &&
+      /^[0-9A-Z]{5}$/u.test(error.code)
+        ? error.code
+        : undefined;
+    app.log.warn(
+      {
+        event: 'request_failed',
+        requestId: request.id,
+        code,
+        statusCode,
+        method: request.method,
+        route: request.routeOptions.url ?? '未匹配',
+        durationMs: Math.round(reply.elapsedTime),
+        errorKind: publicError ? 'application' : invalidRequest ? 'validation' : 'unexpected',
+        ...(diagnostic ? { sqlState: diagnostic } : {}),
+      },
+      '请求未完成',
+    );
     reply.status(statusCode).send(
       apiErrorSchema.parse({
         error: {
@@ -139,6 +161,17 @@ export function createApp(
     );
   });
   app.setNotFoundHandler((request, reply) => {
+    app.log.warn(
+      {
+        event: 'request_failed',
+        requestId: request.id,
+        code: 'NOT_FOUND',
+        statusCode: 404,
+        method: request.method,
+        route: '未匹配',
+      },
+      '未匹配接口',
+    );
     reply.status(404).send(
       apiErrorSchema.parse({
         error: {

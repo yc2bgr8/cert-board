@@ -49,10 +49,23 @@ export const verificationSettingsSchema = verificationSettingsInputSchema.extend
   waitMinutes: z.number().int().min(1).max(240).default(60),
   catalog: z.array(verificationModelSchema).max(8),
   channelStatus: verificationChannelStatusSchema,
+  gatewayReady: z.boolean().optional(),
   unavailableReason: note(240).optional(),
   usage: z
     .array(z.object({ model: externalModelIdSchema, calls: z.number().int().nonnegative() }))
     .max(8),
+  gatewayUsage: z
+    .array(
+      z
+        .object({
+          model: externalModelIdSchema,
+          actualNano: z.string().regex(/^\d+$/u),
+          unknown: z.number().int().nonnegative(),
+        })
+        .strict(),
+    )
+    .max(8)
+    .optional(),
 });
 export const verificationRoomStatusSchema = z.enum(['discussing', 'completed', 'paused']);
 export const verificationOriginSchema = z

@@ -272,7 +272,7 @@ async function verifyL08(profile: '开发模拟' | '本地端点') {
     });
     const model = selectGatewayModel(config, 'agent');
     if (!model) throw new Error('L08_FIXTURE_MODEL');
-    expect(model.id).toBe(localFixture ? 'deepseek-local' : 'deepseek-flash-1017');
+    expect(model.id).toBe(localFixture ? 'deepseek-local' : 'gpt-6.2-astra-pro');
     const gateway = new ModelGateway(context.pool, config, localTransport ?? scripted, {
       environment: 'test',
     });

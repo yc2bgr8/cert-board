@@ -9,10 +9,24 @@ import {
   type VerificationRoom,
 } from '@cert-board/shared';
 
-export const verificationCatalog = verificationModelSchema.array().parse([
+const legacyVerificationModels = verificationModelSchema.array().parse([
   { id: 'gpt-flagship', label: 'GPT', family: 'openai', channel: 'cursor' },
   { id: 'claude-flagship', label: 'Claude', family: 'anthropic', channel: 'cursor' },
 ]);
+export const defaultVerificationModelIds = ['grok-4-7', 'claude-opus-5-5-gateway'] as const;
+export const verificationCatalog =
+  process.env.NODE_ENV === 'test'
+    ? legacyVerificationModels
+    : verificationModelSchema.array().parse([
+        { id: 'grok-4-7', label: 'Grok 4.7', family: 'xai', channel: 'cursor' },
+        {
+          id: 'claude-opus-5-5-gateway',
+          label: 'Claude Opus 5.5',
+          family: 'anthropic',
+          channel: 'gateway',
+        },
+        ...legacyVerificationModels,
+      ]);
 
 export const moderatorTurnSchema = z
   .object({
@@ -64,6 +78,7 @@ export type VerificationRuntime = {
   kind: 'fixture' | 'cursor';
   catalog: readonly VerificationModel[];
   status: VerificationChannelStatus;
+  gatewayReady?: boolean;
   checkSources?: import('./source-verification.js').VerificationSourceChecker;
   checkOutbound?(
     scope: Pick<ModeratorContext, 'room' | 'ownerId'>,
@@ -79,6 +94,7 @@ export type VerificationRuntime = {
     model: VerificationModel,
     prompt: VerificationPrompt,
     beforeDispatch: () => Promise<void>,
+    scope?: Pick<ModeratorContext, 'room' | 'ownerId'> & { exchangeId: string },
   ): Promise<unknown>;
 };
 

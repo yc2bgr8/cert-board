@@ -59,6 +59,9 @@
     "dev:web": "pnpm --filter @cert-board/web dev",
     "build": "pnpm --filter @cert-board/web build",
     "preview": "pnpm --filter @cert-board/web preview",
+    "preview:lan": "node --import tsx scripts/preview.mjs lan",
+    "preview:walkthrough": "node --import tsx scripts/preview.mjs walkthrough",
+    "walkthrough:real": "node --import tsx scripts/walkthrough.mjs",
     "format": "prettier --write apps packages scripts *.json *.mjs *.yaml",
     "security:scan": "node scripts/secret-scan.mjs"
   },

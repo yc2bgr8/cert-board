@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterEach, beforeEach, expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { createIntegrationContext } from '../test-support/context.js';
 import {
   seedDevelopmentBudgetPolicy,
@@ -28,11 +28,54 @@ async function request(overrides: Record<string, unknown> = {}) {
   };
 }
 beforeEach(async () => {
+  vi.stubEnv('CERT_TEST_SHADOW_BUDGET', '1');
   context = await createIntegrationContext();
   await seedDevelopmentBudgetPolicy(context.pool, 'test');
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   if (context) await context.close();
+});
+
+test('开发测试不限美元，费用待核账时仍可继续，步数有硬上限', async () => {
+  vi.stubEnv('CERT_TEST_SHADOW_BUDGET', '0');
+  await context.pool.query(
+    "UPDATE budget_policy SET run_limit_nano=1,month_limit_nano=1,night_limit_nano=1,max_tokens=1,max_steps=2,blocked_reason='month_limit' WHERE id='default'",
+  );
+  const first = await request();
+  await reserveUsage(context.pool, first);
+  await markUsageIncomplete(context.pool, {
+    requestKey: first.requestKey,
+    runId: first.runId,
+    userId: first.userId,
+    reasonCode: 'missing_usage',
+  });
+  const second = { ...first, requestKey: randomUUID() };
+  expect((await reserveUsage(context.pool, second)).dispatchAllowed).toBe(true);
+  expect(
+    await settleUsage(context.pool, {
+      requestKey: second.requestKey,
+      runId: second.runId,
+      userId: second.userId,
+      inputTokens: 30,
+      cacheReadTokens: 0,
+      outputTokens: 10,
+      actualCostNano: '1000000',
+    }),
+  ).toMatchObject({ status: 'settled', actualNano: '1000000' });
+  const summary = await getBudgetSummary(context.pool);
+  expect(summary.counts).toMatchObject({ unknown: 1, settled: 1 });
+  expect(summary.blockedReason).toBeNull();
+  expect(summary.costLimitsEnforced).toBe(false);
+  await expect(
+    reserveUsage(context.pool, { ...first, requestKey: randomUUID() }),
+  ).rejects.toMatchObject({
+    code: 'BUDGET_LIMIT_REACHED',
+  });
+  expect(
+    (await context.pool.query('SELECT budget_stop_reason FROM run WHERE id=$1', [first.runId]))
+      .rows[0]?.budget_stop_reason,
+  ).toBe('steps');
 });
 
 test('默认预算种子只用于非生产且不重置既有额度、冻结或批次', async () => {

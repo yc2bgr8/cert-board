@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { VerificationChannelError, type VerificationPrompt } from './verification-runtime.js';
 
 export const cursorModels = {
+  'grok-4-7': 'grok-4.7[context=256k,reasoning_effort=high,fast=true]',
   'gpt-flagship': 'gpt-5.6-sol[context=272k,reasoning=medium,fast=false]',
   'claude-flagship': 'claude-opus-5-5[context=300k,effort=medium,fast=false]',
 } as const;

@@ -57,6 +57,10 @@ export const openRouterGatewayModelSchema = z
       .string()
       .regex(/^[A-Z][A-Z0-9_]{0,62}_KEY$/, '只能填写模型密钥的环境变量名称，不能填写密钥值。'),
     maxDataLevel: z.literal('internal', { error: '当前远端上游最多处理内部资料。' }),
+    reasoning: z.union([
+      z.object({ enabled: z.literal(false) }).strict(),
+      z.object({ enabled: z.literal(true), exclude: z.literal(true) }).strict(),
+    ]),
     provider: z
       .object({
         only: z
@@ -71,7 +75,15 @@ export const openRouterGatewayModelSchema = z
       })
       .strict(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (model) =>
+      !model.reasoning.enabled ||
+      (model.developmentOnly === true &&
+        model.provider.zdr === true &&
+        model.provider.data_collection === 'deny'),
+    '远端推理须是开发期限定模型，并启用零保留与拒绝数据收集。',
+  );
 
 export function isLocalGatewayEndpoint(value: string) {
   if (!URL.canParse(value)) return false;
@@ -287,9 +299,10 @@ export const gatewayResponseSchema = z
         cacheReadTokens: count,
         outputTokens: count,
         totalTokens: count,
-        costNano: nanoAmountSchema,
+        costNano: nanoAmountSchema.nullable(),
       })
-      .strict(),
+      .strict()
+      .nullable(),
     dataLevel: z.enum(['internal', 'confidential']),
   })
   .strict();

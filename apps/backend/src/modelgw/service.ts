@@ -18,6 +18,7 @@ import {
   type BudgetIncomplete,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
+import { enforceCostLimits } from '../budget/cost-policy.js';
 import {
   reserveUsage,
   settleUsage,
@@ -31,7 +32,7 @@ export type UpstreamChatRequest = Omit<ChatRequest, 'model' | 'stream'> & {
   stream: false;
   max_tokens: number;
   provider?: OpenRouterGatewayModel['provider'] & {
-    max_price: { prompt: number; completion: number };
+    max_price?: { prompt: number; completion: number };
   };
   reasoning?: GatewayModelConfig['reasoning'];
 };
@@ -243,7 +244,11 @@ export class ModelGateway {
       });
       return settled.actualNano;
     } catch {
-      await this.recordIncomplete(context, 'provider_error').catch(() => undefined);
+      const retained = await this.recordIncomplete(context, 'provider_error').then(
+        () => true,
+        () => false,
+      );
+      if (retained && !enforceCostLimits(this.environment)) return null;
       throw rejected(
         'MODEL_METERING_FAILED',
         '费用登记未完成，本网关已停止继续派发；请核对持久账本，不要重发模型请求。',
@@ -262,7 +267,9 @@ export class ModelGateway {
       userId: context.userId,
       reasonCode,
     });
-    this.meteringBlocks.set(context.requestKey, recorded.id);
+    if (enforceCostLimits(this.environment))
+      this.meteringBlocks.set(context.requestKey, recorded.id);
+    else this.meteringBlocks.delete(context.requestKey);
   }
 
   private async refreshMeteringBlocks() {
@@ -324,6 +331,7 @@ export class ModelGateway {
     const request = requestResult.data,
       context = contextResult.data,
       model = this.choose(request, context);
+    const limited = enforceCostLimits(this.environment);
     const local = model.transport === 'local';
     const requested = request.max_tokens ?? model.maxOutputTokens;
     if (requested > model.maxOutputTokens)
@@ -339,10 +347,14 @@ export class ModelGateway {
         : {
             provider: {
               ...model.provider,
-              max_price: {
-                prompt: Number(model.prices.inputUsdPerMillion),
-                completion: Number(model.prices.outputUsdPerMillion),
-              },
+              ...(limited
+                ? {
+                    max_price: {
+                      prompt: Number(model.prices.inputUsdPerMillion),
+                      completion: Number(model.prices.outputUsdPerMillion),
+                    },
+                  }
+                : {}),
             },
             reasoning: model.reasoning,
           }),
@@ -438,7 +450,9 @@ export class ModelGateway {
           ? '本地端点请求未完成。令牌和步数已登记，费用为零。'
           : usage
             ? '上游请求未成功，已登记返回的用量费用；本次结果不能用于业务操作。'
-            : '上游请求未形成完整用量回执，已保留预占并停止追加调用，请核对计量状态。',
+            : limited
+              ? '上游请求未形成完整用量回执，已保留预占并停止追加调用，请核对计量状态。'
+              : '上游请求未完成，用量已标记待核账。请检查连接，再从对话继续。',
         502,
       );
     }
@@ -447,15 +461,16 @@ export class ModelGateway {
     if (!usage) {
       if (local) await this.account(context, estimatedLocalUsage, undefined, true);
       else await this.incomplete(context, 'missing_usage');
-      throw rejected(
-        'MODEL_USAGE_INCOMPLETE',
-        local
-          ? '本地端点未返回用量。已按保守上界记入令牌，费用为零。'
-          : '上游未返回完整用量，已保留全部预占并冻结追加调用，请负责人核对。',
-        502,
-      );
+      if (limited)
+        throw rejected(
+          'MODEL_USAGE_INCOMPLETE',
+          local
+            ? '本地端点未返回用量。已按保守上界记入令牌，费用为零。'
+            : '上游未返回完整用量，已保留全部预占并冻结追加调用，请负责人核对。',
+          502,
+        );
     }
-    const costNano = await this.account(context, usage, rawUsage, local);
+    const costNano = usage ? await this.account(context, usage, rawUsage, local) : null;
     // 已发生的费用到此已入账。停机、取消和坏消息都不能进入后续工具执行。
     if (signal?.aborted)
       throw rejected('MODEL_ABORTED', '运行已停止，用量已登记，不再处理模型输出。', 409);
@@ -483,13 +498,15 @@ export class ModelGateway {
       message: choice.message,
       finishReason: choice.finish_reason,
       dataLevel,
-      usage: {
-        inputTokens: usage.prompt_tokens,
-        cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
-        outputTokens: usage.completion_tokens,
-        totalTokens: usage.total_tokens ?? usage.prompt_tokens + usage.completion_tokens,
-        costNano,
-      },
+      usage: usage
+        ? {
+            inputTokens: usage.prompt_tokens,
+            cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+            outputTokens: usage.completion_tokens,
+            totalTokens: usage.total_tokens ?? usage.prompt_tokens + usage.completion_tokens,
+            costNano,
+          }
+        : null,
     });
   }
 }

@@ -5,6 +5,7 @@ import type { Pool, PoolClient } from 'pg';
 import {
   authResponseSchema,
   browserIdentitySchema,
+  previewSlotForOrigin,
   type BackendConfig,
   type BrowserIdentity,
   type LoginInput,
@@ -12,6 +13,10 @@ import {
 import { AppError } from '../api/errors.js';
 
 export const sessionCookieName = 'cert_board_session';
+export function browserSessionCookieName(config: BackendConfig) {
+  const scope = previewSlotForOrigin(config.WEB_ORIGIN)?.[0];
+  return scope ? `cert_board_${scope}_session` : sessionCookieName;
+}
 const tokenPattern = /^[0-9a-f]{64}$/;
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
 const csrfForSession = (token: string) =>
@@ -55,7 +60,7 @@ export async function readBrowserSession(
   options: { write?: boolean } = {},
 ) {
   requireBrowserSource(request, config, options.write === true);
-  const token = request.cookies[sessionCookieName];
+  const token = request.cookies[browserSessionCookieName(config)];
   if (typeof token !== 'string' || !tokenPattern.test(token)) {
     throw new AppError(401, 'LOGIN_REQUIRED', '请先登录，再继续操作。');
   }

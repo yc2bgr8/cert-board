@@ -29,6 +29,30 @@ afterEach(async () => {
 });
 
 describe('接口服务基础', () => {
+  test('意外错误通过编号关联日志，日志只记录路由模板与安全诊断字段', async () => {
+    const app = appFor();
+    const logged = vi.spyOn(app.log, 'warn');
+    app.get('/test-error/:id', () => {
+      throw new Error('fixture-private-details');
+    });
+    const response = await app.inject('/test-error/raw-private-id');
+    expect(response.statusCode).toBe(500);
+    const { requestId } = response.json().error;
+    expect(response.headers['x-request-id']).toBe(requestId);
+    expect(logged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId,
+        route: '/test-error/:id',
+        method: 'GET',
+        statusCode: 500,
+        code: 'INTERNAL_ERROR',
+      }),
+      '请求未完成',
+    );
+    expect(JSON.stringify(logged.mock.calls)).not.toMatch(
+      /fixture-private-details|raw-private-id/u,
+    );
+  });
   test('已定义的授权错误保留正确状态和安全提示', async () => {
     const app = appFor();
     app.get('/test-forbidden', () => {

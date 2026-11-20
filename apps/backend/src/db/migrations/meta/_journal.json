@@ -232,6 +232,13 @@
       "when": 1795154237466,
       "tag": "0032_outbound_reconciliation",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795160393775,
+      "tag": "0033_verification_gateway_channel",
+      "breakpoints": true
     }
   ]
 }

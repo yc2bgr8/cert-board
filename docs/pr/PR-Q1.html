@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-Q1 开发旗舰、稳定预览与真实走查</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#怎样体验">怎样体验</a><a class="level-2" href="#验收范围">验收范围</a><a class="level-2" href="#后续">后续</a></nav><main><h1 id="pr-q1-开发旗舰-稳定预览与真实走查">PR-Q1 开发旗舰、稳定预览与真实走查</h1>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>开发期注册、维护 Agent 默认使用 <code>openai/gpt-6.2-astra-pro</code>。开发和测试保留逐次计量及步数限制，费用未知可续跑并留账。零保留端点、内部和保密资料的路由约束见决定记录。</li><li>核实默认加入 Cursor 的 Grok 4.7 和 OpenRouter 的 Claude Opus 5.5。沿用脱敏、权限复检和存档，保留管理员此前保存的启停与参与设置。核实运行取得限时执行权。网关回执与核实交换同编号，已扣费的失败也进入用量。</li><li>开发机增加稳定预览 28380 和走查环境 28280。持久数据、证据和日志分开。真实走查同时核验本次启动的服务实例和提交。稳定预览等待进行中的对话结束再升级。</li><li>浏览器请求失败显示中文说明和错误编号。后端记录编号、路由、方法、状态和安全的诊断字段。对话可从走查链接直接打开。</li><li>R09 和 M02 参照 SY-QP-15 A3、FDA 资料和空白记录模板。开发技能仍为草稿。</li></ul>
+<h2 id="怎样体验">怎样体验</h2>
+<p>以 <code>zhangsan</code> 登录，密码在仓库根目录 <code>.env.local</code> 的 <code>DEV_ZHANGSAN_PASSWORD</code>。<code>pnpm walkthrough:real</code> 从干净的已提交工作树启动走查，运行真实浏览器、R09 初审与修改重提、M02、两条核实通道及错误编号检查。走查产物保存在 <code>.local/preview/evidence/</code>，其中 <code>result.json</code> 包含对话链接、模型和费用。使用 <code>pnpm preview:walkthrough</code> 可以再次打开走查对话。各服务日志在 <code>.local/preview/walkthrough/</code>。</p>
+<p>正式走查通过后，<code>pnpm preview:lan</code> 启动或保持稳定预览。它使用本机入口 <a href="http://127.0.0.1:28380" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">稳定预览（外部链接）</a>。稳定预览日志在 <code>.local/preview/lan/</code>。日常开发入口仍为 <a href="http://127.0.0.1:28080" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">开发工作台（外部链接）</a>。</p>
+<h2 id="验收范围">验收范围</h2>
+<ul><li><code>pnpm lint</code>、<code>pnpm typecheck</code>、<code>pnpm test</code>、<code>pnpm test:int</code>、<code>pnpm eval:agent</code> 及隔离浏览器验收。</li><li><code>pnpm walkthrough:real</code> 在同一提交产出真实验收证据。R09 审核必须有实际两种编号写法及修改要求。M02 必须引用三类种子档案。实际对话、截图和费用以本机走查日志及 PR 验收说明为准。</li></ul>
+<h2 id="后续">后续</h2>
+<p>PR-Q2 用真实浏览器与模型覆盖至少 30 场对话后完整复跑。生产模型由 PR-37 决定。Cursor 受控 ACP 目前使用已验证的 Grok 4.7 high fast 档。无新增包依赖。</p>
+<p>对应 <a href="../变更单/需求变更单_2026-11-20_可用优先.html">v6 第 1.1 至 1.4 节</a>、<a href="../变更单/需求变更单_2026-11-20_待确认事项的决定.html">v7</a> 与 <a href="../决定记录.html">D-056 至 D-058</a>。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

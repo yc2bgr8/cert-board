@@ -102,14 +102,24 @@ export function LiveApp() {
   return <AuthenticatedShell key={session.session.user.id} user={session.session.user} />;
 }
 
+function bookmarkedConversation() {
+  const found = new URL(window.location.href).searchParams.get('conversation');
+  return found && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(found)
+    ? found
+    : null;
+}
+
 function AuthenticatedShell({ user }: { user: PublicUser }) {
   const { logout } = useSession();
   const queryClient = useQueryClient();
   const userId = user.id;
+  const [initialConversation] = useState(bookmarkedConversation);
   const [projectId, setProjectId] = useState<string | null>(null);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(initialConversation);
   const [messageDrafts, setMessageDrafts] = useState(() => new Map<string, string>());
-  const [view, setView] = useState<'project' | 'conversation' | 'inbox' | 'external'>('project');
+  const [view, setView] = useState<'project' | 'conversation' | 'inbox' | 'external'>(
+    initialConversation ? 'conversation' : 'project',
+  );
   const [externalId, setExternalId] = useState<string | null>(null);
   const [externalDraft, setExternalDraft] = useState(0);
   const [externalNotice, setExternalNotice] = useState<string | null>(null);
@@ -323,12 +333,10 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               userId: proposal.proposedBy,
               agentCode: project?.projectType ?? sidebarAgent,
             });
-            updateMessageDraft(
-              proposal.conversationId,
-              (previous) =>
-                previous.trim()
-                  ? previous
-                  : `请重新核对原外发提案 ${proposal.id} 的收件人和正文，生成新的提案供审核。`,
+            updateMessageDraft(proposal.conversationId, (previous) =>
+              previous.trim()
+                ? previous
+                : `请重新核对原外发提案 ${proposal.id} 的收件人和正文，生成新的提案供审核。`,
             );
           }}
         />
@@ -394,18 +402,39 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     setView('project');
     setMobileOpen(false);
   };
-  const openConversation = (
-    conversation: Pick<ConversationDetail, 'id' | 'projectId' | 'agentCode' | 'userId'>,
-  ) => {
-    setSidebarAgent(conversation.agentCode);
-    setPanels([]);
-    setTab('conversation');
-    setProjectId(conversation.projectId);
-    setConversationId(conversation.id);
-    setView('conversation');
-    setMobileOpen(false);
-    if (conversation.userId !== userId) setScope('department');
-  };
+  const openConversation = useCallback(
+    (conversation: Pick<ConversationDetail, 'id' | 'projectId' | 'agentCode' | 'userId'>) => {
+      setSidebarAgent(conversation.agentCode);
+      setPanels([]);
+      setTab('conversation');
+      setProjectId(conversation.projectId);
+      setConversationId(conversation.id);
+      setView('conversation');
+      setMobileOpen(false);
+      if (conversation.userId !== userId) setScope('department');
+    },
+    [userId],
+  );
+  useEffect(() => {
+    if (!initialConversation) return;
+    const cancel = new AbortController();
+    void api.conversation(initialConversation, cancel.signal).then(
+      (record) => {
+        if (!cancel.signal.aborted && bookmarkedConversation() === initialConversation)
+          openConversation(record);
+      },
+      () => undefined,
+    );
+    return () => cancel.abort();
+  }, [initialConversation, openConversation]);
+  useEffect(() => {
+    const current = new URL(window.location.href);
+    if (view === 'conversation' && conversationId)
+      current.searchParams.set('conversation', conversationId);
+    else current.searchParams.delete('conversation');
+    if (current.href !== window.location.href)
+      window.history.replaceState(window.history.state, '', current);
+  }, [view, conversationId]);
   const openNotice = (item: MemberNotificationSnapshot['items'][number]) => {
     if (item.verification) {
       openVerification(item.verification.roomId, item.id);

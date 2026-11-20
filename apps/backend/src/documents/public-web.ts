@@ -13,6 +13,7 @@ const officialHosts = [
   'federalregister.gov',
   'regulations.gov',
   'accessgudid.nlm.nih.gov',
+  'ec.europa.eu',
 ];
 const digest = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 export const webSourceKey = (url: string) => `W-${digest(url)}`;

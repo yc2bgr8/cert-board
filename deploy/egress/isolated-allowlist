@@ -3,3 +3,9 @@ openrouter.ai
 api.fda.gov
 accessgudid.nlm.nih.gov
 www.fda.gov
+# v7 D23 的公开资料入口。仅是后端检索白名单。
+www.accessdata.fda.gov
+health-products.canada.ca
+recalls-rappels.canada.ca
+laws-lois.justice.gc.ca
+ec.europa.eu

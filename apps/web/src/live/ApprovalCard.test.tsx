@@ -28,7 +28,7 @@ it('响应不明后只在重新点击时用原请求编号确认，成功后同�
   await act(async () => {
     await hook.result.current.run(['message', '核对资料'], execute);
   });
-  expect(hook.result.current.error).toBe('连接已中断');
+  expect(hook.result.current.error).toBe('连接已中断（错误编号 NETWORK_UNAVAILABLE）');
   expect(execute).toHaveBeenCalledTimes(1);
   await act(async () => {
     await hook.result.current.run(['message', '核对资料'], execute);

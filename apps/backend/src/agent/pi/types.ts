@@ -2,7 +2,7 @@ import type { ChatRequest, GatewayResponse, RuntimeModelConfig } from '@cert-boa
 
 export type KernelMessage = ChatRequest['messages'][number];
 export type KernelUserMessage = Extract<KernelMessage, { role: 'user' }>;
-export type KernelUsage = { steps: number; totalTokens: number; costNano: string };
+export type KernelUsage = { steps: number; totalTokens: number; costNano: string | null };
 export type KernelTerminal =
   'review' | 'proposal' | 'approval' | 'question' | 'verification' | 'goal_wait';
 export type KernelTool = {

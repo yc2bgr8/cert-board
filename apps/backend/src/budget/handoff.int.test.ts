@@ -43,10 +43,12 @@ async function waitForBlockedQuery() {
   throw new Error('预期的并发锁等待未出现。');
 }
 beforeEach(async () => {
+  vi.stubEnv('CERT_TEST_SHADOW_BUDGET', '1');
   context = await createIntegrationContext();
   await budget.seedDevelopmentBudgetPolicy(context.pool, 'test');
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   await context?.close();
 });
