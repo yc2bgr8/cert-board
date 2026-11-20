@@ -30,7 +30,8 @@ async function main() {
   try {
     await mkdir(lock);
   } catch (error) {
-    if (error?.code === 'EEXIST') throw new Error('已有合并在进行，请等同一工作区的合并任务结束。');
+    if (error?.code === 'EEXIST')
+      throw new Error('已有合并在进行，请等同一工作区的合并任务结束。', { cause: error });
     throw error;
   }
   try {
