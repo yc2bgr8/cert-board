@@ -54,6 +54,16 @@ function verifyMachine() {
   return vm;
 }
 
+function sandboxAbi() {
+  if (process.arch !== 'x64') throw new Error('沙箱验收需要 x86-64 Linux 客体。');
+  const abi = Number(
+    readCommand('python3', ['-c', 'import ctypes; print(ctypes.CDLL(None).syscall(444, 0, 0, 1))']),
+  );
+  if (!Number.isInteger(abi) || abi < 6)
+    throw new Error('验收虚拟机内核要求 Landlock ABI 6 或更高，请升级客体内核。');
+  return abi;
+}
+
 function testTree(root, bundle, base, head) {
   readCommand('git', ['init', '--quiet'], root);
   const refs = new Map(
@@ -112,6 +122,7 @@ async function main() {
   const vm = verifyMachine();
   if ((await readFile('/etc/cert-board-acceptance-vm', 'utf8')).trim() !== 'cert-board-acceptance')
     throw new Error('请使用 cert-board 的专用验收虚拟机。');
+  const landlockAbi = sandboxAbi();
   if (process.versions.node !== '24.22.2' || readCommand('pnpm', ['--version']) !== '9.15.9')
     throw new Error('请使用 Node 24.22.2 和 pnpm 9.15.9。');
   if (
@@ -131,6 +142,8 @@ async function main() {
     mergeTree: tree,
     testCommit: merged,
     vm,
+    kernel: release(),
+    landlockAbi,
     startedAt: new Date().toISOString(),
     steps: [],
   };
