@@ -44,12 +44,17 @@ test('另一成员能发起核实，审核决定后只可读取和重放既有�
     context.app.inject({ method: 'POST', url, headers: member.headers, payload: body });
   const created = await post(payload);
   expect(created.statusCode).toBe(200);
-  expect(verificationRoomSchema.parse(created.json()).origin).toEqual({
+  const opened = verificationRoomSchema.parse(created.json());
+  expect(opened.origin).toEqual({
     kind: 'review',
     reviewId: review.reviewId,
     conversationId: review.conversationId,
     runId: context.caller.runId,
+    deadlineAt: expect.any(String),
   });
+  expect(
+    Math.round((Date.parse(opened.origin!.deadlineAt!) - Date.parse(opened.updatedAt)) / 60_000),
+  ).toBe(60);
   expect(
     (
       await context.app.inject({
@@ -61,7 +66,9 @@ test('另一成员能发起核实，审核决定后只可读取和重放既有�
     ).statusCode,
   ).toBe(200);
   expect((await post({ ...payload, requestKey: randomUUID() })).statusCode).toBe(409);
-  expect((await post(payload)).statusCode).toBe(200);
+  const replay = await post(payload);
+  expect(replay.statusCode).toBe(200);
+  expect(verificationRoomSchema.parse(replay.json()).origin).toEqual(opened.origin);
   expect((await post({ ...payload, question: '改变原问题。' })).statusCode).toBe(409);
   const history = await context.app.inject({ url: `${url}s`, headers: member.headers });
   expect(history.statusCode).toBe(200);

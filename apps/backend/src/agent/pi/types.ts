@@ -3,7 +3,8 @@ import type { ChatRequest, GatewayResponse, RuntimeModelConfig } from '@cert-boa
 export type KernelMessage = ChatRequest['messages'][number];
 export type KernelUserMessage = Extract<KernelMessage, { role: 'user' }>;
 export type KernelUsage = { steps: number; totalTokens: number; costNano: string };
-export type KernelTerminal = 'review' | 'proposal' | 'approval' | 'question';
+export type KernelTerminal =
+  'review' | 'proposal' | 'approval' | 'question' | 'verification' | 'goal_wait';
 export type KernelTool = {
   name: string;
   description: string;
@@ -46,6 +47,8 @@ export type AgentKernelResult = {
     | 'waiting_proposal'
     | 'waiting_approval'
     | 'waiting_question'
+    | 'waiting_verification'
+    | 'waiting_goal_wait'
     | 'stopped'
     | 'failed';
   reasonCode?: string;

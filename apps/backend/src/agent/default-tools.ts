@@ -14,6 +14,7 @@ import { deadlineCalcTool } from '../tools/deadline-calc.js';
 import { reminderSetTool } from '../tools/reminder-set.js';
 import { buildSandboxTools } from '../tools/code-run.js';
 import type { SandboxClient } from '../sandbox/client.js';
+import { waitRegisterTool } from '../tools/wait-register.js';
 
 export async function buildAgentTools(
   store: DocumentBlobStore,
@@ -30,6 +31,7 @@ export async function buildAgentTools(
     ...buildWorkspaceTools(store),
     ...(sandbox ? buildSandboxTools(store, sandbox) : []),
     ...agentInteractionTools(),
+    waitRegisterTool(),
     ...(pool && containerRuntime === 'host' ? [consultExternalModelTool(pool)] : []),
     checkRunTool(),
     deadlineCalcTool(),

@@ -9,6 +9,11 @@ import {
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
 import { lockOwnedRun } from './lock.js';
+import {
+  cancelVerificationWaitsTx,
+  stopReviewVerificationTx,
+} from '../goals/verification-wakeups.js';
+import { cancelGoalWaitTx, finishGoalWakeTx } from '../goals/goal-events.js';
 
 export const RUN_CONTROL_CHANNEL = 'cert_board_run_control_v1';
 type Database = Pick<Pool, 'query'>;
@@ -81,6 +86,10 @@ export async function stopOwnedRun(tx: PoolClient, actor: BrowserIdentity, runId
     conversationId: run.conversation_id,
     userId: actor.userId,
   });
+  await cancelVerificationWaitsTx(tx, runId, actor.userId);
+  await stopReviewVerificationTx(tx, runId, run.conversation_id, actor.userId);
+  await cancelGoalWaitTx(tx, runId);
+  await finishGoalWakeTx(tx, runId, false);
   await tx.query(
     `UPDATE run_continuation SET state='blocked',reason_code='CONTINUATION_STOPPED',
      version=version+1,finished_at=clock_timestamp(),updated_at=clock_timestamp()

@@ -25,6 +25,20 @@ import { queueInternalMessageTool } from '../tools/queue-internal-message.js';
 import { agentInteractionTools } from '../tools/agent-interaction.js';
 import { prepareContinuationForDispatch } from '../approvals/continuation.js';
 import { buildWorkspaceTools } from '../tools/workspace-tools.js';
+import { createAgentQueue, consumeAgentRuns, enqueueAgentRun } from '../queue/agent-queue.js';
+import {
+  advanceVerificationDeadlines,
+  listVerificationResumes,
+  scanReadyVerificationWaits,
+  scanVerificationNotices,
+} from '../goals/verification-wakeups.js';
+import {
+  VerificationRooms,
+  verificationWorkerStateId,
+} from '../external-model/verification-service.js';
+import { ExternalModels } from '../external-model/service.js';
+import { verificationFixture } from '../test-support/verification-fixture.js';
+import { scanGoalEvents } from '../goals/goal-events.js';
 import { buildSandboxTools } from '../tools/code-run.js';
 import type { SandboxClient } from '../sandbox/client.js';
 
@@ -607,6 +621,491 @@ test.each(['解决原字段', '省略原字段', '用其他资料核对原字段
   },
 );
 
+test('核实挂起释放单工作槽，队列重启后超过十五分钟的模拟结论只续跑一次', async () => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  await context.pool.query(
+    "INSERT INTO verification_worker_state(id,worker_id,status) VALUES($1,$2,'fixture')",
+    [verificationWorkerStateId, randomUUID()],
+  );
+  const waitingRun = await queued(context, 'read_only', undefined, '请核实合成编号。');
+  const other = await queued(context, 'read_only', undefined, '独立对话的合成任务。');
+  const fixture = verificationFixture();
+  const rooms = new VerificationRooms(
+    context.pool,
+    new ExternalModels(context.pool, undefined, undefined, 20_000_000_000n),
+    fixture.runtime,
+  );
+  const observed = new Map<string, Awaited<ReturnType<typeof executeAgentRun>>>();
+  const failed = new Map<string, string>();
+  let resumed = 0;
+  const gateway = new ModelGateway(
+    context.pool,
+    config,
+    {
+      kind: 'fixture',
+      async send(_model, request) {
+        const last = request.messages.at(-1);
+        if (last?.content?.includes('独立对话'))
+          return result({ role: 'assistant', content: '独立对话已完成。' });
+        const receipt = request.messages.findLast((message) => message.role === 'tool');
+        if (!receipt) return call('consult_external_model', { question: '核实编号的合成验收。' });
+        expect(JSON.parse(receipt.content)).toMatchObject({
+          status: 'completed',
+          conclusionText: expect.any(String),
+          directionChange: expect.stringContaining('目标方向已从第1版改为第3版'),
+        });
+        expect(
+          request.messages.some(
+            (message) => message.role === 'user' && message.content.includes('等待中的补充重点'),
+          ),
+        ).toBe(true);
+        expect(
+          request.messages.some(
+            (message) =>
+              message.role === 'user' && message.content.includes('等待中的第 12 条补充。'),
+          ),
+        ).toBe(true);
+        resumed++;
+        return result({ role: 'assistant', content: '核实结论已收到。' });
+      },
+    },
+    { environment: 'test' },
+  );
+  const connection = context.pool.options.connectionString!;
+  const start = async () => {
+    const active = await createAgentQueue(connection, () => undefined);
+    await consumeAgentRuns(
+      active,
+      async (runId, signal, _ticket, queueExpiresAtMs, verificationId) => {
+        try {
+          observed.set(
+            runId,
+            await executeAgentRun(
+              {
+                pool: context.pool,
+                store,
+                gateway,
+                models: config,
+                definitions: (code) => buildAgentTools(store, code, context.pool),
+              },
+              runId,
+              { signal, queueExpiresAtMs, ...(verificationId ? { verificationId } : {}) },
+            ),
+          );
+        } catch (error) {
+          failed.set(runId, (error as { code?: string })?.code ?? 'fixture_execution_failed');
+          throw error;
+        }
+      },
+      () => false,
+    );
+    return active;
+  };
+  let queue = await start();
+  try {
+    await enqueueAgentRun(queue, waitingRun.runId);
+    await vi.waitFor(
+      async () => {
+        const job = await queue.getJobById('cert-agent-runs', waitingRun.runId);
+        expect(
+          observed.get(waitingRun.runId)?.status,
+          failed.get(waitingRun.runId) ?? job?.state,
+        ).toBe('waiting');
+      },
+      {
+        timeout: 6_000,
+      },
+    );
+    const resource = (
+      await context.pool.query<{ room_id: string }>(
+        "SELECT room_id FROM verification_wait WHERE run_id=$1 AND state='waiting'",
+        [waitingRun.runId],
+      )
+    ).rows[0]!;
+    await enqueueAgentRun(queue, other.runId);
+    await vi.waitFor(() => expect(observed.get(other.runId)?.status).toBe('completed'), {
+      timeout: 6_000,
+    });
+    expect(resumed).toBe(0);
+    const owner = await context.login('MEMBER_A');
+    const directionCommand = (action: 'takeover' | 'handoff', expectedVersion: number) =>
+      context.app.inject({
+        method: 'POST',
+        url: `/api/goals/${context.goalId}/control`,
+        headers: owner.headers,
+        payload: { action, expectedVersion, note: '按人工补充方向重新核对。' },
+      });
+    const initial = (
+      await context.pool.query('SELECT version FROM goal WHERE id=$1', [context.goalId])
+    ).rows[0]!.version as number;
+    expect((await directionCommand('takeover', initial)).statusCode).toBe(200);
+    const input = await context.app.inject({
+      method: 'POST',
+      url: `/api/conversations/${waitingRun.conversationId}/messages`,
+      headers: owner.headers,
+      payload: { requestKey: randomUUID(), text: '等待中的补充重点是合成版本号。' },
+    });
+    expect(input.statusCode).toBeLessThan(300);
+    expect(conversationWriteResultSchema.parse(input.json())).toMatchObject({
+      kind: 'steering',
+      runId: waitingRun.runId,
+    });
+    for (let index = 2; index <= 12; index++) {
+      const response = await context.app.inject({
+        method: 'POST',
+        url: `/api/conversations/${waitingRun.conversationId}/messages`,
+        headers: owner.headers,
+        payload: { requestKey: randomUUID(), text: `等待中的第 ${index} 条补充。` },
+      });
+      expect(response.statusCode).toBeLessThan(300);
+    }
+    await queue.stop({ graceful: true });
+    queue = await start();
+    await context.pool.query(
+      "UPDATE run SET lease_owner=$2,lease_generation=lease_generation+1,lease_expires_at=clock_timestamp()-interval '1 minute' WHERE id=$1",
+      [waitingRun.runId, randomUUID()],
+    );
+
+    await context.pool.query(
+      "UPDATE verification_wait SET created_at=clock_timestamp()-interval '16 minutes' WHERE room_id=$1",
+      [resource.room_id],
+    );
+    await rooms.wakeReady(() => undefined);
+    await vi.waitFor(
+      async () => {
+        await rooms.wakeReady(() => undefined);
+        const room = await context.pool.query(
+          'SELECT state FROM external_model_conversation WHERE id=$1',
+          [resource.room_id],
+        );
+        expect(room.rows[0]?.state).toBe('completed');
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    await scanReadyVerificationWaits(context.pool);
+    expect(await listVerificationResumes(context.pool)).toEqual([]);
+    expect((await directionCommand('handoff', initial + 1)).statusCode).toBe(200);
+    await Promise.all([
+      scanReadyVerificationWaits(context.pool),
+      scanReadyVerificationWaits(context.pool),
+    ]);
+    const waits = await listVerificationResumes(context.pool);
+    expect(waits.map(({ runId }) => runId)).toEqual([waitingRun.runId]);
+    await queue.stop({ graceful: true });
+    queue = await start();
+    expect(await enqueueAgentRun(queue, waitingRun.runId, undefined, resource.room_id)).toBe(
+      resource.room_id,
+    );
+    expect(await enqueueAgentRun(queue, waitingRun.runId, undefined, resource.room_id)).toBeNull();
+    await vi.waitFor(
+      () =>
+        expect(observed.get(waitingRun.runId)).toMatchObject({
+          status: 'completed',
+          usage: { steps: 2 },
+        }),
+      { timeout: 8_000 },
+    );
+    expect(resumed).toBe(1);
+    await scanReadyVerificationWaits(context.pool);
+    expect(await listVerificationResumes(context.pool)).toEqual([]);
+    const event = await context.pool.query(
+      "SELECT state,wake_run_id FROM goal_event WHERE source='verification' AND source_key=$1",
+      [resource.room_id],
+    );
+    expect(event.rows).toEqual([{ state: 'completed', wake_run_id: waitingRun.runId }]);
+    expect(fixture.requests.length).toBeGreaterThan(0);
+  } finally {
+    await rooms.close();
+    await queue.stop({ graceful: true }).catch(() => undefined);
+  }
+});
+
+test.each(['整理超时后继续', '召回权限通知管理员', '排队期间先收到结论'] as const)(
+  '核实到期：%s',
+  async (scenario) => {
+    const context = await createIntegrationContext();
+    close = () => context.close();
+    const store = new MemoryStore();
+    await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+    await seedDevelopmentBudgetPolicy(context.pool, 'test');
+    await context.pool.query(
+      "INSERT INTO verification_worker_state(id,worker_id,status) VALUES($1,$2,'fixture')",
+      [verificationWorkerStateId, randomUUID()],
+    );
+    const target = await queued(context, 'read_only');
+    const send = vi.fn<GatewayTransport['send']>().mockImplementation(async (_model, request) => {
+      const receipt = request.messages.findLast((message) => message.role === 'tool');
+      if (!receipt) return call('consult_external_model', { question: '核查合成版本的要求。' });
+      expect(JSON.parse(receipt.content)).toMatchObject(
+        scenario === '排队期间先收到结论'
+          ? { status: 'completed', conclusionText: expect.any(String) }
+          : { status: 'unavailable', reason: expect.stringContaining('不确定事项') },
+      );
+      return result({ role: 'assistant', content: '外部核实待确认，继续读取已有资料。' });
+    });
+    const gateway = new ModelGateway(
+      context.pool,
+      config,
+      { kind: 'fixture', send },
+      { environment: 'test' },
+    );
+    const dependencies = {
+      pool: context.pool,
+      store,
+      gateway,
+      models: config,
+      definitions: (code: 'registration' | 'maintenance') =>
+        buildAgentTools(store, code, context.pool),
+    };
+    expect((await executeAgentRun(dependencies, target.runId)).status).toBe('waiting');
+    const wait = (
+      await context.pool.query<{ room_id: string; minutes: number }>(
+        `SELECT l.room_id,round(extract(epoch FROM (l.deadline_at-l.created_at))/60)::int AS minutes
+     FROM verification_link l JOIN verification_wait w ON w.room_id=l.room_id WHERE w.run_id=$1`,
+        [target.runId],
+      )
+    ).rows[0]!;
+    expect(wait.minutes).toBe(60);
+    await context.pool.query(
+      "UPDATE verification_link SET deadline_at=clock_timestamp()-interval '1 minute' WHERE room_id=$1",
+      [wait.room_id],
+    );
+    await advanceVerificationDeadlines(context.pool);
+    const stopped = (
+      await context.pool.query('SELECT stopped_by FROM external_model_conversation WHERE id=$1', [
+        wait.room_id,
+      ])
+    ).rows[0]!;
+    expect(stopped.stopped_by).toBe(target.userId);
+    await scanReadyVerificationWaits(context.pool);
+    expect(await listVerificationResumes(context.pool)).toEqual([]);
+    await context.pool.query(
+      "UPDATE verification_link SET timeout_requested_at=clock_timestamp()-interval '6 minutes' WHERE room_id=$1",
+      [wait.room_id],
+    );
+    if (scenario === '召回权限通知管理员') {
+      await context.pool.query("UPDATE app_user SET status='disabled' WHERE id=$1", [
+        target.userId,
+      ]);
+      await scanVerificationNotices(context.pool);
+      await scanReadyVerificationWaits(context.pool);
+      expect(await listVerificationResumes(context.pool)).toEqual([]);
+      const notices = await context.pool.query(
+        'SELECT recipient_user_id,kind FROM verification_notice WHERE room_id=$1',
+        [wait.room_id],
+      );
+      expect(notices.rows).toEqual([
+        { recipient_user_id: context.userId('ADMIN'), kind: 'blocked' },
+      ]);
+      expect(send).toHaveBeenCalledTimes(1);
+      return;
+    }
+    await scanReadyVerificationWaits(context.pool);
+    if (scenario === '排队期间先收到结论') {
+      const rooms = new VerificationRooms(
+        context.pool,
+        new ExternalModels(context.pool, undefined, undefined, 20_000_000_000n),
+        verificationFixture().runtime,
+      );
+      try {
+        await context.pool.query(
+          'UPDATE external_model_conversation SET stopped_by=NULL WHERE id=$1',
+          [wait.room_id],
+        );
+        await vi.waitFor(
+          async () => {
+            await rooms.wakeReady(() => undefined);
+            const state = (
+              await context.pool.query(
+                'SELECT state FROM external_model_conversation WHERE id=$1',
+                [wait.room_id],
+              )
+            ).rows[0]?.state;
+            expect(state).toBe('completed');
+          },
+          { timeout: 20_000, interval: 100 },
+        );
+        const duplicate = await context.pool.query(
+          "SELECT 1 FROM audit_log WHERE target_id=$1 AND action='verification.wakeup_duplicate'",
+          [wait.room_id],
+        );
+        expect(duplicate.rowCount).toBe(1);
+      } finally {
+        await rooms.close();
+      }
+    }
+    expect(
+      (await executeAgentRun(dependencies, target.runId, { verificationId: wait.room_id })).status,
+    ).toBe('completed');
+    if (scenario !== '排队期间先收到结论')
+      await context.pool.query(
+        "UPDATE external_model_conversation SET state='completed',next_position=next_position+1 WHERE id=$1",
+        [wait.room_id],
+      );
+    await scanVerificationNotices(context.pool);
+    await scanVerificationNotices(context.pool);
+    await scanReadyVerificationWaits(context.pool);
+    const notices = await context.pool.query(
+      'SELECT id,recipient_user_id,kind FROM verification_notice WHERE room_id=$1',
+      [wait.room_id],
+    );
+    if (scenario === '排队期间先收到结论') expect(notices.rows).toEqual([]);
+    else {
+      expect(notices.rows).toMatchObject([{ recipient_user_id: target.userId, kind: 'late' }]);
+      const pathname = `/api/me/verification-notices/${notices.rows[0]!.id}/acknowledge`;
+      const other = await context.login('MEMBER_B');
+      await context.app.inject({
+        method: 'POST',
+        url: pathname,
+        headers: other.headers,
+        payload: {},
+      });
+      const acknowledged = async () =>
+        (
+          await context.pool.query('SELECT acknowledged_at FROM verification_notice WHERE id=$1', [
+            notices.rows[0]!.id,
+          ])
+        ).rows[0]?.acknowledged_at;
+      expect(await acknowledged()).toBeNull();
+      const requester = await context.login('MEMBER_A');
+      expect(
+        (
+          await context.app.inject({
+            method: 'POST',
+            url: pathname,
+            headers: requester.headers,
+            payload: {},
+          })
+        ).statusCode,
+      ).toBe(204);
+      expect(await acknowledged()).toBeInstanceOf(Date);
+    }
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(await listVerificationResumes(context.pool)).toEqual([]);
+  },
+);
+
+test('负责人离线时，接管阻止事件唤醒，交还后只建立一条带方向记录的续跑对话', async () => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const target = await queued(context, 'full');
+  const transport = vi.fn<GatewayTransport['send']>().mockResolvedValue(
+    call('wait_register', {
+      source: 'manual',
+      sourceKey: 'fixture-arrival',
+      nextStep: '先核对清单。',
+      reason: '等待合成资料。',
+    }),
+  );
+  const gateway = new ModelGateway(
+    context.pool,
+    config,
+    { kind: 'fixture', send: transport },
+    {
+      environment: 'test',
+    },
+  );
+  const dependencies = {
+    pool: context.pool,
+    store,
+    gateway,
+    models: config,
+    definitions: (code: 'registration' | 'maintenance') =>
+      buildAgentTools(store, code, context.pool),
+  };
+  expect((await executeAgentRun(dependencies, target.runId)).status).toBe('waiting');
+  expect(transport).toHaveBeenCalledTimes(1);
+  const goal = async () =>
+    (
+      await context.pool.query<{ status: string; version: number }>(
+        'SELECT status,version FROM goal WHERE id=$1',
+        [context.goalId],
+      )
+    ).rows[0]!;
+  const base = `/api/goals/${context.goalId}`;
+  const owner = await context.login('MEMBER_A');
+  const command = (action: 'takeover' | 'handoff', expectedVersion: number, note: string) =>
+    context.app.inject({
+      method: 'POST',
+      url: `${base}/control`,
+      headers: owner.headers,
+      payload: { action, expectedVersion, note },
+    });
+  const initial = await goal();
+  expect(initial.status).toBe('waiting_decision');
+  expect(
+    (
+      await context.app.inject({
+        method: 'POST',
+        url: `${base}/control`,
+        headers: { origin: context.config.WEB_ORIGIN, 'sec-fetch-site': 'same-origin' },
+        payload: {
+          action: 'takeover',
+          expectedVersion: initial.version,
+          note: '无有效会话',
+        },
+      })
+    ).statusCode,
+  ).toBe(401);
+  expect((await command('takeover', initial.version, '由人先核对。')).statusCode).toBe(200);
+  expect((await command('handoff', initial.version, '旧版本交还。')).statusCode).toBe(409);
+  const arrive = () =>
+    context.app.inject({
+      method: 'POST',
+      url: `${base}/arrival`,
+      headers: owner.headers,
+      payload: { sourceKey: 'fixture-arrival' },
+    });
+  const arrival = await arrive();
+  expect(arrival.statusCode).toBe(200);
+  expect(arrival.json().eventId).toEqual(expect.any(String));
+  expect((await arrive()).json().eventId).toBeNull();
+  await scanGoalEvents(context.pool);
+  const wake = () =>
+    context.pool.query<{
+      id: string;
+      user_id: string;
+      conversation_id: string;
+      status: string;
+      agent_code: string;
+    }>(
+      `SELECT r.id,r.user_id,r.conversation_id,r.status,c.agent_code FROM run r
+     JOIN conversation c ON c.id=r.conversation_id WHERE r.goal_id=$1 AND r.trigger_type='wakeup'`,
+      [context.goalId],
+    );
+  expect((await wake()).rowCount).toBe(0);
+  const taken = await goal();
+  expect(taken.status).toBe('human_controlled');
+  expect((await command('handoff', taken.version, '人工确认合成资料，可继续。')).statusCode).toBe(
+    200,
+  );
+  await context.pool.query('UPDATE web_session SET revoked_at=clock_timestamp() WHERE user_id=$1', [
+    target.userId,
+  ]);
+  await Promise.all([scanGoalEvents(context.pool), scanGoalEvents(context.pool)]);
+  const woke = await wake();
+  expect(woke.rows).toHaveLength(1);
+  expect(woke.rows[0]).toMatchObject({
+    user_id: target.userId,
+    status: 'queued',
+    agent_code: 'registration',
+  });
+  expect(woke.rows[0]!.conversation_id).not.toBe(target.conversationId);
+  expect((await goal()).status).toBe('active');
+  const down = await context.pool.query(
+    'SELECT note FROM goal_direction WHERE goal_id=$1 ORDER BY version',
+    [context.goalId],
+  );
+  expect(down.rows.map(({ note }) => note)).toEqual(['由人先核对。', '人工确认合成资料，可继续。']);
+});
+
 test('收尾时租约已到期的旧执行者不能写入完成状态或发出终态事件', async () => {
   const context = await createIntegrationContext();
   close = () => context.close();
@@ -938,7 +1437,7 @@ test('退出运行必须等待已经开始的续租完成，不留下后台续�
 });
 async function queued(
   context: Awaited<ReturnType<typeof createIntegrationContext>>,
-  mode: 'ask' | 'read_only',
+  mode: 'ask' | 'read_only' | 'full',
   conversationId?: string,
   text = '请完成这次合成任务，严格按工具回执汇报。',
 ) {

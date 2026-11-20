@@ -22,6 +22,7 @@ import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
 import { getProject } from '../projects/service.js';
 import type { DocumentBlobStore } from './blob-store.js';
+import { recordDocumentGoalEvent } from '../goals/goal-events.js';
 
 export type DocumentReadDatabase = Pick<Pool, 'query'>;
 
@@ -251,6 +252,7 @@ export async function ingestParsedDocument(
     const versionId = inserted.rows[0]?.id;
     if (!versionId) throw new Error('资料版本登记失败');
     await insertDocumentPages(client, versionId, data.pages);
+    await recordDocumentGoalEvent(client, documentId, version);
     if (!isNewDocument)
       await client.query(
         'UPDATE document SET name=$1, source_path=$2, version=version+1, updated_at=CURRENT_TIMESTAMP WHERE id=$3',

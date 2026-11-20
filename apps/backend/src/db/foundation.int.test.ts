@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { cp, mkdtemp, appendFile, rm } from 'node:fs/promises';
+import { cp, mkdtemp, appendFile, copyFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,6 +53,74 @@ test('并发迁移只执行一次', async () => {
     );
   } finally {
     await isolated.dispose();
+  }
+});
+
+test('v5 升级保留已有的人工到达事件和等待记录', async () => {
+  const isolated = await createTestDatabase();
+  const source = fileURLToPath(new URL('./migrations', import.meta.url));
+  const prefix = path.resolve(tmpdir(), 'cert-v5-wait-migration-');
+  const prior = path.resolve(await mkdtemp(prefix));
+  if (!prior.startsWith(prefix)) throw Error('临时目录越界');
+  try {
+    for (const item of await readMigrations(source))
+      if (item.filename < '0030')
+        await copyFile(path.join(source, item.filename), path.join(prior, item.filename));
+    const pool = isolated.pool;
+    await migrateDatabase(pool, prior);
+    const [userId, projectId, goalId, conversationId, runId, waitId] = Array.from(
+      { length: 6 },
+      () => randomUUID(),
+    );
+    await pool.query(
+      "INSERT INTO app_user(id,username,password_hash,display_name) VALUES($1,'old_wait_fixture','\u0024argon2id\u0024fixture','升级样例')",
+      [userId],
+    );
+    await pool.query(
+      "INSERT INTO cert_project(id,name,project_type,market,pathway,owner_user_id) VALUES($1,'升级样例','registration','US','510(k)',$2)",
+      [projectId, userId],
+    );
+    await pool.query(
+      "INSERT INTO goal(id,project_id,owner_user_id,title,acceptance_criteria,status) VALUES($1,$2,$3,'等待旧数据','资料到达后继续','waiting_decision')",
+      [goalId, projectId, userId],
+    );
+    await pool.query(
+      "INSERT INTO conversation(id,project_id,goal_id,user_id,title) VALUES($1,$2,$3,$4,'升级样例')",
+      [conversationId, projectId, goalId, userId],
+    );
+    await pool.query(
+      "INSERT INTO run(id,conversation_id,project_id,goal_id,user_id,status) VALUES($1,$2,$3,$4,$5,'waiting')",
+      [runId, conversationId, projectId, goalId, userId],
+    );
+    await pool.query(
+      "INSERT INTO goal_wait(id,goal_id,run_id,source,source_key,reason) VALUES($1,$2,$3,'manual','old-arrival','等待前置资料')",
+      [waitId, goalId, runId],
+    );
+    await pool.query(
+      "INSERT INTO goal_event(goal_id,source,source_key) VALUES($1,'manual','old-arrival')",
+      [goalId],
+    );
+    const migrated = await migrateDatabase(pool);
+    expect(migrated.applied).toContain('0030_verification_wait_policy.sql');
+    const result = (
+      await pool.query(
+        `SELECT e.source_key,e.state,w.reason,w.next_step FROM goal_event e JOIN goal_wait w
+       ON e.source=w.source AND e.source_key=w.id::text WHERE w.id=$1`,
+        [waitId],
+      )
+    ).rows[0];
+    expect(result).toMatchObject({
+      source_key: waitId,
+      state: 'pending',
+      reason: '等待前置资料',
+      next_step: expect.any(String),
+    });
+  } finally {
+    try {
+      await isolated.dispose();
+    } finally {
+      await rm(prior, { recursive: true, force: true });
+    }
   }
 });
 

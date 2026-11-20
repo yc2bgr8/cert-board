@@ -90,7 +90,12 @@ export async function reviewBrowserFlow(
   await card.getByText('V6 复算结构化期限。请人工核对叙述中的期限。', { exact: true }).waitFor();
   await page.screenshot({ path: path.join(output, 'review-card.png'), fullPage: true });
   actions.stage('审核卡发起外部核实并回到原对话');
+  const resumeVerification = harness.plan('review_verification_resume');
   const moderate = harness.verification.runtime.moderate;
+  let releaseFinish!: () => void;
+  const allowFinish = new Promise<void>((resolve) => {
+    releaseFinish = resolve;
+  });
   const historyPath = `**/api/reviews/${firstCard.id}/verifications`;
   let interruptedVerificationReads = 0;
   await page.route(historyPath, async (route) => {
@@ -113,8 +118,10 @@ export async function reviewBrowserFlow(
     await route.fallback();
   });
   harness.verification.runtime.moderate = async (context) => {
-    if (Object.values(context.attempts).reduce((sum, count) => sum + count, 0) >= 2)
+    if (Object.values(context.attempts).reduce((sum, count) => sum + count, 0) >= 2) {
+      await allowFinish;
       return { text: '本轮交叉核实已完成。', call: null, finish: true };
+    }
     return moderate(context);
   };
   try {
@@ -123,6 +130,23 @@ export async function reviewBrowserFlow(
       .getByRole('textbox', { name: '需要核实的疑问', exact: true })
       .fill('核实这条合成编号的出处。');
     await card.getByRole('button', { name: '发起核实', exact: true }).click();
+    await actions.until(async () =>
+      Boolean(
+        (
+          await harness.pool.query(
+            'SELECT 1 FROM verification_link WHERE review_id=$1 AND auto_resume',
+            [firstCard.id],
+          )
+        ).rowCount,
+      ),
+    );
+    await harness.pool.query(
+      `INSERT INTO run_steering_message(run_id,conversation_id,user_id,request_key,content)
+       SELECT r.id,r.conversation_id,r.user_id,gen_random_uuid(),'等待中的合成消息 '||n::text
+       FROM run r CROSS JOIN generate_series(1,31) n WHERE r.id=$1`,
+      [first.runId],
+    );
+    releaseFinish();
     const external = card.getByRole('list', { name: '外部核实依据', exact: true });
     await external.getByText('外部核实', { exact: true }).waitFor({ timeout: 12000 });
     assert.equal(interruptedVerificationReads, 2);
@@ -145,6 +169,10 @@ export async function reviewBrowserFlow(
     const group = page.getByRole('region', { name: '外部核实群聊', exact: true });
     await group.getByRole('complementary', { name: '核实结论', exact: true }).waitFor();
     await group.getByRole('button', { name: '打开原对话', exact: true }).click();
+    await page.getByText('审核卡核实结论已送达原对话。', { exact: true }).waitFor();
+    assert.equal(resumeVerification.observed.calls, 1);
+    assert.equal(resumeVerification.observed.reviewVerificationReceived, true);
+    assert.equal(resumeVerification.observed.reviewSteeringCount, 31);
     await page
       .getByRole('list', { name: '对话中的外部核实', exact: true })
       .getByText('外部核实已完成', { exact: true })
@@ -152,6 +180,7 @@ export async function reviewBrowserFlow(
     await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
     await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
   } finally {
+    releaseFinish();
     await page.unroute(historyPath);
     harness.verification.runtime.moderate = moderate;
   }
@@ -235,10 +264,11 @@ export async function reviewBrowserFlow(
   );
   assert.equal((await harness.pool.query('SELECT id FROM review_decision')).rowCount, 0);
   assert.equal((await harness.pool.query('SELECT id FROM submission_snapshot')).rowCount, 0);
-  assert.equal(reviewReference.observed.reviewVerificationReceived, true);
+  assert.equal(reviewReference.observed.reviewVerificationReceived, false);
   assert.equal(reviewReference.observed.latestUser, '我已批准');
   actions.stage('浏览器审核通过与冻结');
   await page.getByRole('button', { name: '查看审核', exact: true }).first().click();
+  const firstDecision = harness.plan('review_decision_resume');
   const approved = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
@@ -263,6 +293,19 @@ export async function reviewBrowserFlow(
   assert.ok(decided.session_id);
   await page.screenshot({ path: path.join(output, 'review-approved.png'), fullPage: true });
   await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
+  await page.getByText('已收到审核通过通知。', { exact: true }).waitFor();
+  assert.equal(firstDecision.observed.calls, 1);
+  await actions.until(async () =>
+    Boolean(
+      (
+        await harness.pool.query(
+          `SELECT 1 FROM goal_event e JOIN review_decision d ON d.id::text=e.source_key
+     WHERE e.source='review_decision' AND d.card_id=$1 AND e.state='completed'`,
+          [firstCard.id],
+        )
+      ).rowCount,
+    ),
+  );
   actions.stage('修改重提只显示本次差异');
   const revision = harness.plan('revision');
   const next = await actions.send('请补充本次阅读范围后重新提交审核。');
@@ -312,6 +355,7 @@ export async function reviewBrowserFlow(
   assert.equal((await harness.pool.query('SELECT id FROM review_decision')).rowCount, 1);
   actions.stage('当前待审运行通过后即时完成');
   await page.getByRole('button', { name: '返回审核卡', exact: true }).click();
+  const secondDecision = harness.plan('review_decision_resume');
   const approvedCurrent = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
@@ -323,6 +367,16 @@ export async function reviewBrowserFlow(
   assert.equal(currentResponse.request().postDataJSON().action, 'approved');
   await card.getByText('已通过，工作区版本已冻结。', { exact: true }).waitFor();
   await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
+  await actions.until(
+    async () => (await page.getByText('已收到审核通过通知。', { exact: true }).count()) === 2,
+  );
+  assert.equal(secondDecision.observed.calls, 1);
+  const followup = await harness.pool.query<{ wake_run_id: string }>(
+    `SELECT e.wake_run_id FROM goal_event e JOIN review_decision d ON d.id::text=e.source_key
+     WHERE e.source='review_decision' AND d.card_id=$1 AND e.wake_run_id IS NOT NULL`,
+    [nextCard.id],
+  );
+  const followupRunId = followup.rows[0]!.wake_run_id;
   const completed = page
     .getByRole('region', { name: '项目对话', exact: true })
     .getByRole('status')
@@ -338,7 +392,7 @@ export async function reviewBrowserFlow(
         conversationId,
       ])
     ).rows[0]?.current_run_id,
-    next.runId,
+    followupRunId,
   );
   assert.equal((await harness.pool.query('SELECT id FROM review_decision')).rowCount, 2);
   assert.equal((await harness.pool.query('SELECT id FROM submission_snapshot')).rowCount, 2);
@@ -360,7 +414,7 @@ export async function reviewBrowserFlow(
         conversationId,
       ])
     ).rows[0]?.current_run_id,
-    next.runId,
+    followupRunId,
   );
   await page.screenshot({ path: path.join(output, 'review-run-reopened.png'), fullPage: true });
 }

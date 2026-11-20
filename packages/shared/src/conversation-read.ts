@@ -154,6 +154,7 @@ export const conversationPublicEventSchema = z.discriminatedUnion('type', [
         reviewId: id.optional(),
         approvalId: id.optional(),
         questionId: callId.optional(),
+        verificationRoomId: id.optional(),
         pendingSteeringCount: count.optional(),
         summary: text(400),
       })
@@ -187,14 +188,30 @@ export const memberNotificationSnapshotSchema = z
         z
           .object({
             id,
-            kind: z.enum(['approval', 'question', 'blocked', 'review', 'proposal', 'deadline']),
+            kind: z.enum([
+              'approval',
+              'question',
+              'blocked',
+              'review',
+              'proposal',
+              'deadline',
+              'verification',
+            ]),
             conversationId: id,
             projectId: id.nullable(),
             createdAt: instant,
             deadline: deadlineNoticeSchema.optional(),
+            verification: z
+              .object({ roomId: id, kind: z.enum(['blocked', 'late']) })
+              .strict()
+              .optional(),
           })
           .strict()
-          .refine(({ kind, deadline }) => (kind === 'deadline') === Boolean(deadline)),
+          .refine(
+            ({ kind, deadline, verification }) =>
+              (kind === 'deadline') === Boolean(deadline) &&
+              (kind === 'verification') === Boolean(verification),
+          ),
       )
       .max(50),
     truncated: z.boolean(),

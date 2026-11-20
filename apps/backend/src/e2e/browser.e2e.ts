@@ -6,6 +6,7 @@ import {
   type Browser,
   type BrowserContext,
   type Page,
+  type Request,
   type Response,
 } from 'playwright-core';
 import { startBrowserHarness } from '../test-support/browser-harness.js';
@@ -993,6 +994,16 @@ async function main() {
     await settings.getByRole('heading', { name: '个人与通知', exact: true }).waitFor();
     assert.equal(await maintenanceEntry.evaluate((el) => el === document.activeElement), true);
     stage = 'Agent 在对话中自行发起核实并使用人工补充';
+    const waitLimit = settings.getByRole('spinbutton', { name: '核实等待上限', exact: true });
+    await waitLimit.waitFor();
+    assert.equal(await waitLimit.inputValue(), '60');
+    await waitLimit.fill('75');
+    await settings.getByRole('button', { name: '保存外部模型设置', exact: true }).click();
+    await until(
+      async () =>
+        (await harness.pool.query('SELECT wait_minutes FROM verification_preference')).rows[0]
+          ?.wait_minutes === 75,
+    );
     await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
     await createConversation(page, harness.projectId, 'read_only', 'Agent 自动外部核实验收');
     const model = harness.plan('consult_verification');
@@ -1002,15 +1013,20 @@ async function main() {
       unblock = resolve;
     });
     let seen = 0;
+    let verificationRunId: string;
     harness.verification.runtime.send = (profile, prompt, dispatch) =>
       verificationSend(profile, prompt, async () => {
         await dispatch();
         if (++seen === 1) await gate;
       });
     try {
-      await send(page, '请做合成版本核查，遇到不确定可自行核实。');
+      verificationRunId = (await send(page, '请做合成版本核查，遇到不确定可自行核实。')).runId;
       const linked = page.getByRole('list', { name: '对话中的外部核实', exact: true });
       await linked.getByText('正在请外部模型核实…', { exact: true }).waitFor();
+      await linked.getByText(/你的消息会和结论一起交给它/u).waitFor();
+      assert.ok(await linked.locator('time').getAttribute('dateTime'));
+      const buffered = await send(page, '对话补充：优先比较两份版本。', '插话');
+      assert.equal(buffered.kind, 'steering');
       await linked.getByRole('button', { name: '查看群聊', exact: true }).click();
       const linkedGroup = page.getByRole('region', { name: '外部核实群聊', exact: true });
       await linkedGroup
@@ -1033,12 +1049,87 @@ async function main() {
         .getByText('收到核实结论及人工补充，继续核查页码与版本。', { exact: true })
         .waitFor();
       assert.equal(model.observed.calls, 2);
+      assert.equal(model.observed.latestUser, '对话补充：优先比较两份版本。');
       await linked.getByText('外部核实已完成', { exact: true }).waitFor();
       await captureWorkbench(page, output, 'pr-d4-04-agent-verification.png');
     } finally {
       unblock();
       harness.verification.runtime.send = verificationSend;
     }
+    stage = '核实提醒在成功刷新详情后才确认';
+    const reminder = (
+      await harness.pool.query<{ id: string; room_id: string }>(
+        `INSERT INTO verification_notice(room_id,recipient_user_id,kind,position)
+       SELECT l.room_id,l.requester,'late',10000 FROM verification_link l WHERE l.run_id=$1
+       RETURNING id,room_id`,
+        [verificationRunId],
+      )
+    ).rows[0]!;
+    const openInbox = page.getByRole('button', { name: /待我处理/u });
+    const reminderItem = page
+      .getByRole('region', { name: '待我处理事项' })
+      .getByRole('button', { name: /迟到的核实结论/u });
+    const details = (url: URL) => url.pathname === `/api/verification/rooms/${reminder.room_id}`;
+    await page.route(details, (route) =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }),
+    );
+    await openInbox.click();
+    await reminderItem.waitFor();
+    const acknowledgePath = `/api/me/verification-notices/${reminder.id}/acknowledge`;
+    const failedDetail = page.waitForResponse(
+      (response) => details(new URL(response.url())) && response.status() === 503,
+    );
+    let earlyAcknowledgements = 0;
+    const observeFailedAcknowledgement = (request: Request) => {
+      if (new URL(request.url()).pathname === acknowledgePath && request.method() === 'POST')
+        earlyAcknowledgements++;
+    };
+    page.on('request', observeFailedAcknowledgement);
+    await reminderItem.click();
+    await failedDetail;
+    await page
+      .getByRole('region', { name: '外部核实群聊', exact: true })
+      .getByRole('alert')
+      .waitFor();
+    const acknowledged = async () =>
+      (
+        await harness.pool.query('SELECT acknowledged_at FROM verification_notice WHERE id=$1', [
+          reminder.id,
+        ])
+      ).rows[0]?.acknowledged_at;
+    await openInbox.click();
+    await reminderItem.waitFor();
+    page.off('request', observeFailedAcknowledgement);
+    assert.equal(earlyAcknowledgements, 0);
+    assert.equal(await acknowledged(), null);
+    await page.unroute(details);
+    const noticeEvents: string[] = [];
+    const loadedDetail = page.waitForResponse((response) => {
+      const matches = details(new URL(response.url())) && response.status() === 200;
+      if (matches) noticeEvents.push('详情成功');
+      return matches;
+    });
+    const startedAcknowledgement = page.waitForRequest((request) => {
+      const matches =
+        new URL(request.url()).pathname === acknowledgePath && request.method() === 'POST';
+      if (matches) noticeEvents.push('发出确认');
+      return matches;
+    });
+    const acknowledgedRequest = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === acknowledgePath &&
+        response.request().method() === 'POST',
+    );
+    await reminderItem.click();
+    await Promise.all([loadedDetail, startedAcknowledgement]);
+    assert.deepEqual(noticeEvents, ['详情成功', '发出确认']);
+    assert.equal((await acknowledgedRequest).status(), 204);
+    await until(async () => (await acknowledged()) instanceof Date);
+    await page
+      .getByRole('region', { name: '外部核实群聊', exact: true })
+      .getByRole('button', { name: '打开原对话', exact: true })
+      .click();
+    await page.getByText('收到核实结论及人工补充，继续核查页码与版本。', { exact: true }).waitFor();
     stage = '停止对话时连带停止外部核实';
     await createConversation(page, harness.projectId, 'read_only', '停止外部核实验收');
     const stoppedVerificationModel = harness.plan('consult_verification');
@@ -1061,7 +1152,8 @@ async function main() {
           (
             await harness.pool.query(
               `SELECT c.id FROM verification_link l JOIN external_model_conversation c ON c.id=l.room_id
-          WHERE l.run_id=$1 AND c.active_model IS NOT NULL`,
+          JOIN verification_wait w ON w.room_id=c.id
+          WHERE l.run_id=$1 AND c.active_model IS NOT NULL AND w.state='waiting'`,
               [requested.runId],
             )
           ).rowCount === 1,
@@ -1072,7 +1164,8 @@ async function main() {
           (
             await harness.pool.query(
               `SELECT c.id FROM verification_link l JOIN external_model_conversation c ON c.id=l.room_id
-          WHERE l.run_id=$1 AND c.stopped_by IS NOT NULL`,
+          JOIN verification_wait w ON w.room_id=c.id
+          WHERE l.run_id=$1 AND c.stopped_by IS NOT NULL AND w.state='cancelled'`,
               [requested.runId],
             )
           ).rowCount === 1,
@@ -1223,6 +1316,7 @@ async function main() {
             'verification_cursor_count_and_settings',
             'verification_realtime_stream_and_global_search',
             'review_verification_returns_evidence_to_origin',
+            'browser_review_decision_resumes_original_conversation',
             'agent_verification_waits_and_resumes_with_human_input',
             'stopping_conversation_stops_linked_verification',
             'cursor_unavailable_reaches_review_uncertainty',

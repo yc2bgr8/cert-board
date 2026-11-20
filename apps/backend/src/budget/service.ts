@@ -15,6 +15,12 @@ import {
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
+import { cancelGoalWaitTx, finishGoalWakeTx } from '../goals/goal-events.js';
+import {
+  cancelVerificationWaitsTx,
+  stopReviewVerificationTx,
+} from '../goals/verification-wakeups.js';
+import { stopRunVerifications } from '../runs/control.js';
 import {
   usdToNano,
   estimateCostNano,
@@ -261,15 +267,25 @@ async function stop(tx: PoolClient, runId: string, reason: string, global = fals
       "UPDATE budget_policy SET blocked_reason=COALESCE(blocked_reason,$1),version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id='default'",
       [reason],
     );
-  const affected = await tx.query<{ id: string }>(
-    "UPDATE run SET status='budget_exhausted',budget_stop_reason=$1,finished_at=COALESCE(finished_at,CURRENT_TIMESTAMP),version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND status IN ('running','waiting','queued') RETURNING id",
+  const affected = await tx.query<{ id: string; conversation_id: string; user_id: string }>(
+    "UPDATE run SET status='budget_exhausted',budget_stop_reason=$1,finished_at=COALESCE(finished_at,CURRENT_TIMESTAMP),version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND status IN ('running','waiting','queued') RETURNING id,conversation_id,user_id",
     [reason, runId],
   );
-  for (const row of affected.rows)
+  for (const row of affected.rows) {
+    await stopRunVerifications(tx, {
+      runId: row.id,
+      conversationId: row.conversation_id,
+      userId: row.user_id,
+    });
+    await cancelVerificationWaitsTx(tx, row.id, row.user_id);
+    await stopReviewVerificationTx(tx, row.id, row.conversation_id, row.user_id);
+    await cancelGoalWaitTx(tx, row.id);
+    await finishGoalWakeTx(tx, row.id, false);
     await tx.query(
       "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system',$1,'run',$2)",
       [`budget.stop_${reason}`, row.id],
     );
+  }
   return affected.rowCount ?? 0;
 }
 

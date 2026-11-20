@@ -85,7 +85,10 @@ export function toolSummary(name: string, data: unknown, isError: boolean): stri
   )
     return '网页操作未完成，已返回核实提示';
   if (name === 'consult_external_model') {
-    const result = z.object({ status: z.enum(['completed', 'unavailable']) }).safeParse(data);
+    const result = z
+      .object({ status: z.enum(['completed', 'waiting', 'unavailable']) })
+      .safeParse(data);
+    if (result.success && result.data.status === 'waiting') return '核实进行中，结论到达后继续';
     return result.success && result.data.status === 'unavailable'
       ? '核实暂不可用，继续核对项目资料'
       : '已取得外部核实结论';

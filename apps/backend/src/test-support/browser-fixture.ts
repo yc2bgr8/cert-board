@@ -23,6 +23,8 @@ export type BrowserScenario =
   | 'approval_text'
   | 'proposal'
   | 'external_quote'
+  | 'review_verification_resume'
+  | 'review_decision_resume'
   | 'consult_verification'
   | 'consult_verification_unavailable';
 export const browserModels: ModelGatewayConfig = {
@@ -92,6 +94,7 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
     toolNames: [] as string[][],
     latestUser: '',
     reviewVerificationReceived: false,
+    reviewSteeringCount: 0,
     readPage: 0,
     failed: false,
   };
@@ -141,10 +144,38 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
         }
         if (kind === 'external_quote')
           return response({ role: 'assistant', content: '已收到外部资料，待用项目资料核对。' });
+        if (kind === 'review_verification_resume') {
+          observed.reviewSteeringCount = request.messages.filter(
+            (message) =>
+              message.role === 'user' && /^等待中的合成消息 [0-9]+$/u.test(message.content),
+          ).length;
+          observed.reviewVerificationReceived = request.messages.some(
+            (message) =>
+              message.role === 'tool' &&
+              message.content.includes('合成核实资料') &&
+              message.content.includes('conclusionText'),
+          );
+          if (!observed.reviewVerificationReceived)
+            throw new Error('BROWSER_VERIFICATION_TOOL_RESULT_MISSING');
+          return response({ role: 'assistant', content: '审核卡核实结论已送达原对话。' });
+        }
+        if (kind === 'review_decision_resume') {
+          if (
+            !observed.latestUser.startsWith('系统续跑通知。审核卡 ') ||
+            !observed.latestUser.includes('已由人通过')
+          )
+            throw new Error('BROWSER_REVIEW_DECISION_NOTICE_MISSING');
+          return response({ role: 'assistant', content: '已收到审核通过通知。' });
+        }
         if (kind === 'consult_verification') {
           if (observed.calls === 1)
             return call('consult_external_model', { question: '核实合成清单中的版本编号要求。' });
-          if (!JSON.stringify(previous).includes('人工补充：检查页码与版本。'))
+          if (
+            !request.messages.some(
+              (message) =>
+                message.role === 'tool' && message.content.includes('人工补充：检查页码与版本。'),
+            )
+          )
             throw new Error('BROWSER_VERIFICATION_HUMAN_INPUT_MISSING');
           return response({
             role: 'assistant',

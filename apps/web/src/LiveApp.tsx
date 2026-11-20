@@ -112,6 +112,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const [view, setView] = useState<'project' | 'conversation' | 'inbox' | 'external'>('project');
   const [externalId, setExternalId] = useState<string | null>(null);
   const [externalDraft, setExternalDraft] = useState(0);
+  const [externalNotice, setExternalNotice] = useState<string | null>(null);
   const [tab, setTab] = useState<'conversation' | 'files' | 'documents'>('conversation');
   const [panels, setPanels] = useState<
     (PanelTarget & { key: number; trigger: HTMLElement | null })[]
@@ -384,6 +385,10 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     if (conversation.userId !== userId) setScope('department');
   };
   const openNotice = (item: MemberNotificationSnapshot['items'][number]) => {
+    if (item.verification) {
+      openVerification(item.verification.roomId, item.id);
+      return;
+    }
     if (item.kind === 'review') {
       openReview(item.id);
       return;
@@ -428,6 +433,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const openExternal = () => {
     setDialog(null);
     setPanels([]);
+    setExternalNotice(null);
     setView('external');
     setTab('conversation');
     setMobileOpen(false);
@@ -437,10 +443,11 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     setExternalId(null);
     setExternalDraft((currentDraft) => currentDraft + 1);
   };
-  const openVerification = (id: string) => {
+  const openVerification = (id: string, noticeId?: string) => {
     openExternal();
-    if (id !== externalId) {
+    if (noticeId || id !== externalId) {
       setExternalId(id);
+      setExternalNotice(noticeId ?? null);
       setExternalDraft((currentDraft) => currentDraft + 1);
     }
   };
@@ -620,6 +627,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               key={externalDraft}
               userId={userId}
               roomId={externalId}
+              notice={externalNotice ? { id: externalNotice, open: externalDraft } : null}
               onCreated={setExternalId}
               onOpenOrigin={(id) => {
                 void api

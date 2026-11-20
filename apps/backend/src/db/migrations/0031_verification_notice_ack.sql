@@ -1,0 +1,1 @@
+ALTER TABLE "verification_notice" ADD COLUMN "acknowledged_at" timestamp with time zone;

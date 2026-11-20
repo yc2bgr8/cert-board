@@ -29,6 +29,14 @@ import {
   finishAbandonedAgentRun,
 } from '../queue/agent-queue.js';
 import { listContinuationsForDispatch } from '../approvals/continuation.js';
+import {
+  advanceVerificationDeadlines,
+  listVerificationResumes,
+  scanReadyVerificationWaits,
+  scanReviewVerificationResults,
+  scanVerificationNotices,
+} from '../goals/verification-wakeups.js';
+import { scanGoalEvents, scanReviewDecisionEvents } from '../goals/goal-events.js';
 import { ModelGateway } from '../modelgw/service.js';
 import { executeAgentRun } from '../agent/runtime.js';
 import { buildAgentTools } from '../agent/default-tools.js';
@@ -299,7 +307,7 @@ export async function startBrowserHarness({ useVerificationWorker = false } = {}
     const queue = boss;
     await consumeAgentRuns(
       queue,
-      async (runId, signal, ticketId, queueExpiresAtMs) => {
+      async (runId, signal, ticketId, queueExpiresAtMs, verificationId) => {
         const controller = new AbortController();
         const abort = () => controller.abort();
         signal.addEventListener('abort', abort, { once: true });
@@ -321,7 +329,12 @@ export async function startBrowserHarness({ useVerificationWorker = false } = {}
               definitions: (code) => buildAgentTools(store, code, pool),
             },
             runId,
-            { signal: controller.signal, queueExpiresAtMs, ...(ticketId ? { ticketId } : {}) },
+            {
+              signal: controller.signal,
+              queueExpiresAtMs,
+              ...(ticketId ? { ticketId } : {}),
+              ...(verificationId ? { verificationId } : {}),
+            },
           );
         })();
         jobs.add(task);
@@ -334,21 +347,30 @@ export async function startBrowserHarness({ useVerificationWorker = false } = {}
         }
       },
       () => closing,
-      async (runId, ticketId) => {
+      async (runId, ticketId, verificationId) => {
         workerFailed = true;
         workerFailures.add('JOB');
-        await finishAbandonedAgentRun(pool, runId, true, ticketId);
+        await finishAbandonedAgentRun(pool, runId, true, ticketId, verificationId);
       },
     );
     const dispatch = async () => {
       const queued = (
         await pool.query<{ id: string }>(
-          "SELECT id FROM run WHERE status='queued' AND trigger_type='conversation' AND lease_generation=0 ORDER BY created_at,id LIMIT 20",
+          `SELECT id FROM run WHERE status='queued' AND trigger_type<>'evaluation' AND lease_generation=0
+           AND NOT EXISTS(SELECT 1 FROM verification_wait w WHERE w.run_id=run.id AND (w.state='queued' OR w.call_id IS NULL)) ORDER BY created_at,id LIMIT 20`,
         )
       ).rows;
       for (const run of queued) if (!closing) await enqueueAgentRun(queue, run.id);
       for (const ticket of await listContinuationsForDispatch(pool))
         if (!closing) await enqueueAgentRun(queue, ticket.runId, ticket.id);
+      await advanceVerificationDeadlines(pool);
+      await scanVerificationNotices(pool);
+      await scanReadyVerificationWaits(pool);
+      await scanReviewVerificationResults(pool);
+      await scanGoalEvents(pool);
+      await scanReviewDecisionEvents(pool);
+      for (const wait of await listVerificationResumes(pool))
+        if (!closing) await enqueueAgentRun(queue, wait.runId, undefined, wait.roomId);
     };
     timer = setInterval(() => {
       if (closing || dispatching) return;
