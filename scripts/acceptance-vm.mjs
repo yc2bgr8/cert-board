@@ -166,7 +166,10 @@ async function main() {
     if (configOnly) {
       if (
         changed.some(
-          (file) => !/^(?:AGENTS\.md$|\.github\/|docs\/|scripts\/acceptance-vm)/u.test(file),
+          (file) =>
+            !/^(?:AGENTS\.md$|\.github\/|docs\/|scripts\/(?:acceptance-vm\.mjs|egress\.test\.mjs)$)/u.test(
+              file,
+            ),
         )
       )
         throw new Error('配置专项仅用于验收制度、文档和虚拟机验收脚本。');
