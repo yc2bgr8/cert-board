@@ -1069,14 +1069,29 @@ async function main() {
       .getByRole('region', { name: '待我处理事项' })
       .getByRole('button', { name: /迟到的核实结论/u });
     const details = (url: URL) => url.pathname === `/api/verification/rooms/${reminder.room_id}`;
-    await page.route(
-      details,
-      (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }),
-      { times: 1 },
+    await page.route(details, (route) =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }),
     );
     await openInbox.click();
+    await reminderItem.waitFor();
+    const acknowledgePath = `/api/me/verification-notices/${reminder.id}/acknowledge`;
+    const failedDetail = page.waitForResponse(
+      (response) => details(new URL(response.url())) && response.status() === 503,
+    );
+    const earlyAcknowledgement = page
+      .waitForRequest(
+        (request) =>
+          new URL(request.url()).pathname === acknowledgePath && request.method() === 'POST',
+        { timeout: 700 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
     await reminderItem.click();
+    await failedDetail;
     await page.getByRole('region', { name: '外部核实群聊', exact: true }).waitFor();
+    assert.equal(await earlyAcknowledgement, false);
     const acknowledged = async () =>
       (
         await harness.pool.query('SELECT acknowledged_at FROM verification_notice WHERE id=$1', [
@@ -1085,7 +1100,29 @@ async function main() {
       ).rows[0]?.acknowledged_at;
     assert.equal(await acknowledged(), null);
     await openInbox.click();
+    await reminderItem.waitFor();
+    await page.unroute(details);
+    const noticeEvents: string[] = [];
+    const loadedDetail = page.waitForResponse((response) => {
+      const matches = details(new URL(response.url())) && response.status() === 200;
+      if (matches) noticeEvents.push('详情成功');
+      return matches;
+    });
+    const startedAcknowledgement = page.waitForRequest((request) => {
+      const matches =
+        new URL(request.url()).pathname === acknowledgePath && request.method() === 'POST';
+      if (matches) noticeEvents.push('发出确认');
+      return matches;
+    });
+    const acknowledgedRequest = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === acknowledgePath &&
+        response.request().method() === 'POST',
+    );
     await reminderItem.click();
+    await Promise.all([loadedDetail, startedAcknowledgement]);
+    assert.deepEqual(noticeEvents, ['详情成功', '发出确认']);
+    assert.equal((await acknowledgedRequest).status(), 204);
     await until(async () => (await acknowledged()) instanceof Date);
     await page
       .getByRole('region', { name: '外部核实群聊', exact: true })

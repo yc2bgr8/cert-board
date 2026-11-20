@@ -475,6 +475,7 @@ function Share({
 export function VerificationWorkbench({
   userId,
   roomId,
+  notice,
   projects,
   loadMoreProjects,
   onCreated,
@@ -482,6 +483,7 @@ export function VerificationWorkbench({
 }: ProjectSelection & {
   userId: string;
   roomId: string | null;
+  notice: { id: string; open: number } | null;
   onCreated(id: string): void;
   onOpenOrigin?(id: string): void;
 }) {
@@ -507,8 +509,9 @@ export function VerificationWorkbench({
     };
   }, []);
   const roomKey = verificationRoomKey(userId, roomId);
+  const noticeId = notice?.id;
   const history = useInfiniteQuery({
-    queryKey: roomKey,
+    queryKey: notice ? [...roomKey, 'notice', notice.id, notice.open] : roomKey,
     queryFn: ({ pageParam, signal }) => api.verificationRoom(roomId!, pageParam, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor,
@@ -521,6 +524,11 @@ export function VerificationWorkbench({
           ? 1200
           : 4000,
   });
+  const openedRoom = history.data?.pages[0]?.room.id;
+  useEffect(() => {
+    if (noticeId && openedRoom && openedRoom === roomId)
+      void api.acknowledgeVerificationNotice(noticeId).catch(() => undefined);
+  }, [noticeId, openedRoom, roomId]);
   useEffect(() => {
     if (!roomId || !globalThis.EventSource) return;
     const source = new EventSource(`/api/verification/rooms/${encodeURIComponent(roomId)}/events`);
