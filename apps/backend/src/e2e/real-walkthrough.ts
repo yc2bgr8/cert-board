@@ -10,6 +10,7 @@ import { developmentProjectId } from '../projects/seed.js';
 import { nanoToUsd } from '../budget/meter.js';
 import { createDependencies } from '../dependencies.js';
 import { BlobStore } from '../documents/blob-store.js';
+import { requiredRevisionSections, revisionSections } from './walkthrough-report.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
@@ -174,21 +175,6 @@ async function inspectSubmission(pool: pg.Pool, cardId: string, skill: 'R09' | '
     .changes.filter(({ afterSha256 }) => afterSha256 !== null);
 }
 
-function revisionSections(markdown: Buffer) {
-  const sections = new Map<string, string>();
-  let active: string | undefined;
-  for (const line of markdown.toString('utf8').split(/\r?\n/u)) {
-    const heading = /^ {0,3}#{1,6}\s+(.+)/u.exec(line);
-    if (heading) {
-      active = /^(核查范围|已核实|待核实)/u.exec(heading[1]!)?.[1];
-      continue;
-    }
-    const text = line.trim();
-    if (active && text) sections.set(active, `${sections.get(active) ?? ''}\n${text}`);
-  }
-  return sections;
-}
-
 async function verifyRevision(
   pool: pg.Pool,
   blobs: BlobStore,
@@ -213,7 +199,7 @@ async function verifyRevision(
   );
   assert.ok(
     reports.some(({ before, after }) =>
-      ['核查范围', '已核实', '待核实'].every(
+      requiredRevisionSections.every(
         (section) => after.has(section) && before.get(section) !== after.get(section),
       ),
     ),
