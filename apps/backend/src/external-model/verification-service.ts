@@ -11,6 +11,7 @@ import {
   verificationRoomSchema,
   verificationSettingsInputSchema,
   verificationSettingsSchema,
+  nanoAmountSchema,
   type BrowserIdentity,
   type ServiceIdentity,
   type VerificationClaim,
@@ -36,6 +37,7 @@ import {
 } from './verification-policy.js';
 import {
   channelFailureText,
+  defaultVerificationModelIds,
   moderatorSummarySchema,
   moderatorTurnSchema,
   verificationCatalog,
@@ -86,14 +88,16 @@ export const verificationWorkerStateId = '18ee6c88-011a-4e58-a207-3c5ec90700d0';
 const roomAbsent = () => new AppError(404, 'VERIFICATION_ROOM_MISSING', '未找到可访问的核实。');
 const hostName = (host: VerificationRoom['host']) =>
   host === 'maintenance' ? '维护Agent' : '注册Agent';
-const draftDefaults = (): VerificationSettingsInput => ({
+const draftDefaults = (catalog: readonly VerificationModel[]): VerificationSettingsInput => ({
   autoRounds: 7,
   waitMinutes: 60,
-  models: verificationCatalog.map(({ id, channel }) => ({
+  models: catalog.map(({ id, channel }) => ({
     id,
     channel,
     enabled: true,
-    defaultParticipant: true,
+    defaultParticipant: catalog.some(({ channel }) => channel === 'gateway')
+      ? defaultVerificationModelIds.some((selected) => selected === id)
+      : true,
   })),
 });
 
@@ -245,7 +249,21 @@ export class VerificationRooms {
       'SELECT auto_rounds AS "autoRounds",wait_minutes AS "waitMinutes",models FROM verification_preference WHERE id=$1',
       [preferencesId],
     );
-    return rows[0] ? verificationSettingsInputSchema.parse(rows[0]) : draftDefaults();
+    const defaults = draftDefaults(this.models);
+    if (!rows[0]) return defaults;
+    const saved = verificationSettingsInputSchema.parse(rows[0]);
+    const migrated = defaults.models.some(
+      ({ channel, id }) => channel === 'gateway' && !saved.models.some((row) => row.id === id),
+    );
+    return {
+      ...saved,
+      models: defaults.models.map((model) => {
+        const prior = saved.models.find(
+          ({ id, channel }) => id === model.id && channel === model.channel,
+        );
+        return prior && !migrated ? prior : model;
+      }),
+    };
   }
 
   private async channelStatus(db: Executor) {
@@ -257,6 +275,15 @@ export class VerificationRooms {
     );
     return rows[0] ? verificationChannelStatusSchema.parse(rows[0].status) : 'not_installed';
   }
+  private async gatewayAvailable(db: Executor) {
+    if (this.runtime) return this.runtime.gatewayReady === true;
+    const result = await db.query<{ gateway_ready: boolean }>(
+      `SELECT gateway_ready FROM verification_worker_state WHERE id=$1
+        AND updated_at>clock_timestamp()-interval '30 seconds'`,
+      [verificationWorkerStateId],
+    );
+    return result.rows[0]?.gateway_ready === true;
+  }
 
   async settings() {
     const { rows } = await this.pool.query<{ model: string; calls: number }>(
@@ -265,11 +292,20 @@ export class VerificationRooms {
          AND date_trunc('month',dispatched_at AT TIME ZONE 'Asia/Shanghai')=date_trunc('month',statement_timestamp() AT TIME ZONE 'Asia/Shanghai')
        GROUP BY model ORDER BY model`,
     );
+    const money = await this.pool.query<{ model: string; actualNano: string; unknown: number }>(
+      `SELECT model,COALESCE(sum(actual_nano),0)::text AS "actualNano",
+        count(*) FILTER(WHERE status='unknown')::int AS unknown FROM external_model_exchange
+        WHERE channel='gateway' AND dispatched_at IS NOT NULL
+        AND date_trunc('month',dispatched_at AT TIME ZONE 'Asia/Shanghai')=date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Shanghai')
+        GROUP BY model ORDER BY model`,
+    );
     return verificationSettingsSchema.parse({
       ...(await this.preferences(this.pool)),
       catalog: this.models,
       channelStatus: await this.channelStatus(this.pool),
+      gatewayReady: await this.gatewayAvailable(this.pool),
       usage: rows,
+      gatewayUsage: money.rows,
     });
   }
 
@@ -281,11 +317,16 @@ export class VerificationRooms {
         '需要管理权限才能修改外部模型设置。',
       );
     await db.query('SELECT pg_advisory_xact_lock(20261119,6)');
-    if (input.models.some(({ enabled, channel }) => enabled && channel !== 'cursor'))
+    if (
+      input.models.some(
+        ({ id, enabled, channel }) =>
+          enabled && !this.models.some((model) => model.id === id && model.channel === channel),
+      )
+    )
       throw new AppError(
         409,
         'VERIFICATION_CHANNEL_UNAVAILABLE',
-        '请先配置模型网关再启用这个通道。',
+        '所选模型没有这个通道。请使用模型目录中已配置的通道。',
       );
     const ids = input.models.map(({ id }) => id);
     if (
@@ -407,14 +448,19 @@ export class VerificationRooms {
     const source = origin ? await this.linkedSource(db, origin) : undefined;
     if (origin && !source) throw roomAbsent();
     const host = source?.agent_code ?? project?.projectType ?? 'registration';
+    const channelReady =
+      ((channel === 'ready' || channel === 'fixture') &&
+        participants.some(({ channel: kind }) => kind === 'cursor')) ||
+      (participants.some(({ channel: kind }) => kind === 'gateway') &&
+        (await this.gatewayAvailable(db)));
     const unavailable = source?.confidential
       ? '原对话含保密资料，当前无法自动核实。请用项目资料继续，并记录不确定事项。'
       : origin && !participants.length
         ? '核实群聊未配置默认模型。请在设置中核对后继续。'
-        : channel === 'ready' || channel === 'fixture'
+        : channelReady
           ? null
-          : channel === 'unavailable'
-            ? 'Cursor 通道暂不可用。'
+          : channel === 'unavailable' || channel === 'ready' || channel === 'fixture'
+            ? '默认核实通道暂不可用，请检查外部模型设置。'
             : channelFailureText[channel];
     const inserted = await db.query(
       `INSERT INTO external_model_conversation(id,user_id,title,project_id,host_agent,state,participants)
@@ -648,7 +694,12 @@ export class VerificationRooms {
       `UPDATE external_model_conversation SET human_joined=true,state=$2,
        stopped_by=CASE WHEN state='discussing' THEN stopped_by ELSE NULL END,
        conclusion=CASE WHEN state='discussing' THEN conclusion ELSE NULL END WHERE id=$1`,
-      [id, channel === 'ready' || channel === 'fixture' ? 'discussing' : 'paused'],
+      [
+        id,
+        channel === 'ready' || channel === 'fixture' || (await this.gatewayAvailable(db))
+          ? 'discussing'
+          : 'paused',
+      ],
     );
   }
 
@@ -663,7 +714,11 @@ export class VerificationRooms {
              AND p.position>c.last_handled_position
          ))
        ORDER BY c.updated_at LIMIT 8`,
-      [this.runtime.status === 'ready' || this.runtime.status === 'fixture'],
+      [
+        this.runtime.status === 'ready' ||
+          this.runtime.status === 'fixture' ||
+          this.runtime.gatewayReady === true,
+      ],
     );
     for (const { id } of rows) this.kick(id, onError);
   }
@@ -682,6 +737,15 @@ export class VerificationRooms {
             returned=CASE WHEN dispatched_at IS NULL THEN NULL ELSE '{"error":"worker_interrupted"}'::jsonb END,
             updated_at=clock_timestamp()
             WHERE conversation_id=$1 AND channel='cursor' AND status='reserved'`,
+          [id],
+        );
+        await db.query(
+          `UPDATE external_model_exchange SET
+             status=CASE WHEN dispatched_at IS NULL THEN 'not_sent'::external_model_exchange_status ELSE 'unknown'::external_model_exchange_status END,
+             actual_nano=CASE WHEN dispatched_at IS NULL THEN 0 ELSE NULL END,
+             returned=CASE WHEN dispatched_at IS NULL THEN NULL ELSE '{"error":"worker_interrupted"}'::jsonb END,
+             updated_at=clock_timestamp()
+           WHERE conversation_id=$1 AND channel='gateway' AND status='reserved'`,
           [id],
         );
         await this.append(db, id, {
@@ -959,7 +1023,12 @@ export class VerificationRooms {
       const work = await this.claim(id);
       if (!work) break;
       try {
-        if (runtime.kind === 'cursor' && runtime.status !== 'ready' && !work.room.stopUserId) {
+        if (
+          runtime.kind === 'cursor' &&
+          runtime.status !== 'ready' &&
+          !runtime.gatewayReady &&
+          !work.room.stopUserId
+        ) {
           await this.transaction(async (db) => {
             const current = await this.room(db, id, true);
             if (current.leaseId !== work.leaseId) return;
@@ -1103,7 +1172,7 @@ export class VerificationRooms {
         await this.release(db, id, work.leaseId);
         return null;
       }
-      if (model.channel !== 'cursor') {
+      if (model.channel === 'gateway' && !runtime.gatewayReady) {
         await this.append(db, id, {
           type: 'system',
           author: '系统',
@@ -1172,12 +1241,13 @@ export class VerificationRooms {
       await db.query(
         `INSERT INTO external_model_exchange(id,conversation_id,request_key,request_fingerprint,model,channel,
           original_text,search,sent,replacement_count,month_key,reserved_nano)
-         VALUES($1,$2,$1,$3,$4,'cursor',$5,false,$6,$7,$8,0)`,
+         VALUES($1,$2,$1,$3,$4,$5,$6,false,$7,$8,$9,0)`,
         [
           archiveId,
           id,
           requestFingerprint,
           model.id,
+          model.channel,
           work.room.title,
           archive,
           redacted.replacementCount,
@@ -1207,46 +1277,54 @@ export class VerificationRooms {
           'VERIFICATION_LOCAL_CHECK_REJECTED',
           '本地出网检查未通过，本次未发出。',
         );
-      const wire = await runtime.send(model, sent.prompt, async () => {
-        await this.transaction(async (db) => {
-          const current = await this.room(db, id, true);
-          await db.query('SELECT pg_advisory_xact_lock(20261119,6)');
-          const settings = await this.preferences(db);
-          if (
-            current.leaseId !== work.leaseId ||
-            current.stopUserId ||
-            (current.origin &&
-              (await this.linkedSource(db, current.origin))?.confidential !== false) ||
-            (runtime.status !== 'ready' && runtime.status !== 'fixture') ||
-            !settings.models.some(
-              ({ id, channel, enabled }) => id === model.id && channel === model.channel && enabled,
-            ) ||
-            !(
-              await db.query("SELECT id FROM app_user WHERE id=$1 AND status='active'", [
-                current.ownerId,
-              ])
-            ).rowCount
-          )
-            throw new AppError(409, 'VERIFICATION_DISPATCH_REVOKED', '本次派发已取消。');
-          const messages = sent.prompt.transcript.map(({ text }) => ({
-            role: 'user' as const,
-            content: text,
-          }));
-          const currentWords = (await this.protection.words(db)).map(({ phrase }) => phrase);
-          if (JSON.stringify(plannedWords) !== JSON.stringify(currentWords))
-            throw new AppError(409, 'VERIFICATION_WORDS_CHANGED', '保密词表有更新，请重新核实。');
-          const additional = redactExternalMessages(messages, currentWords);
-          if (additional.replacementCount > 0)
-            throw new AppError(409, 'VERIFICATION_WORDS_CHANGED', '保密词表有更新，请重新核实。');
-          await this.protection.checkConfidentialSources(db, messages);
-          await db.query(
-            `UPDATE external_model_exchange SET dispatched_at=clock_timestamp(),updated_at=clock_timestamp()
+      const wire = await runtime.send(
+        model,
+        sent.prompt,
+        async () => {
+          await this.transaction(async (db) => {
+            const current = await this.room(db, id, true);
+            await db.query('SELECT pg_advisory_xact_lock(20261119,6)');
+            const settings = await this.preferences(db);
+            if (
+              current.leaseId !== work.leaseId ||
+              current.stopUserId ||
+              (current.origin &&
+                (await this.linkedSource(db, current.origin))?.confidential !== false) ||
+              (model.channel === 'gateway'
+                ? !runtime.gatewayReady
+                : runtime.status !== 'ready' && runtime.status !== 'fixture') ||
+              !settings.models.some(
+                ({ id, channel, enabled }) =>
+                  id === model.id && channel === model.channel && enabled,
+              ) ||
+              !(
+                await db.query("SELECT id FROM app_user WHERE id=$1 AND status='active'", [
+                  current.ownerId,
+                ])
+              ).rowCount
+            )
+              throw new AppError(409, 'VERIFICATION_DISPATCH_REVOKED', '本次派发已取消。');
+            const messages = sent.prompt.transcript.map(({ text }) => ({
+              role: 'user' as const,
+              content: text,
+            }));
+            const currentWords = (await this.protection.words(db)).map(({ phrase }) => phrase);
+            if (JSON.stringify(plannedWords) !== JSON.stringify(currentWords))
+              throw new AppError(409, 'VERIFICATION_WORDS_CHANGED', '保密词表有更新，请重新核实。');
+            const additional = redactExternalMessages(messages, currentWords);
+            if (additional.replacementCount > 0)
+              throw new AppError(409, 'VERIFICATION_WORDS_CHANGED', '保密词表有更新，请重新核实。');
+            await this.protection.checkConfidentialSources(db, messages);
+            await db.query(
+              `UPDATE external_model_exchange SET dispatched_at=clock_timestamp(),updated_at=clock_timestamp()
              WHERE id=$1 AND status='reserved' AND dispatched_at IS NULL`,
-            [sent.archiveId],
-          );
-        });
-        dispatched = true;
-      });
+              [sent.archiveId],
+            );
+          });
+          dispatched = true;
+        },
+        { room: publicRoom(work.room), ownerId: work.room.ownerId },
+      );
       if (
         wire &&
         typeof wire === 'object' &&
@@ -1299,7 +1377,7 @@ export class VerificationRooms {
         round,
         ...(dispatched ? { archiveId: sent.archiveId } : {}),
         text: dispatched
-          ? `${model.label} 没有返回可展示的回复。${channelFailureText[state]}`
+          ? `${model.label} 没有返回可展示的回复。${model.channel === 'cursor' ? channelFailureText[state] : '请检查 OpenRouter 通道后重试。'}`
           : `${model.label} 的请求未发出。${reason}`,
       };
     }
@@ -1307,12 +1385,19 @@ export class VerificationRooms {
       const current = await this.room(db, id, true);
       if (current.leaseId !== work.leaseId) return;
       await db.query(
-        `UPDATE external_model_exchange SET status=$2,actual_nano=0,returned=$3,updated_at=clock_timestamp()
+        `UPDATE external_model_exchange SET status=$2,actual_nano=$4,returned=$3,updated_at=clock_timestamp()
          WHERE id=$1 AND status='reserved'`,
         [
           sent.archiveId,
-          dispatched ? 'settled' : 'not_sent',
+          dispatched
+            ? model.channel === 'cursor' || nanoAmountSchema.safeParse(raw?.costNano).success
+              ? 'settled'
+              : 'unknown'
+            : 'not_sent',
           raw === null ? null : JSON.stringify(raw),
+          !dispatched || model.channel === 'cursor'
+            ? '0'
+            : (nanoAmountSchema.safeParse(raw?.costNano).data ?? null),
         ],
       );
       await this.append(db, id, post);

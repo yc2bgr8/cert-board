@@ -8,6 +8,7 @@ import {
 } from '@cert-board/shared';
 import { createApp } from '../app.js';
 import { AppError } from '../api/errors.js';
+import { recoverAbandonedAgentRuns } from '../queue/agent-queue.js';
 import { createIntegrationContext } from '../test-support/context.js';
 import { verificationFixture } from '../test-support/verification-fixture.js';
 import { createVerificationModerator } from './verification-moderator.js';
@@ -356,6 +357,12 @@ test('主模型主持使用已有本人目标和主网关，先替换保密词�
       userId: review.userId,
       purpose: 'agent',
     });
+    const { runId } = caller as { runId: string };
+    await recoverAbandonedAgentRuns(context.pool);
+    const during = await context.pool.query('SELECT status,lease_owner FROM run WHERE id=$1', [
+      runId,
+    ]);
+    expect(during.rows[0]).toEqual({ status: 'running', lease_owner: expect.any(String) });
     return gatewayResponseSchema.parse({
       requestKey: randomUUID(),
       model: 'qwen-flash',

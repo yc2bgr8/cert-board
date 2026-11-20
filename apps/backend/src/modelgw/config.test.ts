@@ -17,7 +17,7 @@ const hosts = ['openrouter.ai'];
 describe('唯一YAML模型配置来源', () => {
   it('读出精确模型、价格、提供方和用途，不包含密钥值', () => {
     const config = parseModelGatewayConfig(source, hosts, 'test');
-    expect(config.models).toHaveLength(3);
+    expect(config.models).toHaveLength(5);
     const qwen = config.models.find(({ id }) => id === 'qwen-flash');
     expect(qwen).toMatchObject({
       id: 'qwen-flash',
@@ -44,16 +44,27 @@ describe('唯一YAML模型配置来源', () => {
     ).toBe(true);
   });
 
-  it('开发默认使用同代模拟模型，可切换 Qwen，配置本地内网端点后优先路由', () => {
+  it('开发默认使用零保留的旗舰，核实使用独立提供方，仍可切换 Qwen 或优先选本地', () => {
     const development = parseModelGatewayConfig(source, hosts, 'development');
-    expect(development.models[0]).toMatchObject({
+    expect(development.models.find(({ id }) => id === 'deepseek-local')).toMatchObject({
       transport: 'local',
       baseUrl: null,
       maxDataLevel: 'confidential',
     });
     expect(selectGatewayModel(development, 'agent')).toMatchObject({
-      id: 'deepseek-flash-1017',
-      provider: { only: ['deepinfra/fp8'], zdr: true, data_collection: 'deny' },
+      id: 'gpt-6.2-astra-pro',
+      upstreamModel: 'openai/gpt-6.2-astra-pro',
+      provider: { only: ['azure'], zdr: true, data_collection: 'deny', allow_fallbacks: false },
+    });
+    expect(selectGatewayModel(development, 'verification')).toMatchObject({
+      id: 'claude-opus-5.5-verification',
+      upstreamModel: 'anthropic/claude-opus-5.5',
+      provider: {
+        only: ['amazon-bedrock'],
+        zdr: true,
+        data_collection: 'deny',
+        allow_fallbacks: false,
+      },
     });
     const switched = parseModelGatewayConfig(source, hosts, 'development', {
       developmentModel: 'qwen-flash',

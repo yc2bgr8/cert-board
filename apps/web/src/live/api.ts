@@ -107,6 +107,7 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly requestId: string = code,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -115,7 +116,9 @@ export class ApiError extends Error {
 export const isStaleError = (error: unknown): error is ApiError =>
   error instanceof ApiError && error.status === 409;
 export const errorMessage = (error: unknown) =>
-  error instanceof ApiError ? error.message : '操作暂未完成，请稍后重试。';
+  error instanceof ApiError
+    ? `${error.message}（错误编号 ${error.requestId}）`
+    : '操作暂未完成，请稍后重试。（错误编号 CLIENT_ERROR）';
 export const createRequestKey = () => crypto.randomUUID();
 let csrfToken: string | null = null;
 let credentialGeneration = 0;
@@ -209,13 +212,21 @@ async function request<T>(
       response.status,
       failure.success ? failure.data.error.code : 'REQUEST_FAILED',
       failure.success ? failure.data.error.message : '请求未完成，请刷新状态后重试。',
+      failure.success
+        ? failure.data.error.requestId
+        : (response.headers.get('x-request-id') ?? 'REQUEST_FAILED'),
     );
   }
   if (!schema) return undefined as T;
   try {
     return schema.parse(await response.json());
   } catch {
-    throw new ApiError(502, 'RESPONSE_INVALID', '服务器返回的内容不完整，请刷新后重试。');
+    throw new ApiError(
+      502,
+      'RESPONSE_INVALID',
+      '服务器返回的内容不完整，请刷新后重试。',
+      response.headers.get('x-request-id') ?? 'RESPONSE_INVALID',
+    );
   }
 }
 const signalOption = (signal: AbortSignal | undefined) => (signal ? { signal } : {});

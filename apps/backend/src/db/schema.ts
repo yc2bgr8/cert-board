@@ -1841,6 +1841,7 @@ export const verificationWorkerState = pgTable('verification_worker_state', {
   id: uuid('id').primaryKey(),
   workerId: uuid('worker_id').notNull(),
   status: varchar('status', { length: 32 }).notNull(),
+  gatewayReady: boolean('gateway_ready').notNull().default(false),
   recheckAt: timestamp('recheck_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

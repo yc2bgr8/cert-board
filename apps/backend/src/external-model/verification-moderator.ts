@@ -3,6 +3,7 @@ import type { Pool } from 'pg';
 import type { VerificationMessage } from '@cert-board/shared';
 import { z } from 'zod';
 import type { ModelGateway } from '../modelgw/service.js';
+import { claimRunLease } from '../runs/lease.js';
 import { redactExternalMessages } from './policy.js';
 import type { ExternalModels } from './service.js';
 import {
@@ -25,6 +26,7 @@ export function createVerificationModerator(
     instructions: string,
     transcript: readonly Pick<VerificationMessage, 'type' | 'text'>[],
     localReviewModel?: string,
+    peer?: { modelId: string; beforeDispatch: () => Promise<void> },
   ) {
     if (!scope.room.projectId && !localReviewModel) return null;
     const { rows } = await database.query<{
@@ -57,15 +59,21 @@ export function createVerificationModerator(
     await policy.checkConfidentialSources(database, prepared.messages);
     const { rows: runs } = await database.query<{ id: string }>(
       `INSERT INTO run(conversation_id,user_id,project_id,goal_id,direction_version,trigger_type,status)
-       VALUES($1,$2,$3,$4,$5,'evaluation','running') RETURNING id`,
+       VALUES($1,$2,$3,$4,$5,'evaluation','queued') RETURNING id`,
       [context.id, context.user_id, context.project_id, context.goal_id, context.direction_version],
     );
     const runId = runs[0]!.id;
+    const lease = await claimRunLease(database, {
+      runId,
+      userId: context.user_id,
+      ownerId: randomUUID(),
+      ttlSeconds: 120,
+    });
     let completed = false;
     try {
       const response = await gateway.complete(
         {
-          ...(localReviewModel ? { model: localReviewModel } : {}),
+          ...(localReviewModel || peer ? { model: localReviewModel ?? peer!.modelId } : {}),
           messages: [
             {
               role: 'system',
@@ -80,7 +88,7 @@ export function createVerificationModerator(
               ),
             },
           ],
-          max_tokens: localReviewModel ? 96 : 768,
+          max_tokens: localReviewModel ? 96 : peer ? 4096 : 2048,
           tool_choice: 'none',
           stream: false,
         },
@@ -89,22 +97,28 @@ export function createVerificationModerator(
           runId,
           conversationId: context.id,
           userId: context.user_id,
-          purpose: 'agent',
+          purpose: peer ? 'verification' : 'agent',
         },
         AbortSignal.timeout(localReviewModel ? 20000 : 60000),
+        peer?.beforeDispatch,
       );
       if (response.message.tool_calls?.length || !response.message.content?.trim()) return null;
       completed = true;
-      return prepared.restore(response.message.content);
+      return {
+        text: prepared.restore(response.message.content),
+        costNano: response.usage?.costNano ?? null,
+      };
     } finally {
       await database.query(
-        "UPDATE run SET status=$2,finished_at=clock_timestamp() WHERE id=$1 AND status='running'",
-        [runId, completed ? 'completed' : 'failed'],
+        `UPDATE run SET status=$2,finished_at=clock_timestamp(),lease_owner=NULL,lease_expires_at=NULL,
+           version=version+1,updated_at=CURRENT_TIMESTAMP
+         WHERE id=$1 AND status='running' AND lease_owner=$3 AND lease_generation=$4`,
+        [runId, completed ? 'completed' : 'failed', lease.ownerId, lease.generation],
       );
     }
   }
 
-  function structured(text: string | null) {
+  function structured(text: string | null | undefined) {
     if (!text) return null;
     try {
       const clean = text
@@ -117,6 +131,26 @@ export function createVerificationModerator(
     }
   }
   return {
+    async peer(
+      scope: Scope,
+      prompt: VerificationPrompt,
+      modelId: string,
+      beforeDispatch: () => Promise<void>,
+    ) {
+      const reply = await ask(
+        scope,
+        prompt.instructions,
+        prompt.transcript.map(({ role, text }) => ({ type: 'human', text: `${role}：${text}` })),
+        undefined,
+        { modelId, beforeDispatch },
+      );
+      if (!reply) return null;
+      const archive = z.record(z.string(), z.unknown()).safeParse(structured(reply.text));
+      return {
+        ...(archive.success ? archive.data : { error: 'invalid_reply' }),
+        costNano: reply.costNano,
+      };
+    },
     async checkOutbound(scope: Scope, prompt: VerificationPrompt, localModelId: string) {
       const answer = await ask(
         scope,
@@ -127,13 +161,13 @@ export function createVerificationModerator(
       return z
         .object({ allowed: z.literal(true) })
         .strict()
-        .safeParse(structured(answer)).success;
+        .safeParse(structured(answer?.text)).success;
     },
     async moderate(context: ModeratorContext) {
       const choices = context.eligible.map(({ id }) => id).join('、') || '无';
       const instructions = `只返回 JSON。字段是 text（给群里的简短发言）、call（点名的模型编号或 null）、finish（是否已经足够核实）。可选模型：${choices}。人工点名主持人时直接回应，call 必须为 null。`;
       const parsed = moderatorTurnSchema.safeParse(
-        structured(await ask(context, instructions, context.transcript)),
+        structured((await ask(context, instructions, context.transcript))?.text),
       );
       if (!parsed.success) return null;
       return { ...parsed.data, ...(context.activeHuman?.mention === 'host' ? { call: null } : {}) };
@@ -141,21 +175,25 @@ export function createVerificationModerator(
     async summarize(context: ModeratorContext) {
       const parsed = moderatorSummarySchema.safeParse(
         structured(
-          await ask(
-            context,
-            '只返回 JSON。字段是 summary（结论开头的简短取舍）和 selections（键为讨论议题，值为主持人的取舍）。无出处的判断保留为待核实。不得添加新的事实、出处或行动指令。',
-            context.transcript,
-          ),
+          (
+            await ask(
+              context,
+              '只返回 JSON。字段是 summary（结论开头的简短取舍）和 selections（键为讨论议题，值为主持人的取舍）。无出处的判断保留为待核实。不得添加新的事实、出处或行动指令。',
+              context.transcript,
+            )
+          )?.text,
         ),
       );
       return parsed.success ? parsed.data : null;
     },
     async compact(posts: readonly VerificationMessage[], scope: Scope) {
-      const text = await ask(
-        scope,
-        '用纯文字将较早发言压缩为不超过 2000 字。保留各方观点和未核实事项。',
-        posts,
-      );
+      const text = (
+        await ask(
+          scope,
+          '用纯文字将较早发言压缩为不超过 2000 字。保留各方观点和未核实事项。',
+          posts,
+        )
+      )?.text;
       return text?.trim() && text.length <= 3800 ? text : null;
     },
   };

@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 import { z } from 'zod';
-import { parseBackendConfig, upstreamAssistantResponseSchema } from '@cert-board/shared';
+import {
+  parseBackendConfig,
+  selectGatewayModel,
+  upstreamAssistantResponseSchema,
+} from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { developmentProjectId, developmentGoalId } from '../projects/seed.js';
 import { getBudgetSummary } from '../budget/service.js';
@@ -20,9 +24,7 @@ async function main() {
       '真实连通性测试仅使用本地开发环境及持久账本。',
     );
   const config = await loadModelGatewayConfig({ environment: 'development' });
-  const model = config.models.find(
-    (item) => item.id === 'qwen-flash' && item.enabled && item.purposes.includes('evaluation'),
-  );
+  const model = selectGatewayModel(config, 'evaluation');
   if (!model || model.transport === 'local' || !process.env[model.apiKeyEnv])
     throw new AppError(403, 'REAL_TEST_CONFIG', '未配置可用测试模型或模型凭据。');
   const hosts = parseAllowedModelHosts(
@@ -149,7 +151,7 @@ async function main() {
     const result = await gateway.complete(
       {
         model: model.id,
-        max_tokens: 256,
+        max_tokens: Math.min(1024, model.maxOutputTokens),
         tool_choice: 'auto',
         messages: [
           {
@@ -202,7 +204,7 @@ async function main() {
       );
     passed = true;
     console.log(
-      `真实网关验收通过：${result.upstreamModel}返回指定工具调用；1次调用，本次${nanoToUsd(BigInt(result.usage.costNano))}美元。`,
+      `真实网关验收通过：${result.upstreamModel}返回指定工具调用。1 次调用，本次费用 ${result.usage?.costNano == null ? '待核账' : nanoToUsd(BigInt(result.usage.costNano)) + ' 美元'}。`,
     );
     const summary = await getBudgetSummary(pool);
     console.log(

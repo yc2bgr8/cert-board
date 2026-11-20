@@ -328,6 +328,7 @@ async function newProjectDialog() {
   return dialog;
 }
 beforeEach(() => {
+  window.history.replaceState(null, '', '/');
   vi.clearAllMocks();
   mocks.session.mockReturnValue(authenticated());
   mocks.login.mockResolvedValue(undefined);
@@ -356,6 +357,15 @@ beforeEach(() => {
     permissionVersion: 1,
     replayed: false,
   });
+});
+
+test('已登录用户可以从验收链接打开原对话', async () => {
+  window.history.replaceState(null, '', `/?conversation=${sharedId}`);
+  app();
+  await waitFor(() =>
+    expect(mocks.api.conversation).toHaveBeenCalledWith(sharedId, expect.anything()),
+  );
+  expect(new URL(window.location.href).searchParams.get('conversation')).toBe(sharedId);
 });
 afterEach(() => {
   cleanup();

@@ -1,0 +1,40 @@
+name: cert-board-preview
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg16
+    environment:
+      POSTGRES_DB: cert_board_lan
+      POSTGRES_USER: cert_board
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在.env.local配置开发数据库密码}
+    networks: [private]
+    volumes:
+      - preview_data:/var/lib/postgresql/data
+      - ./deploy/postgres/002-preview-databases.sql:/docker-entrypoint-initdb.d/002-preview-databases.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL','pg_isready -U cert_board -d cert_board_lan']
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    restart: unless-stopped
+  relay:
+    image: nginxinc/nginx-unprivileged:1.30.6-alpine3.24
+    entrypoint: ['nginx','-g','daemon off;']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [private,ingress]
+    ports: ['127.0.0.1:25435:5432']
+    volumes:
+      - ./deploy/relay/preview-postgres.conf:/etc/nginx/nginx.conf:ro
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=16m']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    restart: unless-stopped
+networks:
+  private:
+    internal: true
+  ingress:
+    driver: bridge
+volumes:
+  preview_data:

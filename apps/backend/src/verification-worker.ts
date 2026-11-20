@@ -64,6 +64,7 @@ async function start() {
     gateway,
     checker,
     selected?.transport === 'local' ? selected.id : undefined,
+    remoteProxy && models ? selectGatewayModel(models, 'verification')?.id : undefined,
   );
   let closed = false;
   function shutdown() {

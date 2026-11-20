@@ -23,6 +23,7 @@ export async function startVerificationWorker(
   gateway?: Pick<ModelGateway, 'complete'>,
   checkSources?: VerificationSourceChecker,
   localReviewModelId?: string,
+  peerModelId?: string,
 ) {
   const bundle = environment.CERT_CURSOR_BUNDLE;
   const profileDirectory = environment.CERT_CURSOR_PROFILE;
@@ -53,6 +54,7 @@ export async function startVerificationWorker(
       : undefined;
   const runtime: VerificationRuntime = {
     kind: 'cursor',
+    gatewayReady: Boolean(moderator && peerModelId),
     ...(checkSources ? { checkSources } : {}),
     ...(checkOutbound ? { checkOutbound } : {}),
     get status() {
@@ -94,7 +96,17 @@ export async function startVerificationWorker(
         .join('\n')
         .slice(-3800);
     },
-    async send(model, prompt, beforeDispatch) {
+    async send(model, prompt, beforeDispatch, scope) {
+      if (model.channel === 'gateway') {
+        if (
+          !moderator ||
+          !peerModelId ||
+          model.id !== 'claude-opus-5-5-gateway' ||
+          !scope?.room.projectId
+        )
+          throw new VerificationChannelError('failed', true);
+        return moderator.peer(scope, prompt, peerModelId, beforeDispatch);
+      }
       if (!config || !permitted || status !== 'ready')
         throw new VerificationChannelError(
           status === 'quota' || status === 'not_signed_in' || status === 'privacy_unverified'
@@ -151,9 +163,10 @@ export async function startVerificationWorker(
         await service.recoverWorkers();
       }
       await pool.query(
-        `INSERT INTO verification_worker_state(id,worker_id,status) VALUES($1,$2,$3)
-         ON CONFLICT(id) DO UPDATE SET worker_id=EXCLUDED.worker_id,status=EXCLUDED.status,updated_at=clock_timestamp()`,
-        [verificationWorkerStateId, workerId, status],
+        `INSERT INTO verification_worker_state(id,worker_id,status,gateway_ready) VALUES($1,$2,$3,$4)
+         ON CONFLICT(id) DO UPDATE SET worker_id=EXCLUDED.worker_id,status=EXCLUDED.status,
+         gateway_ready=EXCLUDED.gateway_ready,updated_at=clock_timestamp()`,
+        [verificationWorkerStateId, workerId, status, runtime.gatewayReady === true],
       );
       await service.wakeReady(warn);
     })()
@@ -170,7 +183,7 @@ export async function startVerificationWorker(
     await tick;
     await service.close();
     await pool.query(
-      "UPDATE verification_worker_state SET status='unavailable',updated_at=clock_timestamp() WHERE id=$1 AND worker_id=$2",
+      "UPDATE verification_worker_state SET status='unavailable',gateway_ready=false,updated_at=clock_timestamp() WHERE id=$1 AND worker_id=$2",
       [verificationWorkerStateId, workerId],
     );
   };

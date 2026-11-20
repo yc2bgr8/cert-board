@@ -63,6 +63,7 @@ import {
 } from '../approvals/continuation.js';
 import { createDraft, readDraftFile, readVersionFile } from '../workspace/service.js';
 import { recordCumulativeUsage, handoffBlockedBudgetRuns } from '../budget/service.js';
+import { enforceCostLimits } from '../budget/cost-policy.js';
 import {
   runAgentKernel,
   KernelToolError,
@@ -388,7 +389,7 @@ export async function executeAgentRun(
       await claimContinuationForLease(pool, reference);
       continuationLease = reference;
       const usage = await readRunUsage(pool, runId);
-      if (usage.costNano === null)
+      if (usage.costNano === null && enforceCostLimits(process.env.NODE_ENV ?? 'production'))
         throw new AppError(
           409,
           'CONTINUATION_USAGE_UNCERTAIN',
@@ -401,7 +402,7 @@ export async function executeAgentRun(
       claimedVerification = true;
       if (verification.callId) {
         const usage = await readRunUsage(pool, runId);
-        if (usage.costNano === null)
+        if (usage.costNano === null && enforceCostLimits(process.env.NODE_ENV ?? 'production'))
           throw new AppError(
             409,
             'VERIFICATION_USAGE_UNCERTAIN',
@@ -690,10 +691,14 @@ export async function executeAgentRun(
           event: {
             type: 'model_completed',
             requestId: requestKey,
-            inputTokens: response.usage.inputTokens,
-            outputTokens: response.usage.outputTokens,
-            totalTokens: response.usage.totalTokens,
-            costNano: response.usage.costNano,
+            ...(response.usage
+              ? {
+                  inputTokens: response.usage.inputTokens,
+                  outputTokens: response.usage.outputTokens,
+                  totalTokens: response.usage.totalTokens,
+                }
+              : {}),
+            costNano: response.usage?.costNano ?? null,
             dataLevel: response.dataLevel,
           },
         });

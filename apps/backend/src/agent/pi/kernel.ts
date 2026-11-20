@@ -38,18 +38,27 @@ const safeToolMessage = (error: KernelToolError) =>
 
 export async function runAgentKernel(options: AgentKernelOptions): Promise<AgentKernelResult> {
   const outputs: KernelMessage[] = [];
-  const usageByRequest = new Map<string, { totalTokens: number; costNano: string }>();
+  const usageByRequest = new Map<string, { totalTokens: number; costNano: string | null } | null>();
   const base = options.continuation?.initialUsage ?? { steps: 0, totalTokens: 0, costNano: '0' };
-  const usage = (): KernelUsage => ({
-    steps: base.steps + usageByRequest.size,
-    totalTokens: [...usageByRequest.values()].reduce(
-      (total, entry) => total + entry.totalTokens,
-      base.totalTokens,
-    ),
-    costNano: [...usageByRequest.values()]
-      .reduce((total, entry) => total + BigInt(entry.costNano), BigInt(base.costNano))
-      .toString(),
-  });
+  const usage = (): KernelUsage => {
+    const entries = [...usageByRequest.values()];
+    return {
+      steps: base.steps + entries.length,
+      totalTokens: entries.reduce(
+        (total, entry) => total + (entry?.totalTokens ?? 0),
+        base.totalTokens,
+      ),
+      costNano:
+        base.costNano === null || entries.some((entry) => entry?.costNano == null)
+          ? null
+          : entries
+              .reduce(
+                (total, entry) => total + BigInt(entry?.costNano ?? '0'),
+                BigInt(base.costNano),
+              )
+              .toString(),
+    };
+  };
   let terminal: KernelTerminal | undefined;
   let fatal: string | undefined;
   let notifiedWaiting = false;

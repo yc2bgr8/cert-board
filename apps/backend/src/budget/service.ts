@@ -15,6 +15,7 @@ import {
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
+import { enforceCostLimits } from './cost-policy.js';
 import { cancelGoalWaitTx, finishGoalWakeTx } from '../goals/goal-events.js';
 import {
   cancelVerificationWaitsTx,
@@ -319,6 +320,8 @@ export async function handoffBlockedBudgetRuns(pool: Pool) {
     }>("SELECT blocked_reason,environment,version FROM budget_policy WHERE id='default'");
     const configured = found.rows[0];
     if (!configured?.blocked_reason) return outcome;
+    if (!enforceCostLimits(configured.environment) && configured.blocked_reason !== 'manual_check')
+      return outcome;
     if (configured.environment !== (process.env.NODE_ENV ?? 'production')) {
       outcome.failed = 1;
       await recordHandoffFailure(pool);
@@ -486,10 +489,18 @@ export async function reserveUsage(pool: Pool, input: unknown): Promise<BudgetRe
         );
       return reservation(row);
     }
-    const unknown = await tx.query(
-      "SELECT 1 FROM usage_ledger WHERE policy_id='default' AND status='unknown' LIMIT 1",
-    );
-    if (configured.blocked_reason || unknown.rowCount) {
+    const limited = enforceCostLimits(configured.environment);
+    const unknown =
+      limited &&
+      (
+        await tx.query(
+          "SELECT 1 FROM usage_ledger WHERE policy_id='default' AND status='unknown' LIMIT 1",
+        )
+      ).rowCount;
+    if (
+      configured.blocked_reason === 'manual_check' ||
+      (limited && (configured.blocked_reason || unknown))
+    ) {
       await stop(tx, run.id, 'metering_incomplete');
       return new Rejection(
         fail(403, 'BUDGET_BLOCKED', '预算已冻结或存在未知费用，请负责人核对后再建立新运行。'),
@@ -527,28 +538,33 @@ export async function reserveUsage(pool: Pool, input: unknown): Promise<BudgetRe
     let reason: string | null = null;
     if (occupiedSteps >= Number(configured.max_steps)) reason = 'steps';
     else if (
+      limited &&
       tokenUse + BigInt(data.estimatedInputTokens) + BigInt(data.maxOutputTokens) >
-      BigInt(configured.max_tokens)
+        BigInt(configured.max_tokens)
     )
       reason = 'tokens';
     else if (
-      occupiedRunCost + estimated > BigInt(configured.run_limit_nano) ||
-      occupiedRunCost >= BigInt(configured.run_limit_nano)
+      limited &&
+      (occupiedRunCost + estimated > BigInt(configured.run_limit_nano) ||
+        occupiedRunCost >= BigInt(configured.run_limit_nano))
     )
       reason = 'run_limit';
     else if (
-      goalUsage.occupied + estimated > run.goalBudgetNano ||
-      goalUsage.occupied >= run.goalBudgetNano
+      limited &&
+      (goalUsage.occupied + estimated > run.goalBudgetNano ||
+        goalUsage.occupied >= run.goalBudgetNano)
     )
       reason = 'goal_limit';
     else if (
-      monthUsage.occupied + estimated > BigInt(configured.month_limit_nano) ||
-      monthUsage.occupied >= BigInt(configured.month_limit_nano)
+      limited &&
+      (monthUsage.occupied + estimated > BigInt(configured.month_limit_nano) ||
+        monthUsage.occupied >= BigInt(configured.month_limit_nano))
     )
       reason = 'month_limit';
     else if (
-      nightUsage.occupied + estimated > BigInt(configured.night_limit_nano) ||
-      nightUsage.occupied >= BigInt(configured.night_limit_nano)
+      limited &&
+      (nightUsage.occupied + estimated > BigInt(configured.night_limit_nano) ||
+        nightUsage.occupied >= BigInt(configured.night_limit_nano))
     )
       reason = 'night_limit';
     if (reason) {
@@ -557,7 +573,9 @@ export async function reserveUsage(pool: Pool, input: unknown): Promise<BudgetRe
         fail(
           403,
           'BUDGET_LIMIT_REACHED',
-          '本次请求将超过步数、token或费用上限，已停止并交回负责人；提高额度不会自动恢复运行。',
+          limited
+            ? '本次请求将超过步数、token或费用上限，已停止并交回负责人。请缩小任务后重新发起。'
+            : '本轮达到步数上限，已停止继续调用。请查看已完成的步骤，分成更小的任务后继续。',
         ),
       );
     }
@@ -584,8 +602,10 @@ export async function reserveUsage(pool: Pool, input: unknown): Promise<BudgetRe
     );
     const threshold = BigInt(configured.alert_percent);
     if (
-      (monthUsage.occupied + estimated) * 100n >= BigInt(configured.month_limit_nano) * threshold ||
-      (nightUsage.occupied + estimated) * 100n >= BigInt(configured.night_limit_nano) * threshold
+      limited &&
+      ((monthUsage.occupied + estimated) * 100n >=
+        BigInt(configured.month_limit_nano) * threshold ||
+        (nightUsage.occupied + estimated) * 100n >= BigInt(configured.night_limit_nano) * threshold)
     )
       await tx.query(
         "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system','budget.threshold_reached','usage_ledger',$1)",
@@ -655,9 +675,10 @@ export async function settleUsage(pool: Pool, input: unknown) {
       "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system','budget.settled','usage_ledger',$1)",
       [row.id],
     );
-    if (actual > BigInt(row.reserved_nano))
+    const limited = enforceCostLimits(configured.environment);
+    if (limited && actual > BigInt(row.reserved_nano))
       await stop(tx, row.run_id, 'reservation_exceeded', true);
-    else {
+    else if (limited) {
       const monthly = await totals(tx, 'month_key', row.month_key),
         night = await totals(tx, 'night_key', row.night_key);
       if (monthly.occupied >= BigInt(configured.month_limit_nano))
@@ -684,7 +705,7 @@ export async function markUsageIncomplete(pool: Pool, input: unknown) {
   if (!parsed.success) throw invalid();
   const data = parsed.data;
   return transaction(pool, async (tx) => {
-    await policy(tx);
+    const configured = await policy(tx);
     await runContext(tx, data, false);
     const row = await ledger(tx, data);
     if (row.status === 'settled' || row.status === 'not_sent')
@@ -694,7 +715,13 @@ export async function markUsageIncomplete(pool: Pool, input: unknown) {
         "UPDATE usage_ledger SET status='unknown',reason_code=$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2",
         [data.reasonCode, row.id],
       );
-    await stop(tx, row.run_id, 'metering_incomplete', true);
+    if (enforceCostLimits(configured.environment))
+      await stop(tx, row.run_id, 'metering_incomplete', true);
+    else if (row.status !== 'unknown')
+      await tx.query(
+        "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system','budget.usage_pending','usage_ledger',$1)",
+        [row.id],
+      );
     return { id: row.id, status: 'unknown' as const, reservedNano: row.reserved_nano };
   });
 }
@@ -724,9 +751,10 @@ export async function meteringCanResume(pool: Pool, ledgerIds: string[], environ
   const result = await pool.query<{ resolved: number }>(
     `SELECT COUNT(*)::integer AS resolved FROM usage_ledger u
      JOIN budget_policy p ON p.id=u.policy_id
-     WHERE p.id='default' AND p.environment=$2 AND p.blocked_reason IS NULL
+     WHERE p.id='default' AND p.environment=$2
+       AND (p.blocked_reason IS NULL OR (NOT $3 AND p.blocked_reason<>'manual_check'))
        AND u.id=ANY($1::uuid[]) AND u.status IN ('settled','not_sent')`,
-    [ledgerIds, environment],
+    [ledgerIds, environment, enforceCostLimits(environment)],
   );
   return result.rows[0]?.resolved === ledgerIds.length;
 }
@@ -878,11 +906,16 @@ export async function recordCumulativeUsage(pool: Pool, reference: unknown, snap
       'UPDATE run SET budget_steps=$1,budget_total_tokens=$2,budget_cost_nano=$3,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$4',
       [data.steps, data.totalTokens, data.costNano, run.id],
     );
-    const decision = evaluateCumulativeBudget(data, {
-      maxSteps: Number(configured.max_steps),
-      maxTokens: Number(configured.max_tokens),
-      maxCostNano: configured.run_limit_nano,
-    });
+    const decision = enforceCostLimits(configured.environment)
+      ? evaluateCumulativeBudget(data, {
+          maxSteps: Number(configured.max_steps),
+          maxTokens: Number(configured.max_tokens),
+          maxCostNano: configured.run_limit_nano,
+        })
+      : {
+          stop: data.steps >= Number(configured.max_steps),
+          reason: data.steps >= Number(configured.max_steps) ? ('steps' as const) : null,
+        };
     if (decision.stop)
       await stop(tx, run.id, decision.reason!, decision.reason === 'metering_incomplete');
     return {
@@ -934,9 +967,11 @@ export async function getBudgetSummary(pool: Pool) {
     [monthKey, configured.night_key],
   );
   const row = rows.rows[0]!;
+  const costLimitsEnforced = enforceCostLimits(configured.environment);
   return {
     monthKey,
     nightKey: configured.night_key,
+    costLimitsEnforced,
     runLimitNano: configured.run_limit_nano,
     monthLimitNano: configured.month_limit_nano,
     nightLimitNano: configured.night_limit_nano,
@@ -947,7 +982,10 @@ export async function getBudgetSummary(pool: Pool) {
     nightReservedNano: row.night_reserved,
     nightEstimatedNano: row.night_estimated,
     settledEstimatedCount: Number(row.settled_estimated),
-    blockedReason: configured.blocked_reason,
+    blockedReason:
+      costLimitsEnforced || configured.blocked_reason === 'manual_check'
+        ? configured.blocked_reason
+        : null,
     counts: {
       reserved: Number(row.reserved),
       settled: Number(row.settled),

@@ -1,0 +1,1 @@
+ALTER TABLE "verification_worker_state" ADD COLUMN "gateway_ready" boolean DEFAULT false NOT NULL;

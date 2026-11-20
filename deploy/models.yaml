@@ -1,7 +1,33 @@
-# 开发候选，未完成正式模型比选。仅文本；金额单位为 USD / 百万 token。
+# 开发期旗舰与保密本地路线。仅文本，金额单位为 USD / 百万 token。
 version: 1
-developmentDefault: deepseek-flash-1017
+developmentDefault: gpt-6.2-astra-pro
 models:
+  - id: gpt-6.2-astra-pro
+    developmentOnly: true
+    upstreamModel: openai/gpt-6.2-astra-pro
+    baseUrl: https://openrouter.ai/api/v1
+    apiKeyEnv: OPENROUTER_API_KEY
+    family: openai
+    enabled: true
+    accepted: false
+    purposes: [agent, evaluation, extraction, subagent, compression]
+    maxDataLevel: internal
+    contextLength: 1050000
+    maxOutputTokens: 16384
+    supportsImages: false
+    prices:
+      inputUsdPerMillion: '8'
+      cacheReadUsdPerMillion: '0.40'
+      outputUsdPerMillion: '40'
+    provider:
+      only: [azure]
+      allow_fallbacks: false
+      require_parameters: true
+      data_collection: deny
+      zdr: true
+    reasoning:
+      enabled: true
+      exclude: true
   - id: deepseek-local
     transport: local
     upstreamModel: deepseek-flash
@@ -20,6 +46,32 @@ models:
       outputUsdPerMillion: '0'
     reasoning:
       enabled: false
+  - id: claude-opus-5.5-verification
+    developmentOnly: true
+    upstreamModel: anthropic/claude-opus-5.5
+    baseUrl: https://openrouter.ai/api/v1
+    apiKeyEnv: OPENROUTER_API_KEY
+    family: anthropic
+    enabled: true
+    accepted: false
+    purposes: [verification]
+    maxDataLevel: internal
+    contextLength: 1000000
+    maxOutputTokens: 8192
+    supportsImages: false
+    prices:
+      inputUsdPerMillion: '4'
+      cacheReadUsdPerMillion: '0.20'
+      outputUsdPerMillion: '20'
+    provider:
+      only: [amazon-bedrock]
+      allow_fallbacks: false
+      require_parameters: true
+      data_collection: deny
+      zdr: true
+    reasoning:
+      enabled: true
+      exclude: true
   - id: deepseek-flash-1017
     developmentOnly: true
     upstreamModel: deepseek/deepseek-v4.1-flash-1017

@@ -1,12 +1,35 @@
 import { existsSync } from 'node:fs';
 import { ConfigurationError, parseBackendConfig } from '@cert-board/shared';
 import { createApp } from './app.js';
+import { AppError } from './api/errors.js';
+
+function installPreviewDrain(app: ReturnType<typeof createApp>) {
+  let draining = false;
+  const pending = new Set<string>();
+  app.addHook('onRequest', async (request) => {
+    if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS')
+      return;
+    if (draining) throw new AppError(503, 'PREVIEW_UPDATING', '预览正在切换版本，请稍后重试。');
+    pending.add(request.id);
+  });
+  app.addHook('onResponse', async (request) => {
+    pending.delete(request.id);
+  });
+  process.on('message', (message) => {
+    if (message === 'preview-resume') draining = false;
+    if (message === 'preview-drain') {
+      draining = true;
+      process.send?.({ type: 'preview-drain', pending: pending.size });
+    }
+  });
+}
 
 async function startApi() {
   const config = parseBackendConfig(process.env);
   if (config.HOST === '0.0.0.0' && !existsSync('/.dockerenv'))
     throw new Error('接口仅在 Docker 内部可监听容器网卡');
   const app = createApp(config);
+  if (config.WEB_ORIGIN === 'http://127.0.0.1:28380' && process.send) installPreviewDrain(app);
   let stopping = false;
   const stop = async () => {
     if (stopping) return;

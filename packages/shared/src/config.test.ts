@@ -104,3 +104,19 @@ test('隔离浏览器验收可用单独的回环端口，开发与生产继续�
     }),
   ).toThrow('WEB_ORIGIN');
 });
+
+test('Lan 预览只接受自己的数据库、存储桶和回环端口', () => {
+  const lan = {
+    ...environment,
+    NODE_ENV: 'development',
+    PORT: '28381',
+    WEB_ORIGIN: 'http://127.0.0.1:28380',
+    DATABASE_URL: 'postgresql://test:example@127.0.0.1:25435/cert_board_lan',
+    TEST_DATABASE_URL: 'postgresql://test:example@127.0.0.1:25435/cert_board_lan_test',
+    MINIO_BUCKET: 'cert-board-lan',
+  };
+  expect(parseBackendConfig(lan).WEB_ORIGIN).toBe(lan.WEB_ORIGIN);
+  expect(() => parseBackendConfig({ ...lan, DATABASE_URL: environment.DATABASE_URL })).toThrow();
+  expect(() => parseBackendConfig({ ...lan, MINIO_BUCKET: 'cert-board-walkthrough' })).toThrow();
+  expect(() => parseBackendConfig({ ...lan, PORT: '28281' })).toThrow();
+});

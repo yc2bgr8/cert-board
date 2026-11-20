@@ -98,6 +98,7 @@ function transport(result: unknown) {
   return { handler, calls: () => calls, body: () => body };
 }
 beforeEach(async () => {
+  vi.stubEnv('CERT_TEST_SHADOW_BUDGET', '1');
   context = await createIntegrationContext();
   await seedDevelopmentBudgetPolicy(context.pool, 'test');
   const run = await context.run();
@@ -255,7 +256,7 @@ test('配置模型和限价透传，工具调用保留，用量先结算且只�
   expect(result.model).toBe('fixture-model');
   expect(result.upstreamModel).toBe('fixture/upstream');
   expect(result.message.tool_calls?.[0]?.function.name).toBe('read_example');
-  expect(result.usage.costNano).toBe('1000000');
+  expect(result.usage?.costNano).toBe('1000000');
   expect(source.body()?.provider?.max_price).toEqual({ prompt: 10, completion: 20 });
   expect(source.body()?.provider?.allow_fallbacks).toBe(false);
   expect(source.body()?.reasoning?.enabled).toBe(false);
@@ -315,6 +316,24 @@ test('HTTP错误带数字字符串usage.cost也先结算，错误正文不回显
   expect((await getBudgetSummary(context.pool)).counts.unknown).toBe(0);
 });
 
+test('开发测试保留待核账记录，返回可用结果并允许继续请求', async () => {
+  vi.stubEnv('CERT_TEST_SHADOW_BUDGET', '0');
+  const source = transport(response({ usage: undefined }));
+  const gateway = new ModelGateway(context.pool, configuration, source.handler, {
+    environment: 'test',
+  });
+  const first = await gateway.complete(request, caller);
+  expect(first.usage).toBeNull();
+  expect(first.message.tool_calls).toHaveLength(1);
+  expect(source.body()?.provider?.max_price).toBeUndefined();
+  const second = await gateway.complete(request, { ...caller, requestKey: randomUUID() });
+  expect(second.usage).toBeNull();
+  expect(source.calls()).toBe(2);
+  const summary = await getBudgetSummary(context.pool);
+  expect(summary.counts.unknown).toBe(2);
+  expect(summary.blockedReason).toBeNull();
+});
+
 test('缺失用量保留全额预占并冻结，不会自动再次调用', async () => {
   const source = transport(response({ usage: undefined }));
   const gateway = new ModelGateway(context.pool, configuration, source.handler, {
@@ -349,9 +368,9 @@ test('无provider cost时使用完整usage和配置价格，缓存不是重复�
   const result = await new ModelGateway(context.pool, configuration, source.handler, {
     environment: 'test',
   }).complete(request, caller);
-  expect(result.usage.costNano).toBe('1100000');
-  expect(result.usage.totalTokens).toBe(110);
-  expect(result.usage.cacheReadTokens).toBe(20);
+  expect(result.usage?.costNano).toBe('1100000');
+  expect(result.usage?.totalTokens).toBe(110);
+  expect(result.usage?.cacheReadTokens).toBe(20);
 });
 
 test.each(['conversation', 'run', 'workspace', 'draft', 'document'])(

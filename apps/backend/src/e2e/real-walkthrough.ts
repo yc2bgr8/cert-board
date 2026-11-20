@@ -1,0 +1,352 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { setTimeout as wait } from 'node:timers/promises';
+import pg from 'pg';
+import { chromium, type Page } from 'playwright-core';
+import { parseBackendConfig } from '@cert-board/shared';
+import { developmentProjectId } from '../projects/seed.js';
+import { nanoToUsd } from '../budget/meter.js';
+
+const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
+const budgetOfWaiting = 16 * 60_000;
+let stage = '配置独立走查';
+
+async function installedBrowser() {
+  const candidates =
+    process.platform === 'win32'
+      ? [
+          'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+          'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+          'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        ]
+      : ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'];
+  for (const file of candidates)
+    if (
+      await access(file).then(
+        () => true,
+        () => false,
+      )
+    )
+      return file;
+  throw new Error('未找到 Chrome 或 Edge。');
+}
+
+async function freshConversation(
+  page: Page,
+  projectId: string,
+  title: string,
+  permissionMode: 'ask' | 'full',
+) {
+  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '新对话', exact: true });
+  await dialog.getByRole('textbox', { name: '对话标题', exact: true }).fill(title);
+  await dialog.getByRole('combobox', { name: '选择项目', exact: true }).selectOption(projectId);
+  await dialog
+    .getByRole('combobox', { name: '权限模式', exact: true })
+    .selectOption(permissionMode);
+  const created = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/api/projects/${projectId}/conversations`,
+  );
+  await dialog.getByRole('button', { name: '创建对话', exact: true }).click();
+  const response = await created;
+  assert.equal(response.status(), 200);
+  return ((await response.json()) as { conversation: { id: string } }).conversation.id;
+}
+
+async function send(page: Page, text: string, button = '发送') {
+  await page.getByRole('textbox', { name: '消息', exact: true }).fill(text);
+  const saved = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      /\/api\/conversations\/[^/]+\/(?:messages|answers)$/u.test(new URL(response.url()).pathname),
+  );
+  await page.getByRole('button', { name: button, exact: true }).click();
+  assert.equal((await saved).status(), 200);
+}
+
+async function waitForReview(
+  page: Page,
+  pool: pg.Pool,
+  conversationId: string,
+  expectedCount: number,
+) {
+  const until = Date.now() + budgetOfWaiting;
+  let lastAnswered: string | null = null;
+  while (Date.now() < until) {
+    const cards = (
+      await pool.query<{ id: string; status: string }>(
+        'SELECT id,status FROM review_card WHERE conversation_id=$1 ORDER BY created_at,id',
+        [conversationId],
+      )
+    ).rows;
+    if (cards.length >= expectedCount && cards.at(-1)?.status === 'pending') {
+      const next = page.getByRole('button', { name: '查看审核', exact: true }).last();
+      await next.waitFor({ timeout: 15000 });
+      return cards.at(-1)!.id;
+    }
+    const run = (
+      await pool.query<{ id: string; status: string }>(
+        'SELECT r.id,r.status FROM conversation c JOIN run r ON r.id=c.current_run_id WHERE c.id=$1',
+        [conversationId],
+      )
+    ).rows[0];
+    if (run && ['failed', 'stopped', 'budget_exhausted'].includes(run.status)) {
+      console.error(`${stage}出现运行错误。错误编号 ${run.id}`);
+      throw new Error('WALKTHROUGH_RUN_STOPPED');
+    }
+    const approval = page
+      .getByRole('region', { name: '批准请求', exact: true })
+      .getByRole('button', { name: '允许', exact: true });
+    if ((await approval.count()) === 1 && (await approval.isEnabled())) {
+      await approval.click();
+    } else {
+      const answer = page.getByRole('button', { name: '回复', exact: true });
+      if (run && run.id !== lastAnswered && (await answer.count()) === 1) {
+        await send(
+          page,
+          '没有额外证据。请把需要确认的事项写入审核卡，依据现有资料完成核查。',
+          '回复',
+        );
+        lastAnswered = run.id;
+      }
+    }
+    await wait(1100);
+  }
+  throw new Error('WALKTHROUGH_REVIEW_TIMEOUT');
+}
+
+async function review(page: Page, pool: pg.Pool, cardId: string, output: string, approve: boolean) {
+  await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
+  const card = page.getByRole('article', { name: '审核结果', exact: true });
+  await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
+  if (approve) {
+    await card.getByRole('button', { name: '通过', exact: true }).click();
+    await card.getByText('已通过，工作区版本已冻结。', { exact: true }).waitFor();
+    assert.equal(
+      (await pool.query('SELECT status FROM review_card WHERE id=$1', [cardId])).rows[0]?.status,
+      'approved',
+    );
+  }
+  await page.screenshot({ path: output });
+  await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
+}
+
+async function verifyTools(pool: pg.Pool, conversationId: string) {
+  const list = (
+    await pool.query<{ tool_name: string }>(
+      "SELECT DISTINCT tool_name FROM tool_invocation WHERE conversation_id=$1 AND status='completed'",
+      [conversationId],
+    )
+  ).rows.map(({ tool_name }) => tool_name);
+  for (const name of ['doc_read', 'skill_load', 'plan_update', 'check_run', 'submit_for_review'])
+    assert.ok(list.includes(name), name);
+  return list;
+}
+
+async function exerciseVerification(page: Page, pool: pg.Pool, evidenceFolder: string) {
+  await page.getByRole('button', { name: '外部模型', exact: true }).click();
+  const group = page.getByRole('region', { name: '外部核实群聊', exact: true });
+  const created = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/verification/rooms',
+  );
+  await group
+    .getByRole('textbox', { name: '核实问题', exact: true })
+    .fill(
+      '这是合成走查。两份虚构清单的同一个字段写法不一致，请各位说明核实记录应保留哪些来源字段。没有原文时标为待核实。请勿打开链接或采取对外行动。',
+    );
+  await group
+    .getByRole('combobox', { name: '关联项目', exact: true })
+    .selectOption(developmentProjectId);
+  await group.getByRole('button', { name: '发起核实', exact: true }).click();
+  const opened = await created;
+  assert.equal(opened.status(), 200);
+  const { id } = (await opened.json()) as { id: string };
+  let tested: { channel: string; model: string; status: string }[] = [];
+  const until = Date.now() + 7 * 60_000;
+  while (Date.now() < until) {
+    tested = (
+      await pool.query<{ channel: string; model: string; status: string }>(
+        `SELECT DISTINCT channel,model,status FROM external_model_exchange WHERE conversation_id=$1
+       AND dispatched_at IS NOT NULL AND status IN ('settled','unknown') AND returned->>'text' IS NOT NULL`,
+        [id],
+      )
+    ).rows;
+    if (
+      tested.some((item) => item.channel === 'cursor' && item.model === 'grok-4-7') &&
+      tested.some((item) => item.channel === 'gateway' && item.model === 'claude-opus-5-5-gateway')
+    )
+      break;
+    const status = await pool.query<{ state: string }>(
+      'SELECT state FROM external_model_conversation WHERE id=$1',
+      [id],
+    );
+    if (status.rows[0]?.state === 'completed') break;
+    await wait(1500);
+  }
+  assert.ok(tested.some((item) => item.channel === 'cursor' && item.model === 'grok-4-7'));
+  assert.ok(
+    tested.some((item) => item.channel === 'gateway' && item.model === 'claude-opus-5-5-gateway'),
+  );
+  const stop = group.getByRole('button', { name: '停止并整理', exact: true });
+  if ((await stop.count()) === 1 && (await stop.isEnabled())) await stop.click();
+  await group
+    .getByRole('complementary', { name: '核实结论', exact: true })
+    .waitFor({ timeout: 120000 });
+  await page.screenshot({ path: path.join(evidenceFolder, 'verification-v7.png') });
+  return { id, channels: tested };
+}
+
+async function main() {
+  const config = parseBackendConfig(process.env);
+  assert.equal(config.WEB_ORIGIN, 'http://127.0.0.1:28280');
+  const password = process.env.DEV_ZHANGSAN_PASSWORD;
+  const evidenceFolder = process.env.CERT_WALKTHROUGH_EVIDENCE_DIR;
+  const testedCommit = process.env.CERT_WALKTHROUGH_COMMIT;
+  if (!password || !evidenceFolder || !testedCommit) throw new Error('WALKTHROUGH_ENVIRONMENT');
+  const startedAt = new Date();
+  await mkdir(evidenceFolder, { recursive: true });
+  const pool = new pg.Pool({ connectionString: config.DATABASE_URL, max: 2 });
+  const browser = await chromium.launch({
+    executablePath: await installedBrowser(),
+    headless: true,
+  });
+  try {
+    const browserContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    let blocked = 0;
+    await browserContext.route('**/*', async (route) => {
+      const address = new URL(route.request().url());
+      if (['http:', 'https:'].includes(address.protocol) && address.origin !== config.WEB_ORIGIN) {
+        blocked++;
+        await route.abort();
+      } else await route.continue();
+    });
+    const page = await browserContext.newPage();
+    stage = '真实浏览器登录';
+    await page.goto(config.WEB_ORIGIN);
+    await page.getByRole('textbox', { name: '账号', exact: true }).fill('zhangsan');
+    await page.getByLabel('密码', { exact: true }).fill(password);
+    await page.getByRole('button', { name: '登录', exact: true }).click();
+    await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
+    if (
+      process.env.CERT_WALKTHROUGH_DIAGNOSTIC === '1' &&
+      process.env.CERT_WALKTHROUGH_VERIFICATION_ONLY === '1'
+    ) {
+      stage = '单独诊断 v7 的两条真实核实通道';
+      const verified = await exerciseVerification(page, pool, evidenceFolder);
+      await writeFile(
+        path.join(evidenceFolder, 'verification-result.json'),
+        JSON.stringify(verified, null, 2),
+        'utf8',
+      );
+      console.log(`核实通道诊断完成。记录在 ${evidenceFolder}。`);
+      return;
+    }
+    stage = '真实 R09 首次送审';
+    const registration = await freshConversation(page, developmentProjectId, 'R09 真实走查', 'ask');
+    await send(
+      page,
+      '请使用 R09 检查 L08 申报包中对比器械 K 号的写法，写入核查报告并提交审核。请逐页核对、引用两处原文，保留不确定事项。',
+    );
+    const original = await waitForReview(page, pool, registration, 1);
+    await review(page, pool, original, path.join(evidenceFolder, 'r09-first-review.png'), false);
+    stage = '真实 R09 修改重提和人工通过';
+    await send(
+      page,
+      '请在报告中补充本次资料核查的范围，明确区分已核实和待核实事项，保存后重新提交审核。',
+    );
+    const revised = await waitForReview(page, pool, registration, 2);
+    await review(page, pool, revised, path.join(evidenceFolder, 'r09-approved.png'), true);
+    const registrationTools = await verifyTools(pool, registration);
+
+    stage = '真实 M02 维护核查';
+    const maintenance = await freshConversation(page, maintenanceProjectId, 'M02 真实走查', 'full');
+    await send(
+      page,
+      '请使用 M02 核对三类合成年度注册档案，报告实际读取的记录、证据和待核实事项，保存并提交审核。',
+    );
+    const maintenanceReview = await waitForReview(page, pool, maintenance, 1);
+    await review(
+      page,
+      pool,
+      maintenanceReview,
+      path.join(evidenceFolder, 'm02-reviewed.png'),
+      true,
+    );
+    const maintenanceTools = await verifyTools(pool, maintenance);
+
+    let errorId: string | null = null;
+    let verification: Awaited<ReturnType<typeof exerciseVerification>> | null = null;
+    if (process.env.CERT_WALKTHROUGH_DIAGNOSTIC !== '1') {
+      stage = '真实核实验证 Cursor 与 OpenRouter 两条通道';
+      verification = await exerciseVerification(page, pool, evidenceFolder);
+      stage = '错误编号与日志关联';
+      await page.goto(`${config.WEB_ORIGIN}/?conversation=${randomUUID()}`);
+      const failure = page.getByRole('alert').filter({ hasText: /错误编号/u });
+      await failure.waitFor({ timeout: 20000 });
+      errorId = (await failure.textContent())?.match(/错误编号 ([0-9a-f-]{36})/iu)?.[1] ?? null;
+      assert.ok(errorId);
+      const log = await readFile(path.resolve('.local/preview/walkthrough/api.log'), 'utf8');
+      assert.ok(
+        log
+          .split(/\r?\n/u)
+          .some((line) => line.includes(errorId!) && line.includes('request_failed')),
+      );
+      await page.screenshot({ path: path.join(evidenceFolder, 'error-number.png') });
+    }
+    stage = '只读汇总真实模型与费用';
+    const settledUntil = Date.now() + 120000;
+    while (Date.now() < settledUntil) {
+      const active = await pool.query(
+        `SELECT 1 FROM run WHERE conversation_id=ANY($1::uuid[]) AND status IN ('queued','running') LIMIT 1`,
+        [[registration, maintenance]],
+      );
+      if (!active.rowCount) break;
+      await wait(1000);
+    }
+    const cost = (
+      await pool.query<{ model: string; paid: string; unknown: number; calls: number }>(
+        `SELECT model_id AS model,COALESCE(sum(actual_nano) FILTER(WHERE status='settled'),0)::text AS paid,
+       count(*) FILTER(WHERE status IN ('unknown','reserved'))::int AS unknown,count(*)::int AS calls
+       FROM usage_ledger WHERE created_at>=$1 GROUP BY model_id ORDER BY model_id`,
+        [startedAt],
+      )
+    ).rows;
+    assert.ok(cost.some(({ model }) => model === 'openai/gpt-6.2-astra-pro'));
+    assert.equal(blocked, 0);
+    const proof = {
+      status: 'passed',
+      commit: testedCommit,
+      errorId,
+      verification,
+      registration: {
+        url: `${config.WEB_ORIGIN}/?conversation=${registration}`,
+        tools: registrationTools,
+      },
+      maintenance: {
+        url: `${config.WEB_ORIGIN}/?conversation=${maintenance}`,
+        tools: maintenanceTools,
+      },
+      cost: cost.map(({ paid, ...row }) => ({ ...row, usd: nanoToUsd(BigInt(paid)) })),
+    };
+    await writeFile(
+      path.join(evidenceFolder, 'result.json'),
+      JSON.stringify(proof, null, 2),
+      'utf8',
+    );
+    console.log(`真实浏览器走查完成。记录在 ${evidenceFolder}。`);
+  } finally {
+    await browser.close();
+    await pool.end();
+  }
+}
+
+main().catch(() => {
+  console.error(`真实走查未通过。阶段为${stage}，原对话保留在独立走查环境中。`);
+  process.exitCode = 1;
+});
