@@ -49,14 +49,20 @@ export async function notifyRunStop(pool: Pool, runId: string, userId: string) {
 
 export async function stopRunVerifications(
   db: Database,
-  { runId, conversationId, userId }: { runId: string; conversationId: string; userId: string },
+  {
+    runId,
+    conversationId,
+    userId,
+    roomId,
+  }: { runId: string; conversationId: string; userId: string; roomId?: string },
 ) {
   await db.query(
     `UPDATE external_model_conversation c SET stopped_by=$3,state='discussing',updated_at=clock_timestamp()
      FROM verification_link l WHERE l.room_id=c.id AND l.kind='agent'
        AND l.run_id=$1 AND l.conversation_id=$2 AND l.requester=$3
+       AND ($4::uuid IS NULL OR c.id=$4)
        AND c.state<>'completed' AND c.stopped_by IS NULL`,
-    [runId, conversationId, userId],
+    [runId, conversationId, userId, roomId ?? null],
   );
 }
 

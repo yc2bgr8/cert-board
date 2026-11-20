@@ -299,7 +299,7 @@ export async function startBrowserHarness({ useVerificationWorker = false } = {}
     const queue = boss;
     await consumeAgentRuns(
       queue,
-      async (runId, signal, ticketId) => {
+      async (runId, signal, ticketId, queueExpiresAtMs) => {
         const controller = new AbortController();
         const abort = () => controller.abort();
         signal.addEventListener('abort', abort, { once: true });
@@ -321,7 +321,7 @@ export async function startBrowserHarness({ useVerificationWorker = false } = {}
               definitions: (code) => buildAgentTools(store, code, pool),
             },
             runId,
-            { signal: controller.signal, ...(ticketId ? { ticketId } : {}) },
+            { signal: controller.signal, queueExpiresAtMs, ...(ticketId ? { ticketId } : {}) },
           );
         })();
         jobs.add(task);

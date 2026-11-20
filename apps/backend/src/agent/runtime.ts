@@ -234,7 +234,7 @@ function containsPendingApproval(history: KernelMessage[], callId: string, appro
 export async function executeAgentRun(
   dependencies: AgentRuntimeDependencies,
   runId: string,
-  options: { signal?: AbortSignal; ticketId?: string } = {},
+  options: { signal?: AbortSignal; ticketId?: string; queueExpiresAtMs?: number } = {},
 ): Promise<AgentRunOutcome> {
   if (!['development', 'test'].includes(process.env.NODE_ENV ?? 'production'))
     throw new AppError(
@@ -596,6 +596,7 @@ export async function executeAgentRun(
                       { runId, conversationId: context.conversationId, userId: context.userId },
                       verificationTicketSchema.parse(result.data),
                       controller.signal,
+                      options.queueExpiresAtMs,
                     )
                   : result.data;
               const sandbox = runsSandbox ? codeRunReceiptSchema.parse(result.data) : undefined;
