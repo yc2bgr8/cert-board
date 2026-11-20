@@ -56,6 +56,7 @@ except PermissionError:
     pass
 data = Path("inputs/test.txt").read_text()
 Path("outputs/结果.txt").write_text("处理: " + data, encoding="utf-8")
+os.close(os.open("outputs/复制.txt", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o200))
 shutil.copy("inputs/test.txt", "outputs/复制.txt")
 subprocess.run(["python", "-c", "import pandas, pypdf, shutil; shutil.copy('inputs/test.txt', 'tmp/副本.txt')"], check=True)
 print("isolated")

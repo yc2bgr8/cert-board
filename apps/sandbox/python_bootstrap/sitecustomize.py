@@ -10,10 +10,13 @@ def chmod(path, mode, *, dir_fd=None, follow_symlinks=True):
             raise ValueError("descriptor chmod does not accept path options")
         os.fchmod(path, mode)
         return
-    flags = os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC
+    flags = os.O_NONBLOCK | os.O_CLOEXEC
     if not follow_symlinks:
         flags |= os.O_NOFOLLOW
-    descriptor = os.open(path, flags, dir_fd=dir_fd)
+    try:
+        descriptor = os.open(path, os.O_RDONLY | flags, dir_fd=dir_fd)
+    except PermissionError:
+        descriptor = os.open(path, os.O_WRONLY | flags, dir_fd=dir_fd)
     try:
         os.fchmod(descriptor, mode)
     finally:
