@@ -298,6 +298,31 @@ test('通道就绪时也暂停关联保密对话的自动核实', async () => {
   expect((await context.pool.query('SELECT id FROM external_model_exchange')).rowCount).toBe(0);
 });
 
+test('队列剩余时间不足时停止等待，给原运行留下继续处理的时间', async () => {
+  await ready();
+  const { run, ticket } = await request('full');
+  expect(ticket.status).toBe('waiting');
+
+  const result = await awaitLinkedVerification(
+    context.pool,
+    run,
+    ticket,
+    new AbortController().signal,
+    Date.now() + 60_100,
+  );
+  expect(result).toMatchObject({
+    status: 'unavailable',
+    reason: expect.stringContaining('剩余时间'),
+  });
+  const room = await context.pool.query(
+    'SELECT stopped_by FROM external_model_conversation WHERE id=$1',
+    [ticket.roomId],
+  );
+  expect(room.rows[0]?.stopped_by).toBe(run.userId);
+  const parent = await context.pool.query('SELECT status FROM run WHERE id=$1', [run.runId]);
+  expect(parent.rows[0]?.status).toBe('running');
+});
+
 test('未绑定项目时采用原对话选择的维护 Agent', async () => {
   const userId = context.userId('MEMBER_A');
   const conversationId = (

@@ -54,35 +54,44 @@ export async function enqueueAgentRun(boss: PgBoss, runId: string, ticketId?: st
 
 export async function consumeAgentRuns(
   boss: PgBoss,
-  handler: (runId: string, signal: AbortSignal, ticketId?: string) => Promise<void>,
+  handler: (
+    runId: string,
+    signal: AbortSignal,
+    ticketId: string | undefined,
+    expiresAtMs: number,
+  ) => Promise<void>,
   closing: () => boolean,
   onFailure?: (runId: string, ticketId?: string) => Promise<void>,
 ) {
-  return boss.work<AgentJob>(
-    AGENT_QUEUE,
-    { batchSize: 1, localConcurrency: 1, pollingIntervalSeconds: 1 },
-    async (jobs) => {
-      for (const job of jobs) {
-        const parsed = jobSchema.safeParse(job.data);
-        const data =
-          parsed.success && job.id === (parsed.data.ticketId ?? parsed.data.runId)
-            ? parsed.data
-            : null;
-        try {
-          if (!data) throw new Error('INVALID_AGENT_JOB');
-          if (closing() || job.signal.aborted) throw new Error('AGENT_WORKER_CLOSING');
-          await handler(data.runId, job.signal, data.ticketId);
-          if (job.signal.aborted) throw new Error('AGENT_JOB_ABORTED');
-        } catch {
-          if (data) await onFailure?.(data.runId, data.ticketId).catch(() => undefined);
-          const error = new Error('AGENT_JOB_FAILED');
-          delete error.stack;
-          throw error;
-        }
-        // 队列只存运行和续跑票据编号，回执正文保存在私有对话中。
+  const workOptions = {
+    batchSize: 1,
+    localConcurrency: 1,
+    pollingIntervalSeconds: 1,
+    includeMetadata: true,
+  } as const;
+  return boss.work<AgentJob, void, typeof workOptions>(AGENT_QUEUE, workOptions, async (jobs) => {
+    for (const job of jobs) {
+      const parsed = jobSchema.safeParse(job.data);
+      const data =
+        parsed.success && job.id === (parsed.data.ticketId ?? parsed.data.runId)
+          ? parsed.data
+          : null;
+      try {
+        if (!data) throw new Error('INVALID_AGENT_JOB');
+        if (closing() || job.signal.aborted) throw new Error('AGENT_WORKER_CLOSING');
+        const expiresAtMs = job.startedOn.getTime() + job.expireInSeconds * 1000;
+        if (!Number.isSafeInteger(expiresAtMs)) throw new Error('INVALID_AGENT_JOB_DEADLINE');
+        await handler(data.runId, job.signal, data.ticketId, expiresAtMs);
+        if (job.signal.aborted) throw new Error('AGENT_JOB_ABORTED');
+      } catch {
+        if (data) await onFailure?.(data.runId, data.ticketId).catch(() => undefined);
+        const error = new Error('AGENT_JOB_FAILED');
+        delete error.stack;
+        throw error;
       }
-    },
-  );
+      // 队列只存运行和续跑票据编号，回执正文保存在私有对话中。
+    }
+  });
 }
 
 export async function finishAbandonedAgentRun(

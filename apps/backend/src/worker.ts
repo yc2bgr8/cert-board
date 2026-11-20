@@ -212,7 +212,7 @@ export async function startWorker() {
     process.once('SIGTERM', onSignal);
     registration = consumeAgentRuns(
       queue,
-      async (runId, jobSignal, ticketId) => {
+      async (runId, jobSignal, ticketId, queueExpiresAtMs) => {
         if (active.has(runId)) return;
         const controller = new AbortController();
         const abort = () => controller.abort();
@@ -239,7 +239,7 @@ export async function startWorker() {
             const result = await executeAgentRun(
               { pool: resources.database, store, gateway, models, definitions },
               runId,
-              { signal: controller.signal, ...(ticketId ? { ticketId } : {}) },
+              { signal: controller.signal, queueExpiresAtMs, ...(ticketId ? { ticketId } : {}) },
             );
             if (result.status === 'queued') throw new Error('run_not_started');
             const recovered =

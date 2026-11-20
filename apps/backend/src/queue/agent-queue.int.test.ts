@@ -76,10 +76,12 @@ test('真实pg-boss建队列、同run只入队一次，消费不保存handler正
   ]);
   expect(ids.filter(Boolean)).toHaveLength(1);
   let calls = 0;
+  let receivedDeadline: number | undefined;
   await consumeAgentRuns(
     source,
-    async (runId) => {
+    async (runId, _signal, _ticket, expiresAtMs) => {
       expect(runId).toBe(run.runId);
+      receivedDeadline = expiresAtMs;
       calls++;
       return { body: 'SYNTHETIC_PRIVATE_JOB_OUTPUT' } as never;
     },
@@ -89,6 +91,7 @@ test('真实pg-boss建队列、同run只入队一次，消费不保存handler正
   expect(job.state).toBe('completed');
   expect(job.data).toEqual({ runId: run.runId });
   expect(job.output == null).toBe(true);
+  expect(receivedDeadline).toBe(job.startedOn.getTime() + job.expireInSeconds * 1000);
   expect(calls).toBe(1);
 });
 
