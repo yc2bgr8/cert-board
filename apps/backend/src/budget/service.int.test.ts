@@ -115,6 +115,30 @@ test('实际缓存用量精确结算，重复回执和Pi累计快照不会重复
   expect(summary.nightReservedNano).toBe('0');
 });
 
+test('并行子任务的预占也占用父运行步数，尚未汇报的步数不能多派发', async () => {
+  await context.pool.query("UPDATE budget_policy SET max_steps=2 WHERE id='default'");
+  const input = await request({ estimatedInputTokens: 10, maxOutputTokens: 5 });
+  await reserveUsage(context.pool, input);
+  const requests = await Promise.allSettled(
+    ['alpha', 'beta'].map(() =>
+      reserveUsage(context.pool, {
+        ...input,
+        requestKey: randomUUID(),
+        purpose: 'subagent',
+      }),
+    ),
+  );
+  expect(requests.filter((reply) => reply.status === 'fulfilled')).toHaveLength(1);
+  expect(requests.find((reply) => reply.status === 'rejected')).toMatchObject({
+    reason: { code: 'BUDGET_LIMIT_REACHED' },
+  });
+  const admitted = await context.pool.query(
+    'SELECT count(*)::int AS count FROM usage_ledger WHERE run_id=$1',
+    [input.runId],
+  );
+  expect(admitted.rows[0]?.count).toBe(2);
+});
+
 test('目标累计预算的并发请求不能同时越过共享额度', async () => {
   await context.pool.query('UPDATE goal SET budget_usd=1 WHERE id=$1', [context.goalId]);
   const rate = {

@@ -585,15 +585,23 @@ async function main() {
       .waitFor();
     await captureWorkbench(page, output, 'pr-u4-08-files.png');
     await file.getByRole('button', { name: '关闭右栏', exact: true }).click();
-    stage = '新版资料与导入状态';
+    stage = '打开项目资料';
     await page.getByRole('button', { name: '资料', exact: true }).click();
     const documents = page.getByRole('region', { name: '项目资料', exact: true });
     const documentLink = documents.getByRole('button', {
       name: '打开资料：510(k) summary.pdf',
       exact: true,
     });
+    stage = '项目资料列表中的样本文件';
     await documentLink.waitFor();
-    await documents.getByText('尚未接入', { exact: true }).waitFor();
+    stage = '项目资料的 ZIP 与目录输入';
+    await documents.getByLabel('选择 ZIP 资料包', { exact: true }).waitFor({ state: 'attached' });
+    await documents.getByLabel('选择资料目录', { exact: true }).waitFor({ state: 'attached' });
+    assert.equal(
+      await documents.getByRole('button', { name: '导入资料包', exact: true }).isDisabled(),
+      true,
+    );
+    stage = '从资料列表打开样本原文';
     await captureWorkbench(page, output, 'pr-u4-09-documents.png');
     await documentLink.click();
     const evidence = page.getByRole('complementary', { name: '原文依据', exact: true });

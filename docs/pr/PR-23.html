@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-23 子 Agent、插话与上下文压缩</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#验收">验收</a><a class="level-2" href="#本次边界">本次边界</a></nav><main><h1 id="pr-23-子-agent-插话与上下文压缩">PR-23 子 Agent、插话与上下文压缩</h1>
+<ul><li>并行子任务使用同一 Pi 内核和父运行的模型网关账本。只开放显式登记的读取工具，草稿经回执交给父 Agent。引用须与本子任务成功读取的原文匹配。</li><li>同字段陈述有分歧时暂停写入并向发起人提问。资料版本不一致时，相关子任务先重新读取最新可读版，再核对结论。未完成范围在结果中列出。</li><li>对话过长时，经网关的压缩用途整理早期历史。最新的用户请求、近期轮次、已确认的项目说明与原有聊天记录都保留。插话沿用 Pi 轮次钩子，把新消息在当前工具结束后交给下一步。</li></ul>
+<h2 id="验收">验收</h2>
+<table><thead><tr><th>场景</th><th>方法</th></tr></thead><tbody><tr><td>多个子任务真的能并行，且共用账本</td><td>剧本模型在收到多个子任务请求后才放行，检查父运行和子任务的累计用量</td></tr><tr><td>子任务越权与父运行分歧保护</td><td>子任务尝试业务写入时拒绝，冲突同时生成的父 Agent 写入没有登记，原对话收到提问事件</td></tr><tr><td>引证版本变化</td><td>两个任务读同一资料不同版本后，分别重读最新版并核对逐字引文</td></tr><tr><td>预占步数</td><td>同父运行的并发请求不会越过步数上限</td></tr><tr><td>压缩与插话</td><td>剧本模型长历史、项目决定、真实原始消息计数与运行中插话回归</td></tr></tbody></table>
+<p>旧浏览器回归仍在查找资料导入的「尚未接入」占位。PR-19 已接入 ZIP 和目录导入。本次改为核对两个输入，且在选择资料前导入按钮不可用。原有证据入口及其余断言照常验收。</p>
+<h2 id="本次边界">本次边界</h2>
+<ul><li>早期摘要为当轮上下文，尚未保存独立摘要检查点。现可压缩最多 600 条历史。继续扩展及轮中压缩见<a href="../待办.html">待办</a>。</li><li>子任务交回草稿，写入工作副本由父 Agent 通过登记工具完成。运行详情的子任务可视化随相关界面接入。</li><li>仅使用剧本及合成资料，真实模型测试费用为 0 美元。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

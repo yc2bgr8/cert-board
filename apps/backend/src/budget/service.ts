@@ -365,12 +365,16 @@ async function totals(
     tokens: string;
     settled_tokens: string;
     reserved_tokens: string;
+    settled_steps: string;
+    reserved_steps: string;
   }>(
     `SELECT COALESCE(SUM(CASE WHEN status='settled' THEN actual_nano ELSE 0 END),0)::text AS charged,
     COALESCE(SUM(CASE WHEN status IN ('reserved','unknown') THEN reserved_nano ELSE 0 END),0)::text AS reserved,
     COALESCE(SUM(CASE WHEN status='settled' THEN COALESCE(input_tokens+output_tokens,estimated_input_tokens+max_output_tokens) WHEN status IN ('reserved','unknown') THEN estimated_input_tokens+max_output_tokens ELSE 0 END),0)::text AS tokens,
     COALESCE(SUM(CASE WHEN status='settled' THEN COALESCE(input_tokens+output_tokens,estimated_input_tokens+max_output_tokens) ELSE 0 END),0)::text AS settled_tokens,
-    COALESCE(SUM(CASE WHEN status IN ('reserved','unknown') THEN estimated_input_tokens+max_output_tokens ELSE 0 END),0)::text AS reserved_tokens
+    COALESCE(SUM(CASE WHEN status IN ('reserved','unknown') THEN estimated_input_tokens+max_output_tokens ELSE 0 END),0)::text AS reserved_tokens,
+    COUNT(*) FILTER(WHERE status='settled')::text AS settled_steps,
+    COUNT(*) FILTER(WHERE status IN ('reserved','unknown'))::text AS reserved_steps
     FROM usage_ledger WHERE policy_id='default' AND ${column}=$1`,
     [value],
   );
@@ -381,6 +385,8 @@ async function totals(
     tokens: BigInt(row.tokens),
     settledTokens: BigInt(row.settled_tokens),
     reservedTokens: BigInt(row.reserved_tokens),
+    settledSteps: Number(row.settled_steps),
+    reservedSteps: Number(row.reserved_steps),
     occupied: BigInt(row.charged) + BigInt(row.reserved),
   };
 }
@@ -500,8 +506,10 @@ export async function reserveUsage(pool: Pool, input: unknown): Promise<BudgetRe
     const snapshotCost = BigInt(run.budget_cost_nano ?? '0');
     const occupiedRunCost =
       (snapshotCost > runUsage.charged ? snapshotCost : runUsage.charged) + runUsage.reserved;
+    const occupiedSteps =
+      Math.max(Number(run.budget_steps), runUsage.settledSteps) + runUsage.reservedSteps;
     let reason: string | null = null;
-    if (Number(run.budget_steps) >= Number(configured.max_steps)) reason = 'steps';
+    if (occupiedSteps >= Number(configured.max_steps)) reason = 'steps';
     else if (
       tokenUse + BigInt(data.estimatedInputTokens) + BigInt(data.maxOutputTokens) >
       BigInt(configured.max_tokens)
