@@ -3,9 +3,9 @@ import { AppError } from '../api/errors.js';
 import type { RuntimeModelConfig } from '@cert-board/shared';
 import type { AgentKernelOptions, KernelMessage } from './pi/index.js';
 
-const maximumMessages = 180;
+const maximumMessages = 200;
 const applicationLimit = 196_608;
-const summaryLimit = 6000;
+const summaryLimit = 3000;
 const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value), 'utf8');
 const historyTooLong = () =>
   new AppError(
@@ -31,31 +31,43 @@ export async function compactAgentHistory(input: {
   );
   if (maxBytes < 1024 || bytes(current) >= maxBytes) throw historyTooLong();
   const full = [...history, ...current];
-  if (full.length < 90 && bytes(full) <= maxBytes * 0.75) return history;
+  const fullBytes = bytes(full);
+  const originalFits = full.length <= maximumMessages && fullBytes <= maxBytes;
+  if (full.length < 90 && fullBytes <= maxBytes * 0.75) return history;
   const candidates = history.flatMap((message, index) =>
     message.role === 'user' && index > 0 && index <= (input.keepFrom ?? history.length)
       ? [index]
       : [],
   );
-  const cut = candidates.slice(-8).find((index) => {
+  const currentBoundary =
+    input.keepFrom === undefined && current.length && history.length ? [history.length] : [];
+  const cut = [...candidates.slice(-8), ...currentBoundary].find((index) => {
     const retained = [...history.slice(index), ...current];
     return retained.length < maximumMessages && bytes(retained) < maxBytes - 20_000;
   });
   if (cut === undefined || !compressionModel) {
-    if (full.length <= maximumMessages && bytes(full) < maxBytes) return history;
+    if (originalFits) return history;
     throw historyTooLong();
   }
 
   const summaryTokens = Math.min(1600, compressionModel.maxOutputTokens);
   const window = Math.min(80_000, compressionModel.contextLength - summaryTokens - 24_000);
   if (window < 12_000) throw historyTooLong();
-  const records = history.slice(0, cut).map((message) => ({
-    role: message.role,
-    ...(message.content ? { content: Array.from(message.content).slice(0, 4000).join('') } : {}),
-    ...(message.role === 'assistant' && message.tool_calls
-      ? { tools: message.tool_calls.map((call) => call.function.name) }
-      : {}),
-  }));
+  const partSize = Math.min(4000, Math.floor((window - 2000) / 6));
+  const records = history.slice(0, cut).flatMap((message, index) => {
+    const characters = Array.from(message.content ?? '');
+    const parts = Math.max(1, Math.ceil(characters.length / partSize));
+    return Array.from({ length: parts }, (_, part) => ({
+      message: index + 1,
+      role: message.role,
+      part: part + 1,
+      parts,
+      content: characters.slice(part * partSize, (part + 1) * partSize).join(''),
+      ...(part === 0 && message.role === 'assistant' && message.tool_calls
+        ? { tools: message.tool_calls.map((call) => call.function.name) }
+        : {}),
+    }));
+  });
   let summary = '';
   let position = 0;
   while (position < records.length) {
@@ -90,12 +102,15 @@ export async function compactAgentHistory(input: {
       { requestKey: randomUUID(), signal },
     );
     const text = result.message.content?.trim();
-    if (!text || result.message.tool_calls?.length || text.includes('\0'))
+    if (!text || result.message.tool_calls?.length || text.includes('\0')) {
+      signal.throwIfAborted();
+      if (originalFits) return history;
       throw new AppError(
         503,
         'AGENT_CONTEXT_SUMMARY_INVALID',
         '历史摘要未通过校验，请新开对话或稍后重试。',
       );
+    }
     summary = Array.from(text).slice(0, summaryLimit).join('');
   }
   const compacted: KernelMessage[] = [

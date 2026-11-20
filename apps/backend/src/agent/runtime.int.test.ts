@@ -362,81 +362,99 @@ test('子任务并行共享父运行的账本，证据冲突时拦截同行写�
   ]);
 });
 
-test('长对话经模型网关压缩，保留项目决定、最新任务和原始消息', async () => {
-  const context = await createIntegrationContext();
-  close = () => context.close();
-  const store = new MemoryStore();
-  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
-  await seedDevelopmentBudgetPolicy(context.pool, 'test');
-  const origin = await queued(context, 'read_only', undefined, '合成历史起点。');
-  for (let index = 0; index < 10; index++) {
-    await appendConversationMessage(context.pool, {
-      runId: origin.runId,
-      userId: origin.userId,
-      requestKey: randomUUID(),
-      message: { role: 'user', content: `合成旧记录 ${index}\n${'段'.repeat(7600)}` },
-    });
-  }
-  await context.pool.query("UPDATE run SET status='completed' WHERE id=$1", [origin.runId]);
-  const target = await queued(
-    context,
-    'read_only',
-    origin.conversationId,
-    '请引用项目说明中对写法不一致的决定。',
-  );
-  const models: ModelGatewayConfig = {
-    ...config,
-    models: [
-      config.models[0]!,
+test.each(['多轮', '单轮超长', '空摘要'] as const)(
+  '长对话经模型网关压缩并保留原始消息（%s）',
+  async (scenario) => {
+    const context = await createIntegrationContext();
+    close = () => context.close();
+    const store = new MemoryStore();
+    await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+    await seedDevelopmentBudgetPolicy(context.pool, 'test');
+    const tail = '尾部确认标记 PR23';
+    const original =
+      scenario === '多轮'
+        ? '合成历史起点。'
+        : `${'段'.repeat(scenario === '空摘要' ? 52_000 : 70_000)}\n${tail}`;
+    const origin = await queued(context, 'read_only', undefined, original);
+    for (let index = 0; scenario === '多轮' && index < 10; index++) {
+      await appendConversationMessage(context.pool, {
+        runId: origin.runId,
+        userId: origin.userId,
+        requestKey: randomUUID(),
+        message: { role: 'user', content: `合成旧记录 ${index}\n${'段'.repeat(7600)}` },
+      });
+    }
+    await context.pool.query("UPDATE run SET status='completed' WHERE id=$1", [origin.runId]);
+    const target = await queued(
+      context,
+      'read_only',
+      origin.conversationId,
+      '请引用项目说明中对写法不一致的决定。',
+    );
+    const models: ModelGatewayConfig = {
+      ...config,
+      models: [
+        config.models[0]!,
+        {
+          ...config.models[0]!,
+          id: 'scripted-summary',
+          upstreamModel: 'scripted/summary',
+          purposes: ['compression'],
+        },
+      ],
+    };
+    let summarized = 0;
+    let sawTail = false;
+    const decision = '写法不一致只能列为待确认差异';
+    const gateway = new ModelGateway(
+      context.pool,
+      models,
       {
-        ...config.models[0]!,
-        id: 'scripted-summary',
-        upstreamModel: 'scripted/summary',
-        purposes: ['compression'],
+        kind: 'fixture',
+        async send(model, request) {
+          if (model.id === 'scripted-summary') {
+            summarized++;
+            expect(request.tools).toBeUndefined();
+            expect(request.messages[0]?.content).toContain('历史资料');
+            sawTail ||= request.messages[1]?.content?.includes(tail) === true;
+            return result({
+              role: 'assistant',
+              content:
+                scenario === '空摘要'
+                  ? ' '
+                  : `合成压缩摘要，旧资料仍在原对话。${sawTail ? tail : ''}`,
+            });
+          }
+          expect(request.messages[0]?.content).toContain(decision);
+          if (scenario === '空摘要') expect(request.messages[1]?.content).toBe(original);
+          else expect(request.messages[1]?.content).toContain('合成压缩摘要');
+          if (scenario === '单轮超长') expect(request.messages[1]?.content).toContain(tail);
+          expect(request.messages.at(-1)?.content).toBe('请引用项目说明中对写法不一致的决定。');
+          return result({ role: 'assistant', content: `项目决定：${decision}。` });
+        },
       },
-    ],
-  };
-  let summarized = 0;
-  const decision = '写法不一致只能列为待确认差异';
-  const gateway = new ModelGateway(
-    context.pool,
-    models,
-    {
-      kind: 'fixture',
-      async send(model, request) {
-        if (model.id === 'scripted-summary') {
-          summarized++;
-          expect(request.tools).toBeUndefined();
-          expect(request.messages[0]?.content).toContain('历史资料');
-          return result({ role: 'assistant', content: '合成压缩摘要，旧资料仍在原对话。' });
-        }
-        expect(request.messages[0]?.content).toContain(decision);
-        expect(request.messages[1]?.content).toContain('合成压缩摘要');
-        expect(request.messages.at(-1)?.content).toBe('请引用项目说明中对写法不一致的决定。');
-        return result({ role: 'assistant', content: `项目决定：${decision}。` });
-      },
-    },
-    { environment: 'test' },
-  );
-  const outcome = await executeAgentRun(
-    { pool: context.pool, store, gateway, models, definitions: [] },
-    target.runId,
-  );
-  expect(outcome.status).toBe('completed');
-  expect(summarized).toBeGreaterThan(0);
-  const originals = await context.pool.query(
-    'SELECT count(*)::int AS count FROM conversation_message WHERE run_id=$1',
-    [origin.runId],
-  );
-  expect(originals.rows[0]?.count).toBe(11);
-  const usage = await context.pool.query(
-    "SELECT count(*)::int AS count FROM usage_ledger WHERE run_id=$1 AND purpose='compression'",
-    [target.runId],
-  );
-  expect(usage.rows[0]?.count).toBe(summarized);
-});
+      { environment: 'test' },
+    );
+    const outcome = await executeAgentRun(
+      { pool: context.pool, store, gateway, models, definitions: [] },
+      target.runId,
+    );
+    expect(outcome.status).toBe('completed');
+    expect(summarized).toBeGreaterThan(0);
+    const originals = await context.pool.query(
+      'SELECT count(*)::int AS count FROM conversation_message WHERE run_id=$1',
+      [origin.runId],
+    );
+    expect(originals.rows[0]?.count).toBe(scenario === '多轮' ? 11 : 1);
+    const usage = await context.pool.query(
+      "SELECT count(*)::int AS count FROM usage_ledger WHERE run_id=$1 AND purpose='compression'",
+      [target.runId],
+    );
+    expect(usage.rows[0]?.count).toBe(summarized);
+  },
+);
 
-test('子任务使用不同资料版本时，相关任务重新读取最新可读版后才能结束调查', async () => {
+test.each([false, true])('版本重查必须解决原字段冲突，是否省略字段为 %s', async (omitField) => {
   const context = await createIntegrationContext();
   close = () => context.close();
   const store = new MemoryStore();
@@ -502,10 +520,11 @@ test('子任务使用不同资料版本时，相关任务重新读取最新可�
         const task = z
           .object({ key: z.string(), assignment: z.string() })
           .parse(JSON.parse(user.content));
+        const isReread = task.assignment.includes('最新可读版');
         if (last?.role !== 'tool')
           return call('doc_read', {
             id: documentId,
-            version: task.assignment.includes('最新可读版') || task.key === 'right' ? 2 : 1,
+            version: isReread || task.key === 'right' ? 2 : 1,
             page: 1,
           });
         const read = documentPageReadSchema.parse(JSON.parse(last.content));
@@ -520,7 +539,7 @@ test('子任务使用不同资料版本时，相关任务重新读取最新可�
               {
                 id: task.key,
                 object: '合成器械',
-                field: '编号',
+                field: isReread && omitField ? '其他字段' : '编号',
                 value: read.text,
                 unit: null,
                 status: 'checked',
@@ -543,7 +562,8 @@ test('子任务使用不同资料版本时，相关任务重新读取最新可�
     },
     target.runId,
   );
-  expect(outcome.status).toBe('completed');
+  expect(outcome.status).toBe(omitField ? 'waiting' : 'completed');
+  if (omitField) expect(outcome.questionId).toEqual(expect.any(String));
   expect(seen.sort()).toEqual([1, 2, 2, 2]);
 });
 

@@ -13,7 +13,11 @@ import {
   type AgentKernelOptions,
   type KernelTool,
 } from './pi/index.js';
-import { subagentConflicts, type SubagentConflict } from './subagent-conflicts.js';
+import {
+  subagentConflicts,
+  subagentFieldKey,
+  type SubagentConflict,
+} from './subagent-conflicts.js';
 
 export const subagentTool: ToolDefinition = {
   metadata: {
@@ -207,6 +211,25 @@ export async function investigateSubagents(
   if (repeated.status !== 'completed') return repeated.status === 'conflict' ? repeated : first;
   const current = await Promise.all(latest.map(({ documentId }) => latestVersion(documentId)));
   if (current.some((version, index) => version !== latest[index]!.version)) return first;
+  for (const conflict of first.conflicts) {
+    if (conflict.kind !== 'value') continue;
+    const key = subagentFieldKey(conflict.subject, conflict.field);
+    if (
+      conflict.claims.some(({ task }) => {
+        const child = repeated.results.find((result) => result.key === task);
+        return (
+          child?.status !== 'completed' ||
+          !child.report.claims.some(
+            (claim) =>
+              claim.status === 'checked' &&
+              claim.sources.length > 0 &&
+              subagentFieldKey(claim.object, claim.field) === key,
+          )
+        );
+      })
+    )
+      return first;
+  }
   return latest.every(({ documentId, version, tasks: affected }) => {
     return affected.every((key) => {
       const child = repeated.results.find((result) => result.key === key);
@@ -232,7 +255,7 @@ export function questionForSubagentConflicts(conflicts: readonly SubagentConflic
       const position = source
         ? `，资料 ${source.documentId} 第 ${source.version} 版第 ${source.page} 页「${short(source.quote, 45)}」`
         : '，缺少已核对出处';
-      return `${short(String(claim.value), 60)}${position}`;
+      return `${short(String(claim.value), 60)}${claim.unit ? ` ${short(claim.unit, 30)}` : ''}${position}`;
     });
     return `${short(conflict.subject, 60)}的${short(conflict.field, 60)}分别为${evidence.join('。另一个值为')}。`;
   });
