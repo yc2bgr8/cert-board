@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>本地 Linux 虚拟机验收</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#环境">环境</a><a class="level-2" href="#每个-pr-的操作">每个 PR 的操作</a></nav><main><h1 id="本地-linux-虚拟机验收">本地 Linux 虚拟机验收</h1>
+<h2 id="环境">环境</h2>
+<p>验收机以 Ubuntu 24.04 的独立 Linux 内核启动，使用 QEMU/KVM。Windows 上已有的 WSL 只承载虚拟化进程。应用、Docker、浏览器、测试数据库和工作树都在客体里。Windows 的日常工作台与 Lan 稳定预览各自运行。</p>
+<p>镜像使用 Ubuntu Cloud Images 的 amd64 发布版，先用 Ubuntu 云镜像密钥环核验 <code>SHA256SUMS.gpg</code>，再核对镜像摘要。使用 QEMU 的 NoCloud 光盘设置独立账号和 SSH 公钥。宿主通过 WSL 中的 SSH 客户端连接 QEMU 控制容器的回环入口，主机公钥从客体启动控制台取得并固定。客体没有 Windows 工作目录共享挂载。宿主用于启动客体的文件位于仓库 <code>.local/test-vm/</code>，客体磁盘在 <code>cert-board-acceptance-vm</code> 本地 Docker 卷。</p>
+<p>虚拟机准备 Ubuntu 自带的 Docker、Compose、Git、Node 24.22.2、pnpm 9.15.9 和 Playwright 的 Chromium。虚拟机根目录标记为 <code>/etc/cert-board-acceptance-vm</code>。准备完成后关机保留基础磁盘。每次验收在前一个客体已关机时，从宿主执行 <code>node .local/test-vm/start-fresh.mjs &lt;本次实例名&gt;</code>，从基础磁盘建立新的 QCOW2 差异盘后启动。基础磁盘保留运行时和浏览器，可复用的软件包属于缓存。项目工作树、数据库卷和验收日志随验收实例独立生成。</p>
+<h2 id="每个-pr-的操作">每个 PR 的操作</h2>
+<ol><li>在宿主从 GitHub 获取最新 <code>main</code>。记录 <code>main</code> 和最终 PR 提交的完整编号。生成包含两条分支的 Git bundle，通过回环 SSH 发给干净的验收虚拟机。GitHub 凭据、日常 <code>.env.local</code> 以及原始 L08 文件留在宿主的授权位置。</li><li>在客体运行 <code>scripts/acceptance-vm.mjs</code>。交给虚拟机的脚本应来自当前可信 <code>main</code>。首次启用时使用配置 PR 的脚本。脚本从 bundle 校验两个提交，算出无冲突的合并代码树，再建立干净的验收提交和工作树。报告同时记录两个真实提交、合并代码树和本机验收提交。</li><li>运行锁定依赖安装、lint、类型检查、单元测试、构建、Python、Agent 评测、本地依赖启停、集成、浏览器、密钥扫描，及执行方案所列的本 PR 验收。业务 PR 还须运行真实走查。PR 仅改验收制度、文档和工作流的，使用配置专项检验，验证工作流已撤下并运行相同的自动化检查。</li><li>全部通过才向 GitHub 推送测过的最终提交并创建 PR，附上脱敏结果、最终提交、所测 <code>main</code> 和合并树编号。独立复审有改动时，按新的完整组合重新验收。</li><li>合并前从远端核对 <code>main</code> 和 PR 头与报告一致；变了就重跑。继续使用 GitHub 的 squash PR 合并及 <code>--match-head-commit</code>。合并后核对 <code>main</code> 的合并树与报告。GitHub 只接收最终 PR、提供独立复审入口和记录合并。</li></ol>
+<pre><code># 以下命令在验收虚拟机中执行
+node /home/verifier/acceptance-vm.mjs \
+  --bundle /home/verifier/cert-board-input.bundle \
+  --base &quot;$BASE_SHA&quot; --head &quot;$HEAD_SHA&quot; \
+  --acceptance docs:html --config-only</code></pre>
+<p>业务 PR 使用 <code>--model-profile /已授权的客体配置文件</code> 运行同一命令，按 PR 增加多个 <code>--acceptance &lt;pnpm-脚本&gt;</code>。真实走查使用 VM 自己的代理、开发数据库和浏览器。模型配置只包含现有授权的 OpenRouter 凭据、Cursor 专用配置路径和经确认的隐私标志。审批依旧从浏览器完成。使用合成资料验证外部核实通道。凭据、登录状态、详细日志和真实截图保存在本机控制的位置。虚拟机上 <code>report.json</code> 只包含状态、步骤与版本，PR 摘要不含正文和密钥。</p>
+<p>来源 <a href="https://cloud-images.ubuntu.com/releases/noble/release/" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">Ubuntu 云镜像（外部链接）</a> · <a href="https://www.qemu.org/docs/master/system/invocation.html" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">QEMU 命令（外部链接）</a> · <a href="https://docs.cloud-init.io/en/latest/reference/datasources/nocloud.html" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">NoCloud（外部链接）</a></p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
