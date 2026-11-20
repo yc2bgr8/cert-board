@@ -124,7 +124,7 @@ test('增加网关成员时保留管理员停用的旧成员，无项目时提�
 
 test('网关已结算但无可用回复时，在本月核实用量中计入实扣', async () => {
   fixture.runtime.gatewayReady = true;
-  fixture.runtime.catalog = [gatewayPeer];
+  fixture.runtime.catalog = [...fixture.runtime.catalog, gatewayPeer];
   await seedDevelopmentBudgetPolicy(context.pool, 'test');
   const origin = await context.run();
   fixture.runtime.send = async (_model, _prompt, beforeDispatch, scope) => {

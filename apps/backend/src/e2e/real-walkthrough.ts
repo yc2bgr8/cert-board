@@ -145,8 +145,8 @@ async function inspectSubmission(pool: pg.Pool, cardId: string, skill: 'R09' | '
   const row = rows[0];
   assert.equal(row?.skill_id, skill, '审核卡使用预期技能');
   const evidence = reviewEvidenceRefSchema.array().parse(row?.evidence_refs);
-  const { rows: documents } = await pool.query<{ source_key: string }>(
-    'SELECT source_key FROM document WHERE id=ANY($1::uuid[])',
+  const { rows: documents } = await pool.query<{ id: string; source_key: string }>(
+    'SELECT id,source_key FROM document WHERE id=ANY($1::uuid[])',
     [evidence.map(({ documentId }) => documentId)],
   );
   const keys = new Set(documents.map(({ source_key }) => source_key));
@@ -157,9 +157,14 @@ async function inspectSubmission(pool: pg.Pool, cardId: string, skill: 'R09' | '
     '审核卡引用了本案全部预期资料',
   );
   if (skill === 'R09') {
+    const checklist = new Set(
+      documents.filter(({ source_key }) => source_key === 'D035').map(({ id }) => id),
+    );
     assert.ok(
       ['K170825', 'K170285'].every((number) =>
-        evidence.some(({ quote }) => quote.includes(number)),
+        evidence.some(
+          ({ documentId, quote }) => checklist.has(documentId) && quote.includes(number),
+        ),
       ),
       '审核卡保留实际的两种编号写法',
     );
@@ -169,6 +174,21 @@ async function inspectSubmission(pool: pg.Pool, cardId: string, skill: 'R09' | '
     .changes.filter(({ afterSha256 }) => afterSha256 !== null);
 }
 
+function revisionSections(markdown: Buffer) {
+  const sections = new Map<string, string>();
+  let active: string | undefined;
+  for (const line of markdown.toString('utf8').split(/\r?\n/u)) {
+    const heading = /^ {0,3}#{1,6}\s+(.+)/u.exec(line);
+    if (heading) {
+      active = /^(核查范围|已核实|待核实)/u.exec(heading[1]!)?.[1];
+      continue;
+    }
+    const text = line.trim();
+    if (active && text) sections.set(active, `${sections.get(active) ?? ''}\n${text}`);
+  }
+  return sections;
+}
+
 async function verifyRevision(
   pool: pg.Pool,
   blobs: BlobStore,
@@ -176,18 +196,28 @@ async function verifyRevision(
   original: Awaited<ReturnType<typeof inspectSubmission>>,
 ) {
   const revised = await inspectSubmission(pool, cardId, 'R09');
-  const candidates = revised.filter(
-    ({ path, afterSha256 }) =>
-      path.toLowerCase().endsWith('.md') &&
-      !original.some((old) => old.afterSha256 === afterSha256),
+  const candidates = revised.flatMap((change) => {
+    const old = original.find(({ path }) => path === change.path);
+    return change.path.toLowerCase().endsWith('.md') &&
+      old?.afterSha256 &&
+      change.afterSha256 &&
+      old.afterSha256 !== change.afterSha256
+      ? [{ before: old.afterSha256, after: change.afterSha256 }]
+      : [];
+  });
+  const reports = await Promise.all(
+    candidates.map(async ({ before, after }) => ({
+      before: revisionSections(await blobs.get(before)),
+      after: revisionSections(await blobs.get(after)),
+    })),
   );
-  const reports = await Promise.all(candidates.map(({ afterSha256 }) => blobs.get(afterSha256!)));
   assert.ok(
-    reports.some((data) => {
-      const text = data.toString('utf8');
-      return ['核查范围', '已核实', '待核实'].every((section) => text.includes(section));
-    }),
-    '修改版报告实际补充核查范围、已核实和待核实',
+    reports.some(({ before, after }) =>
+      ['核查范围', '已核实', '待核实'].every(
+        (section) => after.has(section) && before.get(section) !== after.get(section),
+      ),
+    ),
+    '原路径报告的核查范围、已核实和待核实三个小节已填写或更新',
   );
 }
 
@@ -322,7 +352,7 @@ async function main() {
     stage = '真实 R09 修改重提和人工通过';
     await send(
       page,
-      '请在原报告补充“核查范围”“已核实”“待核实”三个小节，写明本次资料范围，明确区分已核实和待核实事项，保存并重新提交审核。',
+      '请修改原路径的 Markdown 报告，新增或更新“核查范围”“已核实”“待核实”三个带 Markdown 标题的小节。各小节都补实质内容，然后保存并重新提交审核。',
     );
     const revised = await waitForReview(page, pool, registration, 2);
     await verifyRevision(pool, blobs, revised, firstReport);
