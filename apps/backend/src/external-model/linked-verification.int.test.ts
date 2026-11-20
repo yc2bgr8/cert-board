@@ -323,6 +323,43 @@ test('队列剩余时间不足时停止等待，给原运行留下继续处理�
   expect(parent.rows[0]?.status).toBe('running');
 });
 
+test.each([
+  { headroom: 0, expectedPolls: 0 },
+  { headroom: 150, expectedPolls: 1 },
+])(
+  '已用尽或轮询阻塞时按核实截止时间返回（剩余 $headroom 毫秒）',
+  async ({ headroom, expectedPolls }) => {
+    await ready();
+    const { run, ticket } = await request('full');
+    const original = context.pool.query.bind(context.pool);
+    let polls = 0;
+    const spy = vi.spyOn(context.pool, 'query').mockImplementation(((...args: unknown[]) => {
+      if (
+        typeof args[0] === 'string' &&
+        args[0].includes('AS worker_ready FROM verification_link')
+      ) {
+        polls++;
+        return new Promise(() => undefined);
+      }
+      return Reflect.apply(original, context.pool, args);
+    }) as typeof context.pool.query);
+    try {
+      expect(
+        await awaitLinkedVerification(
+          context.pool,
+          run,
+          ticket,
+          new AbortController().signal,
+          Date.now() + 60_000 + headroom,
+        ),
+      ).toMatchObject({ status: 'unavailable', reason: expect.stringContaining('剩余时间') });
+      expect(polls).toBe(expectedPolls);
+    } finally {
+      spy.mockRestore();
+    }
+  },
+);
+
 test('未绑定项目时采用原对话选择的维护 Agent', async () => {
   const userId = context.userId('MEMBER_A');
   const conversationId = (
