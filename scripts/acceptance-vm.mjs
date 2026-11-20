@@ -3,8 +3,14 @@ import { appendFile, mkdir, mkdtemp, open, readFile, writeFile } from 'node:fs/p
 import { homedir, release } from 'node:os';
 import path from 'node:path';
 import { parseArgs, parseEnv } from 'node:util';
+import {
+  bundledBranches,
+  shaPattern,
+  skippedAcceptance,
+  validateAcceptanceScripts,
+  validateConfigurationPaths,
+} from './acceptance-vm-policy.mjs';
 
-const shaPattern = /^[0-9a-f]{40}$/u;
 const { values } = parseArgs({
   options: {
     bundle: { type: 'string' },
@@ -66,14 +72,10 @@ function sandboxAbi() {
 
 function testTree(root, bundle, base, head) {
   readCommand('git', ['init', '--quiet'], root);
-  const refs = new Map(
-    readCommand('git', ['bundle', 'list-heads', bundle], root)
-      .split(/\r?\n/u)
-      .map((line) => line.split(' ')),
-  );
+  const refs = bundledBranches(readCommand('git', ['bundle', 'list-heads', bundle], root));
   for (const sha of [base, head]) {
     const ref = refs.get(sha);
-    if (!ref || !ref.startsWith('refs/heads/')) throw new Error('Git 包未包含申报的两个分支提交。');
+    if (!ref) throw new Error('Git 包未包含申报的两个分支提交。');
     readCommand('git', ['fetch', '--quiet', '--no-tags', bundle, ref], root);
     if (readCommand('git', ['rev-parse', 'FETCH_HEAD'], root) !== sha)
       throw new Error('Git 包实际提交与申报编号不同。');
@@ -117,8 +119,6 @@ async function main() {
     base === head
   )
     throw new Error('请输入本机 Git 包的绝对路径、main 提交和最终提交的完整编号。');
-  if (acceptance.some((name) => !/^[a-z][a-z0-9:.-]*$/u.test(name)))
-    throw new Error('业务验收只接受仓库内已登记的 pnpm 命令。');
   const vm = verifyMachine();
   if ((await readFile('/etc/cert-board-acceptance-vm', 'utf8')).trim() !== 'cert-board-acceptance')
     throw new Error('请使用 cert-board 的专用验收虚拟机。');
@@ -137,6 +137,7 @@ async function main() {
   const { tree, merged } = testTree(root, bundle, base, head);
   const report = {
     status: 'running',
+    scope: configOnly ? 'configuration' : 'business',
     base,
     head,
     mergeTree: tree,
@@ -149,8 +150,9 @@ async function main() {
   };
   const receipt = path.join(directory, 'report.json');
   const save = () => writeFile(receipt, JSON.stringify(report, null, 2), { mode: 0o600 });
-  const step = async (name, command, args) => {
-    const log = await open(path.join(directory, `${name}.log`), 'wx', 0o600);
+  const step = async (name, command, args, script) => {
+    const logFile = path.join(directory, `${name}.log`);
+    const log = await open(logFile, 'wx', 0o600);
     const started = Date.now();
     let code;
     try {
@@ -166,7 +168,18 @@ async function main() {
     } finally {
       await log.close();
     }
-    report.steps.push({ name, exitCode: code, seconds: Math.round((Date.now() - started) / 1000) });
+    if (
+      code === 0 &&
+      ['test:real', 'test:l08'].includes(script) &&
+      skippedAcceptance(script, await readFile(logFile, 'utf8'))
+    )
+      code = 1;
+    report.steps.push({
+      name,
+      ...(script ? { script } : {}),
+      exitCode: code,
+      seconds: Math.round((Date.now() - started) / 1000),
+    });
     await save();
     console.log(`${name} ${code === 0 ? '通过' : '失败'}。`);
     if (code !== 0) throw new Error(`${name} 未通过。详细日志保存在虚拟机。`);
@@ -175,19 +188,18 @@ async function main() {
   console.log(`虚拟机验收报告 ${receipt}`);
   await save();
   try {
-    const changed = readCommand('git', ['diff', '--name-only', '-z', base, merged], root)
+    const registered =
+      JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).scripts ?? {};
+    validateAcceptanceScripts(acceptance, registered);
+    const changed = readCommand(
+      'git',
+      ['diff', '--name-only', '--no-renames', '-z', base, merged],
+      root,
+    )
       .split('\0')
       .filter(Boolean);
     if (configOnly) {
-      if (
-        changed.some(
-          (file) =>
-            !/^(?:AGENTS\.md$|\.github\/|docs\/|scripts\/(?:acceptance-vm\.mjs|egress\.test\.mjs)$)/u.test(
-              file,
-            ),
-        )
-      )
-        throw new Error('配置专项仅用于验收制度、文档和虚拟机验收脚本。');
+      validateConfigurationPaths(changed);
       if (readCommand('git', ['ls-files', '--', '.github/workflows/'], root))
         throw new Error('虚拟机配置验收发现仍有 GitHub Actions 工作流。');
       report.steps.push({ name: 'workflow-retired', exitCode: 0, seconds: 0 });
@@ -201,15 +213,14 @@ async function main() {
     await pnpm('python', 'test:py');
     await pnpm('agent-eval', 'eval:agent');
     await pnpm('env-init', 'env:init');
+    if (!configOnly) await configureModels(root, values['model-profile']);
     try {
       await pnpm('dev-up', 'dev:up');
       await pnpm('integration', 'test:int');
       await pnpm('browser', 'test:e2e');
-      for (const [index, name] of acceptance.entries()) await pnpm(`pr-${index + 1}`, name);
-      if (!configOnly) {
-        await configureModels(root, values['model-profile']);
-        await pnpm('walkthrough', 'walkthrough:real');
-      }
+      for (const [index, name] of acceptance.entries())
+        await step(`pr-${index + 1}`, 'pnpm', ['run', name], name);
+      if (!configOnly) await pnpm('walkthrough', 'walkthrough:real');
     } finally {
       await pnpm('dev-down', 'dev:down');
     }
