@@ -766,11 +766,55 @@ export async function writeDraftFile(
   draftId: string,
   input: unknown,
 ) {
-  const viewer = actor(identity);
-  const draftKey = id(draftId);
   const parsed = workspaceWriteFileSchema.safeParse(input);
   if (!parsed.success) throw invalid();
-  const data = parsed.data;
+  const { path, content, expectedSha256 } = parsed.data;
+  return writeDraftContent(pool, store, identity, draftId, {
+    path,
+    expectedSha256,
+    bytes: Buffer.from(content, 'utf8'),
+    decisionText: content,
+    mediaType: path.toLowerCase().endsWith('.md')
+      ? 'text/markdown; charset=utf-8'
+      : 'text/plain; charset=utf-8',
+  });
+}
+
+export async function writeDraftArtifact(
+  pool: Executor,
+  store: DocumentBlobStore,
+  identity: ServiceIdentity,
+  draftId: string,
+  artifact: { path: string; bytes: Buffer; mediaType: string; dataLevel: DataLevel },
+) {
+  const path = filePath(artifact.path);
+  if (path === decisionPath)
+    throw new AppError(403, 'WORKSPACE_DECISIONS_APPEND_ONLY', '运行产出请另存到交付目录。');
+  if (!Buffer.isBuffer(artifact.bytes) || artifact.bytes.byteLength > 12 * 1024 * 1024)
+    throw new AppError(413, 'WORKSPACE_ARTIFACT_LIMIT', '单份运行产出超过 12 MiB，请拆分后重试。');
+  return writeDraftContent(pool, store, identity, draftId, {
+    ...artifact,
+    path,
+    expectedSha256: null,
+  });
+}
+
+async function writeDraftContent(
+  pool: Executor,
+  store: DocumentBlobStore,
+  identity: ServiceIdentity,
+  draftId: string,
+  data: {
+    path: string;
+    expectedSha256: string | null;
+    bytes: Buffer;
+    mediaType: string;
+    decisionText?: string;
+    dataLevel?: DataLevel;
+  },
+) {
+  const viewer = actor(identity);
+  const draftKey = id(draftId);
   return mutation(pool, viewer, async (client) => {
     const context = await draftContext(client, viewer, draftKey, true);
     const files = await effectiveFiles(client, context.draft);
@@ -790,7 +834,7 @@ export async function writeDraftFile(
       );
     if (data.path === decisionPath) {
       await decisionAppend(store, await manifest(client, context.draft.baseVersionId), files);
-      if (prior && !data.content.startsWith(decodeUtf8Text(await store.get(prior.sha256)))) {
+      if (prior && !data.decisionText?.startsWith(decodeUtf8Text(await store.get(prior.sha256)))) {
         throw new AppError(
           403,
           'WORKSPACE_DECISIONS_APPEND_ONLY',
@@ -803,8 +847,9 @@ export async function writeDraftFile(
       context.draft.dataLevel,
       context.conversation.max_data_level,
       prior?.dataLevel,
+      data.dataLevel,
     );
-    const bytes = Buffer.from(data.content, 'utf8');
+    const bytes = data.bytes;
     const stored = await store.put(bytes);
     if (
       stored.sha256 !== createHash('sha256').update(bytes).digest('hex') ||
@@ -820,9 +865,7 @@ export async function writeDraftFile(
       sha256: stored.sha256,
       byteSize: stored.byteSize,
       dataLevel: level,
-      mediaType: data.path.toLowerCase().endsWith('.md')
-        ? 'text/markdown; charset=utf-8'
-        : 'text/plain; charset=utf-8',
+      mediaType: data.mediaType,
     });
     const after = new Map(files);
     after.set(file.path, file);

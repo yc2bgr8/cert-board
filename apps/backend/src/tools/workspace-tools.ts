@@ -164,6 +164,55 @@ function metadata(
   };
 }
 
+export function workspaceDraftUndo(
+  store: DocumentBlobStore | ((context: ToolExecutionContext) => DocumentBlobStore),
+  publishes = false,
+  pathInput = false,
+): ToolUndoSpec {
+  const storage = (ctx: ToolExecutionContext) => (typeof store === 'function' ? store(ctx) : store);
+  return {
+    beforeSchema: workspaceToolUndoStateSchema,
+    async capture(ctx, input) {
+      const current = await scope(ctx, 'draft', true);
+      if (pathInput && input && typeof input === 'object' && 'path' in input)
+        protectedPath(String(input.path));
+      if (input && typeof input === 'object' && 'expectedDraftVersion' in input)
+        draftVersion(current, Number(input.expectedDraftVersion));
+      const targetId = current.draft!.id;
+      return {
+        targetType: 'workspace_draft',
+        targetId,
+        beforeVersion: await workspaceVersionToken(ctx.tx, ctx.actor, targetId),
+        beforeState: await captureWorkspaceUndo(
+          ctx.tx,
+          storage(ctx),
+          ctx.actor,
+          targetId,
+          publishes,
+        ),
+      };
+    },
+    async currentVersion(ctx, record) {
+      const current = await scope(ctx, 'draft', true);
+      if (record.targetType !== 'workspace_draft' || record.targetId !== current.draft!.id)
+        throw fail('WORKSPACE_DRAFT_FORBIDDEN', '撤销凭据不属于本对话工作副本。', 403);
+      return workspaceVersionToken(ctx.tx, ctx.actor, record.targetId);
+    },
+    async apply(ctx, record) {
+      const current = await scope(ctx, 'draft', true);
+      if (record.targetId !== current.draft!.id)
+        throw fail('WORKSPACE_DRAFT_FORBIDDEN', '不能撤销其他对话的工作副本。', 403);
+      return restoreWorkspaceUndo(
+        ctx.tx,
+        storage(ctx),
+        ctx.actor,
+        record.targetId,
+        workspaceToolUndoStateSchema.parse(record.beforeState),
+      );
+    },
+  };
+}
+
 export function buildWorkspaceTools(store: DocumentBlobStore): ToolDefinition[] {
   const refresh = async (ctx: ToolExecutionContext) =>
     highest(ctx.maxDataLevel, (await scope(ctx)).dataLevel);
@@ -180,41 +229,6 @@ export function buildWorkspaceTools(store: DocumentBlobStore): ToolDefinition[] 
     execute,
     refreshDataLevel: refresh,
   });
-  const undo = (publishes: boolean, pathInput = false): ToolUndoSpec => ({
-    beforeSchema: workspaceToolUndoStateSchema,
-    async capture(ctx, input) {
-      const current = await scope(ctx, 'draft', true);
-      if (pathInput && input && typeof input === 'object' && 'path' in input)
-        protectedPath(String(input.path));
-      if (input && typeof input === 'object' && 'expectedDraftVersion' in input)
-        draftVersion(current, Number(input.expectedDraftVersion));
-      const targetId = current.draft!.id;
-      return {
-        targetType: 'workspace_draft',
-        targetId,
-        beforeVersion: await workspaceVersionToken(ctx.tx, ctx.actor, targetId),
-        beforeState: await captureWorkspaceUndo(ctx.tx, store, ctx.actor, targetId, publishes),
-      };
-    },
-    async currentVersion(ctx, record) {
-      const current = await scope(ctx, 'draft', true);
-      if (record.targetType !== 'workspace_draft' || record.targetId !== current.draft!.id)
-        throw fail('WORKSPACE_DRAFT_FORBIDDEN', '撤销凭据不属于本对话工作副本。', 403);
-      return workspaceVersionToken(ctx.tx, ctx.actor, record.targetId);
-    },
-    async apply(ctx, record) {
-      const current = await scope(ctx, 'draft', true);
-      if (record.targetId !== current.draft!.id)
-        throw fail('WORKSPACE_DRAFT_FORBIDDEN', '不能撤销其他对话的工作副本。', 403);
-      return restoreWorkspaceUndo(
-        ctx.tx,
-        store,
-        ctx.actor,
-        record.targetId,
-        workspaceToolUndoStateSchema.parse(record.beforeState),
-      );
-    },
-  });
   const write = (
     name: string,
     inputSchema: ZodType,
@@ -228,7 +242,7 @@ export function buildWorkspaceTools(store: DocumentBlobStore): ToolDefinition[] 
     inputSchema,
     outputSchema,
     execute,
-    undo: undo(publishes, pathInput),
+    undo: workspaceDraftUndo(store, publishes, pathInput),
     refreshDataLevel: refresh,
   });
 

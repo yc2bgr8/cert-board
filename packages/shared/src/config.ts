@@ -29,6 +29,9 @@ const defaultWebOrigins = new Set([
 export function docsvcBaseUrl(runtime: 'host' | 'docker') {
   return runtime === 'docker' ? 'http://docsvc-relay:28082/' : 'http://127.0.0.1:28082/';
 }
+export function sandboxBaseUrl(runtime: 'host' | 'docker') {
+  return runtime === 'docker' ? 'http://sandbox-relay:28083/' : 'http://127.0.0.1:28083/';
+}
 
 export const backendConfigSchema = z
   .object({
@@ -41,6 +44,10 @@ export const backendConfigSchema = z
     SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(24).default(12),
     EXTERNAL_MODEL_MONTHLY_USD: decimalUsdSchema.default('20'),
     CERT_DOCSVC_URL: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.string().optional(),
+    ),
+    CERT_SANDBOX_URL: z.preprocess(
       (value) => (value === '' ? undefined : value),
       z.string().optional(),
     ),
@@ -63,6 +70,16 @@ export const backendConfigSchema = z
       .default('cert-board'),
   })
   .superRefine((config, context) => {
+    if (
+      config.CERT_SANDBOX_URL !== undefined &&
+      (!URL.canParse(config.CERT_SANDBOX_URL) ||
+        new URL(config.CERT_SANDBOX_URL).href !== sandboxBaseUrl(config.CONTAINER_RUNTIME))
+    )
+      context.addIssue({
+        code: 'custom',
+        path: ['CERT_SANDBOX_URL'],
+        message: '沙箱只能使用固定内部地址',
+      });
     if (
       config.CERT_DOCSVC_URL !== undefined &&
       (!URL.canParse(config.CERT_DOCSVC_URL) ||

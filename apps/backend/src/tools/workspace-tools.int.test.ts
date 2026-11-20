@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { afterEach, beforeEach, expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
   agentIdentitySchema,
+  codeRunOutputSchema,
   workspaceToolListSchema,
   workspaceToolReadSchema,
   workspaceToolWriteSchema,
@@ -17,6 +18,8 @@ import { createToolRuntime } from '../agent/tool-runtime.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { buildWorkspaceTools } from './workspace-tools.js';
 import { ToolRegistry } from './registry.js';
+import { buildSandboxTools } from './code-run.js';
+import { SandboxClient } from '../sandbox/client.js';
 
 class MemoryStore implements DocumentBlobStore {
   readonly contents = new Map<string, Buffer>();
@@ -91,7 +94,164 @@ beforeEach(async () => {
   registry = new ToolRegistry(context.pool, buildWorkspaceTools(store));
 });
 afterEach(async () => {
+  vi.unstubAllGlobals();
   await context?.close();
+});
+
+test('沙箱只读运行允许预览，保存产出进入工作副本并可撤销', async () => {
+  const data = Buffer.from('synthetic binary fixture');
+  const hash = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
+  const fetchMock = vi.fn(async (_url: URL, init?: RequestInit) => {
+    const input = JSON.parse(String(init?.body)) as {
+      code: string;
+      files: { name: string; bodyBase64: string }[];
+    };
+    return Response.json({
+      status: 'ok',
+      exitCode: 0,
+      elapsedMs: 12,
+      codeSha256: hash(input.code),
+      inputHashes: input.files.map((file) => ({
+        name: file.name,
+        sha256: hash(Buffer.from(file.bodyBase64, 'base64')),
+      })),
+      stdout: '样例',
+      stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      files: [
+        {
+          path: '报告.pdf',
+          sha256: hash(data),
+          byteSize: data.length,
+          bodyBase64: data.toString('base64'),
+        },
+      ],
+    });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const combined = new ToolRegistry(context.pool, [
+    ...buildWorkspaceTools(store),
+    ...buildSandboxTools(store, new SandboxClient('http://127.0.0.1:28083', 'host')),
+  ]);
+  const readonly = await prepare('MEMBER_A', 'read_only');
+  const code = 'print("fictional")';
+  const inputs = [{ source: 'workspace', path: 'AGENTS.md', view: 'current', name: 'notes.md' }];
+  const preview = codeRunOutputSchema.parse(
+    (await combined.execute(reference(readonly), 'code_run', { code, inputs })).data,
+  );
+  expect(preview.files).toEqual([expect.objectContaining({ path: '报告.pdf' })]);
+  const draft = owner.draft!;
+  const request = {
+    code,
+    inputs,
+    outputDirectory: '交付/代码产出',
+    expectedDraftVersion: draft.version,
+  };
+  await expect(
+    combined.execute(reference(readonly), 'code_run_save', request),
+  ).rejects.toMatchObject({ statusCode: 403 });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const saved = await combined.execute(reference(), 'code_run_save', request);
+  expect(saved.undoId).toEqual(expect.any(String));
+  const output = codeRunOutputSchema.parse(saved.data);
+  expect(output.outputDirectory).toBe('交付/代码产出');
+  const stored = await context.pool.query(
+    'SELECT sha256,media_type FROM workspace_draft_file WHERE draft_id=$1 AND path=$2 AND NOT is_deleted',
+    [draft.id, '交付/代码产出/报告.pdf'],
+  );
+  expect(stored.rows).toEqual([{ sha256: hash(data), media_type: 'application/pdf' }]);
+  expect(await store.get(stored.rows[0].sha256)).toEqual(data);
+  const currentDraft = await list();
+  const duplicate = await combined.execute(reference(), 'code_run_save', {
+    ...request,
+    expectedDraftVersion: currentDraft.draftVersion,
+  });
+  expect(duplicate.undoId).toBeNull();
+  expect(duplicate.data).toMatchObject({ saveStatus: 'skipped', saveError: 'PATH_UNAVAILABLE' });
+  expect((await list()).draftVersion).toBe(currentDraft.draftVersion);
+  await combined.undo(reference(), saved.undoId!);
+  expect((await list()).items.some((entry) => entry.path === '交付/代码产出/报告.pdf')).toBe(false);
+
+  const largePaths = Array.from(
+    { length: 32 },
+    (_, index) => `${'a'.repeat(160)}/${'b'.repeat(160)}/${'c'.repeat(160)}/${index}.pdf`,
+  );
+  fetchMock.mockImplementationOnce(async (_url, init) => {
+    const script = JSON.parse(String(init?.body)).code as string;
+    return Response.json({
+      status: 'ok',
+      exitCode: 0,
+      elapsedMs: 1,
+      codeSha256: hash(script),
+      inputHashes: [],
+      stdout: '\u001b'.repeat(2500),
+      stderr: '\u001b'.repeat(2500),
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      files: largePaths.map((path) => ({
+        path,
+        sha256: hash(data),
+        byteSize: data.length,
+        bodyBase64: data.toString('base64'),
+      })),
+    });
+  });
+  const manifest = codeRunOutputSchema.parse(
+    (await combined.execute(reference(readonly), 'code_run', { code })).data,
+  );
+  expect(manifest.files.map((file) => file.path)).toEqual(largePaths);
+  expect(manifest.stdoutTruncated).toBe(true);
+
+  const failedBytes = Buffer.from('synthetic failed upload');
+  const originalPut = store.put.bind(store);
+  const upload = vi.spyOn(store, 'put').mockImplementation(async (bytes) => {
+    if (bytes.equals(failedBytes)) throw new Error('fixture storage rejection');
+    return originalPut(bytes);
+  });
+  const files = [
+    { path: '1.pdf', bytes: data },
+    { path: '2.pdf', bytes: failedBytes },
+  ];
+  fetchMock.mockImplementationOnce(async (_url, init) => {
+    const script = JSON.parse(String(init?.body)).code as string;
+    return Response.json({
+      status: 'ok',
+      exitCode: 0,
+      elapsedMs: 1,
+      codeSha256: hash(script),
+      inputHashes: [],
+      stdout: '',
+      stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      files: files.map(({ path, bytes }) => ({
+        path,
+        sha256: hash(bytes),
+        byteSize: bytes.length,
+        bodyBase64: bytes.toString('base64'),
+      })),
+    });
+  });
+  try {
+    const before = await list();
+    const failed = await combined.execute(reference(), 'code_run_save', {
+      code,
+      outputDirectory: '交付/上传失败',
+      expectedDraftVersion: before.draftVersion,
+    });
+    expect(failed.undoId).toBeNull();
+    expect(failed.data).toMatchObject({
+      saveStatus: 'skipped',
+      saveError: 'STORAGE_FAILED',
+      outputHashes: files.map(({ bytes }) => hash(bytes)),
+    });
+    const after = await list();
+    expect(after.draftVersion).toBe(before.draftVersion);
+    expect(after.items.some(({ path }) => path.startsWith('交付/上传失败/'))).toBe(false);
+  } finally {
+    upload.mockRestore();
+  }
 });
 
 test('真实登记工具读取、写中文Markdown、精确编辑和保存返回可审核版本', async () => {

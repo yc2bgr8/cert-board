@@ -18,6 +18,7 @@ import { DocumentParserClient, maximumDocumentBytes } from './documents/docsvc-c
 import { startDocumentParseWorker } from './documents/parse-tasks.js';
 import { maximumIntakeBytes } from './intake/archive.js';
 import { startIntakeWorker } from './intake/service.js';
+import { SandboxClient } from './sandbox/client.js';
 import { getContinuationTicket, listContinuationsForDispatch } from './approvals/continuation.js';
 import {
   AGENT_QUEUE,
@@ -142,8 +143,17 @@ export async function startWorker() {
             .filter(Boolean),
         )
       : [];
+    const sandbox = config.CERT_SANDBOX_URL
+      ? new SandboxClient(config.CERT_SANDBOX_URL, config.CONTAINER_RUNTIME)
+      : undefined;
     const definitions = async (code: AgentCode) => [
-      ...(await buildAgentTools(store, code, resources.database, config.CONTAINER_RUNTIME)),
+      ...(await buildAgentTools(
+        store,
+        code,
+        resources.database,
+        config.CONTAINER_RUNTIME,
+        sandbox,
+      )),
       ...webTools,
     ];
     const reconcile = async () => {

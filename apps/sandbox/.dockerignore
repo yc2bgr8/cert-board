@@ -1,0 +1,11 @@
+*
+!pyproject.toml
+!uv.lock
+!sandbox.py
+!isolation.py
+!runner.py
+!libreoffice
+!python_bootstrap/
+!python_bootstrap/sitecustomize.py
+!tests/
+!tests/**/*.py

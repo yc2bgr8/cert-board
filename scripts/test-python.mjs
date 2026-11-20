@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 
-for (const service of ['fetcher', 'docsvc']) {
+for (const service of ['fetcher', 'docsvc', 'sandbox']) {
   const test = spawnSync(process.execPath, [`scripts/${service}-dev.mjs`, 'test'], {
     stdio: 'inherit',
     windowsHide: true,

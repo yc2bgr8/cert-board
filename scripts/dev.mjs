@@ -131,6 +131,10 @@ export function composeInvocation(
           `${projectDirectory}/deploy/compose.docsvc.yml`,
           '--file',
           `${projectDirectory}/deploy/compose.docsvc-isolated.yml`,
+          '--file',
+          `${projectDirectory}/deploy/compose.sandbox.yml`,
+          '--file',
+          `${projectDirectory}/deploy/compose.sandbox-isolated.yml`,
         ]
       : []),
     ...operations[action],

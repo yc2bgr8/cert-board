@@ -1,0 +1,8 @@
+#!/bin/sh
+/usr/lib/libreoffice/program/soffice.bin "-env:OSL_SOCKET_PATH=$TMPDIR" "$@"
+status=$?
+# LibreOffice requests one restart after initializing a fresh profile.
+if [ "$status" -eq 81 ]; then
+    exec /usr/lib/libreoffice/program/soffice.bin "-env:OSL_SOCKET_PATH=$TMPDIR" "$@"
+fi
+exit "$status"

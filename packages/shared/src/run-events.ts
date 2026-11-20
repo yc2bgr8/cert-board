@@ -36,6 +36,8 @@ const eventFields = {
   invocationId: id.nullable().optional(),
   requestId: id.nullable().optional(),
   contentHash: sha256Schema.nullable().optional(),
+  sandboxInputHashes: z.array(sha256Schema).max(16).nullable().optional(),
+  sandboxOutputHashes: z.array(sha256Schema).max(32).nullable().optional(),
   dataLevel: documentDataLevelSchema.nullable().optional(),
   reasonCode: runEventReasonSchema.nullable().optional(),
   inputTokens: count.nullable().optional(),

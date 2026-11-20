@@ -80,6 +80,7 @@ export const toolExecutionResultSchema = z
     data: z.json(),
     dataLevel: documentDataLevelSchema,
     afterVersion: toolVersionTokenSchema.optional(),
+    noChange: z.literal(true).optional(),
   })
   .strict()
   .refine(
