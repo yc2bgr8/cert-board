@@ -6,6 +6,7 @@ import {
   type Browser,
   type BrowserContext,
   type Page,
+  type Request,
   type Response,
 } from 'playwright-core';
 import { startBrowserHarness } from '../test-support/browser-harness.js';
@@ -1078,29 +1079,29 @@ async function main() {
     const failedDetail = page.waitForResponse(
       (response) => details(new URL(response.url())) && response.status() === 503,
     );
-    const earlyAcknowledgement = page
-      .waitForRequest(
-        (request) =>
-          new URL(request.url()).pathname === acknowledgePath && request.method() === 'POST',
-        { timeout: 700 },
-      )
-      .then(
-        () => true,
-        () => false,
-      );
+    let earlyAcknowledgements = 0;
+    const observeFailedAcknowledgement = (request: Request) => {
+      if (new URL(request.url()).pathname === acknowledgePath && request.method() === 'POST')
+        earlyAcknowledgements++;
+    };
+    page.on('request', observeFailedAcknowledgement);
     await reminderItem.click();
     await failedDetail;
-    await page.getByRole('region', { name: '外部核实群聊', exact: true }).waitFor();
-    assert.equal(await earlyAcknowledgement, false);
+    await page
+      .getByRole('region', { name: '外部核实群聊', exact: true })
+      .getByRole('alert')
+      .waitFor();
     const acknowledged = async () =>
       (
         await harness.pool.query('SELECT acknowledged_at FROM verification_notice WHERE id=$1', [
           reminder.id,
         ])
       ).rows[0]?.acknowledged_at;
-    assert.equal(await acknowledged(), null);
     await openInbox.click();
     await reminderItem.waitFor();
+    page.off('request', observeFailedAcknowledgement);
+    assert.equal(earlyAcknowledgements, 0);
+    assert.equal(await acknowledged(), null);
     await page.unroute(details);
     const noticeEvents: string[] = [];
     const loadedDetail = page.waitForResponse((response) => {
