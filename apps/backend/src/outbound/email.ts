@@ -43,12 +43,21 @@ export async function simulateEmail(
   const reply = { success: 'accepted', failure: 'rejected', uncertain: 'disconnected' } as const;
   return emailDispatchResult(reply[simulate], async () => {
     if (sentFolder === 'unavailable') return 'unavailable';
-    const found = await tx.query(
-      `SELECT 1 FROM simulated_email_delivery d JOIN outbound_message q ON q.id=d.queue_id
-       WHERE q.dispatch_id=$1 AND d.provider_filed`,
-      [dispatchId],
-    );
-    return found.rowCount ? 'found' : 'missing';
+    await tx.query('SAVEPOINT sent_folder_lookup');
+    let outcome: SentLookup;
+    try {
+      const found = await tx.query(
+        `SELECT 1 FROM simulated_email_delivery d JOIN outbound_message q ON q.id=d.queue_id
+         WHERE q.dispatch_id=$1 AND d.provider_filed`,
+        [dispatchId],
+      );
+      outcome = found.rowCount ? 'found' : 'missing';
+    } catch {
+      await tx.query('ROLLBACK TO SAVEPOINT sent_folder_lookup');
+      outcome = 'unavailable';
+    }
+    await tx.query('RELEASE SAVEPOINT sent_folder_lookup');
+    return outcome;
   });
 }
 

@@ -190,6 +190,7 @@ export const outboundReconciliationSchema = z
     dispatchId: z.string().min(1).max(200),
     version: versionSchema,
     status: z.enum(['reconcile', 'failed']),
+    reproposeRecorded: z.boolean(),
   })
   .strict()
   .nullable();

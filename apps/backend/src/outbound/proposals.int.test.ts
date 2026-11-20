@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import {
   browserIdentitySchema,
@@ -608,6 +609,10 @@ test.each(['confirm_sent', 'repropose'] as const)(
       dispatchId: expected.dispatchId,
     });
     expect(await notice()).toBeUndefined();
+    const recovered = (await app.inject({ url, headers: headers(requester) })).json();
+    if (action === 'repropose')
+      expect(recovered).toMatchObject({ status: 'failed', reproposeRecorded: true });
+    else expect(recovered).toBeNull();
     const audit = (
       await database.pool.query(
         'SELECT actor_user_id,actor_kind FROM audit_log WHERE action=$1 AND target_id=$2',
@@ -617,6 +622,58 @@ test.each(['confirm_sent', 'repropose'] as const)(
     expect(audit).toEqual([{ actor_user_id: memberA.userId, actor_kind: 'browser' }]);
   },
 );
+
+test('查询已发送的数据库语句失败时保留发送记录并进入待对账', async () => {
+  const created = await proposal();
+  const approved = await approve(created.proposalId, await login());
+  const connection = await database.pool.connect();
+  let errorCode: unknown;
+  const wrapped = new Proxy(connection, {
+    get(target, key) {
+      if (key === 'release') return () => undefined;
+      if (key === 'query')
+        return async (...args: unknown[]) => {
+          if (
+            typeof args[0] === 'string' &&
+            args[0].startsWith('SELECT 1 FROM simulated_email_delivery d')
+          ) {
+            try {
+              await target.query('SELECT 1 / 0');
+            } catch (error) {
+              errorCode = (error as { code?: string }).code;
+              throw error;
+            }
+          }
+          return Reflect.apply(target.query, target, args);
+        };
+      return Reflect.get(target, key);
+    },
+  }) as PoolClient;
+  const pool = new Proxy(database.pool, {
+    get(target, key) {
+      return key === 'connect' ? async () => wrapped : Reflect.get(target, key);
+    },
+  });
+  try {
+    const failedLookup = await processTestOutbound(pool, approved.queueId, {
+      simulate: 'uncertain',
+      sentFolder: 'auto_store',
+    });
+    expect(errorCode).toBe('22012');
+    expect(failedLookup).toMatchObject({ status: 'reconcile', attempts: 1 });
+    expect(await processTestOutbound(database.pool, approved.queueId)).toEqual(failedLookup);
+    expect(
+      (
+        await database.pool.query(
+          'SELECT queue_id FROM simulated_email_delivery WHERE queue_id=$1',
+          [approved.queueId],
+        )
+      ).rows,
+    ).toEqual([{ queue_id: approved.queueId }]);
+  } finally {
+    connection.release();
+  }
+});
 
 test('明确拒收提醒发起人，保持失败且不能确认已发出', async () => {
   const created = await proposal();

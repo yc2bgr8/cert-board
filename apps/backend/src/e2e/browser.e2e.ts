@@ -1005,8 +1005,16 @@ async function main() {
       .click();
     await reproposePanel.getByRole('button', { name: '重新提出', exact: true }).click();
     await page.getByRole('heading', { name: '重新提出验收', exact: true }).waitFor();
-    const outboundDraft = await page.getByRole('textbox', { name: '消息', exact: true }).inputValue();
+    const outboundDraft = await page
+      .getByRole('textbox', { name: '消息', exact: true })
+      .inputValue();
     assert.ok(outboundDraft.includes(retryQueue.proposalId));
+    await page.getByRole('button', { name: '查看提案', exact: true }).click();
+    await reproposePanel.getByRole('button', { name: '打开原对话准备草稿', exact: true }).click();
+    assert.equal(
+      await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(),
+      outboundDraft,
+    );
     assert.equal(reproposeModel.observed.calls, 1);
     assert.deepEqual(
       (

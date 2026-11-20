@@ -149,31 +149,37 @@ export function ProposalCard({
           <section className="live-review-section" aria-label="核对发送结果">
             <h3>核对发送结果</h3>
             <p>
-              {reconciliation.data.status === 'reconcile'
-                ? '模拟发送结果未知，请按发送编号核对。'
-                : '模拟发送服务明确拒收。'}
+              {reconciliation.data.reproposeRecorded
+                ? '已记录重新提出。可回原对话准备一条新提案请求。'
+                : reconciliation.data.status === 'reconcile'
+                  ? '模拟发送结果未知，请按发送编号核对。'
+                  : '模拟发送服务明确拒收。'}
             </p>
             <p>
               <code>{reconciliation.data.dispatchId}</code>
             </p>
             <div className="live-review-actions">
-              {reconciliation.data.status === 'reconcile' && (
-                <button
-                  type="button"
-                  className="live-review-primary"
-                  disabled={command.busy || reconciliation.isFetching}
-                  onClick={() => resolve('confirm_sent')}
-                >
-                  确认模拟已发出
-                </button>
-              )}
+              {!reconciliation.data.reproposeRecorded &&
+                reconciliation.data.status === 'reconcile' && (
+                  <button
+                    type="button"
+                    className="live-review-primary"
+                    disabled={command.busy || reconciliation.isFetching}
+                    onClick={() => resolve('confirm_sent')}
+                  >
+                    确认模拟已发出
+                  </button>
+                )}
               <button
                 type="button"
                 className="live-review-neutral"
                 disabled={command.busy || reconciliation.isFetching}
-                onClick={() => resolve('repropose')}
+                onClick={() => {
+                  if (reconciliation.data?.reproposeRecorded) onRepropose?.(proposal);
+                  else resolve('repropose');
+                }}
               >
-                重新提出
+                {reconciliation.data.reproposeRecorded ? '打开原对话准备草稿' : '重新提出'}
               </button>
             </div>
             {command.error && (

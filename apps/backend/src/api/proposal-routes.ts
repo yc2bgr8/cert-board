@@ -197,15 +197,19 @@ export function registerProposalRoutes<Logger extends FastifyBaseLogger>(
         item.status !== item.proposal_status
       )
         return null;
-      if (
-        (await tx.query('SELECT 1 FROM outbound_resolution WHERE queue_id=$1', [item.id])).rowCount
-      )
-        return null;
+      const prior = (
+        await tx.query<{ action: string }>(
+          'SELECT action FROM outbound_resolution WHERE queue_id=$1',
+          [item.id],
+        )
+      ).rows[0];
+      if (prior && prior.action !== 'repropose') return null;
       return outboundReconciliationSchema.parse({
         queueId: item.id,
         dispatchId: item.dispatch_id,
         version: item.version,
         status: item.status,
+        reproposeRecorded: prior?.action === 'repropose',
       });
     });
   });
