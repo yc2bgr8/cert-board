@@ -379,6 +379,7 @@ export async function readMemberNotifications(database: Database, actor: Browser
       projectId: string | null;
       createdAt: Date;
       deadline: unknown;
+      verification: unknown;
     }>(
       `WITH pending AS (
        SELECT a.id,'approval'::text AS kind,a.conversation_id,a.project_id,a.created_at,NULL::jsonb AS deadline FROM tool_approval a
@@ -407,17 +408,24 @@ export async function readMemberNotifications(database: Database, actor: Browser
        WHERE n.recipient_id=$1 AND n.status='pending' AND (n.notice->>'dueAt')::timestamptz=t.due_at
          AND COALESCE(n.notice->>'profile',t.profile)=t.profile
          AND COALESCE(n.notice->>'jurisdictionTz',t.jurisdiction_tz)=t.jurisdiction_tz
-     ) SELECT id,kind,conversation_id AS "conversationId",project_id AS "projectId",created_at AS "createdAt",deadline
-       FROM pending ORDER BY created_at DESC,id DESC LIMIT 51`,
+       UNION ALL
+       SELECT n.id,'verification',l.conversation_id,r.project_id,n.created_at,NULL FROM verification_notice n
+       JOIN verification_link l ON l.room_id=n.room_id JOIN run r ON r.id=l.run_id
+       WHERE n.recipient_user_id=$1
+     ) SELECT p.id,p.kind,p.conversation_id AS "conversationId",p.project_id AS "projectId",p.created_at AS "createdAt",p.deadline,
+       CASE WHEN v.id IS NOT NULL THEN jsonb_build_object('roomId',v.room_id,'kind',v.kind) END AS verification
+       FROM pending p LEFT JOIN verification_notice v ON v.id=p.id AND p.kind='verification'
+       ORDER BY p.created_at DESC,p.id DESC LIMIT 51`,
       [actor.userId],
     )
   ).rows;
   return memberNotificationSnapshotSchema.parse({
     generatedAt: new Date().toISOString(),
-    items: rows.slice(0, 50).map(({ createdAt, deadline, ...row }) => ({
+    items: rows.slice(0, 50).map(({ createdAt, deadline, verification, ...row }) => ({
       ...row,
       createdAt: createdAt.toISOString(),
       ...(deadline ? { deadline } : {}),
+      ...(verification ? { verification } : {}),
     })),
     truncated: rows.length > 50,
   });

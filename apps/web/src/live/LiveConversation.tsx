@@ -228,10 +228,7 @@ function ConversationView({
   const connected = stream.connection === 'open' && state.lastSeq >= record.lastEventSeq;
   const mayWrite = record.canWrite && connected && !command.busy && !stopCommand.busy;
   const question = run?.question;
-  const blocked =
-    !!run?.approvalId ||
-    (!!question && !question.questionId) ||
-    (run?.status === 'waiting' && !!run.verificationRoomId);
+  const blocked = !!run?.approvalId || (!!question && !question.questionId);
   const emptyText = record.canWrite
     ? '可以提问，或说明希望 Agent 完成的工作。'
     : '此对话还没有消息。';

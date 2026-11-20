@@ -14,6 +14,7 @@ export const noticeLabels: Record<Notice['kind'], string> = {
   review: '待审核结果',
   proposal: '外发提案',
   deadline: '期限提醒',
+  verification: '外部核实',
 };
 const filters = [
   'all',
@@ -23,6 +24,7 @@ const filters = [
   'question',
   'blocked',
   'deadline',
+  'verification',
 ] as const;
 const time = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
@@ -41,6 +43,7 @@ export function displayTime(value: string) {
 function noticeAction(kind: Notice['kind']) {
   if (kind === 'review') return '查看审核';
   if (kind === 'proposal') return '查看提案';
+  if (kind === 'verification') return '查看核实群聊';
   return '打开对话';
 }
 
@@ -175,7 +178,11 @@ export function Inbox({
                             '项目对话'}
                         </strong>
                         <span className={`live-notice-chip is-${item.kind}`}>
-                          {noticeLabels[item.kind]}
+                          {item.verification?.kind === 'blocked'
+                            ? '发起人或原对话已失去访问权限，未续跑'
+                            : item.verification?.kind === 'late'
+                              ? '迟到的核实结论'
+                              : noticeLabels[item.kind]}
                         </span>
                       </span>
                       <span className="live-muted">{displayTime(item.createdAt)}</span>

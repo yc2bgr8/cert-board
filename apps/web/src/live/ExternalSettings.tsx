@@ -32,6 +32,7 @@ function VerificationPreferences({
   management: boolean;
 }) {
   const [autoRounds, setRounds] = useState(String(settings.autoRounds));
+  const [waitMinutes, setWaitMinutes] = useState(String(settings.waitMinutes));
   const [models, setModels] = useState<VerificationSettingsInput['models']>(settings.models);
   const [saved, setSaved] = useState(false);
   const [rechecking, setRechecking] = useState(false);
@@ -49,7 +50,7 @@ function VerificationPreferences({
       onSubmit={(event) => {
         event.preventDefault();
         if (!management || settings.unavailableReason) return;
-        const input = { autoRounds: Number(autoRounds), models };
+        const input = { autoRounds: Number(autoRounds), models, waitMinutes: Number(waitMinutes) };
         void command
           .run([input], () => api.verificationSaveSettings(input))
           .then((result) => {
@@ -128,6 +129,22 @@ function VerificationPreferences({
           轮
         </label>
         <small>有人在群里发言后，轮数上限解除。</small>
+        <label>
+          核实等待上限{' '}
+          <input
+            aria-label="核实等待上限"
+            type="number"
+            min={1}
+            max={240}
+            value={waitMinutes}
+            onChange={(event) => {
+              setWaitMinutes(event.target.value);
+              setSaved(false);
+            }}
+            required
+          />{' '}
+          分钟
+        </label>
       </fieldset>
       {management && (
         <button

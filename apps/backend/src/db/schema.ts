@@ -1776,10 +1776,14 @@ export const verificationPreference = pgTable(
   {
     id: uuid('id').primaryKey(),
     autoRounds: integer('auto_rounds').notNull().default(7),
+    waitMinutes: integer('wait_minutes').notNull().default(60),
     models: jsonb('models').$type<VerificationSettingsInput['models']>().notNull(),
     ...timestamps(),
   },
-  (table) => [check('verification_auto_rounds_range', sql`${table.autoRounds} BETWEEN 1 AND 20`)],
+  (table) => [
+    check('verification_auto_rounds_range', sql`${table.autoRounds} BETWEEN 1 AND 20`),
+    check('verification_wait_minutes_range', sql`${table.waitMinutes} BETWEEN 1 AND 240`),
+  ],
 );
 
 export const verificationWorkerState = pgTable('verification_worker_state', {
@@ -1805,6 +1809,8 @@ export const verificationLink = pgTable(
       .references(() => run.id, { onDelete: 'restrict' }),
     reviewId: uuid('review_id').references(() => reviewCard.id, { onDelete: 'restrict' }),
     autoResume: boolean('auto_resume').notNull().default(false),
+    deadlineAt: timestamp('deadline_at', { withTimezone: true }),
+    timeoutRequestedAt: timestamp('timeout_requested_at', { withTimezone: true }),
     requester: uuid('requester')
       .notNull()
       .references(() => appUser.id, { onDelete: 'restrict' }),
@@ -1891,6 +1897,7 @@ export const goalWait = pgTable(
     source: goalEventSource('source').notNull(),
     sourceKey: varchar('source_key', { length: 128 }).notNull(),
     reason: varchar('reason', { length: 500 }).notNull(),
+    nextStep: varchar('next_step', { length: 500 }).notNull(),
     dueAt: timestamp('due_at', { withTimezone: true }),
     respondedAt: timestamp('responded_at', { withTimezone: true }),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
@@ -1927,6 +1934,11 @@ export const verificationWait = pgTable(
       .notNull()
       .references(() => appUser.id, { onDelete: 'restrict' }),
     callId: varchar('call_id', { length: 128 }),
+    conclusion: jsonb('conclusion'),
+    receipt: jsonb('receipt').$type<Record<string, unknown>>(),
+    fallback: boolean('fallback').notNull().default(false),
+    directionFrom: integer('direction_from'),
+    deliveredConclusionPosition: integer('delivered_conclusion_position'),
     state: verificationWaitState('state').notNull().default('waiting'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1936,6 +1948,27 @@ export const verificationWait = pgTable(
     uniqueIndex('verification_wait_open_run')
       .on(table.runId)
       .where(sql`${table.state} IN ('waiting','queued','running')`),
+  ],
+);
+
+export const verificationNotice = pgTable(
+  'verification_notice',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => verificationLink.roomId, { onDelete: 'restrict' }),
+    recipientUserId: uuid('recipient_user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    kind: varchar('kind', { length: 12 }).notNull(),
+    position: integer('position').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('verification_notice_once').on(table.roomId, table.kind, table.position),
+    check('verification_notice_kind', sql`${table.kind} IN ('blocked','late')`),
+    index('verification_notice_recipient_idx').on(table.recipientUserId, table.createdAt),
   ],
 );
 

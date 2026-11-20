@@ -993,6 +993,16 @@ async function main() {
     await settings.getByRole('heading', { name: '个人与通知', exact: true }).waitFor();
     assert.equal(await maintenanceEntry.evaluate((el) => el === document.activeElement), true);
     stage = 'Agent 在对话中自行发起核实并使用人工补充';
+    const waitLimit = settings.getByRole('spinbutton', { name: '核实等待上限', exact: true });
+    await waitLimit.waitFor();
+    assert.equal(await waitLimit.inputValue(), '60');
+    await waitLimit.fill('75');
+    await settings.getByRole('button', { name: '保存外部模型设置', exact: true }).click();
+    await until(
+      async () =>
+        (await harness.pool.query('SELECT wait_minutes FROM verification_preference')).rows[0]
+          ?.wait_minutes === 75,
+    );
     await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
     await createConversation(page, harness.projectId, 'read_only', 'Agent 自动外部核实验收');
     const model = harness.plan('consult_verification');
@@ -1011,6 +1021,10 @@ async function main() {
       await send(page, '请做合成版本核查，遇到不确定可自行核实。');
       const linked = page.getByRole('list', { name: '对话中的外部核实', exact: true });
       await linked.getByText('正在请外部模型核实…', { exact: true }).waitFor();
+      await linked.getByText(/你的消息会和结论一起交给它/u).waitFor();
+      assert.ok(await linked.locator('time').getAttribute('dateTime'));
+      const buffered = await send(page, '对话补充：优先比较两份版本。', '插话');
+      assert.equal(buffered.kind, 'steering');
       await linked.getByRole('button', { name: '查看群聊', exact: true }).click();
       const linkedGroup = page.getByRole('region', { name: '外部核实群聊', exact: true });
       await linkedGroup
@@ -1033,6 +1047,7 @@ async function main() {
         .getByText('收到核实结论及人工补充，继续核查页码与版本。', { exact: true })
         .waitFor();
       assert.equal(model.observed.calls, 2);
+      assert.equal(model.observed.latestUser, '对话补充：优先比较两份版本。');
       await linked.getByText('外部核实已完成', { exact: true }).waitFor();
       await captureWorkbench(page, output, 'pr-d4-04-agent-verification.png');
     } finally {

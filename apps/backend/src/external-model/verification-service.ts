@@ -88,6 +88,7 @@ const hostName = (host: VerificationRoom['host']) =>
   host === 'maintenance' ? '维护Agent' : '注册Agent';
 const draftDefaults = (): VerificationSettingsInput => ({
   autoRounds: 7,
+  waitMinutes: 60,
   models: verificationCatalog.map(({ id, channel }) => ({
     id,
     channel,
@@ -115,9 +116,11 @@ const roomColumns = `
   c.updated_at AS "updatedAt",c.user_id AS "ownerId",c.participants,c.conclusion,
   c.next_position AS "nextPosition",c.last_handled_position AS "lastHandledPosition",
   c.lease_id AS "leaseId",
-  CASE WHEN l.room_id IS NULL THEN NULL ELSE json_build_object(
+  CASE WHEN l.room_id IS NULL THEN NULL ELSE jsonb_build_object(
     'kind',l.kind,'conversationId',l.conversation_id,'runId',l.run_id,'reviewId',l.review_id
-  ) END AS origin,
+  ) || CASE WHEN l.deadline_at IS NULL THEN '{}'::jsonb ELSE jsonb_build_object(
+    'deadlineAt',to_char(l.deadline_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+  ) END END AS origin,
   to_char(c.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "cursorTime"`;
 const roomFrom = `external_model_conversation c
   JOIN app_user owner ON owner.id=c.user_id
@@ -238,8 +241,8 @@ export class VerificationRooms {
   }
 
   private async preferences(db: Executor) {
-    const { rows } = await db.query<{ autoRounds: number; models: unknown }>(
-      'SELECT auto_rounds AS "autoRounds",models FROM verification_preference WHERE id=$1',
+    const { rows } = await db.query<{ autoRounds: number; waitMinutes: number; models: unknown }>(
+      'SELECT auto_rounds AS "autoRounds",wait_minutes AS "waitMinutes",models FROM verification_preference WHERE id=$1',
       [preferencesId],
     );
     return rows[0] ? verificationSettingsInputSchema.parse(rows[0]) : draftDefaults();
@@ -298,9 +301,10 @@ export class VerificationRooms {
         '请从模型目录选择至少一个默认参与的已启用模型。',
       );
     await db.query(
-      `INSERT INTO verification_preference(id,auto_rounds,models) VALUES($1,$2,$3)
-       ON CONFLICT(id) DO UPDATE SET auto_rounds=EXCLUDED.auto_rounds,models=EXCLUDED.models,updated_at=clock_timestamp()`,
-      [preferencesId, input.autoRounds, JSON.stringify(input.models)],
+      `INSERT INTO verification_preference(id,auto_rounds,models,wait_minutes) VALUES($1,$2,$3,COALESCE($4,60))
+       ON CONFLICT(id) DO UPDATE SET auto_rounds=EXCLUDED.auto_rounds,models=EXCLUDED.models,
+       wait_minutes=COALESCE($4,verification_preference.wait_minutes),updated_at=clock_timestamp()`,
+      [preferencesId, input.autoRounds, JSON.stringify(input.models), input.waitMinutes ?? null],
     );
     await db.query(
       `INSERT INTO audit_log(actor_kind,actor_user_id,action,target_type,target_id)
@@ -428,8 +432,8 @@ export class VerificationRooms {
     if (inserted.rowCount) {
       if (origin)
         await db.query(
-          `INSERT INTO verification_link(room_id,kind,conversation_id,run_id,review_id,requester,auto_resume)
-           VALUES($1,$2,$3,$4,$5,$6,$7)`,
+          `INSERT INTO verification_link(room_id,kind,conversation_id,run_id,review_id,requester,auto_resume,deadline_at)
+           VALUES($1,$2,$3,$4,$5,$6,$7,clock_timestamp()+make_interval(mins=>$8))`,
           [
             input.requestKey,
             origin.kind,
@@ -438,6 +442,7 @@ export class VerificationRooms {
             origin.reviewId,
             actor.userId,
             origin.kind === 'review',
+            (await this.preferences(db)).waitMinutes ?? 60,
           ],
         );
       if (origin)

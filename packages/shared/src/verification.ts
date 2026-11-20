@@ -41,10 +41,12 @@ export const verificationModelPreferenceSchema = z
 export const verificationSettingsInputSchema = z
   .object({
     autoRounds: z.number().int().min(1).max(20),
+    waitMinutes: z.number().int().min(1).max(240).optional(),
     models: z.array(verificationModelPreferenceSchema).min(2).max(8),
   })
   .strict();
 export const verificationSettingsSchema = verificationSettingsInputSchema.extend({
+  waitMinutes: z.number().int().min(1).max(240).default(60),
   catalog: z.array(verificationModelSchema).max(8),
   channelStatus: verificationChannelStatusSchema,
   unavailableReason: note(240).optional(),
@@ -59,6 +61,7 @@ export const verificationOriginSchema = z
     conversationId: id,
     runId: id,
     reviewId: id.nullable(),
+    deadlineAt: instant.optional(),
   })
   .strict();
 export const verificationRoomSchema = z

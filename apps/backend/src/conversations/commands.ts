@@ -430,10 +430,25 @@ export async function sendConversationMessageTx(
     intent = await command(tx, actor, data.requestKey, 'message', conversationId, data);
   if (intent.prior) return conversationWriteResultSchema.parse(intent.prior);
   const context = await lockConversation(tx, actor, conversationId);
-  runnable(context);
   const current = context.current;
-  if (current && ['queued', 'running', 'waiting'].includes(current.status)) {
-    if (current.direction_version !== context.goal?.direction_version)
+  const awaitingVerification =
+    current &&
+    (
+      await tx.query(
+        `SELECT 1 FROM verification_wait WHERE run_id=$1 AND conversation_id=$2 AND user_id=$3 AND state IN ('waiting','queued')
+     UNION ALL SELECT 1 FROM verification_link l JOIN external_model_conversation c ON c.id=l.room_id
+     WHERE l.run_id=$1 AND l.conversation_id=$2 AND l.kind='review' AND l.auto_resume
+      AND c.state<>'completed'
+      AND NOT EXISTS(SELECT 1 FROM goal_event e WHERE e.source='verification' AND e.source_key=l.room_id::text)`,
+        [current.id, conversationId, actor.userId],
+      )
+    ).rowCount;
+  if (!awaitingVerification) runnable(context);
+  if (
+    current &&
+    (awaitingVerification || ['queued', 'running', 'waiting'].includes(current.status))
+  ) {
+    if (!awaitingVerification && current.direction_version !== context.goal?.direction_version)
       throw new AppError(
         409,
         'CONVERSATION_DIRECTION_CHANGED',
@@ -453,6 +468,7 @@ export async function sendConversationMessageTx(
         '当前正在等待回答，请使用提问卡提交回答。',
       );
     if (
+      !awaitingVerification &&
       pending?.kind === 'review' &&
       (current.status !== 'waiting' || (await activeLease(tx, current)))
     )
@@ -461,9 +477,9 @@ export async function sendConversationMessageTx(
         'CONVERSATION_RUN_FINISHING',
         '上一轮正在保存结束状态，请稍后重试这条修改意见。',
       );
-    if (current.status === 'waiting' && pending?.kind !== 'review')
+    if (!awaitingVerification && current.status === 'waiting' && pending?.kind !== 'review')
       throw new AppError(409, 'CONVERSATION_WAITING', '当前轮仍在等待处理，请先核对待处理事项。');
-    if (current.status !== 'waiting') {
+    if (awaitingVerification || current.status !== 'waiting') {
       if (current.status === 'running' && !(await activeLease(tx, current)))
         throw new AppError(
           409,

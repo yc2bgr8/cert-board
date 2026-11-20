@@ -31,9 +31,11 @@ import {
 import { handoffBlockedBudgetRuns, markUsageIncomplete } from './budget/service.js';
 import { purgeExpiredModelRequests } from './runs/request-retention.js';
 import {
+  advanceVerificationDeadlines,
   listVerificationResumes,
   scanReadyVerificationWaits,
   scanReviewVerificationResults,
+  scanVerificationNotices,
 } from './goals/verification-wakeups.js';
 import { scanGoalEvents, scanReviewDecisionEvents } from './goals/goal-events.js';
 
@@ -192,7 +194,7 @@ export async function startWorker() {
     const dispatchQueued = async () => {
       const queued = await resources.database.query<{ id: string }>(
         `SELECT id FROM run WHERE status='queued' AND trigger_type<>'evaluation' AND lease_generation=0 AND lease_owner IS NULL
-         AND NOT EXISTS(SELECT 1 FROM verification_wait w WHERE w.run_id=run.id AND w.state='queued') ORDER BY created_at,id LIMIT 100`,
+         AND NOT EXISTS(SELECT 1 FROM verification_wait w WHERE w.run_id=run.id AND (w.state='queued' OR w.call_id IS NULL)) ORDER BY created_at,id LIMIT 100`,
       );
       for (const row of queued.rows) {
         if (closing) break;
@@ -214,6 +216,8 @@ export async function startWorker() {
         }
       }
       if (closing) return;
+      await advanceVerificationDeadlines(resources.database);
+      await scanVerificationNotices(resources.database);
       await scanReadyVerificationWaits(resources.database);
       await scanReviewVerificationResults(resources.database);
       await scanGoalEvents(resources.database);

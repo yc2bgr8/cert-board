@@ -30,9 +30,11 @@ import {
 } from '../queue/agent-queue.js';
 import { listContinuationsForDispatch } from '../approvals/continuation.js';
 import {
+  advanceVerificationDeadlines,
   listVerificationResumes,
   scanReadyVerificationWaits,
   scanReviewVerificationResults,
+  scanVerificationNotices,
 } from '../goals/verification-wakeups.js';
 import { scanGoalEvents, scanReviewDecisionEvents } from '../goals/goal-events.js';
 import { ModelGateway } from '../modelgw/service.js';
@@ -355,12 +357,14 @@ export async function startBrowserHarness({ useVerificationWorker = false } = {}
       const queued = (
         await pool.query<{ id: string }>(
           `SELECT id FROM run WHERE status='queued' AND trigger_type<>'evaluation' AND lease_generation=0
-           AND NOT EXISTS(SELECT 1 FROM verification_wait w WHERE w.run_id=run.id AND w.state='queued') ORDER BY created_at,id LIMIT 20`,
+           AND NOT EXISTS(SELECT 1 FROM verification_wait w WHERE w.run_id=run.id AND (w.state='queued' OR w.call_id IS NULL)) ORDER BY created_at,id LIMIT 20`,
         )
       ).rows;
       for (const run of queued) if (!closing) await enqueueAgentRun(queue, run.id);
       for (const ticket of await listContinuationsForDispatch(pool))
         if (!closing) await enqueueAgentRun(queue, ticket.runId, ticket.id);
+      await advanceVerificationDeadlines(pool);
+      await scanVerificationNotices(pool);
       await scanReadyVerificationWaits(pool);
       await scanReviewVerificationResults(pool);
       await scanGoalEvents(pool);

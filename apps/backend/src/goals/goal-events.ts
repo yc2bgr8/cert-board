@@ -3,7 +3,10 @@ import type { Pool, PoolClient } from 'pg';
 import { goalControlInputSchema, type BrowserIdentity } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
-import { appendConversationMessageTx } from '../conversations/storage.js';
+import {
+  appendConversationEventTx,
+  appendConversationMessageTx,
+} from '../conversations/storage.js';
 
 type AwaitedSource = 'timer' | 'document' | 'manual';
 type Query = Pick<PoolClient, 'query'>;
@@ -41,7 +44,7 @@ export async function parkGoalWaitTx(db: Query, waitId: string, goalId: string, 
   ).rows[0];
   if (!wait) throw unavailable();
   const changed = await db.query(
-    "UPDATE goal SET status=$2,version=version+1,updated_at=clock_timestamp() WHERE id=$1 AND status='active'",
+    "UPDATE goal SET status=$2,updated_at=clock_timestamp() WHERE id=$1 AND status='active'",
     [goalId, waitingStatus[wait.source]],
   );
   if (!changed.rowCount) throw unavailable();
@@ -63,7 +66,9 @@ export async function recordGoalEvent(
 ) {
   const result = await db.query<{ id: string }>(
     `INSERT INTO goal_event(goal_id,source,source_key)
-    VALUES($1,$2,$3) ON CONFLICT(source,source_key) DO NOTHING RETURNING id`,
+    SELECT w.goal_id,w.source,w.id::text FROM goal_wait w WHERE w.goal_id=$1 AND w.source=$2 AND w.source_key=$3
+      AND w.cancelled_at IS NULL AND w.responded_at IS NULL
+    ON CONFLICT(source,source_key) DO NOTHING RETURNING id`,
     [goalId, source, sourceKey],
   );
   return result.rows[0]?.id ?? null;
@@ -73,10 +78,10 @@ export async function recordDocumentGoalEvent(db: Query, documentId: string, ver
   const key = `${documentId}:${version}`;
   await db.query(
     `INSERT INTO goal_event(goal_id,source,source_key)
-    SELECT w.goal_id,'document',$2::varchar FROM goal_wait w JOIN goal g ON g.id=w.goal_id
+    SELECT w.goal_id,'document',w.id::text FROM goal_wait w JOIN goal g ON g.id=w.goal_id
     JOIN document d ON d.id=$1 AND d.project_id=g.project_id
     WHERE w.source='document' AND w.source_key=$2 AND w.cancelled_at IS NULL AND w.responded_at IS NULL
-    ORDER BY w.created_at,w.id LIMIT 1 ON CONFLICT(source,source_key) DO NOTHING`,
+    ON CONFLICT(source,source_key) DO NOTHING`,
     [documentId, key],
   );
 }
@@ -88,8 +93,16 @@ export async function scanGoalEvents(pool: Pool) {
     WHERE status IN ${inactive} AND EXISTS(SELECT 1 FROM goal_wait prior WHERE prior.goal_id=goal.id AND prior.cancelled_at IS NOT NULL)
     AND NOT EXISTS(SELECT 1 FROM goal_wait open_wait WHERE open_wait.goal_id=goal.id AND open_wait.cancelled_at IS NULL AND open_wait.responded_at IS NULL)`);
   await pool.query(`INSERT INTO goal_event(goal_id,source,source_key)
-    SELECT w.goal_id,'timer',w.source_key FROM goal_wait w WHERE w.source='timer'
+    SELECT w.goal_id,'timer',w.id::text FROM goal_wait w WHERE w.source='timer'
       AND w.due_at<=clock_timestamp() AND w.responded_at IS NULL AND w.cancelled_at IS NULL
+    ON CONFLICT(source,source_key) DO NOTHING`);
+  await pool.query(`INSERT INTO goal_event(goal_id,source,source_key)
+    SELECT w.goal_id,'document',w.id::text FROM goal_wait w JOIN goal g ON g.id=w.goal_id
+      JOIN document d ON d.id::text=split_part(w.source_key,':',1) AND d.project_id=g.project_id
+      JOIN document_version v ON v.document_id=d.id AND v.version_no::text=split_part(w.source_key,':',2)
+      LEFT JOIN document_parse_task t ON t.version_id=v.id
+    WHERE w.source='document' AND w.responded_at IS NULL AND w.cancelled_at IS NULL
+      AND (t.state='ready' OR v.content_kind='parsed_text')
     ON CONFLICT(source,source_key) DO NOTHING`);
   const eligible = await pool.query<{
     event_id: string;
@@ -97,23 +110,29 @@ export async function scanGoalEvents(pool: Pool) {
     goal_id: string;
     owner_user_id: string;
     previous_run_id: string;
+    previous_user_id: string;
+    previous_conversation_id: string;
   }>(
-    `SELECT e.id AS event_id,w.id AS wait_id,e.goal_id,g.owner_user_id,w.run_id AS previous_run_id
-     FROM goal_event e JOIN goal_wait w ON w.goal_id=e.goal_id AND w.source=e.source AND w.source_key=e.source_key
+    `SELECT e.id AS event_id,w.id AS wait_id,e.goal_id,g.owner_user_id,w.run_id AS previous_run_id,
+       prior.user_id AS previous_user_id,prior.conversation_id AS previous_conversation_id
+     FROM goal_event e JOIN goal_wait w ON w.goal_id=e.goal_id AND w.source=e.source AND w.id::text=e.source_key
      JOIN goal g ON g.id=e.goal_id AND g.status IN ${inactive}
+     JOIN app_user u ON u.id=g.owner_user_id AND u.status='active'
+     JOIN run prior ON prior.id=w.run_id AND prior.status='waiting'
+      AND (prior.lease_owner IS NULL OR prior.lease_expires_at<=clock_timestamp())
      WHERE e.state='pending' AND w.cancelled_at IS NULL AND w.responded_at IS NULL
+       AND NOT EXISTS(SELECT 1 FROM goal_event occupied WHERE occupied.goal_id=e.goal_id AND occupied.state='queued')
      ORDER BY e.created_at,e.id LIMIT 40`,
   );
   for (const candidate of eligible.rows) {
     await transaction(pool, async (db) => {
-      if (
-        !(
-          await db.query("SELECT id FROM app_user WHERE id=$1 AND status='active' FOR SHARE", [
-            candidate.owner_user_id,
-          ])
-        ).rowCount
-      )
-        return;
+      const owners = (
+        await db.query<{ id: string }>(
+          "SELECT id FROM app_user WHERE id=ANY($1::uuid[]) AND status='active' ORDER BY id FOR SHARE",
+          [[candidate.owner_user_id, candidate.previous_user_id]],
+        )
+      ).rows;
+      if (!owners.some(({ id }) => id === candidate.owner_user_id)) return;
       const goal = (
         await db.query<{ project_id: string; direction_version: number; project_type: string }>(
           `SELECT g.project_id,g.direction_version,p.project_type FROM goal g JOIN cert_project p ON p.id=g.project_id
@@ -130,13 +149,22 @@ export async function scanGoalEvents(pool: Pool) {
         ).rowCount
       )
         return;
+      await db.query('SELECT id FROM conversation WHERE id=$1 FOR UPDATE', [
+        candidate.previous_conversation_id,
+      ]);
       const previous = (
-        await db.query<{ status: string; lease_owner: string | null; max_data_level: string }>(
-          'SELECT status,lease_owner,max_data_level FROM run WHERE id=$1 FOR UPDATE',
+        await db.query<{
+          status: string;
+          lease_live: boolean;
+          max_data_level: string;
+          user_id: string;
+        }>(
+          `SELECT status,COALESCE(lease_expires_at>clock_timestamp(),false) AS lease_live,max_data_level,user_id
+           FROM run WHERE id=$1 FOR UPDATE`,
           [candidate.previous_run_id],
         )
       ).rows[0];
-      if (previous?.status !== 'waiting' || previous.lease_owner) return;
+      if (previous?.status !== 'waiting' || previous.lease_live) return;
       const event = (
         await db.query<{ source: AwaitedSource; source_key: string }>(
           "SELECT source,source_key FROM goal_event WHERE id=$1 AND state='pending' FOR UPDATE",
@@ -145,8 +173,8 @@ export async function scanGoalEvents(pool: Pool) {
       ).rows[0];
       if (!event) return;
       const wait = (
-        await db.query<{ reason: string }>(
-          `SELECT reason FROM goal_wait WHERE id=$1 AND cancelled_at IS NULL AND responded_at IS NULL FOR UPDATE`,
+        await db.query<{ reason: string; source_key: string; next_step: string }>(
+          `SELECT reason,source_key,next_step FROM goal_wait WHERE id=$1 AND cancelled_at IS NULL AND responded_at IS NULL FOR UPDATE`,
           [candidate.wait_id],
         )
       ).rows[0];
@@ -193,7 +221,7 @@ export async function scanGoalEvents(pool: Pool) {
         candidate.wait_id,
       ]);
       await db.query(
-        "UPDATE run SET status='completed',version=version+1,updated_at=clock_timestamp() WHERE id=$1 AND status='waiting'",
+        "UPDATE run SET status='completed',lease_owner=NULL,lease_expires_at=NULL,version=version+1,updated_at=clock_timestamp() WHERE id=$1 AND status='waiting'",
         [candidate.previous_run_id],
       );
       await db.query("UPDATE goal_event SET state='queued',wake_run_id=$2 WHERE id=$1", [
@@ -206,9 +234,22 @@ export async function scanGoalEvents(pool: Pool) {
         requestKey: candidate.event_id,
         message: {
           role: 'user',
-          content: `系统唤醒通知。${title}，参考编号 ${event.source_key}。待继续事项为 ${wait.reason}。先核对项目资料，保持审核与批准要求。`,
+          content: `系统唤醒通知。${title}，参考编号 ${wait.source_key}。等待原因：${wait.reason}。下一步打算：${wait.next_step}。先核对项目资料，保持审核与批准要求。`,
         },
       });
+      if (owners.some(({ id }) => id === candidate.previous_user_id))
+        await appendConversationEventTx(db, {
+          runId: candidate.previous_run_id,
+          userId: previous.user_id,
+          requestKey: candidate.event_id,
+          event: {
+            type: 'run_status',
+            payload: {
+              status: 'completed',
+              message: `等待已结束，项目下的「${title}后继续」对话已接续。`,
+            },
+          },
+        });
     });
   }
 }

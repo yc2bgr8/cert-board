@@ -225,6 +225,15 @@ async function resolvedHistory(pool: Pool, context: Context, history: KernelMess
     if (!result || results.has(result.callId)) throw denied();
     results.set(result.callId, JSON.stringify(result.result.data));
   }
+  const verifications = await pool.query<{ call_id: string; receipt: unknown }>(
+    `SELECT call_id,receipt FROM verification_wait
+     WHERE conversation_id=$1 AND user_id=$2 AND receipt IS NOT NULL AND call_id=ANY($3::varchar[])`,
+    [context.conversationId, context.userId, callIds],
+  );
+  for (const verification of verifications.rows) {
+    if (results.has(verification.call_id)) throw denied();
+    results.set(verification.call_id, JSON.stringify(verification.receipt));
+  }
   return history.map((message) =>
     message.role === 'tool' && results.has(message.tool_call_id)
       ? { ...message, content: results.get(message.tool_call_id)! }
@@ -460,7 +469,7 @@ export async function executeAgentRun(
     const catalog = registry.registeredToolDescriptions();
     const previous = await resolvedHistory(pool, context, history);
     let readyHistory = previous;
-    let resumedTerminal: 'review' | 'proposal' | undefined;
+    let resumedTerminal: 'review' | 'proposal' | 'goal_wait' | undefined;
     if (verification) {
       const data = await verificationResumeResult(
         pool,
@@ -521,6 +530,10 @@ export async function executeAgentRun(
           : message,
       );
       resumedTerminal = 'terminal' in resolved ? resolved.terminal : undefined;
+      if (ticket.toolName === 'wait_register' && resolved.result.status === 'completed') {
+        pendingGoalWait = goalWaitResultSchema.parse(resolved.result.data).waitId;
+        resumedTerminal = 'goal_wait';
+      }
       if (resumedTerminal === 'review')
         reviewId = reviewSubmitResultSchema.parse(resolved.result.data).reviewId;
     }

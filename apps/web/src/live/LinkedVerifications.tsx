@@ -116,6 +116,19 @@ export function LinkedVerificationRows({
               </span>
             )}
             {summary && <p>{summary}</p>}
+            {!inReview && result === 'pending' && room.origin?.deadlineAt && (
+              <p>
+                核实截止{' '}
+                <time dateTime={room.origin.deadlineAt}>
+                  {new Intl.DateTimeFormat('zh-CN', {
+                    dateStyle: 'short',
+                    timeStyle: 'short',
+                    timeZone: 'Asia/Shanghai',
+                  }).format(new Date(room.origin.deadlineAt))}
+                </time>
+                （北京时间）。Agent正在等核实结论，你的消息会和结论一起交给它。不想等可以到群里点「停止并整理」。
+              </p>
+            )}
             {inReview &&
               openEvidence &&
               sources.some(({ check }) => check?.status === 'verified') && (

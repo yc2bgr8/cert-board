@@ -384,6 +384,10 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     if (conversation.userId !== userId) setScope('department');
   };
   const openNotice = (item: MemberNotificationSnapshot['items'][number]) => {
+    if (item.verification) {
+      openVerification(item.verification.roomId);
+      return;
+    }
     if (item.kind === 'review') {
       openReview(item.id);
       return;

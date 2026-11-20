@@ -16,7 +16,7 @@ export function waitRegisterTool(): ToolDefinition {
       publication: 'published',
       effect: 'reversible_write',
       modes: ['ask', 'full'],
-      approvalInAsk: false,
+      approvalInAsk: true,
       outputDataLevel: 'internal',
       authorizationAction: 'project.write',
       description: {
@@ -25,30 +25,56 @@ export function waitRegisterTool(): ToolDefinition {
         avoid:
           '人需要马上回答的问题用 ask_user。外部核实用 consult_external_model。等待不能代替批准。',
         parameters:
-          'source 取 document、timer 或 manual。sourceKey 是具体来源编号。资料使用资料版本定位，定时需传带时区的 dueAt。reason 说明待完成工作。',
+          'source 取 document、timer 或 manual。资料编号用 <资料UUID>:<版本号>，例如 c1a12d0e-f30e-4c43-91dc-1afcf321be01:2。定时需传带时区的 dueAt。reason 说明等待原因，nextStep 用一两句话写出唤醒后要做的事。',
         example: {
           source: 'manual',
           sourceKey: 'example-review-2026',
           reason: '等待工作人员确认合成清单。',
+          nextStep: '读取合成清单的确认版本，逐条检查后提交审核。',
         },
       },
     },
     inputSchema: goalWaitInputSchema,
     outputSchema: goalWaitResultSchema,
+    async prepareApproval(ctx, raw) {
+      const input = goalWaitInputSchema.parse(raw);
+      const goal = (
+        await ctx.tx.query<{ id: string; version: number; status: string }>(
+          "SELECT id,version,status FROM goal WHERE id=$1 AND status='active'",
+          [ctx.goalId],
+        )
+      ).rows[0];
+      if (!goal) throw missing();
+      return {
+        summary: '登记目标等待，并在事件到达后安排续跑',
+        changes: [
+          {
+            recordType: 'goal',
+            recordId: goal.id,
+            field: 'wait',
+            before: { status: goal.status },
+            after: { ...input, dueAt: input.dueAt ?? null },
+          },
+        ],
+        targetVersions: [{ targetType: 'goal', targetId: goal.id, version: String(goal.version) }],
+        dataLevel: ctx.maxDataLevel,
+      };
+    },
     async execute(ctx, raw, before) {
       if (!ctx.goalId || !before || before.targetType !== 'goal_wait') throw missing();
       const input = goalWaitInputSchema.parse(raw);
       const result = await ctx.tx.query(
-        `INSERT INTO goal_wait(id,goal_id,run_id,source,source_key,reason,due_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
+        `INSERT INTO goal_wait(id,goal_id,run_id,source,source_key,reason,due_at,next_step)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
         [
           before.targetId,
           ctx.goalId,
           ctx.runId,
           input.source,
-          input.sourceKey,
+          input.source === 'document' ? input.sourceKey.toLowerCase() : input.sourceKey,
           input.reason,
           input.dueAt ?? null,
+          input.nextStep,
         ],
       );
       if (!result.rowCount) throw missing();
@@ -107,7 +133,9 @@ export function waitRegisterTool(): ToolDefinition {
         );
         if (!changed.rowCount) throw missing();
         const restored = await ctx.tx.query<{ version: number }>(
-          'UPDATE goal SET version=version+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING version',
+          `UPDATE goal SET status=CASE WHEN status IN ('waiting_materials','waiting_external','waiting_decision')
+             THEN 'active'::goal_status ELSE status END,
+             version=version+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING version`,
           [goalId],
         );
         return { afterVersion: restored.rows[0]!.version };

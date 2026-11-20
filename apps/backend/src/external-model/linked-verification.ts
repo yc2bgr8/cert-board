@@ -203,12 +203,19 @@ export async function latestReviewVerification(pool: Pool, conversationId: strin
 
 export async function verificationResumeResult(pool: Pool, run: LinkedRun, roomId: string) {
   const selected = (
-    await pool.query<{ project_id: string | null; conclusion: unknown; has_model_reply: boolean }>(
-      `SELECT c.project_id,c.conclusion,EXISTS(SELECT 1 FROM verification_post p WHERE p.room_id=c.id AND p.type='model') AS has_model_reply
+    await pool.query<{
+      project_id: string | null;
+      conclusion: unknown;
+      fallback: boolean;
+      direction_from: number | null;
+      direction_version: number;
+    }>(
+      `SELECT c.project_id,w.conclusion,w.fallback,w.direction_from,r.direction_version
      FROM verification_wait w JOIN verification_link l ON l.room_id=w.room_id
      JOIN external_model_conversation c ON c.id=w.room_id
+     JOIN run r ON r.id=w.run_id
      WHERE w.room_id=$1 AND w.run_id=$2 AND w.conversation_id=$3 AND w.user_id=$4 AND w.state='running'
-       AND c.state='completed' AND l.conversation_id=w.conversation_id
+       AND l.conversation_id=w.conversation_id
        AND (l.kind='review' OR (l.kind='agent' AND l.run_id=w.run_id AND l.requester=w.user_id))`,
       [roomId, run.runId, run.conversationId, run.userId],
     )
@@ -219,9 +226,33 @@ export async function verificationResumeResult(pool: Pool, run: LinkedRun, roomI
       'VERIFICATION_RESUME_UNAVAILABLE',
       '核实结论尚不可续跑，请查看原对话。',
     );
-  if (!selected.has_model_reply)
-    return { roomId, status: 'unavailable' as const, reason: unavailable };
-  return prepareConclusion(pool, roomId, selected.project_id, selected.conclusion);
+  const result = selected.fallback
+    ? {
+        roomId,
+        status: 'unavailable' as const,
+        reason: '待核实。未能及时整理可用结论，请继续工作并写入审核卡的「不确定事项」。',
+      }
+    : await prepareConclusion(pool, roomId, selected.project_id, selected.conclusion);
+  const receipt = {
+    ...result,
+    ...(selected.direction_from !== null && selected.direction_from !== selected.direction_version
+      ? {
+          directionChange: `目标方向已从第${selected.direction_from}版改为第${selected.direction_version}版。请按新方向重新规划，核对结论后再采取后续行动。`,
+        }
+      : {}),
+  };
+  const saved = await pool.query(
+    `UPDATE verification_wait SET receipt=$5 WHERE room_id=$1 AND run_id=$2 AND conversation_id=$3
+      AND user_id=$4 AND state='running' AND receipt IS NULL`,
+    [roomId, run.runId, run.conversationId, run.userId, JSON.stringify(receipt)],
+  );
+  if (saved.rowCount !== 1)
+    throw new AppError(
+      409,
+      'VERIFICATION_RESUME_UNAVAILABLE',
+      '核实回执状态已变化，请查看原对话。',
+    );
+  return receipt;
 }
 
 export async function awaitLinkedVerification(

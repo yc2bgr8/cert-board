@@ -134,7 +134,22 @@ export function submitForReviewTool(policyInput: ReviewPolicy): ToolDefinition {
           'SKILL_VERSION_CONFLICT',
           '提交所用技能已停用或版本已变更，请按当前生效技能重新核对。',
         );
-      return submitReview(ctx, input, before.targetId, stored?.reviewPolicy ?? policy);
+      const unresolved = await ctx.tx.query(
+        `SELECT 1 FROM verification_wait WHERE run_id=$1 AND conversation_id=$2 AND user_id=$3
+          AND fallback AND receipt IS NOT NULL LIMIT 1`,
+        [ctx.runId, ctx.conversationId, ctx.actor.userId],
+      );
+      const pending = '外部核实待确认。此次核实未取得可用结论，审核时请核对这一项。';
+      if (unresolved.rowCount && !current.uncertain.includes(pending)) {
+        if (current.uncertain.length >= 20)
+          throw new AppError(
+            422,
+            'VERIFICATION_UNCERTAINTY_REQUIRED',
+            '请合并已有不确定事项，为「外部核实待确认」留出一项再送审。',
+          );
+        current.uncertain.push(pending);
+      }
+      return submitReview(ctx, current, before.targetId, stored?.reviewPolicy ?? policy);
     },
     refreshDataLevel: refreshReviewDataLevel,
     undo: {

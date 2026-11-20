@@ -165,7 +165,12 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
         if (kind === 'consult_verification') {
           if (observed.calls === 1)
             return call('consult_external_model', { question: '核实合成清单中的版本编号要求。' });
-          if (!JSON.stringify(previous).includes('人工补充：检查页码与版本。'))
+          if (
+            !request.messages.some(
+              (message) =>
+                message.role === 'tool' && message.content.includes('人工补充：检查页码与版本。'),
+            )
+          )
             throw new Error('BROWSER_VERIFICATION_HUMAN_INPUT_MISSING');
           return response({
             role: 'assistant',
