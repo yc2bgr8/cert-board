@@ -9,9 +9,19 @@ CREATE TABLE "verification_notice" (
 	CONSTRAINT "verification_notice_kind" CHECK ("verification_notice"."kind" IN ('blocked','late'))
 );
 --> statement-breakpoint
-ALTER TABLE "goal_wait" ADD COLUMN "next_step" varchar(500) NOT NULL;--> statement-breakpoint
+ALTER TABLE "goal_wait" ADD COLUMN "next_step" varchar(500);--> statement-breakpoint
+UPDATE public.goal_wait SET next_step='重新检查等待原因及已到达的资料，再确定后续工作。' WHERE next_step IS NULL;--> statement-breakpoint
+ALTER TABLE public.goal_wait ALTER COLUMN next_step SET NOT NULL;--> statement-breakpoint
+UPDATE public.goal_event e SET source_key=w.id::text
+FROM public.goal_wait w
+WHERE e.goal_id=w.goal_id AND e.source=w.source AND e.source_key=w.source_key
+  AND e.state='pending' AND w.responded_at IS NULL AND w.cancelled_at IS NULL
+  AND NOT EXISTS(SELECT 1 FROM public.goal_event existing WHERE existing.source=e.source AND existing.source_key=w.id::text);--> statement-breakpoint
 ALTER TABLE "verification_link" ADD COLUMN "deadline_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "verification_link" ADD COLUMN "timeout_requested_at" timestamp with time zone;--> statement-breakpoint
+UPDATE public.verification_link l SET deadline_at=l.created_at+interval '60 minutes'
+WHERE l.deadline_at IS NULL AND (l.auto_resume OR EXISTS(
+  SELECT 1 FROM public.verification_wait w WHERE w.room_id=l.room_id));--> statement-breakpoint
 ALTER TABLE "verification_preference" ADD COLUMN "wait_minutes" integer DEFAULT 60 NOT NULL;--> statement-breakpoint
 ALTER TABLE "verification_wait" ADD COLUMN "conclusion" jsonb;--> statement-breakpoint
 ALTER TABLE "verification_wait" ADD COLUMN "receipt" jsonb;--> statement-breakpoint
@@ -76,5 +86,5 @@ BEGIN
 END;
 $$;
 --> statement-breakpoint
-CREATE TRIGGER verification_inbox_change AFTER INSERT ON public.verification_notice
+CREATE TRIGGER verification_inbox_change AFTER INSERT OR UPDATE ON public.verification_notice
 FOR EACH ROW EXECUTE FUNCTION public.notify_verification_inbox();

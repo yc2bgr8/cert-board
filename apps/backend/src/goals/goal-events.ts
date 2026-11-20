@@ -276,7 +276,13 @@ export async function scanReviewDecisionEvents(pool: Pool) {
     `SELECT e.id AS event_id,e.goal_id,r.id AS run_id,r.user_id,r.conversation_id,r.project_id,d.card_id,d.action
      FROM goal_event e JOIN review_decision d ON d.id::text=e.source_key JOIN review_card c ON c.id=d.card_id
      JOIN run r ON r.id=c.run_id AND r.goal_id=e.goal_id JOIN goal g ON g.id=e.goal_id AND g.status='active'
-     WHERE e.source='review_decision' AND e.state='pending' ORDER BY e.created_at,e.id LIMIT 40`,
+     JOIN app_user u ON u.id=r.user_id AND u.status='active'
+     JOIN conversation t ON t.id=r.conversation_id AND t.status='active'
+     WHERE e.source='review_decision' AND e.state='pending' AND r.status IN ('completed','stopped')
+       AND (r.lease_owner IS NULL OR r.lease_expires_at<=clock_timestamp())
+       AND NOT EXISTS(SELECT 1 FROM goal_event active WHERE active.goal_id=e.goal_id AND active.state='queued')
+       AND NOT EXISTS(SELECT 1 FROM run pending WHERE pending.conversation_id=r.conversation_id AND pending.status IN ('running','queued','waiting'))
+     ORDER BY e.created_at,e.id LIMIT 40`,
   );
   for (const row of found.rows)
     await transaction(pool, async (db) => {
@@ -309,12 +315,12 @@ export async function scanReviewDecisionEvents(pool: Pool) {
       );
       if (!conversation.rowCount) return;
       const prior = (
-        await db.query<{ status: string; lease_owner: string | null; max_data_level: string }>(
-          'SELECT status,lease_owner,max_data_level FROM run WHERE id=$1 FOR UPDATE',
+        await db.query<{ status: string; lease_live: boolean; max_data_level: string }>(
+          'SELECT status,COALESCE(lease_expires_at>clock_timestamp(),false) AS lease_live,max_data_level FROM run WHERE id=$1 FOR UPDATE',
           [row.run_id],
         )
       ).rows[0];
-      if (!prior || prior.lease_owner || !['completed', 'stopped'].includes(prior.status)) return;
+      if (!prior || prior.lease_live || !['completed', 'stopped'].includes(prior.status)) return;
       if (
         (
           await db.query(

@@ -218,6 +218,13 @@
       "when": 1795149041394,
       "tag": "0030_verification_wait_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1795150154031,
+      "tag": "0031_verification_notice_ack",
+      "breakpoints": true
     }
   ]
 }

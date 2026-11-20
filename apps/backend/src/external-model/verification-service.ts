@@ -1380,6 +1380,15 @@ export class VerificationRooms {
         "UPDATE external_model_conversation SET state='completed',conclusion=$2 WHERE id=$1",
         [room.id, JSON.stringify(conclusion)],
       );
+      if (room.origin)
+        await db.query(
+          `INSERT INTO audit_log(actor_kind,action,target_type,target_id)
+           VALUES('system',CASE WHEN EXISTS(
+             SELECT 1 FROM goal_event e WHERE e.source='verification' AND e.source_key=$1::uuid::text)
+             THEN 'verification.wakeup_duplicate' ELSE 'verification.conclusion_arrived' END,
+            'external_model_conversation',$1::uuid)`,
+          [room.id],
+        );
       await this.release(db, room.id, work.leaseId, covered);
     });
   }

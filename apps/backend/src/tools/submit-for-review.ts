@@ -135,9 +135,10 @@ export function submitForReviewTool(policyInput: ReviewPolicy): ToolDefinition {
           '提交所用技能已停用或版本已变更，请按当前生效技能重新核对。',
         );
       const unresolved = await ctx.tx.query(
-        `SELECT 1 FROM verification_wait WHERE run_id=$1 AND conversation_id=$2 AND user_id=$3
-          AND fallback AND receipt IS NOT NULL LIMIT 1`,
-        [ctx.runId, ctx.conversationId, ctx.actor.userId],
+        `SELECT 1 FROM verification_wait w JOIN run r ON r.id=w.run_id
+          WHERE r.goal_id=$1 AND w.conversation_id=$2 AND w.user_id=$3
+          AND w.fallback AND w.receipt IS NOT NULL LIMIT 1`,
+        [ctx.goalId, ctx.conversationId, ctx.actor.userId],
       );
       const pending = '外部核实待确认。此次核实未取得可用结论，审核时请核对这一项。';
       if (unresolved.rowCount && !current.uncertain.includes(pending)) {

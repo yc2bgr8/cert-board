@@ -27,6 +27,22 @@ export function registerGoalWakeupRoutes<Logger extends FastifyBaseLogger>(
   pool: Pool,
   config: BackendConfig,
 ) {
+  app.post(
+    '/api/me/verification-notices/:id/acknowledge',
+    { bodyLimit: 1024 },
+    async (request, reply) => {
+      reply.header('cache-control', 'no-store');
+      const actor = await requireBrowserIdentity(request, pool, config, { write: true });
+      const params = parameters.safeParse(request.params);
+      if (!params.success) throw invalid();
+      await pool.query(
+        `UPDATE verification_notice SET acknowledged_at=clock_timestamp()
+       WHERE id=$1 AND recipient_user_id=$2 AND acknowledged_at IS NULL`,
+        [params.data.id, actor.userId],
+      );
+      return reply.code(204).send();
+    },
+  );
   app.post('/api/goals/:id/control', { bodyLimit: 20_000 }, async (request, reply) => {
     reply.header('cache-control', 'no-store');
     const actor = await requireBrowserIdentity(request, pool, config, { write: true });

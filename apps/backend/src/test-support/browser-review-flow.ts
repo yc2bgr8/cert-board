@@ -92,6 +92,10 @@ export async function reviewBrowserFlow(
   actions.stage('审核卡发起外部核实并回到原对话');
   const resumeVerification = harness.plan('review_verification_resume');
   const moderate = harness.verification.runtime.moderate;
+  let releaseFinish!: () => void;
+  const allowFinish = new Promise<void>((resolve) => {
+    releaseFinish = resolve;
+  });
   const historyPath = `**/api/reviews/${firstCard.id}/verifications`;
   let interruptedVerificationReads = 0;
   await page.route(historyPath, async (route) => {
@@ -114,8 +118,10 @@ export async function reviewBrowserFlow(
     await route.fallback();
   });
   harness.verification.runtime.moderate = async (context) => {
-    if (Object.values(context.attempts).reduce((sum, count) => sum + count, 0) >= 2)
+    if (Object.values(context.attempts).reduce((sum, count) => sum + count, 0) >= 2) {
+      await allowFinish;
       return { text: '本轮交叉核实已完成。', call: null, finish: true };
+    }
     return moderate(context);
   };
   try {
@@ -124,6 +130,23 @@ export async function reviewBrowserFlow(
       .getByRole('textbox', { name: '需要核实的疑问', exact: true })
       .fill('核实这条合成编号的出处。');
     await card.getByRole('button', { name: '发起核实', exact: true }).click();
+    await actions.until(async () =>
+      Boolean(
+        (
+          await harness.pool.query(
+            'SELECT 1 FROM verification_link WHERE review_id=$1 AND auto_resume',
+            [firstCard.id],
+          )
+        ).rowCount,
+      ),
+    );
+    await harness.pool.query(
+      `INSERT INTO run_steering_message(run_id,conversation_id,user_id,request_key,content)
+       SELECT r.id,r.conversation_id,r.user_id,gen_random_uuid(),'等待中的合成消息 '||n::text
+       FROM run r CROSS JOIN generate_series(1,31) n WHERE r.id=$1`,
+      [first.runId],
+    );
+    releaseFinish();
     const external = card.getByRole('list', { name: '外部核实依据', exact: true });
     await external.getByText('外部核实', { exact: true }).waitFor({ timeout: 12000 });
     assert.equal(interruptedVerificationReads, 2);
@@ -149,6 +172,7 @@ export async function reviewBrowserFlow(
     await page.getByText('审核卡核实结论已送达原对话。', { exact: true }).waitFor();
     assert.equal(resumeVerification.observed.calls, 1);
     assert.equal(resumeVerification.observed.reviewVerificationReceived, true);
+    assert.equal(resumeVerification.observed.reviewSteeringCount, 31);
     await page
       .getByRole('list', { name: '对话中的外部核实', exact: true })
       .getByText('外部核实已完成', { exact: true })
@@ -156,6 +180,7 @@ export async function reviewBrowserFlow(
     await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
     await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
   } finally {
+    releaseFinish();
     await page.unroute(historyPath);
     harness.verification.runtime.moderate = moderate;
   }

@@ -230,6 +230,11 @@ export const api = {
       method: 'POST',
       body: checked(skillActionSchema, input),
     }),
+  acknowledgeVerificationNotice: (id: string) =>
+    request<void>(`/api/me/verification-notices/${identifier(id)}/acknowledge`, null, {
+      method: 'POST',
+      body: {},
+    }),
   acknowledgeDeadline: (id: string, seenAt: string) =>
     request(`/api/deadline-notifications/${encodeURIComponent(id)}/acknowledge`, null, {
       method: 'POST',

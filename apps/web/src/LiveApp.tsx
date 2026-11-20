@@ -385,6 +385,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   };
   const openNotice = (item: MemberNotificationSnapshot['items'][number]) => {
     if (item.verification) {
+      void api.acknowledgeVerificationNotice(item.id).catch(() => undefined);
       openVerification(item.verification.roomId);
       return;
     }

@@ -94,6 +94,7 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
     toolNames: [] as string[][],
     latestUser: '',
     reviewVerificationReceived: false,
+    reviewSteeringCount: 0,
     readPage: 0,
     failed: false,
   };
@@ -144,6 +145,10 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
         if (kind === 'external_quote')
           return response({ role: 'assistant', content: '已收到外部资料，待用项目资料核对。' });
         if (kind === 'review_verification_resume') {
+          observed.reviewSteeringCount = request.messages.filter(
+            (message) =>
+              message.role === 'user' && /^等待中的合成消息 [0-9]+$/u.test(message.content),
+          ).length;
           observed.reviewVerificationReceived = request.messages.some(
             (message) =>
               message.role === 'tool' &&

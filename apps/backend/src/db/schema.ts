@@ -1963,6 +1963,7 @@ export const verificationNotice = pgTable(
       .references(() => appUser.id, { onDelete: 'restrict' }),
     kind: varchar('kind', { length: 12 }).notNull(),
     position: integer('position').notNull(),
+    acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

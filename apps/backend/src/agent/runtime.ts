@@ -488,6 +488,11 @@ export async function executeAgentRun(
             ? { ...message, content: JSON.stringify(data) }
             : message,
         );
+        while (readyHistory.length < 600) {
+          const batch = await takeSteeringForLease(pool, leaseIdentity);
+          if (!batch.length) break;
+          readyHistory.push(...batch.map(({ message }) => message));
+        }
       } else {
         readyHistory = [
           ...previous,

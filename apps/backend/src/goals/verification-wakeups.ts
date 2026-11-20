@@ -191,6 +191,7 @@ export async function scanReadyVerificationWaits(pool: Pool) {
      JOIN conversation t ON t.id=w.conversation_id AND t.user_id=w.user_id AND t.status='active'
      WHERE w.state='waiting' AND ${readyResult} AND r.status='waiting'
        AND (r.lease_owner IS NULL OR r.lease_expires_at<=clock_timestamp())
+       AND NOT EXISTS(SELECT 1 FROM goal_event e WHERE e.goal_id=r.goal_id AND e.state='queued')
      ORDER BY w.created_at,w.room_id LIMIT 40`,
   );
   for (const candidate of ready.rows) {
@@ -308,6 +309,9 @@ export async function scanReviewVerificationResults(pool: Pool) {
         AND (r.status<>'stopped' OR EXISTS(SELECT 1 FROM review_card card WHERE card.id=l.review_id AND card.status='rejected'))
         AND (r.lease_owner IS NULL OR r.lease_expires_at<=clock_timestamp())
         AND NOT EXISTS(SELECT 1 FROM goal_event e WHERE e.source='verification' AND e.source_key=l.room_id::text)
+        AND NOT EXISTS(SELECT 1 FROM goal_event e WHERE e.goal_id=r.goal_id AND e.state='queued')
+        AND NOT EXISTS(SELECT 1 FROM run other WHERE other.conversation_id=l.conversation_id AND
+          (other.status IN ('queued','running') OR (other.status='waiting' AND other.id<>r.id)))
       ORDER BY l.created_at,l.room_id LIMIT 40`,
   );
   for (const next of ready.rows) {
@@ -425,7 +429,7 @@ export async function scanReviewVerificationResults(pool: Pool) {
           `SELECT s.request_key,s.content FROM run_steering_message s
          WHERE s.run_id=$1 AND s.conversation_id=$2 AND s.user_id=$3 AND s.delivered_at IS NULL
           AND NOT EXISTS(SELECT 1 FROM conversation_message m WHERE m.conversation_id=s.conversation_id AND m.request_key=s.request_key)
-        ORDER BY s.created_at,s.id LIMIT 30`,
+        ORDER BY s.created_at,s.id`,
           [next.run_id, next.conversation_id, next.user_id],
         )
       ).rows;

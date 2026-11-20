@@ -436,9 +436,8 @@ export async function sendConversationMessageTx(
     (
       await tx.query(
         `SELECT 1 FROM verification_wait WHERE run_id=$1 AND conversation_id=$2 AND user_id=$3 AND state IN ('waiting','queued')
-     UNION ALL SELECT 1 FROM verification_link l JOIN external_model_conversation c ON c.id=l.room_id
+     UNION ALL SELECT 1 FROM verification_link l
      WHERE l.run_id=$1 AND l.conversation_id=$2 AND l.kind='review' AND l.auto_resume
-      AND c.state<>'completed'
       AND NOT EXISTS(SELECT 1 FROM goal_event e WHERE e.source='verification' AND e.source_key=l.room_id::text)`,
         [current.id, conversationId, actor.userId],
       )
