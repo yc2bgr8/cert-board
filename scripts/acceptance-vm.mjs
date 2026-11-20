@@ -119,6 +119,8 @@ async function main() {
   )
     throw new Error('验收虚拟机内发现上次的开发容器，请使用干净的虚拟机快照。');
   const directory = await mkdtemp(path.join(homedir(), 'cert-board-acceptance-'));
+  // 外层临时目录和日志保持私有。容器内的测试用户需要读取挂载的工作树。
+  process.umask(0o022);
   const root = path.join(directory, 'source');
   await mkdir(root);
   const { tree, merged } = testTree(root, bundle, base, head);
