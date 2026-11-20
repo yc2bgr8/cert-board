@@ -479,11 +479,13 @@ export function VerificationWorkbench({
   loadMoreProjects,
   onCreated,
   onOpenOrigin,
+  onRoomLoaded,
 }: ProjectSelection & {
   userId: string;
   roomId: string | null;
   onCreated(id: string): void;
   onOpenOrigin?(id: string): void;
+  onRoomLoaded?(id: string): void;
 }) {
   const client = useQueryClient();
   const command = useBrowserCommand();
@@ -539,6 +541,10 @@ export function VerificationWorkbench({
     };
   }, [client, roomId, userId]);
   const data = history.data?.pages[0];
+  const loadedRoomId = data?.room.id;
+  useEffect(() => {
+    if (loadedRoomId && loadedRoomId === roomId) onRoomLoaded?.(loadedRoomId);
+  }, [loadedRoomId, roomId, onRoomLoaded]);
   const messages = (history.data?.pages ?? [])
     .slice()
     .reverse()

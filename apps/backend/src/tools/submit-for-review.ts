@@ -136,8 +136,17 @@ export function submitForReviewTool(policyInput: ReviewPolicy): ToolDefinition {
         );
       const unresolved = await ctx.tx.query(
         `SELECT 1 FROM verification_wait w JOIN run r ON r.id=w.run_id
+          JOIN verification_post original_question ON original_question.room_id=w.room_id AND original_question.position=1
           WHERE r.goal_id=$1 AND w.conversation_id=$2 AND w.user_id=$3
-          AND w.fallback AND w.receipt IS NOT NULL LIMIT 1`,
+          AND w.fallback AND w.receipt IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM verification_wait newer JOIN verification_post question
+              ON question.room_id=newer.room_id AND question.position=1
+            WHERE newer.conversation_id=w.conversation_id AND newer.user_id=w.user_id
+              AND newer.created_at>w.created_at AND NOT newer.fallback AND newer.receipt->>'status'='completed'
+              AND lower(regexp_replace(btrim(normalize(question.text)), '[[:space:]]+', ' ', 'g'))
+                =lower(regexp_replace(btrim(normalize(original_question.text)), '[[:space:]]+', ' ', 'g'))
+          ) LIMIT 1`,
         [ctx.goalId, ctx.conversationId, ctx.actor.userId],
       );
       const pending = '外部核实待确认。此次核实未取得可用结论，审核时请核对这一项。';

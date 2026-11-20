@@ -663,6 +663,12 @@ test('核实挂起释放单工作槽，队列重启后超过十五分钟的模�
             (message) => message.role === 'user' && message.content.includes('等待中的补充重点'),
           ),
         ).toBe(true);
+        expect(
+          request.messages.some(
+            (message) =>
+              message.role === 'user' && message.content.includes('等待中的第 12 条补充。'),
+          ),
+        ).toBe(true);
         resumed++;
         return result({ role: 'assistant', content: '核实结论已收到。' });
       },
@@ -748,6 +754,15 @@ test('核实挂起释放单工作槽，队列重启后超过十五分钟的模�
       kind: 'steering',
       runId: waitingRun.runId,
     });
+    for (let index = 2; index <= 12; index++) {
+      const response = await context.app.inject({
+        method: 'POST',
+        url: `/api/conversations/${waitingRun.conversationId}/messages`,
+        headers: owner.headers,
+        payload: { requestKey: randomUUID(), text: `等待中的第 ${index} 条补充。` },
+      });
+      expect(response.statusCode).toBeLessThan(300);
+    }
     await queue.stop({ graceful: true });
     queue = await start();
     await context.pool.query(

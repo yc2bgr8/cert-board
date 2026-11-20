@@ -488,10 +488,21 @@ export async function executeAgentRun(
             ? { ...message, content: JSON.stringify(data) }
             : message,
         );
-        while (readyHistory.length < 600) {
+        const pendingCount = (
+          await pool.query<{ count: number }>(
+            'SELECT count(*)::int AS count FROM run_steering_message WHERE run_id=$1 AND user_id=$2 AND delivered_at IS NULL',
+            [runId, context.userId],
+          )
+        ).rows[0]!.count;
+        let delivered = 0;
+        while (delivered < pendingCount) {
           const batch = await takeSteeringForLease(pool, leaseIdentity);
           if (!batch.length) break;
-          readyHistory.push(...batch.map(({ message }) => message));
+          readyHistory.push({
+            role: 'user',
+            content: batch.map(({ message }) => message.content).join('\n\n'),
+          });
+          delivered += batch.length;
         }
       } else {
         readyHistory = [
