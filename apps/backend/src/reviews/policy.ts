@@ -13,10 +13,13 @@ export function requireReviewPolicy(
   input: unknown,
   environment = process.env.NODE_ENV ?? 'production',
 ): ReviewPolicy {
-  if (process.env.NODE_ENV === 'production' || !['development', 'test'].includes(environment))
-    throw invalid();
   const parsed = reviewPolicySchema.safeParse(input);
   if (!parsed.success) throw invalid();
+  if (
+    parsed.data.publication === 'draft' &&
+    (process.env.NODE_ENV === 'production' || !['development', 'test'].includes(environment))
+  )
+    throw invalid();
   return parsed.data;
 }
 export function parseReviewPolicy(
@@ -44,7 +47,9 @@ export function parseReviewPolicy(
       if (isAlias(node) || (isNode(node) && (('anchor' in node && node.anchor) || node.tag)))
         throw invalid();
     });
-    return requireReviewPolicy(document.toJS({ maxAliasCount: 0 }), environment);
+    const policy = requireReviewPolicy(document.toJS({ maxAliasCount: 0 }), environment);
+    if (policy.publication !== 'draft') throw invalid();
+    return policy;
   } catch {
     throw invalid();
   }

@@ -151,7 +151,7 @@ export async function submitReview(
   if (submission.skill.id !== policy.skill.id || submission.skill.version !== policy.skill.version)
     throw error(
       'REVIEW_SKILL_UNAVAILABLE',
-      '提交技能与当前已登记开发草稿不符，请读取当前技能版本后重新提交。',
+      '提交所用技能与当前生效版本不符，请读取技能后重新提交。',
     );
   const invocation = await ctx.tx.query<{ id: string }>(
     `SELECT id FROM tool_invocation WHERE run_id=$1 AND call_id=$2 AND user_id=$3 AND conversation_id=$4
@@ -196,10 +196,15 @@ export async function submitReview(
       '关键检查未通过，未建立审核卡；请运行check_run查看具体问题并修正引语、来源或交付格式。',
     );
   const uniqueEvidence = new Map(submission.evidence.map((ref) => [key(ref), ref]));
-  if (uniqueEvidence.size < policy.minimumEvidence)
+  const claimLacksEvidence =
+    policy.publication === 'published' &&
+    submission.claims.some(
+      (claim) => new Set(claim.sources.map((source) => key(source))).size < policy.minimumEvidence,
+    );
+  if (uniqueEvidence.size < policy.minimumEvidence || claimLacksEvidence)
     throw error(
       'REVIEW_EVIDENCE_INSUFFICIENT',
-      '至少需要两条不同的完整资料引语；重复引语或仅改变空白不会增加证据数，请补充实际读取的依据。',
+      `本技能要求${policy.publication === 'published' ? '每条陈述与汇总依据均至少有' : '至少有'} ${policy.minimumEvidence} 条不同的完整资料引语。请补充已实际读取的依据。`,
     );
   const evidenceRefs = await verifyReadReceipts(ctx, references);
   const previous = await ctx.tx.query<{ workspace_version_id: string }>(

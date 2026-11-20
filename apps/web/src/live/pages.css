@@ -356,3 +356,34 @@
     grid-row: auto;
   }
 }
+.live-skill-selectors {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.live-skill-selectors label {
+  display: grid;
+  gap: 5px;
+}
+.live-skill-review-card {
+  display: grid;
+  justify-items: start;
+  gap: 9px;
+}
+.live-skill-review-card h3 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.live-skill-review-text {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--color-cb-line);
+  border-radius: 8px;
+  margin: 0;
+  max-height: 20rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}

@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { isAlias, isNode, parseAllDocuments, visit } from 'yaml';
+import type { Pool, PoolClient } from 'pg';
 import {
   agentCodeSchema,
   agentDefinitionMetadataSchema,
@@ -9,9 +10,13 @@ import {
   type AgentCode,
   type AgentDefinition,
   type LoadedAgentSkill,
+  type PermissionMode,
 } from '@cert-board/shared';
 import { parseReviewPolicy } from '../reviews/policy.js';
 import { AppError } from '../api/errors.js';
+import { readActiveSkill, registeredSkillIds } from '../skills/service.js';
+
+const legacyHeading = '\n\n当前可加载的开发技能（正文须用skill_load取得）：\n';
 
 const definitions = {
   registration: new URL('../../../../agents/registration/0.1.0.md', import.meta.url),
@@ -84,7 +89,7 @@ export function parseAgentDefinition(
     }
     return agentDefinitionSchema.parse({
       ...metadata,
-      systemPrompt: `${parsed.body}\n\n当前可加载的开发技能（正文须用skill_load取得）：\n${metadata.skills.map((skill) => `- ${skill.id}@${skill.version} ${skill.name}：${skill.summary}`).join('\n')}`,
+      systemPrompt: `${parsed.body}${legacyHeading}${metadata.skills.map((skill) => `- ${skill.id}@${skill.version} ${skill.name}：${skill.summary}`).join('\n')}`,
     });
   } catch {
     throw unavailable();
@@ -132,4 +137,44 @@ export async function loadAgentSkill(
   } catch {
     throw skillUnavailable();
   }
+}
+
+export async function loadManagedAgentDefinition(
+  pool: Pool,
+  code: AgentCode,
+  mode: PermissionMode,
+) {
+  const definition = await loadAgentDefinition(code);
+  const managed = await registeredSkillIds(pool, code);
+  if (!managed.length) return definition;
+  let skills = [...definition.skills];
+  for (const id of managed) {
+    const selected = await readActiveSkill(pool, code, { id }, mode);
+    if (selected === undefined) continue;
+    skills = skills.filter((entry) => entry.id !== id);
+    if (selected) {
+      const { id: key, version, name, summary } = selected.skill;
+      skills.push({ id: key, version, name, summary });
+    }
+  }
+  const body = definition.systemPrompt.split(legacyHeading)[0]!;
+  const index = skills
+    .map(({ id, version, name, summary }) => `- ${id}@${version} ${name} ${summary}`)
+    .join('\n');
+  return {
+    ...definition,
+    skills,
+    systemPrompt: `${body}\n\n当前可加载的技能。用 skill_load 读取正文。\n${index || '当前没有生效技能。'}`,
+  };
+}
+
+export async function loadSelectedSkill(
+  db: Pick<PoolClient, 'query'>,
+  code: AgentCode,
+  input: unknown,
+  mode: PermissionMode,
+) {
+  const selected = await readActiveSkill(db, code, input, mode);
+  if (selected === null) throw skillUnavailable();
+  return selected ?? loadAgentSkill(code, input);
 }

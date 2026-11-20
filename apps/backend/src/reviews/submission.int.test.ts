@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, expect, test } from 'vitest';
 import { reviewSubmitResultSchema } from '@cert-board/shared';
 import { createReviewTestContext } from './test-support.js';
+import { stageSkillVersion } from '../skills/service.js';
 
 let context: Awaited<ReturnType<typeof createReviewTestContext>> | undefined;
 afterEach(async () => {
@@ -10,6 +11,61 @@ afterEach(async () => {
 });
 const cardCount = async () =>
   Number((await context!.pool.query('SELECT count(*) FROM review_card')).rows[0].count);
+
+test.each(['检查项', '证据数'] as const)('提交审核执行发布技能的%s要求', async (requirement) => {
+  context = await createReviewTestContext();
+  const staged = await stageSkillVersion(context.pool, {
+    metadata: {
+      ...context.submission.skill,
+      name: '合成策略',
+      summary: '验证审核约束',
+      agentCode: 'registration',
+      capability: '一致性检查',
+      level: 2,
+      modes: ['ask', 'full'],
+      requiredChecks: requirement === '检查项' ? ['V1', 'V3', 'V6'] : ['V1', 'V3'],
+      minimumEvidence: requirement === '证据数' ? 2 : 1,
+      risk: 'standard',
+      suggestedSubagents: [],
+    },
+    body: '合成审核测试。',
+  });
+  const reviewer = await context.login('MEMBER_B');
+  const release = await context.app.inject({
+    method: 'POST',
+    url: `/api/skills/${context.submission.skill.id}/actions`,
+    headers: reviewer.headers,
+    payload: {
+      action: 'publish',
+      requestKey: randomUUID(),
+      expectedRevision: 0,
+      versionId: staged.id,
+      contentSha256: staged.contentSha256,
+    },
+  });
+  expect(release.statusCode).toBe(200);
+  const input =
+    requirement === '证据数'
+      ? {
+          ...context.submission,
+          claims: context.submission.claims.map((claim) => ({
+            ...claim,
+            sources: claim.sources.slice(0, 1),
+          })),
+        }
+      : context.submission;
+  if (requirement === '证据数') {
+    expect(input.evidence).toHaveLength(2);
+    expect(input.claims[0]?.sources).toHaveLength(1);
+  }
+  await expect(context.submit(input)).rejects.toMatchObject({
+    code: 'TOOL_DATA_REJECTED',
+    message: expect.stringContaining(
+      requirement === '检查项' ? '关键检查未通过' : '依据数量低于当前技能',
+    ),
+  });
+  expect(await cardCount()).toBe(0);
+});
 
 test('两条同页不同完整引语可提交，重复并发call只生成一张不可变卡片', async () => {
   context = await createReviewTestContext();

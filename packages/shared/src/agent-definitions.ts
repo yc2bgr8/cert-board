@@ -39,11 +39,17 @@ export const skillLoadResultSchema = z
     skill: agentSkillIndexSchema.extend({ agentCode: agentCodeSchema }).strict(),
     body: z.string().min(1).max(24000),
     attachments: z.tuple([]),
-    publication: z.literal('draft'),
-    developmentOnly: z.literal(true),
+    publication: z.enum(['draft', 'published']),
+    developmentOnly: z.boolean(),
     reviewPolicy: reviewPolicySchema,
   })
   .strict()
+  .refine(
+    (value) =>
+      value.publication === value.reviewPolicy.publication &&
+      value.developmentOnly === value.reviewPolicy.developmentOnly,
+    '技能和审核策略的发布状态不一致。',
+  )
   .refine(
     (value) => JSON.stringify(value).length <= 30000,
     '技能正文过长，不能完整加载，请联系维护人员。',

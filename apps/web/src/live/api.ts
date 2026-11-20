@@ -70,6 +70,10 @@ import {
   verificationShareSchema,
   verificationLinkPageSchema,
   verificationReviewInputSchema,
+  skillPageSchema,
+  skillVersionViewSchema,
+  skillActionSchema,
+  skillActionResultSchema,
   type AuthResponse,
   type DataLevel,
   type IntakeCategory,
@@ -85,6 +89,7 @@ import {
   type VerificationCreate,
   type VerificationMessageInput,
   type VerificationSettingsInput,
+  type SkillActionInput,
 } from '@cert-board/shared';
 
 export type ConversationDetail = ReturnType<typeof conversationPublicRecordSchema.parse>;
@@ -213,6 +218,18 @@ const signalOption = (signal: AbortSignal | undefined) => (signal ? { signal } :
 const externalPage = (cursor: string | null) =>
   cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
 export const api = {
+  skills: (signal?: AbortSignal) => request('/api/skills', skillPageSchema, signalOption(signal)),
+  skillVersion: (id: string, versionId: string, signal?: AbortSignal) =>
+    request(
+      `/api/skills/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`,
+      skillVersionViewSchema,
+      signalOption(signal),
+    ),
+  skillDecision: (id: string, input: SkillActionInput) =>
+    request(`/api/skills/${encodeURIComponent(id)}/actions`, skillActionResultSchema, {
+      method: 'POST',
+      body: checked(skillActionSchema, input),
+    }),
   acknowledgeDeadline: (id: string, seenAt: string) =>
     request(`/api/deadline-notifications/${encodeURIComponent(id)}/acknowledge`, null, {
       method: 'POST',
