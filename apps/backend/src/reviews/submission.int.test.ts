@@ -24,7 +24,7 @@ test.each(['检查项', '证据数'] as const)('提交审核执行发布技能�
       level: 2,
       modes: ['ask', 'full'],
       requiredChecks: requirement === '检查项' ? ['V1', 'V3', 'V6'] : ['V1', 'V3'],
-      minimumEvidence: requirement === '证据数' ? 3 : 1,
+      minimumEvidence: requirement === '证据数' ? 2 : 1,
       risk: 'standard',
       suggestedSubagents: [],
     },
@@ -44,7 +44,21 @@ test.each(['检查项', '证据数'] as const)('提交审核执行发布技能�
     },
   });
   expect(release.statusCode).toBe(200);
-  await expect(context.submit()).rejects.toMatchObject({
+  const input =
+    requirement === '证据数'
+      ? {
+          ...context.submission,
+          claims: context.submission.claims.map((claim) => ({
+            ...claim,
+            sources: claim.sources.slice(0, 1),
+          })),
+        }
+      : context.submission;
+  if (requirement === '证据数') {
+    expect(input.evidence).toHaveLength(2);
+    expect(input.claims[0]?.sources).toHaveLength(1);
+  }
+  await expect(context.submit(input)).rejects.toMatchObject({
     code: 'TOOL_DATA_REJECTED',
     message: expect.stringContaining(
       requirement === '检查项' ? '关键检查未通过' : '依据数量低于当前技能',

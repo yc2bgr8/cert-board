@@ -1,7 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, expect, test } from 'vitest';
 import {
   skillPageSchema,
+  skillVersionDraftSchema,
   type SkillActionInput,
   type SkillVersionMetadata,
 } from '@cert-board/shared';
@@ -35,6 +36,11 @@ const skillDraft = (version: string): { metadata: SkillVersionMetadata; body: st
 test('注册人员可审核发布、停用与回退，版本正文和审阅事件只允许追加', async () => {
   context = await createIntegrationContext();
   const ctx = context;
+  const wrongOwner = skillDraft('1.0.0');
+  wrongOwner.metadata.agentCode = 'maintenance';
+  await expect(stageSkillVersion(ctx.pool, wrongOwner)).rejects.toMatchObject({
+    code: 'SKILL_DRAFT_INVALID',
+  });
   const first = await stageSkillVersion(ctx.pool, skillDraft('1.0.0'));
   const second = await stageSkillVersion(ctx.pool, skillDraft('2.0.0'));
   expect(await stageSkillVersion(ctx.pool, skillDraft('1.0.0'))).toMatchObject({
@@ -168,6 +174,53 @@ test('注册人员可审核发布、停用与回退，版本正文和审阅事�
   ]);
   expect(audit.rows[2]).toMatchObject({ before_hash: second.contentSha256, after_hash: null });
   expect(audit.rows[3]).toMatchObject({ after_hash: first.contentSha256 });
+});
+
+test('拒绝发布 JSON 转义后无法加载的技能，也在草稿登记时提前校验', async () => {
+  context = await createIntegrationContext();
+  const ctx = context;
+  const input = skillVersionDraftSchema.parse({ ...skillDraft('1.0.0'), body: '"'.repeat(16_000) });
+  await expect(stageSkillVersion(ctx.pool, input)).rejects.toMatchObject({
+    code: 'SKILL_LOAD_LIMIT',
+  });
+  await ctx.pool.query("INSERT INTO skill(id,agent_code) VALUES('R01','registration')");
+  const sha = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+  const result = await ctx.pool.query<{ id: string }>(
+    "INSERT INTO skill_version(skill_id,version,metadata,body,content_sha256) VALUES('R01','1.0.0',$1,$2,$3) RETURNING id",
+    [input.metadata, input.body, sha],
+  );
+  const member = await ctx.login();
+  const published = await ctx.app.inject({
+    method: 'POST',
+    url: '/api/skills/R01/actions',
+    headers: member.headers,
+    payload: {
+      action: 'publish',
+      expectedRevision: 0,
+      versionId: result.rows[0]!.id,
+      requestKey: randomUUID(),
+      contentSha256: sha,
+    },
+  });
+  expect(published.statusCode).toBe(422);
+  expect((await ctx.pool.query('SELECT id FROM skill_release')).rowCount).toBe(0);
+});
+
+test('目录容量已满时拒绝登记新技能，原技能仍可新增版本', async () => {
+  context = await createIntegrationContext();
+  const ctx = context;
+  await stageSkillVersion(ctx.pool, skillDraft('1.0.0'));
+  await ctx.pool.query(
+    "INSERT INTO skill(id,agent_code) SELECT 'A'||LPAD(n::text,2,'0'),'registration' FROM generate_series(1,59) AS n",
+  );
+  const draft = skillDraft('1.0.0');
+  draft.metadata.id = 'R02';
+  await expect(stageSkillVersion(ctx.pool, draft)).rejects.toMatchObject({
+    code: 'SKILL_CATALOG_LIMIT',
+  });
+  await expect(stageSkillVersion(ctx.pool, skillDraft('2.0.0'))).resolves.toMatchObject({
+    created: true,
+  });
 });
 
 test('内置开发草稿可继续本机试用，已发布技能停用后不回到内置版本', async () => {

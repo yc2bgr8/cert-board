@@ -60,6 +60,39 @@ const versionColumns = `v.id,v.metadata,v.body,v.content_sha256 AS "contentSha25
 ) AS published`;
 const releaseColumns = `skill_id AS "skillId",revision,target_version_id AS "targetVersionId",
 active_version_id AS "activeVersionId",fingerprint`;
+const catalogLimit = 60;
+
+function readableSkill({ metadata, body }: ReturnType<typeof skillVersionDraftSchema.parse>) {
+  const { id, version, name, summary } = agentSkillIndexSchema.parse({
+    id: metadata.id,
+    version: metadata.version,
+    name: metadata.name,
+    summary: metadata.summary,
+  });
+  const loaded = skillLoadResultSchema.safeParse({
+    skill: { id, version, name, summary, agentCode: metadata.agentCode },
+    body,
+    attachments: [],
+    publication: 'published',
+    developmentOnly: false,
+    reviewPolicy: {
+      skill: { id, version },
+      publication: 'published',
+      developmentOnly: false,
+      requiredChecks: metadata.requiredChecks,
+      minimumEvidence: metadata.minimumEvidence,
+      risk: metadata.risk,
+      cardType: 'finalize',
+    },
+  });
+  if (!loaded.success)
+    throw new AppError(
+      422,
+      'SKILL_LOAD_LIMIT',
+      '此版本完整加载后的技能回执超出上限，请缩短正文或示例后登记新版本。',
+    );
+  return loaded.data;
+}
 
 async function revision(db: Db, id: string, lock: 'read' | 'write' | 'none' = 'none') {
   const locking = { read: ' FOR SHARE', write: ' FOR UPDATE', none: '' }[lock];
@@ -104,8 +137,22 @@ export async function stageSkillVersion(pool: Pool, input: unknown) {
       '技能内容或元数据不符合 SKILL.md 约定，请补齐必填字段和检查项。',
     );
   const { metadata, body } = parsed.data;
+  readableSkill(parsed.data);
   const fingerprint = sha(parsed.data);
   return transaction(pool, async (db) => {
+    await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', ['skill-catalog']);
+    const state = (
+      await db.query<{ count: number; existing: boolean }>(
+        'SELECT count(*)::int AS count,COALESCE(bool_or(id=$1),false) AS existing FROM skill',
+        [metadata.id],
+      )
+    ).rows[0]!;
+    if (!state.existing && state.count >= catalogLimit)
+      throw new AppError(
+        413,
+        'SKILL_CATALOG_LIMIT',
+        `技能目录已达 ${catalogLimit} 项，请联系维护人员增加分页。`,
+      );
     await db.query('INSERT INTO skill(id,agent_code) VALUES($1,$2) ON CONFLICT DO NOTHING', [
       metadata.id,
       metadata.agentCode,
@@ -235,6 +282,7 @@ export async function decideSkillVersion(
     if ((active?.revision ?? 0) !== base.revision) throw stale();
     const target = await readSkillVersion(db, id, command.versionId);
     if (target.contentSha256 !== command.contentSha256) throw stale();
+    if (command.action !== 'disable') readableSkill(target);
     if (command.action === 'disable' && active?.activeVersionId !== target.id) throw stale();
     if (
       command.action === 'rollback' &&
@@ -303,29 +351,7 @@ export async function readActiveSkill(
     (mode && !current.metadata.modes.includes(mode))
   )
     return null;
-  const metadata = current.metadata;
-  const { id, version, name, summary } = agentSkillIndexSchema.parse({
-    id: metadata.id,
-    version: metadata.version,
-    name: metadata.name,
-    summary: metadata.summary,
-  });
-  return skillLoadResultSchema.parse({
-    skill: { id, version, name, summary, agentCode: code },
-    body: current.body,
-    attachments: [],
-    publication: 'published',
-    developmentOnly: false,
-    reviewPolicy: {
-      skill: { id, version },
-      publication: 'published',
-      developmentOnly: false,
-      requiredChecks: metadata.requiredChecks,
-      minimumEvidence: metadata.minimumEvidence,
-      risk: metadata.risk,
-      cardType: 'finalize',
-    },
-  });
+  return readableSkill(current);
 }
 
 export async function registeredSkillIds(db: Db, code: AgentCode) {

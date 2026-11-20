@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SkillActionInput } from '@cert-board/shared';
 import { api, createRequestKey, errorMessage } from './api.js';
 
+const permissionLabels = { read_only: '只读', ask: '请求批准', full: '完全允许' };
+
 export function SkillVersions({ userId }: { userId: string }) {
   const [open, setOpen] = useState(false);
   const [skillId, setSkillId] = useState('');
@@ -118,6 +120,10 @@ export function SkillVersions({ userId }: { userId: string }) {
                 {selected.metadata.name} {selected.metadata.version}
               </h3>
               <p>{selected.metadata.summary}</p>
+              <p>
+                适用模式为{selected.metadata.modes.map((mode) => permissionLabels[mode]).join('、')}
+                。送审风险为{selected.metadata.risk === 'high' ? '高风险' : '标准'}。
+              </p>
               <p>
                 必须通过 {selected.metadata.requiredChecks.join('、')}。每条陈述至少需要{' '}
                 {selected.metadata.minimumEvidence} 条依据。

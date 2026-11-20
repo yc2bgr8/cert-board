@@ -30,6 +30,17 @@ export const skillVersionMetadataSchema = agentSkillIndexSchema
   })
   .strict()
   .superRefine((value, ctx) => {
+    const owner = value.id.startsWith('R')
+      ? 'registration'
+      : /^(?:M\d{2}|S0[124])$/.test(value.id)
+        ? 'maintenance'
+        : null;
+    if ((owner && value.agentCode !== owner) || value.id === 'S05')
+      ctx.addIssue({
+        code: 'custom',
+        path: ['agentCode'],
+        message: '技能编号与规定的 Agent 归属不一致。',
+      });
     if (new Set(value.modes).size !== value.modes.length)
       ctx.addIssue({ code: 'custom', path: ['modes'], message: '权限模式不能重复。' });
     if (

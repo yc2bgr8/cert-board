@@ -636,6 +636,9 @@ async function main() {
     await card
       .getByRole('heading', { name: '注册立项资料核对演示 0.1.0-demo', exact: true })
       .waitFor();
+    await card
+      .getByText('适用模式为只读、请求批准、完全允许。送审风险为标准。', { exact: true })
+      .waitFor();
     await card.scrollIntoViewIfNeeded();
     await captureWorkbench(page, output, 'pr24-skill-review.png');
     await card.getByRole('button', { name: '批准并发布', exact: true }).click();
