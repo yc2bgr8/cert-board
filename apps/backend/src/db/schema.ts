@@ -4,6 +4,7 @@ import type {
   DeadlineNotice,
   DeadlineStage,
   ReminderProfile,
+  SkillVersionMetadata,
   VerificationClaim,
   VerificationConclusion,
   VerificationModel,
@@ -694,6 +695,90 @@ export const intakeItem = pgTable(
   ],
 );
 export const agentCode = pgEnum('agent_code', ['registration', 'maintenance']);
+export const skillReleaseAction = pgEnum('skill_release_action', [
+  'publish',
+  'disable',
+  'rollback',
+]);
+
+export const skill = pgTable(
+  'skill',
+  {
+    id: varchar('id', { length: 3 }).primaryKey(),
+    agentCode: agentCode('agent_code').notNull(),
+    revision: integer('revision').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check('skill_id_format', sql`${table.id} ~ '^[A-Z][0-9]{2}$'`),
+    check('skill_revision_nonnegative', sql`${table.revision} >= 0`),
+  ],
+);
+
+export const skillVersion = pgTable(
+  'skill_version',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    skillId: varchar('skill_id', { length: 3 })
+      .notNull()
+      .references(() => skill.id, { onDelete: 'restrict' }),
+    version: varchar('version', { length: 128 }).notNull(),
+    metadata: jsonb('metadata').$type<SkillVersionMetadata>().notNull(),
+    body: text('body').notNull(),
+    contentSha256: varchar('content_sha256', { length: 64 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('skill_version_name_unique').on(table.skillId, table.version),
+    unique('skill_version_owner_unique').on(table.skillId, table.id),
+    check('skill_version_hash', sql`${table.contentSha256} ~ '^[0-9a-f]{64}$'`),
+    check('skill_version_body_length', sql`octet_length(${table.body}) BETWEEN 1 AND 32000`),
+    check(
+      'skill_version_metadata_identity',
+      sql`(${table.metadata}->>'id') IS NOT DISTINCT FROM ${table.skillId} AND (${table.metadata}->>'version') IS NOT DISTINCT FROM ${table.version}`,
+    ),
+  ],
+);
+
+export const skillRelease = pgTable(
+  'skill_release',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    skillId: varchar('skill_id', { length: 3 })
+      .notNull()
+      .references(() => skill.id, { onDelete: 'restrict' }),
+    revision: integer('revision').notNull(),
+    action: skillReleaseAction('action').notNull(),
+    targetVersionId: uuid('target_version_id').notNull(),
+    activeVersionId: uuid('active_version_id'),
+    actorUserId: uuid('actor_user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    requestKey: uuid('request_key').notNull().unique(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('skill_release_revision_unique').on(table.skillId, table.revision),
+    foreignKey({
+      name: 'skill_release_target_fk',
+      columns: [table.skillId, table.targetVersionId],
+      foreignColumns: [skillVersion.skillId, skillVersion.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'skill_release_active_fk',
+      columns: [table.skillId, table.activeVersionId],
+      foreignColumns: [skillVersion.skillId, skillVersion.id],
+    }).onDelete('restrict'),
+    check('skill_release_revision_positive', sql`${table.revision} > 0`),
+    check('skill_release_fingerprint', sql`${table.fingerprint} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'skill_release_active',
+      sql`CASE WHEN ${table.action} = 'disable' THEN ${table.activeVersionId} IS NULL ELSE ${table.activeVersionId} IS NOT DISTINCT FROM ${table.targetVersionId} END`,
+    ),
+  ],
+);
+
 export const conversationStatus = pgEnum('conversation_status', ['active', 'archived']);
 export const workspaceAuthorType = pgEnum('workspace_author_type', ['human', 'ai', 'system']);
 

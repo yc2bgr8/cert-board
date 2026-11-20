@@ -3,6 +3,8 @@ import {
   structuredSubmissionSchema,
   reviewSubmitResultSchema,
   reviewUndoStateSchema,
+  agentCodeSchema,
+  skillLoadInputSchema,
   type ReviewPolicy,
   type ToolMetadata,
 } from '@cert-board/shared';
@@ -15,6 +17,7 @@ import {
   refreshReviewDataLevel,
 } from '../reviews/submission.js';
 import type { ToolDefinition } from './registry.js';
+import { readActiveSkill } from '../skills/service.js';
 
 const metadata: ToolMetadata = {
   name: 'submit_for_review',
@@ -113,7 +116,25 @@ export function submitForReviewTool(policyInput: ReviewPolicy): ToolDefinition {
           'REVIEW_UNDO_REQUIRED',
           '提交审核缺少已登记的撤销记录，已拒绝建立卡片。',
         );
-      return submitReview(ctx, input, before.targetId, policy);
+      const current = structuredSubmissionSchema.parse(input);
+      const selected = skillLoadInputSchema.safeParse(current.skill);
+      const data = (
+        await ctx.tx.query<{ agent_code: string }>(
+          'SELECT agent_code FROM conversation WHERE id=$1 AND user_id=$2',
+          [ctx.conversationId, ctx.actor.userId],
+        )
+      ).rows[0];
+      const code = agentCodeSchema.parse(data?.agent_code);
+      const stored = selected.success
+        ? await readActiveSkill(ctx.tx, code, selected.data, ctx.permissionMode)
+        : undefined;
+      if (stored === null)
+        throw new AppError(
+          409,
+          'SKILL_VERSION_CONFLICT',
+          '提交所用技能已停用或版本已变更，请按当前生效技能重新核对。',
+        );
+      return submitReview(ctx, input, before.targetId, stored?.reviewPolicy ?? policy);
     },
     refreshDataLevel: refreshReviewDataLevel,
     undo: {

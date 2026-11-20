@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-24 技能版本管理</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#操作">操作</a><a class="level-2" href="#验收口径">验收口径</a><a class="level-2" href="#本次边界">本次边界</a></nav><main><h1 id="pr-24-技能版本管理">PR-24 技能版本管理</h1>
+<h2 id="操作">操作</h2>
+<ol><li><code>pnpm skill:stage &quot;skills/R01-注册立项演示/SKILL.md&quot;</code> 登记合成演示草稿。版本正文登记后只可增加新版本。</li><li>登录工作台，在「设置」打开「技能版本」。选择技能及版本，阅读正文、所需检查及证据数。在审核卡点「批准并发布」。</li><li>选择正在生效的版本可点「停用当前版本」。选择此前已经人工发布的上一版可点「退回上一版」。历史版本和被停用版本的原文继续保留。</li></ol>
+<p>1440 × 900 合成浏览器验收截图见 <a href="../evidence/pr24/skill-review.png">批准发布</a> 和 <a href="../evidence/pr24/skill-rollback.png">退回上一版</a>。</p>
+<h2 id="验收口径">验收口径</h2>
+<ul><li>仅接受浏览器登录和 CSRF 验证。重复操作编号只执行一次，陈旧版本号或不一致的内容哈希会被拒绝。</li><li>发布、停用、回退均有操作者和前后哈希，版本正文与审核事件只追加。</li><li>注册与维护 Agent 分别显示本方生效技能。未生效、已停用、错版本或模式不符的技能无法新加载。</li><li><code>submit_for_review</code> 读取技能的当前版本并执行其中的检查和最少证据数。原有原文和结构检查仍是发布前必须配置的项。</li></ul>
+<h2 id="本次边界">本次边界</h2>
+<ul><li>技能格式可登记建议的子任务、评测名称及预算初值。预算初值接入单技能额度、附件上传及评测结果参与发布门禁待后续。Agent 定义沿用开发草稿入口，生产运行仍待审阅版本接入。</li><li>本次仅使用合成演示草稿和剧本。未新增真实模型开销。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

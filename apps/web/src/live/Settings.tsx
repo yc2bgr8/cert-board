@@ -6,6 +6,7 @@ import { errorMessage } from './api.js';
 import { ShellIcon } from './ShellIcon.js';
 import type { StreamConnection } from './useConversationStream.js';
 import { ExternalSettings, ExternalUsageSummary } from './ExternalSettings.js';
+import { SkillVersions } from './SkillVersions.js';
 import './pages.css';
 
 const managementSections = [
@@ -113,6 +114,7 @@ export function Settings({
                 <a href="#external-verification-settings">外部模型</a>
                 <a href="#external-model-words">保密词表</a>
                 <a href="#external-model-archive">外发记录</a>
+                <a href="#skill-versions">技能版本</a>
                 {user.isManagement && (
                   <button
                     ref={maintenanceEntry}
@@ -179,6 +181,7 @@ export function Settings({
                   management={user.isManagement}
                   openRoom={openVerification}
                 />
+                <SkillVersions userId={user.id} />
                 <section id="about-cert-board" className="live-page-card">
                   <header className="live-page-card-head">
                     <h2>关于</h2>

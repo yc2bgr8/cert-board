@@ -236,7 +236,7 @@ const safeReviewHints = new Map<string, string>([
   ],
   [
     'REVIEW_EVIDENCE_INSUFFICIENT',
-    '至少需要两条不同的完整资料引文；重复引用或仅改变空白不增加证据数。请补充doc_read取得的依据后重试。',
+    '依据数量低于当前技能的要求。请用 skill_load 核对要求，并用 doc_read 补充不同的完整引文。',
   ],
   [
     'REVIEW_CHECK_FAILED',

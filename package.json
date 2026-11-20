@@ -30,6 +30,7 @@
     "db:migrate": "node --env-file=.env.local --import tsx apps/backend/src/db/cli.ts migrate",
     "db:seed": "node --env-file=.env.local --import tsx apps/backend/src/db/cli.ts seed",
     "db:setup": "node --env-file=.env.local --import tsx apps/backend/src/db/cli.ts setup",
+    "skill:stage": "node --env-file=.env.local --import tsx apps/backend/src/skills/cli.ts",
     "budget:status": "node --import tsx apps/backend/src/budget/cli.ts",
     "budget:reconcile": "node --import tsx apps/backend/src/budget/cli.ts reconcile",
     "requests:purge": "node --import tsx apps/backend/src/runs/purge-cli.ts",

@@ -1,5 +1,5 @@
 import { agentCodeSchema, skillLoadInputSchema, skillLoadResultSchema } from '@cert-board/shared';
-import { loadAgentSkill } from '../agent/definitions.js';
+import { loadSelectedSkill } from '../agent/definitions.js';
 import { AppError } from '../api/errors.js';
 import type { ToolDefinition } from './registry.js';
 
@@ -15,7 +15,7 @@ export function skillLoadTool(): ToolDefinition {
       outputDataLevel: 'internal',
       authorizationAction: 'conversation.read',
       description: {
-        purpose: '按当前Agent的固定技能索引加载开发草稿正文、检查要求和附件清单。',
+        purpose: '按当前 Agent 的生效技能索引加载正文、检查要求和附件清单。',
         whenToUse: '开始项目任务前，先从系统提示的技能索引选择适用技能再读取。',
         avoid: '不加载文件路径、其他Agent技能或未登记版本；不能把草稿说成已发布或已经执行的能力。',
         parameters:
@@ -39,7 +39,10 @@ export function skillLoadTool(): ToolDefinition {
           'SKILL_CONTEXT_INVALID',
           '当前对话的Agent归属无效，请重新进入项目。',
         );
-      return { data: await loadAgentSkill(code.data, input), dataLevel: 'internal' };
+      return {
+        data: await loadSelectedSkill(ctx.tx, code.data, input, ctx.permissionMode),
+        dataLevel: 'internal',
+      };
     },
   };
 }

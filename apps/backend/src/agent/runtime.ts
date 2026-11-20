@@ -31,7 +31,7 @@ import {
 } from '../external-model/linked-verification.js';
 import { ModelGateway } from '../modelgw/service.js';
 import { createToolRuntime } from './tool-runtime.js';
-import { loadAgentDefinition } from './definitions.js';
+import { loadManagedAgentDefinition } from './definitions.js';
 import { toolLabel, toolSummary } from './tool-progress.js';
 import { sandboxWorkTimeMs } from '../sandbox/client.js';
 import { investigateSubagents, questionForSubagentConflicts, subagentTool } from './subagents.js';
@@ -308,7 +308,11 @@ export async function executeAgentRun(
   };
   try {
     await listener.query(`LISTEN ${RUN_CONTROL_CHANNEL}`);
-    const definition = await loadAgentDefinition(context.agentCode);
+    const definition = await loadManagedAgentDefinition(
+      pool,
+      context.agentCode,
+      context.permissionMode,
+    );
     const definitions =
       typeof dependencies.definitions === 'function'
         ? await dependencies.definitions(context.agentCode)

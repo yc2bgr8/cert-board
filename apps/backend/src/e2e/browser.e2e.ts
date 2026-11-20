@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   chromium,
@@ -13,6 +13,8 @@ import { reviewBrowserFlow } from '../test-support/browser-review-flow.js';
 import { calculateDeadline } from '../deadlines/calendar.js';
 import { scanDeadlineReminders } from '../deadlines/scan.js';
 import { developmentGoalId } from '../projects/seed.js';
+import { parseSkillDraftMarkdown } from '../skills/markdown.js';
+import { stageSkillVersion } from '../skills/service.js';
 import {
   browserReviewPath,
   browserVerificationUncertainty,
@@ -614,6 +616,40 @@ async function main() {
     await settings.getByText('已连接', { exact: true }).waitFor();
     assert.equal(await settings.getByRole('button', { name: '维护页', exact: true }).count(), 0);
     await captureWorkbench(page, output, 'pr-u4-15-settings.png');
+    stage = '技能版本审核、停用与回退';
+    const draft = parseSkillDraftMarkdown(
+      await readFile(
+        new URL('../../../../skills/R01-注册立项演示/SKILL.md', import.meta.url),
+        'utf8',
+      ),
+    );
+    const firstSkill = await stageSkillVersion(harness.pool, draft);
+    const secondSkill = await stageSkillVersion(harness.pool, {
+      metadata: { ...draft.metadata, version: '0.2.0-demo' },
+      body: `${draft.body}\n\n补充核对资料版本。`,
+    });
+    const versions = settings.getByRole('region', { name: '技能版本管理', exact: true });
+    await versions.getByRole('button', { name: '查看技能版本', exact: true }).click();
+    const list = versions.getByRole('combobox', { name: '技能版本', exact: true });
+    await list.selectOption(firstSkill.id);
+    const card = versions.getByRole('article', { name: '技能审核卡', exact: true });
+    await card
+      .getByRole('heading', { name: '注册立项资料核对演示 0.1.0-demo', exact: true })
+      .waitFor();
+    await card.scrollIntoViewIfNeeded();
+    await captureWorkbench(page, output, 'pr24-skill-review.png');
+    await card.getByRole('button', { name: '批准并发布', exact: true }).click();
+    await card.getByRole('button', { name: '停用当前版本', exact: true }).waitFor();
+    await list.selectOption(secondSkill.id);
+    await card.getByRole('button', { name: '批准并发布', exact: true }).click();
+    await card.getByRole('button', { name: '停用当前版本', exact: true }).click();
+    await list.selectOption(firstSkill.id);
+    const rollbackSkill = card.getByRole('button', { name: '退回上一版', exact: true });
+    await rollbackSkill.waitFor();
+    await card.scrollIntoViewIfNeeded();
+    await captureWorkbench(page, output, 'pr24-skill-rollback.png');
+    await rollbackSkill.click();
+    await card.getByRole('button', { name: '停用当前版本', exact: true }).waitFor();
     await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
     stage = '外部核实：发起、人工插话和原样存档';
     await page.getByRole('button', { name: '设置', exact: true }).click();

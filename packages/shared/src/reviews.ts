@@ -22,7 +22,7 @@ const statement = z
 const skill = structuredSubmissionSchema.shape.skill;
 export const reviewRiskSchema = z.enum(['standard', 'high']);
 export const reviewStatusSchema = z.enum(['pending', 'approved', 'rejected', 'cancelled']);
-export const reviewPolicySchema = z
+const draftReviewPolicySchema = z
   .object({
     skill,
     publication: z.literal('draft'),
@@ -33,6 +33,28 @@ export const reviewPolicySchema = z
     cardType: z.literal('finalize'),
   })
   .strict();
+const publishedReviewPolicySchema = z
+  .object({
+    skill,
+    publication: z.literal('published'),
+    developmentOnly: z.literal(false),
+    requiredChecks: z
+      .array(z.enum(['V1', 'V3', 'V6']))
+      .min(2)
+      .max(3)
+      .refine(
+        (checks) =>
+          checks.includes('V1') && checks.includes('V3') && new Set(checks).size === checks.length,
+      ),
+    minimumEvidence: z.number().int().min(1).max(40),
+    risk: reviewRiskSchema,
+    cardType: z.literal('finalize'),
+  })
+  .strict();
+export const reviewPolicySchema = z.discriminatedUnion('publication', [
+  draftReviewPolicySchema,
+  publishedReviewPolicySchema,
+]);
 export type ReviewPolicy = z.infer<typeof reviewPolicySchema>;
 export const reviewEvidenceRefSchema = documentCitationSchema
   .extend({ readInvocationId: id })
