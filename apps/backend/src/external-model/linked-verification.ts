@@ -41,6 +41,7 @@ async function untilAborted<T>(signal: AbortSignal, operation: () => Promise<T>)
 async function withConnection<T>(
   pool: Pool,
   signal: AbortSignal,
+  deadline: number,
   operation: (db: PoolClient) => Promise<T>,
 ) {
   if (signal.aborted) return;
@@ -50,18 +51,41 @@ async function withConnection<T>(
     void acquired.then((late) => late.release()).catch(() => undefined);
     return;
   }
+  const failed = new AbortController();
+  const onError = () => failed.abort();
+  db.on('error', onError);
+  const active = AbortSignal.any([signal, failed.signal]);
+  let committed = false;
   try {
-    return await untilAborted(signal, () => operation(db));
+    return await untilAborted(active, async () => {
+      await db.query('BEGIN');
+      const milliseconds = Math.max(1, Math.min(5_000, deadline - Date.now()));
+      await db.query("SELECT set_config('statement_timeout',$1,true)", [String(milliseconds)]);
+      if (active.aborted) return;
+      const result = await operation(db);
+      await db.query('COMMIT');
+      committed = true;
+      return result;
+    });
+  } catch (error) {
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
+    if (active.aborted || /^(?:08[A-Z0-9]{3}|57014|57P0[123]|ECONNRESET|EPIPE)$/.test(code)) return;
+    throw error;
   } finally {
-    // 中止时丢弃本次独占的连接，避免仍在执行的语句占住连接池。
-    db.release(signal.aborted);
+    const reusable = committed && !active.aborted;
+    // 丢弃时保留错误监听器直到连接结束，池只接管正常归还的连接。
+    if (!reusable) db.once('end', () => db.off('error', onError));
+    db.release(!reusable);
+    if (reusable) db.off('error', onError);
   }
 }
 
 async function stopLinkedRoom(pool: Pool, room: LinkedRun & { roomId: string }) {
   const stop = async () => {
     try {
-      return await withConnection(pool, AbortSignal.timeout(stopGraceMs), async (db) => {
+      const deadline = Date.now() + stopGraceMs;
+      return await withConnection(pool, AbortSignal.timeout(stopGraceMs), deadline, async (db) => {
         await stopRunVerifications(db, room);
         return true;
       });
@@ -185,7 +209,7 @@ export async function awaitLinkedVerification(
   const stopRoom = () => stopLinkedRoom(pool, { ...run, roomId: ticket.roomId });
   try {
     while (!waiting.aborted && Date.now() < deadline) {
-      const snapshot = await withConnection(pool, waiting, (db) =>
+      const snapshot = await withConnection(pool, waiting, deadline, (db) =>
         db.query<{
           state: 'paused' | 'discussing' | 'completed';
           project_id: string | null;
@@ -210,7 +234,7 @@ export async function awaitLinkedVerification(
       if (room.state === 'paused' || (room.state === 'completed' && !room.has_model_reply))
         return { roomId: ticket.roomId, status: 'unavailable', reason: unavailable };
       if (room.state === 'completed') {
-        const result = await withConnection(pool, waiting, (db) =>
+        const result = await withConnection(pool, waiting, deadline, (db) =>
           prepareConclusion(pool, ticket.roomId, room.project_id, room.conclusion, db),
         );
         if (!result || waiting.aborted || Date.now() >= deadline) break;
@@ -227,9 +251,11 @@ export async function awaitLinkedVerification(
   } catch (error) {
     if (!waiting.aborted) throw error;
   }
+  const timeExpired = waiting.aborted || Date.now() >= deadline;
   await stopRoom();
   if (signal.aborted)
     throw new AppError(409, 'VERIFICATION_STOPPED', '对话已停止，核实将在本轮结束后整理。');
+  if (!timeExpired) return { roomId: ticket.roomId, status: 'unavailable', reason: unavailable };
   return {
     roomId: ticket.roomId,
     status: 'unavailable',

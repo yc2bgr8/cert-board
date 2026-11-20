@@ -344,6 +344,13 @@ test('等待额度已耗尽时仅为停止群聊领取连接', async () => {
   }
 });
 
+async function blockedVerificationReaders() {
+  return context.pool.query<{ pid: number }>(
+    `SELECT pid FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND datname=current_database()
+      AND state='active' AND wait_event_type='Lock' AND query LIKE '%AS worker_ready FROM verification_link%'`,
+  );
+}
+
 test('接近截止时间的真实阻塞轮询会释放数据库连接池名额', async () => {
   await ready();
   const { run, ticket } = await request('full');
@@ -363,8 +370,45 @@ test('接近截止时间的真实阻塞轮询会释放数据库连接池名额',
       ),
     ).toMatchObject({ status: 'unavailable', reason: expect.stringContaining('剩余时间') });
     await vi.waitFor(() => expect(removed).toHaveBeenCalledTimes(1));
+    await vi.waitFor(async () => expect((await blockedVerificationReaders()).rowCount).toBe(0));
   } finally {
     context.pool.off('remove', removed);
+    await blocker.query('ROLLBACK');
+    blocker.release();
+  }
+});
+
+test('核实专用连接异常断开后工作进程可完成收尾', async () => {
+  await ready();
+  const { run, ticket } = await request('full');
+  const blocker = await context.pool.connect();
+  const signal = new AbortController();
+  let waiting: ReturnType<typeof awaitLinkedVerification> | undefined;
+  try {
+    await blocker.query('BEGIN');
+    await blocker.query('LOCK TABLE verification_worker_state IN ACCESS EXCLUSIVE MODE');
+    waiting = awaitLinkedVerification(context.pool, run, ticket, signal.signal);
+    let readerId: number | undefined;
+    await vi.waitFor(async () => {
+      readerId = (await blockedVerificationReaders()).rows[0]?.pid;
+      expect(readerId).toBeDefined();
+    });
+    const exited = await context.pool.query('SELECT pg_terminate_backend($1) AS terminated', [
+      readerId,
+    ]);
+    expect(exited.rows[0]?.terminated).toBe(true);
+    await expect(waiting).resolves.toMatchObject({
+      status: 'unavailable',
+      reason: expect.stringContaining('暂不可用'),
+    });
+    const room = await context.pool.query(
+      'SELECT stopped_by FROM external_model_conversation WHERE id=$1',
+      [ticket.roomId],
+    );
+    expect(room.rows[0]?.stopped_by).toBe(run.userId);
+  } finally {
+    signal.abort();
+    await waiting?.catch(() => undefined);
     await blocker.query('ROLLBACK');
     blocker.release();
   }
