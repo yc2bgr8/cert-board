@@ -39,7 +39,7 @@ const matches = z.object({ items: z.array(z.unknown()).max(30), hasMore: z.boole
 const approval = z.object({ approvalId: z.string().uuid(), status: z.literal('pending') });
 const sandboxStatus = z.object({
   status: z.enum(['ok', 'timed_out', 'memory_limit', 'failed']),
-  saveStatus: z.enum(['temporary', 'saved', 'skipped']),
+  saveStatus: z.enum(['temporary', 'saved', 'skipped']).optional(),
 });
 
 export function toolLabel(name: string) {

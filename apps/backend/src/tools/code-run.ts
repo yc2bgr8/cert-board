@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   codeRunInputSchema,
   codeRunOutputSchema,
+  codeRunReceiptSchema,
   codeRunSaveInputSchema,
   type DataLevel,
   type ToolMetadata,
@@ -137,6 +138,9 @@ function boundedStorage(store: DocumentBlobStore, signal: AbortSignal): Document
     });
     try {
       return await Promise.race([action(), ended]);
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new AppError(503, 'SANDBOX_STORAGE_FAILED', '沙箱文件传输失败，请检查存储后重试。');
     } finally {
       if (abort) signal.removeEventListener('abort', abort);
     }
@@ -245,7 +249,7 @@ export function buildSandboxTools(
     return { output, input, storage, signal };
   };
   const refresh = async (ctx: ToolExecutionContext, cached: unknown) => {
-    const result = codeRunOutputSchema.parse(cached);
+    const result = codeRunReceiptSchema.parse(cached);
     const levels: DataLevel[] = [ctx.maxDataLevel];
     for (const reference of result.documents)
       levels.push((await documentInProject(ctx, reference.id)).dataLevel);

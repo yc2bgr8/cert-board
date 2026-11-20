@@ -119,3 +119,15 @@ export const codeRunOutputSchema = sandboxResultSchema
       .max(32),
   })
   .strict();
+
+// 回放只读取授权和执行事件需要的字段，允许旧回执携带上一版文件清单。
+export const codeRunReceiptSchema = codeRunOutputSchema
+  .pick({
+    codeSha256: true,
+    elapsedMs: true,
+    inputHashes: true,
+    outputHashes: true,
+    documents: true,
+    readsWorkspace: true,
+  })
+  .strip();

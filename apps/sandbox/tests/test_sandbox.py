@@ -30,7 +30,7 @@ def test_outputs_are_isolated_and_no_credentials_or_network_reach_the_program(mo
     monkeypatch.setenv("SANDBOX_FIXTURE_TOKEN", "synthetic-value")
     result = run(r'''
 from pathlib import Path
-import os, resource, socket, subprocess
+import os, resource, shutil, socket, subprocess
 
 assert os.getuid() != 0
 assert "SANDBOX_FIXTURE_TOKEN" not in os.environ
@@ -56,14 +56,15 @@ except PermissionError:
     pass
 data = Path("inputs/test.txt").read_text()
 Path("outputs/结果.txt").write_text("处理: " + data, encoding="utf-8")
-subprocess.run(["python", "-c", "import pandas, pypdf"], check=True)
+shutil.copy("inputs/test.txt", "outputs/复制.txt")
+subprocess.run(["python", "-c", "import pandas, pypdf, shutil; shutil.copy('inputs/test.txt', 'tmp/副本.txt')"], check=True)
 print("isolated")
 ''', files=[{"name": "test.txt", "bodyBase64": base64.b64encode(b"fixture").decode("ascii")}])
     assert result["status"] == "ok", result["stderr"]
     assert result["stdout"] == "isolated\n"
     assert result["inputHashes"][0]["name"] == "test.txt"
-    assert result["files"][0]["path"] == "结果.txt"
-    assert base64.b64decode(result["files"][0]["bodyBase64"]).decode("utf-8") == "处理: fixture"
+    outputs = {file["path"]: base64.b64decode(file["bodyBase64"]) for file in result["files"]}
+    assert outputs == {"结果.txt": "处理: fixture".encode(), "复制.txt": b"fixture"}
 
 
 def test_real_wall_timeout_and_memory_ceiling_leave_service_available():

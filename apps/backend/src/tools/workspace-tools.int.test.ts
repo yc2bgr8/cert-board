@@ -202,6 +202,56 @@ test('沙箱只读运行允许预览，保存产出进入工作副本并可撤�
   );
   expect(manifest.files.map((file) => file.path)).toEqual(largePaths);
   expect(manifest.stdoutTruncated).toBe(true);
+
+  const failedBytes = Buffer.from('synthetic failed upload');
+  const originalPut = store.put.bind(store);
+  const upload = vi.spyOn(store, 'put').mockImplementation(async (bytes) => {
+    if (bytes.equals(failedBytes)) throw new Error('fixture storage rejection');
+    return originalPut(bytes);
+  });
+  const files = [
+    { path: '1.pdf', bytes: data },
+    { path: '2.pdf', bytes: failedBytes },
+  ];
+  fetchMock.mockImplementationOnce(async (_url, init) => {
+    const script = JSON.parse(String(init?.body)).code as string;
+    return Response.json({
+      status: 'ok',
+      exitCode: 0,
+      elapsedMs: 1,
+      codeSha256: hash(script),
+      inputHashes: [],
+      stdout: '',
+      stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      files: files.map(({ path, bytes }) => ({
+        path,
+        sha256: hash(bytes),
+        byteSize: bytes.length,
+        bodyBase64: bytes.toString('base64'),
+      })),
+    });
+  });
+  try {
+    const before = await list();
+    const failed = await combined.execute(reference(), 'code_run_save', {
+      code,
+      outputDirectory: '交付/上传失败',
+      expectedDraftVersion: before.draftVersion,
+    });
+    expect(failed.undoId).toBeNull();
+    expect(failed.data).toMatchObject({
+      saveStatus: 'skipped',
+      saveError: 'STORAGE_FAILED',
+      outputHashes: files.map(({ bytes }) => hash(bytes)),
+    });
+    const after = await list();
+    expect(after.draftVersion).toBe(before.draftVersion);
+    expect(after.items.some(({ path }) => path.startsWith('交付/上传失败/'))).toBe(false);
+  } finally {
+    upload.mockRestore();
+  }
 });
 
 test('真实登记工具读取、写中文Markdown、精确编辑和保存返回可审核版本', async () => {

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import {
   agentIdentitySchema,
   chatMessageSchema,
-  codeRunOutputSchema,
+  codeRunReceiptSchema,
   runControlNotificationSchema,
   reviewSubmitResultSchema,
   toolApprovalPendingResultSchema,
@@ -598,7 +598,7 @@ export async function executeAgentRun(
                       controller.signal,
                     )
                   : result.data;
-              const sandbox = runsSandbox ? codeRunOutputSchema.parse(result.data) : undefined;
+              const sandbox = runsSandbox ? codeRunReceiptSchema.parse(result.data) : undefined;
               await appendRunEvent(pool, {
                 runId,
                 userId: context.userId,

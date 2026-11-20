@@ -12,6 +12,7 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,id=cert-board-sandbox-uv,target=/root/.cache/uv,sharing=locked \
     UV_NO_CACHE=0 UV_LINK_MODE=copy uv sync --locked --no-dev --no-install-project
 COPY sandbox.py runner.py isolation.py ./
+COPY python_bootstrap ./python_bootstrap
 COPY --chmod=0555 libreoffice /usr/local/bin/libreoffice
 RUN install -d -m 0700 -o 65532 -g 65532 /scratch
 

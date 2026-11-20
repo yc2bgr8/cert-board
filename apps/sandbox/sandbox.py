@@ -119,6 +119,7 @@ def run_child(root, temporary, seconds, disconnected):
         "PYTHONUNBUFFERED": "1",
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONNOUSERSITE": "1",
+        "PYTHONPATH": "/app/python_bootstrap",
         "OMP_NUM_THREADS": "1",
         "OPENBLAS_NUM_THREADS": "1",
     }

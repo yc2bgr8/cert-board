@@ -25,7 +25,7 @@ _BIND_TCP = 1
 _CONNECT_TCP = 2
 _SCOPE_SIGNAL = 2
 _SCOPE_ABSTRACT_UNIX = 1
-# 新版 Linux 的原生 64 位编号可能尚未收入镜像中 libseccomp 的名称表。
+# 新版 x86_64 调用号可能尚未收入镜像中 libseccomp 的名称表。
 _METADATA_SYSCALLS = {"setxattrat": 463, "removexattrat": 466, "file_setattr": 469}
 
 _EXECUTE = 1
@@ -35,7 +35,7 @@ _READ_DIRECTORY = 1 << 3
 _READ = _READ_FILE | _READ_DIRECTORY
 _OUTPUT_RIGHTS = _WRITE | sum(1 << bit for bit in (4, 5, 7, 8, 9, 10, 12, 13, 14))
 _HANDLED_FILES = _OUTPUT_RIGHTS | _READ | _EXECUTE | (1 << 6) | (1 << 11)
-_RUNTIME_DIRECTORIES = ("/app/.venv", "/usr/lib", "/usr/lib64", "/usr/local", "/usr/bin",
+_RUNTIME_DIRECTORIES = ("/app/.venv", "/app/python_bootstrap", "/usr/lib", "/usr/lib64", "/usr/local", "/usr/bin",
                         "/usr/share", "/etc/fonts", "/etc/libreoffice", "/var/cache/fontconfig")
 _RUNTIME_FILES = ("/dev/zero", "/dev/urandom", "/dev/random", "/etc/ld.so.cache",
                   "/etc/passwd", "/etc/group", "/etc/localtime", "/etc/nsswitch.conf")
@@ -71,7 +71,7 @@ def _syscall(number, *args):
 
 
 def _restrict_landlock(work):
-    if platform.machine() not in {"x86_64", "aarch64"} or _syscall(_CREATE_RULESET, 0, 0, 1) < 6:
+    if platform.machine() != "x86_64" or _syscall(_CREATE_RULESET, 0, 0, 1) < 6:
         raise OSError("Required Landlock ABI is unavailable")
     config = _Ruleset(_HANDLED_FILES, _BIND_TCP | _CONNECT_TCP, _SCOPE_ABSTRACT_UNIX | _SCOPE_SIGNAL)
     descriptor = _syscall(_CREATE_RULESET, c.byref(config), c.sizeof(config), 0)
@@ -117,7 +117,7 @@ def _restrict_syscalls():
         for name in ("setsid", "setpgid", "setns", "unshare", "ptrace", "process_vm_readv",
                      "process_vm_writev", "pidfd_getfd", "io_uring_setup", "userfaultfd", "bpf",
                      "process_madvise", "process_mrelease", "move_pages", "migrate_pages", "setpriority",
-                     "ioprio_set", "chmod", "fchmod", "fchmodat", "fchmodat2", "chown", "lchown",
+                     "ioprio_set", "chmod", "fchmodat", "fchmodat2", "chown", "lchown",
                      "fchown", "fchownat", "utime", "utimes", "futimesat", "utimensat",
                      "setxattr", "lsetxattr", "fsetxattr", "removexattr", "lremovexattr", "fremovexattr",
                      *_METADATA_SYSCALLS):
