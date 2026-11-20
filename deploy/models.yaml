@@ -9,7 +9,7 @@ models:
     family: deepseek
     enabled: true
     accepted: false
-    purposes: [agent, extraction, evaluation]
+    purposes: [agent, extraction, evaluation, subagent, compression]
     maxDataLevel: confidential
     contextLength: 1048576
     maxOutputTokens: 4096
@@ -28,7 +28,7 @@ models:
     family: deepseek
     enabled: true
     accepted: false
-    purposes: [agent, extraction, evaluation]
+    purposes: [agent, extraction, evaluation, subagent, compression]
     maxDataLevel: internal
     contextLength: 1048576
     maxOutputTokens: 4096
@@ -52,7 +52,7 @@ models:
     family: qwen
     enabled: true
     accepted: false
-    purposes: [agent, extraction, evaluation]
+    purposes: [agent, extraction, evaluation, subagent, compression]
     maxDataLevel: internal
     contextLength: 1000000
     # 本应用单次输出上限，不表示供应商支持的最大输出能力。

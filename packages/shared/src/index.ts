@@ -8,6 +8,7 @@ export * from './t1-fixture.js';
 export * from './documents.js';
 export * from './intake.js';
 export * from './sandbox.js';
+export * from './subagents.js';
 export * from './workspace-path.js';
 export * from './workspace-diff.js';
 export * from './workspace.js';

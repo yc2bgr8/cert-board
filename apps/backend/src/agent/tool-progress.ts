@@ -3,6 +3,7 @@ import { z } from 'zod';
 const labels: Readonly<Record<string, string>> = {
   cert_context: '读取项目与当前目标',
   skill_load: '查看技能工作方法',
+  subagent_run: '并行调查子任务',
   doc_search: '检索项目资料',
   doc_read: '读取资料原文',
   code_run: '在沙箱运行代码',
@@ -41,6 +42,7 @@ const sandboxStatus = z.object({
   status: z.enum(['ok', 'timed_out', 'memory_limit', 'failed']),
   saveStatus: z.enum(['temporary', 'saved', 'skipped']).optional(),
 });
+const subagentStatus = z.object({ status: z.enum(['completed', 'partial', 'conflict']) });
 
 export function toolLabel(name: string) {
   return labels[name] ?? '执行登记工具';
@@ -49,6 +51,11 @@ export function toolLabel(name: string) {
 export function toolSummary(name: string, data: unknown, isError: boolean): string {
   if (isError) return `${toolLabel(name)}未完成`;
   if (approval.safeParse(data).success) return '等待发起人在浏览器批准后继续';
+  if (name === 'subagent_run') {
+    const result = subagentStatus.safeParse(data);
+    if (result.success && result.data.status === 'conflict') return '子任务有分歧，等待发起人确认';
+    if (result.success && result.data.status === 'partial') return '部分子任务未完成';
+  }
   if (name === 'code_run' || name === 'code_run_save') {
     const parsed = sandboxStatus.safeParse(data);
     if (parsed.success) {
