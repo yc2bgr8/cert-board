@@ -1,0 +1,26 @@
+[project]
+name = "cert-board-sandbox"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+  "docxtpl>=0.20,<1",
+  "fastapi==0.165.0",
+  "matplotlib>=3.9,<4",
+  "openpyxl==3.1.5",
+  "pandas>=2.2,<4",
+  "pdfplumber>=0.11,<1",
+  "pypdf[crypto]==7.1.1",
+  "python-docx==1.2.0",
+  "uvicorn==0.54.0",
+]
+
+[dependency-groups]
+test = ["httpx==0.28.1", "pytest==9.2.0"]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux'"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+cache_dir = "/scratch/.pytest-cache"

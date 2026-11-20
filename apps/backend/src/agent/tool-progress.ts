@@ -5,6 +5,8 @@ const labels: Readonly<Record<string, string>> = {
   skill_load: '查看技能工作方法',
   doc_search: '检索项目资料',
   doc_read: '读取资料原文',
+  code_run: '在沙箱运行代码',
+  code_run_save: '运行代码并保存产出',
   ws_list: '列出工作区文件',
   ws_read: '读取工作区文件',
   ws_search: '查找工作区文件内容',
@@ -35,6 +37,7 @@ const page = z.object({
 });
 const matches = z.object({ items: z.array(z.unknown()).max(30), hasMore: z.boolean() });
 const approval = z.object({ approvalId: z.string().uuid(), status: z.literal('pending') });
+const sandboxStatus = z.object({ status: z.enum(['ok', 'timed_out', 'memory_limit', 'failed']) });
 
 export function toolLabel(name: string) {
   return labels[name] ?? '执行登记工具';
@@ -43,6 +46,14 @@ export function toolLabel(name: string) {
 export function toolSummary(name: string, data: unknown, isError: boolean): string {
   if (isError) return `${toolLabel(name)}未完成`;
   if (approval.safeParse(data).success) return '等待发起人在浏览器批准后继续';
+  if (name === 'code_run' || name === 'code_run_save') {
+    const parsed = sandboxStatus.safeParse(data);
+    if (parsed.success) {
+      if (parsed.data.status === 'timed_out') return '沙箱到达运行时限，已终止程序';
+      if (parsed.data.status === 'memory_limit') return '沙箱达到内存上限，已终止程序';
+      if (parsed.data.status === 'failed') return '沙箱程序执行失败';
+    }
+  }
   if (name === 'doc_read') {
     const parsed = page.safeParse(data);
     if (parsed.success) {

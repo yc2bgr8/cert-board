@@ -13,7 +13,9 @@ import { authorize } from '../auth/authorization.js';
 import { currentServiceIdentity } from '../auth/member.js';
 import { lockOwnedRun } from './lock.js';
 
-const columns = `e.id,e.run_id AS "runId",e.seq,e.type,e.invocation_id AS "invocationId",e.request_id AS "requestId",e.content_hash AS "contentHash",e.data_level AS "dataLevel",e.reason_code AS "reasonCode",e.input_tokens AS "inputTokens",e.output_tokens AS "outputTokens",e.total_tokens AS "totalTokens",e.cost_nano AS "costNano",e.duration_ms AS "durationMs",e.created_at AS "createdAt"`;
+const columns = `e.id,e.run_id AS "runId",e.seq,e.type,e.invocation_id AS "invocationId",e.request_id AS "requestId",e.content_hash AS "contentHash",
+e.sandbox_input_hashes AS "sandboxInputHashes",e.sandbox_output_hashes AS "sandboxOutputHashes",e.data_level AS "dataLevel",e.reason_code AS "reasonCode",
+e.input_tokens AS "inputTokens",e.output_tokens AS "outputTokens",e.total_tokens AS "totalTokens",e.cost_nano AS "costNano",e.duration_ms AS "durationMs",e.created_at AS "createdAt"`;
 function dto(row: Record<string, unknown>) {
   return runEventRecordSchema.parse({
     ...row,
@@ -78,8 +80,8 @@ export async function appendRunEvent(pool: Pool, input: unknown) {
       [seq, runId],
     );
     const saved = await tx.query<Record<string, unknown>>(
-      `INSERT INTO run_event AS e(run_id,seq,type,invocation_id,request_id,content_hash,data_level,reason_code,input_tokens,output_tokens,total_tokens,cost_nano,duration_ms)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${columns}`,
+      `INSERT INTO run_event AS e(run_id,seq,type,invocation_id,request_id,content_hash,data_level,reason_code,input_tokens,output_tokens,total_tokens,cost_nano,duration_ms,sandbox_input_hashes,sandbox_output_hashes)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING ${columns}`,
       [
         runId,
         seq,
@@ -94,6 +96,8 @@ export async function appendRunEvent(pool: Pool, input: unknown) {
         event.totalTokens ?? null,
         event.costNano ?? null,
         event.durationMs ?? null,
+        event.sandboxInputHashes ?? null,
+        event.sandboxOutputHashes ?? null,
       ],
     );
     const record = dto(saved.rows[0]!);

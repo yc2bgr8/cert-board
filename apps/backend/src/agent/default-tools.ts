@@ -12,12 +12,15 @@ import type { Pool } from 'pg';
 import { consultExternalModelTool } from '../tools/consult-external-model.js';
 import { deadlineCalcTool } from '../tools/deadline-calc.js';
 import { reminderSetTool } from '../tools/reminder-set.js';
+import { buildSandboxTools } from '../tools/code-run.js';
+import type { SandboxClient } from '../sandbox/client.js';
 
 export async function buildAgentTools(
   store: DocumentBlobStore,
   agentCode: AgentCode,
   pool?: Pool,
   containerRuntime: BackendConfig['CONTAINER_RUNTIME'] = 'host',
+  sandbox?: SandboxClient,
 ) {
   const skill = await loadAgentSkill(agentCode, {
     id: agentCode === 'registration' ? 'R09' : 'M02',
@@ -25,6 +28,7 @@ export async function buildAgentTools(
   return [
     ...buildDocumentTools(),
     ...buildWorkspaceTools(store),
+    ...(sandbox ? buildSandboxTools(store, sandbox) : []),
     ...agentInteractionTools(),
     ...(pool && containerRuntime === 'host' ? [consultExternalModelTool(pool)] : []),
     checkRunTool(),

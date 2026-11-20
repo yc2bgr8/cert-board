@@ -1,0 +1,17 @@
+services:
+  sandbox:
+    networks: !override [sandbox]
+
+  sandbox-relay:
+    networks: !override
+      sandbox: {}
+      internal:
+        aliases: [sandbox-relay-entry]
+    ports: !reset []
+
+  backend-worker:
+    environment:
+      CERT_SANDBOX_URL: http://sandbox-relay:28083
+    depends_on:
+      sandbox-relay:
+        condition: service_started

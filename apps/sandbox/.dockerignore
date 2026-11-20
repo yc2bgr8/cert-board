@@ -1,0 +1,9 @@
+*
+!pyproject.toml
+!uv.lock
+!sandbox.py
+!isolation.py
+!runner.py
+!libreoffice
+!tests/
+!tests/**/*.py

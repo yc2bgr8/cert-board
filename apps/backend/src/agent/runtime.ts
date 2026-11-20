@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   agentIdentitySchema,
   chatMessageSchema,
+  codeRunOutputSchema,
   runControlNotificationSchema,
   reviewSubmitResultSchema,
   toolApprovalPendingResultSchema,
@@ -279,6 +280,7 @@ export async function executeAgentRun(
   let authority: Awaited<ReturnType<typeof createToolRuntime>> | undefined;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let renewal: Promise<void> | undefined;
+  let sandboxCalls = 0;
   let closing = false;
   let outcome: AgentKernelResult | undefined;
   let reason: string;
@@ -318,9 +320,14 @@ export async function executeAgentRun(
       ownerId: authority.lease.ownerId,
       generation: authority.lease.generation,
     };
+    // 沙箱请求含上传和返回最多 155 秒。工具事务期间锁定运行行，心跳必须在调用前延长租约。
+    const sandboxLeaseSeconds = 180;
     heartbeat = setInterval(() => {
       if (renewal || closing || controller.signal.aborted) return;
-      renewal = renewRunLease(pool, leaseIdentity)
+      renewal = renewRunLease(pool, {
+        ...leaseIdentity,
+        ...(sandboxCalls > 0 ? { ttlSeconds: sandboxLeaseSeconds } : {}),
+      })
         .then(() => undefined)
         .catch(() => controller.abort('lease_lost'))
         .finally(() => {
@@ -557,9 +564,16 @@ export async function executeAgentRun(
           description: entry.description,
           parameters: entry.parameters,
           async execute(input, tool) {
+            const runsSandbox = entry.name === 'code_run' || entry.name === 'code_run_save';
+            if (runsSandbox) sandboxCalls++;
             const abort = () => controller.abort('kernel_cancelled');
             tool.signal.addEventListener('abort', abort, { once: true });
             try {
+              if (runsSandbox) {
+                await renewal;
+                if (!controller.signal.aborted)
+                  await renewRunLease(pool, { ...leaseIdentity, ttlSeconds: sandboxLeaseSeconds });
+              }
               if (tool.signal.aborted || controller.signal.aborted)
                 throw new KernelToolError('RUN_ABORTED', '运行已取消。', { recoverable: false });
               const result = await registry.execute(
@@ -583,6 +597,7 @@ export async function executeAgentRun(
                       controller.signal,
                     )
                   : result.data;
+              const sandbox = runsSandbox ? codeRunOutputSchema.parse(result.data) : undefined;
               await appendRunEvent(pool, {
                 runId,
                 userId: context.userId,
@@ -590,6 +605,12 @@ export async function executeAgentRun(
                   type: 'tool_completed',
                   invocationId: result.invocationId,
                   dataLevel: result.dataLevel,
+                  ...(sandbox && {
+                    contentHash: sandbox.codeSha256,
+                    sandboxInputHashes: sandbox.inputHashes.map(({ sha256 }) => sha256),
+                    sandboxOutputHashes: sandbox.outputHashes,
+                    durationMs: sandbox.elapsedMs,
+                  }),
                 },
               });
               if (entry.name === 'submit_for_review') {
@@ -616,6 +637,7 @@ export async function executeAgentRun(
                 { recoverable: false },
               );
             } finally {
+              if (runsSandbox) sandboxCalls--;
               tool.signal.removeEventListener('abort', abort);
             }
           },

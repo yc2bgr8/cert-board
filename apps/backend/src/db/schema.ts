@@ -1774,6 +1774,8 @@ export const runEvent = pgTable(
     invocationId: uuid('invocation_id'),
     requestId: uuid('request_id'),
     contentHash: varchar('content_hash', { length: 64 }),
+    sandboxInputHashes: varchar('sandbox_input_hashes', { length: 64 }).array(),
+    sandboxOutputHashes: varchar('sandbox_output_hashes', { length: 64 }).array(),
     dataLevel: documentDataLevel('data_level'),
     reasonCode: runEventReason('reason_code'),
     inputTokens: bigint('input_tokens', { mode: 'number' }),
@@ -1799,6 +1801,16 @@ export const runEvent = pgTable(
     check(
       'run_event_hash_format',
       sql`${table.contentHash} IS NULL OR ${table.contentHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      'run_event_sandbox_hashes',
+      sql`(${table.sandboxInputHashes} IS NULL AND ${table.sandboxOutputHashes} IS NULL) OR (
+        ${table.type} = 'tool_completed' AND ${table.invocationId} IS NOT NULL AND
+        ${table.contentHash} IS NOT NULL AND ${table.durationMs} IS NOT NULL AND
+        ${table.sandboxInputHashes} IS NOT NULL AND ${table.sandboxOutputHashes} IS NOT NULL AND
+        array_to_string(${table.sandboxInputHashes}, ',', '?') ~ '^([0-9a-f]{64}(,[0-9a-f]{64}){0,15})?$' AND
+        array_to_string(${table.sandboxOutputHashes}, ',', '?') ~ '^([0-9a-f]{64}(,[0-9a-f]{64}){0,31})?$'
+      )`,
     ),
     check(
       'run_event_input_tokens_safe',

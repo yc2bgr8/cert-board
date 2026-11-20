@@ -23,6 +23,8 @@ import { queueInternalMessageTool } from '../tools/queue-internal-message.js';
 import { agentInteractionTools } from '../tools/agent-interaction.js';
 import { prepareContinuationForDispatch } from '../approvals/continuation.js';
 import { buildWorkspaceTools } from '../tools/workspace-tools.js';
+import { buildSandboxTools } from '../tools/code-run.js';
+import type { SandboxClient } from '../sandbox/client.js';
 
 class MemoryStore implements DocumentBlobStore {
   private values = new Map<string, Buffer>();
@@ -126,6 +128,87 @@ test('Agent 剧本在容器模式收不到核实工具，宿主模式仍能使�
       containerRuntime === 'host',
     );
   }
+});
+
+test('沙箱通过 Agent 执行时，事件只记录代码、输入及产出的哈希与耗时', async () => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const target = await queued(context, 'read_only');
+  const code = 'print("合成程序正文")';
+  const codeSha256 = createHash('sha256').update(code).digest('hex');
+  const artifact = Buffer.from('合成产出正文');
+  const outputSha256 = createHash('sha256').update(artifact).digest('hex');
+  const output = {
+    status: 'ok' as const,
+    exitCode: 0,
+    elapsedMs: 17,
+    codeSha256,
+    stdout: '合成输出正文',
+    stderr: '',
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    files: [
+      { path: '合成产出.txt', byteSize: artifact.length, sha256: outputSha256, bytes: artifact },
+    ],
+  };
+  let inputHashes: string[] = [];
+  const run: SandboxClient['run'] = async ({ files }) => {
+    const lease = await context.pool.query<{ sufficient: boolean }>(
+      `SELECT lease_expires_at > clock_timestamp() + INTERVAL '155 seconds' AS sufficient FROM run WHERE id=$1`,
+      [target.runId],
+    );
+    expect(lease.rows[0]?.sufficient).toBe(true);
+    const received = files.map(({ name, bytes }) => ({
+      name,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    }));
+    inputHashes = received.map(({ sha256 }) => sha256);
+    return { ...output, inputHashes: received };
+  };
+  let round = 0;
+  const gateway = new ModelGateway(
+    context.pool,
+    config,
+    {
+      kind: 'fixture',
+      async send() {
+        return round++ === 0
+          ? call('code_run', {
+              code,
+              inputs: [{ source: 'workspace', path: 'AGENTS.md', name: '示例.md' }],
+            })
+          : result({ role: 'assistant', content: '已完成计算。' });
+      },
+    },
+    { environment: 'test' },
+  );
+  const outcome = await executeAgentRun(
+    {
+      pool: context.pool,
+      store,
+      gateway,
+      models: config,
+      definitions: buildSandboxTools(store, { run }),
+    },
+    target.runId,
+  );
+  expect(outcome.status).toBe('completed');
+  const events = await context.pool.query(
+    'SELECT * FROM run_event WHERE run_id=$1 AND sandbox_input_hashes IS NOT NULL',
+    [target.runId],
+  );
+  expect(events.rows).toHaveLength(1);
+  expect(inputHashes).toHaveLength(1);
+  expect(events.rows[0]).toMatchObject({
+    content_hash: codeSha256,
+    sandbox_input_hashes: inputHashes,
+    sandbox_output_hashes: [outputSha256],
+    duration_ms: '17',
+  });
+  expect(JSON.stringify(events.rows)).not.toMatch(/合成|示例/);
 });
 
 test('收尾时租约已到期的旧执行者不能写入完成状态或发出终态事件', async () => {

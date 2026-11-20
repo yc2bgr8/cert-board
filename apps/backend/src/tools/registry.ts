@@ -224,6 +224,11 @@ function versionToken(value: unknown): string | null {
   return parsed.data;
 }
 const safeReviewHints = new Map<string, string>([
+  ['SANDBOX_NO_SAVED_OUTPUT', '程序未完成或 outputs/ 为空。可先用 code_run 查看日志。'],
+  ['SANDBOX_DUPLICATE_INPUT', '输入别名重复，请为每个文件使用不同名称。'],
+  ['SANDBOX_INPUT_LIMIT', '输入合计超过 12 MiB，请减少文件后重试。'],
+  ['SANDBOX_OUTPUT_LIMIT', '产出超过文件数或总大小上限，请拆分处理后重试。'],
+  ['SANDBOX_OUTPUT_TYPE_REJECTED', '产出目录只接受普通文件，请删除链接及特殊文件后重试。'],
   [
     'REVIEW_READ_REQUIRED',
     '每条完整引文都须有本对话成功的doc_read回执。请重新读取对应资料版本和页码，确保一段结果完整包含引文，再提交审核。',
@@ -255,6 +260,12 @@ async function callback<T>(operation: () => Promise<T>): Promise<T> {
     if (error instanceof ToolBoundaryError) throw error;
     if (error instanceof AppError && error.code === 'INTERNAL_REMINDER_WEEKEND')
       throw fail(422, 'TOOL_DATA_REJECTED', '周六、周日不催办，请在北京时间下一个工作日重新提出。');
+    if (error instanceof AppError && error.code === 'SANDBOX_BUSY' && error.statusCode === 429)
+      throw fail(
+        429,
+        'TOOL_DATA_REJECTED',
+        '已有程序正在沙箱运行，请在本轮执行其他事项，稍后再试。',
+      );
     if (error instanceof AppError && error.statusCode === 409)
       throw fail(
         409,

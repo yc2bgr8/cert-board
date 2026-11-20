@@ -190,6 +190,13 @@
       "when": 1795127477830,
       "tag": "0026_package_intake",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1795133522370,
+      "tag": "0027_sandbox_run_events",
+      "breakpoints": true
     }
   ]
 }

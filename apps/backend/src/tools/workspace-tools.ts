@@ -164,23 +164,12 @@ function metadata(
   };
 }
 
-export function buildWorkspaceTools(store: DocumentBlobStore): ToolDefinition[] {
-  const refresh = async (ctx: ToolExecutionContext) =>
-    highest(ctx.maxDataLevel, (await scope(ctx)).dataLevel);
-  const read = (
-    name: string,
-    inputSchema: ZodType,
-    outputSchema: ZodType,
-    description: ToolMetadata['description'],
-    execute: NonNullable<ToolDefinition['execute']>,
-  ): ToolDefinition => ({
-    metadata: metadata(name, 'read', description),
-    inputSchema,
-    outputSchema,
-    execute,
-    refreshDataLevel: refresh,
-  });
-  const undo = (publishes: boolean, pathInput = false): ToolUndoSpec => ({
+export function workspaceDraftUndo(
+  store: DocumentBlobStore,
+  publishes = false,
+  pathInput = false,
+): ToolUndoSpec {
+  return {
     beforeSchema: workspaceToolUndoStateSchema,
     async capture(ctx, input) {
       const current = await scope(ctx, 'draft', true);
@@ -214,6 +203,24 @@ export function buildWorkspaceTools(store: DocumentBlobStore): ToolDefinition[] 
         workspaceToolUndoStateSchema.parse(record.beforeState),
       );
     },
+  };
+}
+
+export function buildWorkspaceTools(store: DocumentBlobStore): ToolDefinition[] {
+  const refresh = async (ctx: ToolExecutionContext) =>
+    highest(ctx.maxDataLevel, (await scope(ctx)).dataLevel);
+  const read = (
+    name: string,
+    inputSchema: ZodType,
+    outputSchema: ZodType,
+    description: ToolMetadata['description'],
+    execute: NonNullable<ToolDefinition['execute']>,
+  ): ToolDefinition => ({
+    metadata: metadata(name, 'read', description),
+    inputSchema,
+    outputSchema,
+    execute,
+    refreshDataLevel: refresh,
   });
   const write = (
     name: string,
@@ -228,7 +235,7 @@ export function buildWorkspaceTools(store: DocumentBlobStore): ToolDefinition[] 
     inputSchema,
     outputSchema,
     execute,
-    undo: undo(publishes, pathInput),
+    undo: workspaceDraftUndo(store, publishes, pathInput),
     refreshDataLevel: refresh,
   });
 
