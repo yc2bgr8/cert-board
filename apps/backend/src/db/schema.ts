@@ -1375,6 +1375,9 @@ export const outboundMessage = pgTable(
   'outbound_message',
   {
     id: uuid('id').defaultRandom().primaryKey(),
+    dispatchId: text('dispatch_id')
+      .notNull()
+      .generatedAlwaysAs(sql`'<' || id::text || '@cert-board.local>'`),
     proposalId: uuid('proposal_id').notNull(),
     decisionId: uuid('decision_id').notNull().unique(),
     goalId: uuid('goal_id').notNull(),
@@ -1413,7 +1416,55 @@ export const outboundMessage = pgTable(
       sql`${table.receiptId} IS NULL OR ${table.processedAt} IS NOT NULL`,
     ),
     index('outbound_message_status_idx').on(table.status),
+    unique('outbound_message_dispatch_unique').on(table.dispatchId),
     index('outbound_message_goal_idx').on(table.goalId),
+  ],
+);
+
+export const simulatedEmailDelivery = pgTable(
+  'simulated_email_delivery',
+  {
+    queueId: uuid('queue_id')
+      .primaryKey()
+      .references(() => outboundMessage.id, { onDelete: 'restrict' }),
+    reply: varchar('reply', { length: 12 }).notNull(),
+    sentFolder: varchar('sent_folder', { length: 16 }).notNull(),
+    providerFiled: boolean('provider_filed').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check('simulated_email_reply', sql`${table.reply} IN ('success','uncertain','failure')`),
+    check(
+      'simulated_email_sent_folder',
+      sql`${table.sentFolder} IN ('auto_store','no_store','unavailable')`,
+    ),
+  ],
+);
+
+export const outboundResolution = pgTable(
+  'outbound_resolution',
+  {
+    queueId: uuid('queue_id')
+      .primaryKey()
+      .references(() => outboundMessage.id, { onDelete: 'restrict' }),
+    actorUserId: uuid('actor_user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    sessionId: uuid('session_id').notNull(),
+    requestKey: uuid('request_key').notNull(),
+    sourceVersion: integer('source_version').notNull(),
+    action: varchar('action', { length: 16 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('outbound_resolution_request_unique').on(table.actorUserId, table.requestKey),
+    foreignKey({
+      name: 'outbound_resolution_browser_session',
+      columns: [table.sessionId, table.actorUserId],
+      foreignColumns: [webSession.id, webSession.userId],
+    }).onDelete('restrict'),
+    check('outbound_resolution_action', sql`${table.action} IN ('confirm_sent','repropose')`),
+    check('outbound_resolution_version', sql`${table.sourceVersion}>0`),
   ],
 );
 
@@ -2797,6 +2848,23 @@ export const notification = pgTable(
     index('notification_recipient_pending_idx')
       .on(table.recipientId, table.updatedAt, table.id)
       .where(sql`${table.status}='pending'`),
+  ],
+);
+
+export const simulatedWechatCopy = pgTable(
+  'simulated_wechat_copy',
+  {
+    noticeId: uuid('notice_id')
+      .notNull()
+      .references(() => notification.id, { onDelete: 'restrict' }),
+    attempt: integer('attempt').notNull(),
+    result: varchar('result', { length: 12 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('simulated_wechat_copy_attempt').on(table.noticeId, table.attempt),
+    check('simulated_wechat_copy_limit', sql`${table.attempt} IN (1,2)`),
+    check('simulated_wechat_copy_result', sql`${table.result} IN ('success','timeout','failure')`),
   ],
 );
 

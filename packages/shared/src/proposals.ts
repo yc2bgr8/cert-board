@@ -151,14 +151,46 @@ export const outboundProcessOptionsSchema = z
       .default('success'),
   })
   .strict();
+export const testEmailOptionsSchema = outboundProcessOptionsSchema.extend({
+  sentFolder: z.enum(['auto_store', 'no_store', 'unavailable']).default('unavailable'),
+});
+export type OutboundProcessOptions = z.input<typeof testEmailOptionsSchema>;
 export const outboundProcessResultSchema = z
   .object({
     queueId: idSchema,
     proposalId: idSchema,
     status: outboundMessageStatusSchema,
     attempts: z.number().int().nonnegative().safe(),
+    dispatchId: z.string().max(200),
     reason: z.string().max(500).nullable(),
     receipt: localTestReceiptSchema.nullable(),
   })
   .strict();
 export type OutboundProcessResult = z.infer<typeof outboundProcessResultSchema>;
+
+export const outboundResolutionActionSchema = z.enum(['confirm_sent', 'repropose']);
+export const outboundResolutionInputSchema = z
+  .object({
+    action: outboundResolutionActionSchema,
+    expectedVersion: versionSchema,
+    requestKey: idSchema,
+  })
+  .strict();
+export const outboundResolutionResultSchema = z
+  .object({
+    proposalId: idSchema,
+    action: outboundResolutionActionSchema,
+    status: z.enum(['done', 'failed']),
+    replayed: z.boolean(),
+  })
+  .strict();
+export const outboundReconciliationSchema = z
+  .object({
+    queueId: idSchema,
+    dispatchId: z.string().min(1).max(200),
+    version: versionSchema,
+    status: z.enum(['reconcile', 'failed']),
+  })
+  .strict()
+  .nullable();
+export type OutboundResolutionInput = z.infer<typeof outboundResolutionInputSchema>;

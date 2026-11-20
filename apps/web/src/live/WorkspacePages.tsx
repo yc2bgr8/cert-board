@@ -15,6 +15,7 @@ export const noticeLabels: Record<Notice['kind'], string> = {
   proposal: '外发提案',
   deadline: '期限提醒',
   verification: '外部核实',
+  outbound: '外发结果',
 };
 const filters = [
   'all',
@@ -25,6 +26,7 @@ const filters = [
   'blocked',
   'deadline',
   'verification',
+  'outbound',
 ] as const;
 const time = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
@@ -44,6 +46,7 @@ function noticeAction(kind: Notice['kind']) {
   if (kind === 'review') return '查看审核';
   if (kind === 'proposal') return '查看提案';
   if (kind === 'verification') return '查看核实群聊';
+  if (kind === 'outbound') return '查看和对账';
   return '打开对话';
 }
 

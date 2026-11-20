@@ -13,6 +13,7 @@ import { startBrowserHarness } from '../test-support/browser-harness.js';
 import { reviewBrowserFlow } from '../test-support/browser-review-flow.js';
 import { calculateDeadline } from '../deadlines/calendar.js';
 import { scanDeadlineReminders } from '../deadlines/scan.js';
+import { processTestOutbound } from '../outbound/service.js';
 import { developmentGoalId } from '../projects/seed.js';
 import { parseSkillDraftMarkdown } from '../skills/markdown.js';
 import { stageSkillVersion } from '../skills/service.js';
@@ -893,6 +894,32 @@ async function main() {
           .getByRole('region', { name: '待我处理事项' })
           .getByRole('button', { name: /外发提案.*查看提案/ })
           .waitFor({ state: 'hidden' });
+        stage = '模拟邮件结果未知与发起人对账';
+        const { queueId } = (await response.json()) as { queueId: string };
+        const simulated = await processTestOutbound(harness.pool, queueId, {
+          simulate: 'uncertain',
+          sentFolder: 'no_store',
+        });
+        assert.equal(simulated.status, 'reconcile');
+        const filters = page.getByRole('group', { name: '按类型筛选待处理事项' });
+        await filters.getByRole('button', { name: '外发结果 1', exact: true }).click();
+        const unknown = page
+          .getByRole('region', { name: '待我处理事项' })
+          .getByRole('button', { name: /外发结果.*查看和对账/u });
+        await unknown.click();
+        const reconcile = proposal.getByRole('region', { name: '核对发送结果', exact: true });
+        await reconcile.getByText(simulated.dispatchId, { exact: true }).waitFor();
+        await captureWorkbench(page, output, 'pr-d7-outbound-reconcile.png');
+        const reconciled = page.waitForResponse(
+          (candidate) =>
+            candidate.request().method() === 'POST' &&
+            new URL(candidate.url()).pathname === `/api/proposals/${proposalId}/reconciliation`,
+        );
+        await reconcile.getByRole('button', { name: '确认模拟已发出', exact: true }).click();
+        assert.equal((await reconciled).status(), 200);
+        await proposal.getByRole('status').filter({ hasText: '本地测试完成' }).waitFor();
+        await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
+        await unknown.waitFor({ state: 'hidden' });
         stage = '站内期限提醒出现并确认';
         const now = new Date();
         const deadline = calculateDeadline({
@@ -930,19 +957,65 @@ async function main() {
         await page.getByRole('button', { name: 'L08 年度注册（验收示例）', exact: true }).click();
         await page.getByRole('button', { name: '打开对话：年度注册提案复验', exact: true }).click();
       }
+      stage = '重新打开提案保留最终状态';
       await page
-        .getByText(
-          action === 'approved' ? '外发提案 · 已批准，等待本地测试' : '外发提案 · 已拒绝',
-          { exact: true },
-        )
+        .getByText(action === 'approved' ? '外发提案 · 本地测试完成' : '外发提案 · 已拒绝', {
+          exact: true,
+        })
         .waitFor();
       await page.getByRole('button', { name: '查看提案', exact: true }).click();
       await proposal
-        .getByText(action === 'approved' ? '已批准，等待本地测试' : '已拒绝', { exact: true })
+        .getByText(action === 'approved' ? '本地测试完成' : '已拒绝', { exact: true })
         .waitFor();
       assert.equal(await proposal.getByRole('button', { name: '批准本地测试' }).count(), 0);
       await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
     }
+    stage = '模拟外发重新提出只准备可编辑草稿';
+    const reproposeConversation = await createConversation(
+      page,
+      harness.maintenanceProjectId,
+      undefined,
+      '重新提出验收',
+    );
+    const reproposeModel = harness.plan('proposal');
+    const reproposedRun = await send(page, '请准备合成提案，由人核对模拟结果。');
+    await page.getByRole('button', { name: '查看提案', exact: true }).click();
+    const reproposePanel = page.getByRole('article', { name: '提案内容', exact: true });
+    const reapprove = page.waitForResponse(
+      (res) =>
+        res.request().method() === 'POST' &&
+        /\/api\/proposals\/[^/]+\/decision$/u.test(new URL(res.url()).pathname),
+    );
+    await reproposePanel.getByRole('button', { name: '批准本地测试', exact: true }).click();
+    const retryQueue = (await (await reapprove).json()) as { queueId: string; proposalId: string };
+    await reproposePanel.getByText('已批准，等待本地测试', { exact: true }).waitFor();
+    assert.equal(
+      (await processTestOutbound(harness.pool, retryQueue.queueId, { simulate: 'failure' })).status,
+      'failed',
+    );
+    await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
+    await page.getByRole('button', { name: /待我处理/u }).click();
+    await page
+      .getByRole('group', { name: '按类型筛选待处理事项' })
+      .getByRole('button', { name: '外发结果 1', exact: true })
+      .click();
+    await page
+      .getByRole('region', { name: '待我处理事项' })
+      .getByRole('button', { name: /外发结果.*查看和对账/u })
+      .click();
+    await reproposePanel.getByRole('button', { name: '重新提出', exact: true }).click();
+    await page.getByRole('heading', { name: '重新提出验收', exact: true }).waitFor();
+    const outboundDraft = await page.getByRole('textbox', { name: '消息', exact: true }).inputValue();
+    assert.ok(outboundDraft.includes(retryQueue.proposalId));
+    assert.equal(reproposeModel.observed.calls, 1);
+    assert.deepEqual(
+      (
+        await harness.pool.query('SELECT id FROM run WHERE conversation_id=$1', [
+          reproposeConversation,
+        ])
+      ).rows,
+      [{ id: reproposedRun.runId }],
+    );
     stage = '共享对话只读';
     await page.getByRole('button', { name: '注册Agent', exact: true }).click();
     await page.getByRole('button', { name: 'L08 510(k)', exact: true }).click();

@@ -14,6 +14,7 @@ import { ToolRegistry } from '../tools/registry.js';
 import { reminderSetTool } from '../tools/reminder-set.js';
 import { deadlineQueue, startDeadlineQueue } from './queue.js';
 import { readDeadlineScanHeartbeat, scanDeadlineReminders } from './scan.js';
+import { processTestWechatCopy } from '../outbound/wechat-copy.js';
 
 let context: Awaited<ReturnType<typeof createIntegrationContext>>;
 beforeEach(async () => {
@@ -93,6 +94,37 @@ test('只读可算期限，请求批准模式先生成卡片，完全允许可�
     deadline: { title: plan.title },
   });
 });
+
+test.each(['success', 'failure'] as const)(
+  '模拟企业微信超时只重试一次，站内提醒为准：%s',
+  async (retry) => {
+    await (await tools()).call('reminder_set', plan);
+    await scanDeadlineReminders(context.pool, new Date('2026-01-31T12:00:00Z'));
+    const snapshot = await readMemberNotifications(context.pool, browser('MEMBER_A'));
+    const notice = snapshot.items.find(({ kind }) => kind === 'deadline')!;
+    const delivered = await processTestWechatCopy(context.pool, notice.id, {
+      initial: 'timeout',
+      retry,
+    });
+    expect(delivered).toEqual({ sent: retry === 'success', attempts: 2 });
+    expect(await processTestWechatCopy(context.pool, notice.id, { initial: 'success' })).toEqual(
+      delivered,
+    );
+    const updated = await readMemberNotifications(context.pool, browser('MEMBER_A'));
+    expect(updated.items).toEqual(snapshot.items);
+    const count = (
+      await context.pool.query(
+        "SELECT action FROM audit_log WHERE target_id=$1 AND action LIKE 'wechat.copy_%' ORDER BY action",
+        [notice.id],
+      )
+    ).rows;
+    expect(count.map(({ action }) => action)).toEqual(
+      retry === 'success'
+        ? ['wechat.copy_timeout']
+        : ['wechat.copy_failure', 'wechat.copy_timeout'],
+    );
+  },
+);
 
 test('到期合并、按法域跨日，站内提醒只对负责人显示和确认', async () => {
   const full = await tools();
