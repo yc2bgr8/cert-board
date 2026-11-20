@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type {
   FastifyBaseLogger,
   FastifyInstance,
@@ -16,6 +17,9 @@ import {
   proposalSummaryListSchema,
   goalOutboundControlSchema,
   goalOutboundControlResultSchema,
+  outboundReconciliationSchema,
+  outboundResolutionInputSchema,
+  outboundResolutionResultSchema,
   type BackendConfig,
   type BrowserIdentity,
 } from '@cert-board/shared';
@@ -160,6 +164,132 @@ export function registerProposalRoutes<Logger extends FastifyBaseLogger>(
       if (!result.rows[0]) throw missing();
       await authorizeReview(tx, identity, result.rows[0].projectId);
       return proposalDto(result.rows[0]);
+    });
+  });
+  const reconciliationQueue = async (
+    tx: PoolClient,
+    proposalId: string,
+    userId: string,
+    lock = false,
+  ) =>
+    (
+      await tx.query<{
+        id: string;
+        dispatch_id: string;
+        version: number;
+        status: string;
+        proposal_status: string;
+      }>(
+        `SELECT q.id,q.dispatch_id,q.version,q.status,p.status AS proposal_status FROM outbound_message q
+      JOIN proposal p ON p.id=q.proposal_id
+      WHERE p.id=$1 AND p.proposed_by=$2 AND q.channel='local_test' AND q.attempts=1
+      ORDER BY q.created_at DESC,q.id DESC LIMIT 1${lock ? ' FOR UPDATE OF p,q' : ''}`,
+        [proposalId, userId],
+      )
+    ).rows[0];
+  app.get('/api/proposals/:id/reconciliation', async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    return browserTransaction(request, false, async (tx, identity) => {
+      const item = await reconciliationQueue(tx, identifier(request), identity.userId);
+      if (
+        !item ||
+        !['reconcile', 'failed'].includes(item.status) ||
+        item.status !== item.proposal_status
+      )
+        return null;
+      const prior = (
+        await tx.query<{ action: string }>(
+          'SELECT action FROM outbound_resolution WHERE queue_id=$1',
+          [item.id],
+        )
+      ).rows[0];
+      if (prior && prior.action !== 'repropose') return null;
+      return outboundReconciliationSchema.parse({
+        queueId: item.id,
+        dispatchId: item.dispatch_id,
+        version: item.version,
+        status: item.status,
+        reproposeRecorded: prior?.action === 'repropose',
+      });
+    });
+  });
+  app.post('/api/proposals/:id/reconciliation', { bodyLimit: 2048 }, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    return browserTransaction(request, true, async (tx, identity) => {
+      const proposalId = identifier(request);
+      const command = outboundResolutionInputSchema.safeParse(request.body);
+      if (!command.success)
+        throw new AppError(400, 'OUTBOUND_RESOLUTION_INVALID', '请打开对账卡并选择处理结果。');
+      const input = command.data;
+      await goal(tx, await locate(tx, proposalId));
+      const item = await reconciliationQueue(tx, proposalId, identity.userId, true);
+      if (!item) throw missing();
+      const prior = (
+        await tx.query<{ source_version: number; action: string; request_key: string }>(
+          'SELECT source_version,action,request_key FROM outbound_resolution WHERE queue_id=$1',
+          [item.id],
+        )
+      ).rows[0];
+      const status = input.action === 'confirm_sent' ? 'done' : 'failed';
+      if (
+        prior &&
+        prior.request_key === input.requestKey &&
+        prior.source_version === input.expectedVersion &&
+        prior.action === input.action &&
+        item.status === status
+      )
+        return outboundResolutionResultSchema.parse({
+          proposalId,
+          action: input.action,
+          status,
+          replayed: true,
+        });
+      if (
+        prior ||
+        item.version !== input.expectedVersion ||
+        item.proposal_status !== item.status ||
+        !(item.status === 'reconcile' || (item.status === 'failed' && input.action === 'repropose'))
+      )
+        throw new AppError(409, 'OUTBOUND_RESOLUTION_STALE', '外发结果已变化，请刷新后核对。');
+      const recorded = await tx.query(
+        `INSERT INTO outbound_resolution(queue_id,actor_user_id,session_id,request_key,source_version,action)
+         VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING queue_id`,
+        [
+          item.id,
+          identity.userId,
+          identity.sessionId,
+          input.requestKey,
+          input.expectedVersion,
+          input.action,
+        ],
+      );
+      if (!recorded.rowCount)
+        throw new AppError(409, 'OUTBOUND_RESOLUTION_STALE', '对账请求编号已使用，请刷新。');
+      if (item.status === 'reconcile') {
+        const reason =
+          input.action === 'confirm_sent'
+            ? '发起人在浏览器确认模拟结果为已发出。'
+            : '发起人在浏览器选择重新提出，原发送编号已关闭。';
+        await tx.query(
+          `UPDATE outbound_message SET status=$2,last_reason=$3,receipt_id=$4,processed_at=clock_timestamp(),
+           version=version+1,updated_at=clock_timestamp() WHERE id=$1`,
+          [item.id, status, reason, status === 'done' ? randomUUID() : null],
+        );
+        await tx.query(
+          'UPDATE proposal SET status=$2,version=version+1,updated_at=clock_timestamp() WHERE id=$1',
+          [proposalId, status],
+        );
+      }
+      await tx.query(
+        "INSERT INTO audit_log(actor_kind,actor_user_id,action,target_type,target_id) VALUES('browser',$1,$2,'outbound_message',$3)",
+        [identity.userId, `outbound.reconciliation.${input.action}`, item.id],
+      );
+      return outboundResolutionResultSchema.parse({
+        proposalId,
+        action: input.action,
+        status,
+        replayed: false,
+      });
     });
   });
   app.post('/api/proposals/:id/decision', async (request, reply) => {

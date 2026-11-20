@@ -312,7 +312,27 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     pushPanel({
       label: '外发提案',
       flush: true,
-      content: <ProposalCard proposalId={proposalId} />,
+      content: (
+        <ProposalCard
+          proposalId={proposalId}
+          onRepropose={(proposal) => {
+            const project = availableProjects.find(({ id }) => id === proposal.projectId);
+            openConversation({
+              id: proposal.conversationId,
+              projectId: proposal.projectId,
+              userId: proposal.proposedBy,
+              agentCode: project?.projectType ?? sidebarAgent,
+            });
+            updateMessageDraft(
+              proposal.conversationId,
+              (previous) =>
+                previous.trim()
+                  ? previous
+                  : `请重新核对原外发提案 ${proposal.id} 的收件人和正文，生成新的提案供审核。`,
+            );
+          }}
+        />
+      ),
     });
   }
   function updateMessageDraft(id: string, update: SetStateAction<string>) {
@@ -374,7 +394,9 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     setView('project');
     setMobileOpen(false);
   };
-  const openConversation = (conversation: ConversationDetail) => {
+  const openConversation = (
+    conversation: Pick<ConversationDetail, 'id' | 'projectId' | 'agentCode' | 'userId'>,
+  ) => {
     setSidebarAgent(conversation.agentCode);
     setPanels([]);
     setTab('conversation');
@@ -393,7 +415,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       openReview(item.id);
       return;
     }
-    if (item.kind === 'proposal') {
+    if (item.kind === 'proposal' || item.kind === 'outbound') {
       openProposal(item.id);
       return;
     }

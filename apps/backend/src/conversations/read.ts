@@ -412,6 +412,11 @@ export async function readMemberNotifications(database: Database, actor: Browser
        SELECT n.id,'verification',l.conversation_id,r.project_id,n.created_at,NULL FROM verification_notice n
        JOIN verification_link l ON l.room_id=n.room_id JOIN run r ON r.id=l.run_id
        WHERE n.recipient_user_id=$1 AND n.acknowledged_at IS NULL
+       UNION ALL
+       SELECT p.id,'outbound',p.conversation_id,p.project_id,q.updated_at,NULL
+       FROM proposal p JOIN outbound_message q ON q.proposal_id=p.id AND q.status::text=p.status::text
+       WHERE p.proposed_by=$1 AND p.status IN ('reconcile','failed') AND q.channel='local_test' AND q.attempts=1
+         AND NOT EXISTS(SELECT 1 FROM outbound_resolution decided WHERE decided.queue_id=q.id)
      ) SELECT p.id,p.kind,p.conversation_id AS "conversationId",p.project_id AS "projectId",p.created_at AS "createdAt",p.deadline,
        CASE WHEN v.id IS NOT NULL THEN jsonb_build_object('roomId',v.room_id,'kind',v.kind) END AS verification
        FROM pending p LEFT JOIN verification_notice v ON v.id=p.id AND p.kind='verification'

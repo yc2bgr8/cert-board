@@ -26,6 +26,9 @@ import {
   reviewDecisionInputSchema,
   reviewDecisionResultSchema,
   proposalRecordSchema,
+  outboundReconciliationSchema,
+  outboundResolutionInputSchema,
+  outboundResolutionResultSchema,
   proposalDecisionSchema,
   proposalDecisionResultSchema,
   proposalListOptionsSchema,
@@ -85,6 +88,7 @@ import {
   type ToolApprovalDecisionInput,
   type ReviewDecisionInput,
   type ProposalDecision,
+  type OutboundResolutionInput,
   type ExternalModelWordInput,
   type VerificationCreate,
   type VerificationMessageInput,
@@ -330,6 +334,17 @@ export const api = {
     }),
   proposal: (id: string, signal?: AbortSignal) =>
     request(`/api/proposals/${identifier(id)}`, proposalRecordSchema, signalOption(signal)),
+  outboundReconciliation: (id: string, signal?: AbortSignal) =>
+    request(
+      `/api/proposals/${identifier(id)}/reconciliation`,
+      outboundReconciliationSchema,
+      signalOption(signal),
+    ),
+  resolveOutbound: (id: string, input: OutboundResolutionInput) =>
+    request(`/api/proposals/${identifier(id)}/reconciliation`, outboundResolutionResultSchema, {
+      method: 'POST',
+      body: checked(outboundResolutionInputSchema, input),
+    }),
   conversationProposals: (
     id: string,
     options: { cursor?: string; limit?: number },

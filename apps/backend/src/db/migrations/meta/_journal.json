@@ -225,6 +225,13 @@
       "when": 1795150154031,
       "tag": "0031_verification_notice_ack",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795154237466,
+      "tag": "0032_outbound_reconciliation",
+      "breakpoints": true
     }
   ]
 }

@@ -196,6 +196,7 @@ export const memberNotificationSnapshotSchema = z
               'proposal',
               'deadline',
               'verification',
+              'outbound',
             ]),
             conversationId: id,
             projectId: id.nullable(),

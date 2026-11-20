@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ProposalDecision, ProposalRecord } from '@cert-board/shared';
+import type { OutboundResolutionInput, ProposalDecision, ProposalRecord } from '@cert-board/shared';
 import { useBrowserCommand } from './ApprovalCard.js';
 import { api, errorMessage, isStaleError } from './api.js';
 import './review.css';
@@ -21,7 +21,13 @@ const time = new Intl.DateTimeFormat('zh-CN', {
   timeStyle: 'short',
 });
 
-export function ProposalCard({ proposalId }: { proposalId: string }) {
+export function ProposalCard({
+  proposalId,
+  onRepropose,
+}: {
+  proposalId: string;
+  onRepropose?(proposal: ProposalRecord): void;
+}) {
   const client = useQueryClient();
   const key = ['live', 'proposal', proposalId];
   const query = useQuery({
@@ -30,8 +36,22 @@ export function ProposalCard({ proposalId }: { proposalId: string }) {
     retry: false,
   });
   const command = useBrowserCommand();
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [conflict, setConflict] = useState(false);
   const proposal = query.data;
+  const resultKey = ['live', 'outbound-result', proposalId];
+  const reconciliation = useQuery({
+    queryKey: resultKey,
+    queryFn: ({ signal }) => api.outboundReconciliation(proposalId, signal),
+    enabled: proposal?.status === 'reconcile' || proposal?.status === 'failed',
+    retry: false,
+  });
 
   if (!proposal)
     return (
@@ -80,6 +100,23 @@ export function ProposalCard({ proposalId }: { proposalId: string }) {
         });
       });
   }
+  function resolve(action: OutboundResolutionInput['action']) {
+    if (!proposal || !reconciliation.data || reconciliation.isFetching || command.busy) return;
+    const expectedVersion = reconciliation.data.version;
+    void command
+      .run(['outbound', action, expectedVersion], (requestKey) =>
+        api.resolveOutbound(proposalId, { action, expectedVersion, requestKey }),
+      )
+      .then((changed) => {
+        if (!changed) return;
+        client.setQueryData(resultKey, null);
+        void client.invalidateQueries({ queryKey: key });
+        void client.invalidateQueries({
+          queryKey: ['live', 'conversation-proposals', proposal.conversationId],
+        });
+        if (action === 'repropose' && mounted.current) onRepropose?.(proposal);
+      });
+  }
 
   return (
     <article className="live-review live-panel-card" aria-label="提案内容">
@@ -108,6 +145,51 @@ export function ProposalCard({ proposalId }: { proposalId: string }) {
           <h3>批准与队列</h3>
           <p>批准前由后端重新核对登记联系人、提案版本和目标状态。批准后进入本地测试队列。</p>
         </section>
+        {reconciliation.data && (
+          <section className="live-review-section" aria-label="核对发送结果">
+            <h3>核对发送结果</h3>
+            <p>
+              {reconciliation.data.reproposeRecorded
+                ? '已记录重新提出。可回原对话准备一条新提案请求。'
+                : reconciliation.data.status === 'reconcile'
+                  ? '模拟发送结果未知，请按发送编号核对。'
+                  : '模拟发送服务明确拒收。'}
+            </p>
+            <p>
+              <code>{reconciliation.data.dispatchId}</code>
+            </p>
+            <div className="live-review-actions">
+              {!reconciliation.data.reproposeRecorded &&
+                reconciliation.data.status === 'reconcile' && (
+                  <button
+                    type="button"
+                    className="live-review-primary"
+                    disabled={command.busy || reconciliation.isFetching}
+                    onClick={() => resolve('confirm_sent')}
+                  >
+                    确认模拟已发出
+                  </button>
+                )}
+              <button
+                type="button"
+                className="live-review-neutral"
+                disabled={command.busy || reconciliation.isFetching}
+                onClick={() => {
+                  if (reconciliation.data?.reproposeRecorded) onRepropose?.(proposal);
+                  else resolve('repropose');
+                }}
+              >
+                {reconciliation.data.reproposeRecorded ? '打开原对话准备草稿' : '重新提出'}
+              </button>
+            </div>
+            {command.error && (
+              <p role="alert" className="live-review-error">
+                {command.error}
+              </p>
+            )}
+          </section>
+        )}
+        {reconciliation.isError && <p role="alert">{errorMessage(reconciliation.error)}</p>}
         {(conflict || query.isError) && (
           <div className="live-review-warning" role="alert">
             <p>

@@ -2,12 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import {
   outboundProcessResultSchema,
-  outboundProcessOptionsSchema,
+  testEmailOptionsSchema,
   proposalParamsSchema,
+  type OutboundProcessOptions,
   type OutboundProcessResult,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { proposalContentHash } from './content.js';
+import { simulateEmail } from './email.js';
 import {
   proposalColumns,
   recipientMatches,
@@ -18,6 +20,7 @@ import {
 
 type QueueRow = {
   id: string;
+  dispatch_id: string;
   proposal_id: string;
   decision_id: string;
   goal_id: string;
@@ -38,6 +41,7 @@ function result(queue: QueueRow, reason = queue.last_reason) {
     proposalId: queue.proposal_id,
     status: queue.status,
     attempts: queue.attempts,
+    dispatchId: queue.dispatch_id,
     reason,
     receipt:
       queue.receipt_id && queue.processed_at
@@ -53,11 +57,11 @@ function result(queue: QueueRow, reason = queue.last_reason) {
 export async function processTestOutbound(
   pool: Pool,
   queueId: string,
-  options: { simulate?: 'success' | 'uncertain' | 'failure' } = {},
+  options: OutboundProcessOptions = {},
 ) {
   if (!['development', 'test'].includes(process.env.NODE_ENV ?? ''))
     throw new AppError(403, 'OUTBOUND_TEST_ONLY', '本地测试发送器仅能在开发或测试环境运行。');
-  const parsedOptions = outboundProcessOptionsSchema.safeParse(options);
+  const parsedOptions = testEmailOptionsSchema.safeParse(options);
   if (!proposalParamsSchema.safeParse({ id: queueId }).success || !parsedOptions.success)
     throw new AppError(
       400,
@@ -161,17 +165,18 @@ export async function processTestOutbound(
       [proposal.id],
     );
     const simulation = parsedOptions.data.simulate;
-    const status =
-      simulation === 'success' ? 'done' : simulation === 'uncertain' ? 'reconcile' : 'failed';
+    const status = await simulateEmail(tx, queue.id, queue.dispatch_id, parsedOptions.data);
     const reason =
-      simulation === 'success'
-        ? '本地测试回执已记录，未向任何外部对象发送。'
-        : simulation === 'uncertain'
+      status === 'done'
+        ? simulation === 'uncertain'
+          ? '模拟服务的已发送中查到此发送编号，未向任何外部对象发送。'
+          : '本地测试回执已记录，未向任何外部对象发送。'
+        : status === 'reconcile'
           ? '本地测试模拟结果不确定，已进入对账状态，不会自动重放。'
           : '本地测试模拟失败，未向任何外部对象发送。';
     const processed = await tx.query<QueueRow>(
       `UPDATE outbound_message SET status=$1,attempts=1,last_reason=$2,receipt_id=$3,processed_at=CURRENT_TIMESTAMP,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$4 RETURNING *`,
-      [status, reason, simulation === 'success' ? randomUUID() : null, queueId],
+      [status, reason, status === 'done' ? randomUUID() : null, queueId],
     );
     await tx.query(
       'UPDATE proposal SET status=$1,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$2',

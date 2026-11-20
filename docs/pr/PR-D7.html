@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-D7 模拟外发结果与对账</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#做了什么">做了什么</a><a class="level-2" href="#怎样体验">怎样体验</a><a class="level-2" href="#没做什么">没做什么</a></nav><main><h1 id="pr-d7-模拟外发结果与对账">PR-D7 模拟外发结果与对账</h1>
+<h2 id="做了什么">做了什么</h2>
+<ul><li>生成持久的模拟邮件 Message-ID。明确成功或拒收直接判定。模拟断线只按 Message-ID 查询模拟服务的「已发送」，查不到或查不了时进入 <code>reconcile</code>。模拟服务负责自动存档，应用只查询。</li><li>原发送编号最多尝试一次。结果未知和明确拒收在发起人的「待我处理」中显示。发起人可用浏览器确认未知结果已发出，或返回原对话重新提出。对账绑定版本、浏览器会话、发起人和操作编号。已记录的重新提出可从原提案恢复草稿入口。</li><li>模拟企业微信以已有站内提醒为来源。超时或失败只重试一次并写入审计。站内提醒继续是正式记录。</li><li>邮件有 Message-ID 时保留原编号。没有时按发件人、发送时间点和正文生成稳定的 SHA-256 来源编号，供 PR-54 转入时使用。</li></ul>
+<h2 id="怎样体验">怎样体验</h2>
+<p>先在浏览器批准本地测试提案。批准接口回执中的 <code>queueId</code> 是测试队列编号。使用 <code>pnpm outbound:simulate email &lt;队列UUID&gt; --simulate uncertain --sent-folder no_store</code> 模拟超时且没有已发送副本，发起人可在「待我处理 → 外发结果」打开对账。将 <code>no_store</code> 换成 <code>auto_store</code> 可验证按编号查到并确认。缺省为 <code>unavailable</code>。</p>
+<p>对一个已有站内提醒，使用 <code>pnpm outbound:simulate wechat &lt;提醒UUID&gt; --simulate timeout --retry failure</code> 验证两次失败后只留下审计。命令只接受开发或测试环境的回环数据库。</p>
+<p>1440×900 浏览器按现有「待我处理」列表和外发提案右栏验证。合成邮件没有副本时出现待对账，编号和操作可见，发起人确认后从待办移除。重新打开原提案仍显示最终状态。<a href="../evidence/prd7/reconcile-1440x900.png">浏览器截图</a></p>
+<p>模拟已发送查询中的数据库语句报错会回退该条查询。原模拟发送记录仍可一起提交，状态进入待对账。</p>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>真实 SMTP、IMAP、企业微信和实际来信摄取分别留 PR-54、PR-50。IT 确认 SMTP 和 IMAP 行为之前，真实邮件断线和超时按结果未知处理。</li><li>PR-D8 独立处理技能退回提案。本 PR 未新增依赖或执行真实模型测试。</li></ul>
+<p>对应 <a href="../变更单/需求变更单_2026-11-20_核实续跑与外发结果.html">v5 第 1.2 节及附录 B.2</a> 与 <a href="../决定记录.html">D-055</a>。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

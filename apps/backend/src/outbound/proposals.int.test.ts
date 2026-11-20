@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { PoolClient } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from 'vitest';
 import {
   browserIdentitySchema,
@@ -16,6 +17,7 @@ import { ToolRegistry } from '../tools/registry.js';
 import { proposeExternalTool } from '../tools/propose-external.js';
 import { processTestOutbound } from './service.js';
 import * as approvalModule from '../api/proposal-routes.js';
+import { readMemberNotifications } from '../conversations/read.js';
 
 let database: Awaited<ReturnType<typeof createTestDatabase>>;
 let config: BackendConfig;
@@ -525,6 +527,215 @@ test('不确定结果进入reconcile，之后不能通过重试变成成功或�
     (await database.pool.query('SELECT status FROM proposal WHERE id=$1', [created.proposalId]))
       .rows[0].status,
   ).toBe('reconcile');
+});
+
+test.each([
+  { folder: 'auto_store', status: 'done', filed: true },
+  { folder: 'no_store', status: 'reconcile', filed: false },
+  { folder: 'unavailable', status: 'reconcile', filed: false },
+] as const)('邮件超时按编号对账：$folder', async ({ folder, status, filed }) => {
+  const created = await proposal();
+  const approved = await approve(created.proposalId, await login());
+  const preflight = (
+    await database.pool.query<{ dispatch_id: string }>(
+      'SELECT dispatch_id FROM outbound_message WHERE id=$1',
+      [approved.queueId],
+    )
+  ).rows[0]!;
+  expect(preflight.dispatch_id).toBe(`<${approved.queueId}@cert-board.local>`);
+  const first = await processTestOutbound(database.pool, approved.queueId, {
+    simulate: 'uncertain',
+    sentFolder: folder,
+  });
+  expect(first).toMatchObject({ dispatchId: preflight.dispatch_id, status, attempts: 1 });
+  expect(
+    await processTestOutbound(database.pool, approved.queueId, { simulate: 'success' }),
+  ).toEqual(first);
+  const calls = (
+    await database.pool.query(
+      'SELECT reply,provider_filed FROM simulated_email_delivery WHERE queue_id=$1',
+      [approved.queueId],
+    )
+  ).rows;
+  expect(calls).toEqual([{ reply: 'uncertain', provider_filed: filed }]);
+});
+
+test.each(['confirm_sent', 'repropose'] as const)(
+  '仅发起人能对账，原编号不会再次发送：%s',
+  async (action) => {
+    const created = await proposal();
+    const approver = await login();
+    const approved = await approve(created.proposalId, approver);
+    await processTestOutbound(database.pool, approved.queueId, { simulate: 'uncertain' });
+    const url = `/api/proposals/${created.proposalId}/reconciliation`;
+    const requester = await login('zhangsan');
+    const expected = (await app.inject({ url, headers: headers(requester) })).json() as {
+      version: number;
+      dispatchId: string;
+    };
+    expect(expected).toMatchObject({
+      status: 'reconcile',
+      dispatchId: `<${approved.queueId}@cert-board.local>`,
+    });
+    expect((await app.inject({ url, headers: headers(approver) })).json()).toBeNull();
+    const notice = async () =>
+      (await readMemberNotifications(database.pool, memberA)).items.find(
+        ({ kind, id }) => kind === 'outbound' && id === created.proposalId,
+      );
+    expect(await notice()).toBeDefined();
+    const payload = { action, expectedVersion: expected.version, requestKey: randomUUID() };
+    expect(
+      (await app.inject({ method: 'POST', url, headers: headers(approver), payload })).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url,
+          headers: { ...headers(requester), 'x-csrf-token': 'invalid' },
+          payload,
+        })
+      ).statusCode,
+    ).toBe(403);
+    const post = () => app.inject({ method: 'POST', url, headers: headers(requester), payload });
+    const settled = await post();
+    const status = action === 'confirm_sent' ? 'done' : 'failed';
+    expect(settled.statusCode).toBe(200);
+    expect(settled.json()).toMatchObject({ status, action, replayed: false });
+    expect((await post()).json()).toMatchObject({ status, action, replayed: true });
+    expect(await processTestOutbound(database.pool, approved.queueId)).toMatchObject({
+      status,
+      attempts: 1,
+      dispatchId: expected.dispatchId,
+    });
+    expect(await notice()).toBeUndefined();
+    const recovered = (await app.inject({ url, headers: headers(requester) })).json();
+    if (action === 'repropose')
+      expect(recovered).toMatchObject({ status: 'failed', reproposeRecorded: true });
+    else expect(recovered).toBeNull();
+    const audit = (
+      await database.pool.query(
+        'SELECT actor_user_id,actor_kind FROM audit_log WHERE action=$1 AND target_id=$2',
+        [`outbound.reconciliation.${action}`, approved.queueId],
+      )
+    ).rows;
+    expect(audit).toEqual([{ actor_user_id: memberA.userId, actor_kind: 'browser' }]);
+  },
+);
+
+test('查询已发送的数据库语句失败时保留发送记录并进入待对账', async () => {
+  const created = await proposal();
+  const approved = await approve(created.proposalId, await login());
+  const connection = await database.pool.connect();
+  let errorCode: unknown;
+  const wrapped = new Proxy(connection, {
+    get(target, key) {
+      if (key === 'release') return () => undefined;
+      if (key === 'query')
+        return async (...args: unknown[]) => {
+          if (
+            typeof args[0] === 'string' &&
+            args[0].startsWith('SELECT 1 FROM simulated_email_delivery d')
+          ) {
+            try {
+              await target.query('SELECT 1 / 0');
+            } catch (error) {
+              errorCode = (error as { code?: string }).code;
+              throw error;
+            }
+          }
+          return Reflect.apply(target.query, target, args);
+        };
+      return Reflect.get(target, key);
+    },
+  }) as PoolClient;
+  const pool = new Proxy(database.pool, {
+    get(target, key) {
+      return key === 'connect' ? async () => wrapped : Reflect.get(target, key);
+    },
+  });
+  try {
+    const failedLookup = await processTestOutbound(pool, approved.queueId, {
+      simulate: 'uncertain',
+      sentFolder: 'auto_store',
+    });
+    expect(errorCode).toBe('22012');
+    expect(failedLookup).toMatchObject({ status: 'reconcile', attempts: 1 });
+    expect(await processTestOutbound(database.pool, approved.queueId)).toEqual(failedLookup);
+    expect(
+      (
+        await database.pool.query(
+          'SELECT queue_id FROM simulated_email_delivery WHERE queue_id=$1',
+          [approved.queueId],
+        )
+      ).rows,
+    ).toEqual([{ queue_id: approved.queueId }]);
+  } finally {
+    connection.release();
+  }
+});
+
+test('明确拒收提醒发起人，保持失败且不能确认已发出', async () => {
+  const created = await proposal();
+  const approved = await approve(created.proposalId, await login());
+  const failed = await processTestOutbound(database.pool, approved.queueId, {
+    simulate: 'failure',
+    sentFolder: 'auto_store',
+  });
+  expect(failed).toMatchObject({ status: 'failed', attempts: 1, receipt: null });
+  expect(await processTestOutbound(database.pool, approved.queueId)).toEqual(failed);
+  expect((await readMemberNotifications(database.pool, memberA)).items).toEqual(
+    expect.arrayContaining([expect.objectContaining({ kind: 'outbound', id: created.proposalId })]),
+  );
+  const requester = await login('zhangsan');
+  const url = `/api/proposals/${created.proposalId}/reconciliation`;
+  const { version } = (await app.inject({ url, headers: headers(requester) })).json();
+  const confirmed = await app.inject({
+    method: 'POST',
+    url,
+    headers: headers(requester),
+    payload: { action: 'confirm_sent', expectedVersion: version, requestKey: randomUUID() },
+  });
+  expect(confirmed.statusCode).toBe(409);
+  const retried = await app.inject({
+    method: 'POST',
+    url,
+    headers: headers(requester),
+    payload: { action: 'repropose', expectedVersion: version, requestKey: randomUUID() },
+  });
+  expect(retried.json()).toMatchObject({ status: 'failed', action: 'repropose' });
+});
+
+test('迁移前的待对账记录仍可查看，旧编号不再次执行', async () => {
+  const created = await proposal();
+  const approved = await approve(created.proposalId, await login());
+  await database.pool.query(
+    "UPDATE outbound_message SET status='reconcile',attempts=1,processed_at=clock_timestamp() WHERE id=$1",
+    [approved.queueId],
+  );
+  await database.pool.query("UPDATE proposal SET status='reconcile' WHERE id=$1", [
+    created.proposalId,
+  ]);
+  const requester = await login('zhangsan');
+  const result = await app.inject({
+    url: `/api/proposals/${created.proposalId}/reconciliation`,
+    headers: headers(requester),
+  });
+  expect(result.json()).toMatchObject({
+    status: 'reconcile',
+    dispatchId: `<${approved.queueId}@cert-board.local>`,
+  });
+  expect(await processTestOutbound(database.pool, approved.queueId)).toMatchObject({
+    status: 'reconcile',
+    attempts: 1,
+  });
+  expect(
+    (
+      await database.pool.query('SELECT 1 FROM simulated_email_delivery WHERE queue_id=$1', [
+        approved.queueId,
+      ])
+    ).rowCount,
+  ).toBe(0);
 });
 
 test('已批准正文、审批记录和队列来源不能改写', async () => {
