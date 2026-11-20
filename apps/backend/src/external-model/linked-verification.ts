@@ -190,7 +190,7 @@ export async function latestReviewVerification(pool: Pool, conversationId: strin
      ) AS has_model_reply FROM verification_link l
      JOIN external_model_conversation c ON c.id=l.room_id
      JOIN run r ON r.id=l.run_id AND r.conversation_id=l.conversation_id
-     WHERE l.conversation_id=$1 AND r.user_id=$2 AND l.kind='review' AND c.state='completed'
+     WHERE l.conversation_id=$1 AND r.user_id=$2 AND l.kind='review' AND NOT l.auto_resume AND c.state='completed'
      ORDER BY l.created_at DESC,l.room_id DESC LIMIT 1`,
     [conversationId, userId],
   );
@@ -199,6 +199,29 @@ export async function latestReviewVerification(pool: Pool, conversationId: strin
   if (!selected.has_model_reply)
     return { roomId: selected.id, status: 'unavailable' as const, reason: unavailable };
   return prepareConclusion(pool, selected.id, selected.project_id, selected.conclusion);
+}
+
+export async function verificationResumeResult(pool: Pool, run: LinkedRun, roomId: string) {
+  const selected = (
+    await pool.query<{ project_id: string | null; conclusion: unknown; has_model_reply: boolean }>(
+      `SELECT c.project_id,c.conclusion,EXISTS(SELECT 1 FROM verification_post p WHERE p.room_id=c.id AND p.type='model') AS has_model_reply
+     FROM verification_wait w JOIN verification_link l ON l.room_id=w.room_id
+     JOIN external_model_conversation c ON c.id=w.room_id
+     WHERE w.room_id=$1 AND w.run_id=$2 AND w.conversation_id=$3 AND w.user_id=$4 AND w.state='running'
+       AND c.state='completed' AND l.conversation_id=w.conversation_id
+       AND (l.kind='review' OR (l.kind='agent' AND l.run_id=w.run_id AND l.requester=w.user_id))`,
+      [roomId, run.runId, run.conversationId, run.userId],
+    )
+  ).rows[0];
+  if (!selected)
+    throw new AppError(
+      409,
+      'VERIFICATION_RESUME_UNAVAILABLE',
+      '核实结论尚不可续跑，请查看原对话。',
+    );
+  if (!selected.has_model_reply)
+    return { roomId, status: 'unavailable' as const, reason: unavailable };
+  return prepareConclusion(pool, roomId, selected.project_id, selected.conclusion);
 }
 
 export async function awaitLinkedVerification(

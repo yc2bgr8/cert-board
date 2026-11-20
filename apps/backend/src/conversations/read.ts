@@ -158,6 +158,8 @@ const call = (value: unknown) =>
   typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,128}$/.test(value) ? value : undefined;
 const optional = (name: string, value: unknown) => (value === undefined ? {} : { [name]: value });
 function publicRunSummary(status: unknown, reason: unknown) {
+  if (status === 'waiting' && reason === 'VERIFICATION_WAITING')
+    return '核实正在进行。结论出来后会在本对话继续。';
   if (
     reason === 'BUDGET_BLOCKED' ||
     reason === 'MODEL_METERING_BLOCKED' ||
@@ -275,6 +277,7 @@ export function projectConversationEvent(row: {
         ...optional('reviewId', uuid(p.reviewId)),
         ...optional('approvalId', uuid(p.approvalId)),
         ...optional('questionId', call(p.questionId)),
+        ...optional('verificationRoomId', uuid(p.verificationRoomId)),
         ...optional(
           'pendingSteeringCount',
           typeof p.pendingSteeringCount === 'number' &&

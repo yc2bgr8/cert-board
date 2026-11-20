@@ -428,8 +428,8 @@ export class VerificationRooms {
     if (inserted.rowCount) {
       if (origin)
         await db.query(
-          `INSERT INTO verification_link(room_id,kind,conversation_id,run_id,review_id,requester)
-           VALUES($1,$2,$3,$4,$5,$6)`,
+          `INSERT INTO verification_link(room_id,kind,conversation_id,run_id,review_id,requester,auto_resume)
+           VALUES($1,$2,$3,$4,$5,$6,$7)`,
           [
             input.requestKey,
             origin.kind,
@@ -437,6 +437,7 @@ export class VerificationRooms {
             origin.runId,
             origin.reviewId,
             actor.userId,
+            origin.kind === 'review',
           ],
         );
       if (origin)

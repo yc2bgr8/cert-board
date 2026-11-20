@@ -3,11 +3,18 @@ import { z } from 'zod';
 import type { Pool } from 'pg';
 import { lockOwnedRun } from '../runs/lock.js';
 import { appendConversationEvent } from '../conversations/storage.js';
+import { cancelVerificationWaitsTx } from '../goals/verification-wakeups.js';
+import { cancelGoalWaitTx, finishGoalWakeTx } from '../goals/goal-events.js';
 
 export const AGENT_QUEUE = 'cert-agent-runs';
 const jobSchema = z
-  .object({ runId: z.string().uuid(), ticketId: z.string().uuid().optional() })
-  .strict();
+  .object({
+    runId: z.string().uuid(),
+    ticketId: z.string().uuid().optional(),
+    verificationId: z.string().uuid().optional(),
+  })
+  .strict()
+  .refine((job) => !(job.ticketId && job.verificationId));
 type AgentJob = z.infer<typeof jobSchema>;
 
 export async function createAgentQueue(
@@ -46,10 +53,22 @@ export async function createAgentQueue(
   }
 }
 
-export async function enqueueAgentRun(boss: PgBoss, runId: string, ticketId?: string) {
-  const parsed = jobSchema.safeParse({ runId, ...(ticketId ? { ticketId } : {}) });
+export async function enqueueAgentRun(
+  boss: PgBoss,
+  runId: string,
+  ticketId?: string,
+  verificationId?: string,
+) {
+  const parsed = jobSchema.safeParse({
+    runId,
+    ...(ticketId ? { ticketId } : {}),
+    ...(verificationId ? { verificationId } : {}),
+  });
   if (!parsed.success) throw new Error('INVALID_AGENT_JOB');
-  return boss.send(AGENT_QUEUE, parsed.data, { id: ticketId ?? runId, retryLimit: 0 });
+  return boss.send(AGENT_QUEUE, parsed.data, {
+    id: ticketId ?? verificationId ?? runId,
+    retryLimit: 0,
+  });
 }
 
 export async function consumeAgentRuns(
@@ -59,9 +78,10 @@ export async function consumeAgentRuns(
     signal: AbortSignal,
     ticketId: string | undefined,
     expiresAtMs: number,
+    verificationId: string | undefined,
   ) => Promise<void>,
   closing: () => boolean,
-  onFailure?: (runId: string, ticketId?: string) => Promise<void>,
+  onFailure?: (runId: string, ticketId?: string, verificationId?: string) => Promise<void>,
 ) {
   const workOptions = {
     batchSize: 1,
@@ -73,7 +93,8 @@ export async function consumeAgentRuns(
     for (const job of jobs) {
       const parsed = jobSchema.safeParse(job.data);
       const data =
-        parsed.success && job.id === (parsed.data.ticketId ?? parsed.data.runId)
+        parsed.success &&
+        job.id === (parsed.data.ticketId ?? parsed.data.verificationId ?? parsed.data.runId)
           ? parsed.data
           : null;
       try {
@@ -81,10 +102,11 @@ export async function consumeAgentRuns(
         if (closing() || job.signal.aborted) throw new Error('AGENT_WORKER_CLOSING');
         const expiresAtMs = job.startedOn.getTime() + job.expireInSeconds * 1000;
         if (!Number.isSafeInteger(expiresAtMs)) throw new Error('INVALID_AGENT_JOB_DEADLINE');
-        await handler(data.runId, job.signal, data.ticketId, expiresAtMs);
+        await handler(data.runId, job.signal, data.ticketId, expiresAtMs, data.verificationId);
         if (job.signal.aborted) throw new Error('AGENT_JOB_ABORTED');
       } catch {
-        if (data) await onFailure?.(data.runId, data.ticketId).catch(() => undefined);
+        if (data)
+          await onFailure?.(data.runId, data.ticketId, data.verificationId).catch(() => undefined);
         const error = new Error('AGENT_JOB_FAILED');
         delete error.stack;
         throw error;
@@ -99,8 +121,15 @@ export async function finishAbandonedAgentRun(
   runId: string,
   allowQueued = false,
   ticketId?: string,
+  verificationId?: string,
 ) {
-  if (!jobSchema.safeParse({ runId, ...(ticketId ? { ticketId } : {}) }).success)
+  if (
+    !jobSchema.safeParse({
+      runId,
+      ...(ticketId ? { ticketId } : {}),
+      ...(verificationId ? { verificationId } : {}),
+    }).success
+  )
     throw new Error('INVALID_AGENT_JOB');
   const tx = await pool.connect();
   let notice: { userId: string; status: 'failed' | 'stopped'; requestKey: string } | undefined;
@@ -125,10 +154,17 @@ export async function finishAbandonedAgentRun(
         [runId],
       )
     ).rows[0];
+    const activeVerification = (
+      await tx.query<{ room_id: string }>(
+        "SELECT room_id FROM verification_wait WHERE run_id=$1 AND state='queued' FOR UPDATE",
+        [runId],
+      )
+    ).rows[0];
     const unstarted =
       row.status === 'queued' &&
       (allowQueued || BigInt(row.lease_generation) > 0n) &&
-      (!activeTicket || (allowQueued && activeTicket.id === ticketId));
+      (!activeTicket || (allowQueued && activeTicket.id === ticketId)) &&
+      (!activeVerification || (allowQueued && activeVerification.room_id === verificationId));
     if (!stale && !unstarted) {
       await tx.query('COMMIT');
       return false;
@@ -145,6 +181,9 @@ export async function finishAbandonedAgentRun(
        WHERE run_id=$1 AND state NOT IN ('completed','blocked')`,
       [runId],
     );
+    await cancelVerificationWaitsTx(tx, runId, owner.user_id);
+    await cancelGoalWaitTx(tx, runId);
+    await finishGoalWakeTx(tx, runId, false);
     await tx.query(
       "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system',$1,'run',$2)",
       [unstarted ? 'agent.queue_failed' : 'agent.worker_interrupted', runId],
@@ -197,6 +236,8 @@ export async function recoverAbandonedAgentRuns(pool: Pool) {
      (status='running' AND (lease_owner IS NULL OR lease_expires_at<=clock_timestamp()))
      OR (status='queued' AND lease_generation>0 AND NOT EXISTS(
        SELECT 1 FROM run_continuation t WHERE t.run_id=run.id AND t.state='queued'
+     ) AND NOT EXISTS(
+       SELECT 1 FROM verification_wait w WHERE w.run_id=run.id AND w.state='queued'
      )) ORDER BY created_at,id LIMIT 100`,
   );
   let stopped = 0;

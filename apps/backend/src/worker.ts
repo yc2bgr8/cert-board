@@ -30,6 +30,12 @@ import {
 } from './queue/agent-queue.js';
 import { handoffBlockedBudgetRuns, markUsageIncomplete } from './budget/service.js';
 import { purgeExpiredModelRequests } from './runs/request-retention.js';
+import {
+  listVerificationResumes,
+  scanReadyVerificationWaits,
+  scanReviewVerificationResults,
+} from './goals/verification-wakeups.js';
+import { scanGoalEvents, scanReviewDecisionEvents } from './goals/goal-events.js';
 
 export async function startWorker() {
   const config = parseBackendConfig(process.env);
@@ -185,7 +191,8 @@ export async function startWorker() {
     await startDeadlineQueue(queue, resources.database);
     const dispatchQueued = async () => {
       const queued = await resources.database.query<{ id: string }>(
-        "SELECT id FROM run WHERE status='queued' AND trigger_type<>'evaluation' AND lease_generation=0 AND lease_owner IS NULL ORDER BY created_at,id LIMIT 100",
+        `SELECT id FROM run WHERE status='queued' AND trigger_type<>'evaluation' AND lease_generation=0 AND lease_owner IS NULL
+         AND NOT EXISTS(SELECT 1 FROM verification_wait w WHERE w.run_id=run.id AND w.state='queued') ORDER BY created_at,id LIMIT 100`,
       );
       for (const row of queued.rows) {
         if (closing) break;
@@ -206,13 +213,33 @@ export async function startWorker() {
             await finishAbandonedAgentRun(resources.database, ticket.runId, true, ticket.id);
         }
       }
+      if (closing) return;
+      await scanReadyVerificationWaits(resources.database);
+      await scanReviewVerificationResults(resources.database);
+      await scanGoalEvents(resources.database);
+      await scanReviewDecisionEvents(resources.database);
+      for (const resume of await listVerificationResumes(resources.database)) {
+        if (closing) break;
+        const id = await enqueueAgentRun(queue, resume.runId, undefined, resume.roomId);
+        if (!id) {
+          const job = await queue.getJobById(AGENT_QUEUE, resume.roomId);
+          if (job && ['failed', 'completed', 'cancelled'].includes(job.state))
+            await finishAbandonedAgentRun(
+              resources.database,
+              resume.runId,
+              true,
+              undefined,
+              resume.roomId,
+            );
+        }
+      }
     };
     await dispatchQueued();
     process.once('SIGINT', onSignal);
     process.once('SIGTERM', onSignal);
     registration = consumeAgentRuns(
       queue,
-      async (runId, jobSignal, ticketId, queueExpiresAtMs) => {
+      async (runId, jobSignal, ticketId, queueExpiresAtMs, verificationId) => {
         if (active.has(runId)) return;
         const controller = new AbortController();
         const abort = () => controller.abort();
@@ -235,11 +262,16 @@ export async function startWorker() {
             if (ticketId) {
               const ticket = await getContinuationTicket(resources.database, ticketId);
               if (!ticket || ticket.runId !== runId || ticket.state !== 'queued') return;
-            } else if (BigInt(before.lease_generation) !== 0n) return;
+            } else if (!verificationId && BigInt(before.lease_generation) !== 0n) return;
             const result = await executeAgentRun(
               { pool: resources.database, store, gateway, models, definitions },
               runId,
-              { signal: controller.signal, queueExpiresAtMs, ...(ticketId ? { ticketId } : {}) },
+              {
+                signal: controller.signal,
+                queueExpiresAtMs,
+                ...(ticketId ? { ticketId } : {}),
+                ...(verificationId ? { verificationId } : {}),
+              },
             );
             if (result.status === 'queued') throw new Error('run_not_started');
             const recovered =
@@ -250,9 +282,13 @@ export async function startWorker() {
               '运行状态已记录。',
             );
           } catch {
-            await finishAbandonedAgentRun(resources.database, runId, true, ticketId).catch(
-              () => undefined,
-            );
+            await finishAbandonedAgentRun(
+              resources.database,
+              runId,
+              true,
+              ticketId,
+              verificationId,
+            ).catch(() => undefined);
             logger.warn(
               { event: 'agent_run_failed', runId },
               '运行未完成，请核对执行记录；不会自动重发模型。',
@@ -271,8 +307,8 @@ export async function startWorker() {
         }
       },
       () => closing,
-      async (runId, ticketId) => {
-        await finishAbandonedAgentRun(resources.database, runId, true, ticketId);
+      async (runId, ticketId, verificationId) => {
+        await finishAbandonedAgentRun(resources.database, runId, true, ticketId, verificationId);
       },
     );
     await registration;

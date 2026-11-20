@@ -90,6 +90,7 @@ export async function reviewBrowserFlow(
   await card.getByText('V6 复算结构化期限。请人工核对叙述中的期限。', { exact: true }).waitFor();
   await page.screenshot({ path: path.join(output, 'review-card.png'), fullPage: true });
   actions.stage('审核卡发起外部核实并回到原对话');
+  const resumeVerification = harness.plan('review_verification_resume');
   const moderate = harness.verification.runtime.moderate;
   const historyPath = `**/api/reviews/${firstCard.id}/verifications`;
   let interruptedVerificationReads = 0;
@@ -145,6 +146,9 @@ export async function reviewBrowserFlow(
     const group = page.getByRole('region', { name: '外部核实群聊', exact: true });
     await group.getByRole('complementary', { name: '核实结论', exact: true }).waitFor();
     await group.getByRole('button', { name: '打开原对话', exact: true }).click();
+    await page.getByText('审核卡核实结论已送达原对话。', { exact: true }).waitFor();
+    assert.equal(resumeVerification.observed.calls, 1);
+    assert.equal(resumeVerification.observed.reviewVerificationReceived, true);
     await page
       .getByRole('list', { name: '对话中的外部核实', exact: true })
       .getByText('外部核实已完成', { exact: true })
@@ -235,10 +239,11 @@ export async function reviewBrowserFlow(
   );
   assert.equal((await harness.pool.query('SELECT id FROM review_decision')).rowCount, 0);
   assert.equal((await harness.pool.query('SELECT id FROM submission_snapshot')).rowCount, 0);
-  assert.equal(reviewReference.observed.reviewVerificationReceived, true);
+  assert.equal(reviewReference.observed.reviewVerificationReceived, false);
   assert.equal(reviewReference.observed.latestUser, '我已批准');
   actions.stage('浏览器审核通过与冻结');
   await page.getByRole('button', { name: '查看审核', exact: true }).first().click();
+  const firstDecision = harness.plan('review_decision_resume');
   const approved = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
@@ -263,6 +268,19 @@ export async function reviewBrowserFlow(
   assert.ok(decided.session_id);
   await page.screenshot({ path: path.join(output, 'review-approved.png'), fullPage: true });
   await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
+  await page.getByText('已收到审核通过通知。', { exact: true }).waitFor();
+  assert.equal(firstDecision.observed.calls, 1);
+  await actions.until(async () =>
+    Boolean(
+      (
+        await harness.pool.query(
+          `SELECT 1 FROM goal_event e JOIN review_decision d ON d.id::text=e.source_key
+     WHERE e.source='review_decision' AND d.card_id=$1 AND e.state='completed'`,
+          [firstCard.id],
+        )
+      ).rowCount,
+    ),
+  );
   actions.stage('修改重提只显示本次差异');
   const revision = harness.plan('revision');
   const next = await actions.send('请补充本次阅读范围后重新提交审核。');
@@ -312,6 +330,7 @@ export async function reviewBrowserFlow(
   assert.equal((await harness.pool.query('SELECT id FROM review_decision')).rowCount, 1);
   actions.stage('当前待审运行通过后即时完成');
   await page.getByRole('button', { name: '返回审核卡', exact: true }).click();
+  const secondDecision = harness.plan('review_decision_resume');
   const approvedCurrent = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
@@ -323,6 +342,16 @@ export async function reviewBrowserFlow(
   assert.equal(currentResponse.request().postDataJSON().action, 'approved');
   await card.getByText('已通过，工作区版本已冻结。', { exact: true }).waitFor();
   await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
+  await actions.until(
+    async () => (await page.getByText('已收到审核通过通知。', { exact: true }).count()) === 2,
+  );
+  assert.equal(secondDecision.observed.calls, 1);
+  const followup = await harness.pool.query<{ wake_run_id: string }>(
+    `SELECT e.wake_run_id FROM goal_event e JOIN review_decision d ON d.id::text=e.source_key
+     WHERE e.source='review_decision' AND d.card_id=$1 AND e.wake_run_id IS NOT NULL`,
+    [nextCard.id],
+  );
+  const followupRunId = followup.rows[0]!.wake_run_id;
   const completed = page
     .getByRole('region', { name: '项目对话', exact: true })
     .getByRole('status')
@@ -338,7 +367,7 @@ export async function reviewBrowserFlow(
         conversationId,
       ])
     ).rows[0]?.current_run_id,
-    next.runId,
+    followupRunId,
   );
   assert.equal((await harness.pool.query('SELECT id FROM review_decision')).rowCount, 2);
   assert.equal((await harness.pool.query('SELECT id FROM submission_snapshot')).rowCount, 2);
@@ -360,7 +389,7 @@ export async function reviewBrowserFlow(
         conversationId,
       ])
     ).rows[0]?.current_run_id,
-    next.runId,
+    followupRunId,
   );
   await page.screenshot({ path: path.join(output, 'review-run-reopened.png'), fullPage: true });
 }

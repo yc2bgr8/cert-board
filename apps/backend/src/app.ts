@@ -24,6 +24,7 @@ import { registerConversationWriteRoutes } from './api/conversation-write-routes
 import { registerExternalModelRoutes } from './external-model/routes.js';
 import { registerDeadlineRoutes } from './deadlines/routes.js';
 import { registerSkillRoutes } from './skills/routes.js';
+import { registerGoalWakeupRoutes } from './goals/routes.js';
 import type { ExternalModelRuntime } from './modelgw/external.js';
 import type { VerificationRuntime } from './external-model/verification-runtime.js';
 
@@ -92,6 +93,7 @@ export function createApp(
     registerConversationWriteRoutes(app, dependencies.database, config);
     registerDeadlineRoutes(app, dependencies.database, config);
     registerSkillRoutes(app, dependencies.database, config);
+    registerGoalWakeupRoutes(app, dependencies.database, config);
     registerWorkspaceRoutes(app, dependencies.database, config, blobStore);
     registerExternalModelRoutes(
       app,

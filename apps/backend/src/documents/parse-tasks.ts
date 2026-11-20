@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
+import { recordDocumentGoalEvent } from '../goals/goal-events.js';
 import {
   documentOriginalInputSchema,
   type DocumentFormat,
@@ -252,6 +253,13 @@ async function finishTask(pool: Pool, task: Claim, pages: readonly DocumentPageS
     );
     if (changed.rowCount) {
       await insertDocumentPages(client, task.version_id, pages);
+      const source = (
+        await client.query<{ document_id: string; version_no: number }>(
+          'SELECT document_id,version_no FROM document_version WHERE id=$1',
+          [task.version_id],
+        )
+      ).rows[0];
+      if (source) await recordDocumentGoalEvent(client, source.document_id, source.version_no);
       await client.query(
         `INSERT INTO audit_log (actor_kind,action,target_type,target_id,after_hash)
          VALUES ('system','document.parsed','document_version',$1,$2)`,

@@ -154,6 +154,7 @@ export const conversationPublicEventSchema = z.discriminatedUnion('type', [
         reviewId: id.optional(),
         approvalId: id.optional(),
         questionId: callId.optional(),
+        verificationRoomId: id.optional(),
         pendingSteeringCount: count.optional(),
         summary: text(400),
       })

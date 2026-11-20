@@ -208,7 +208,9 @@ function ConversationView({
     queuedRun && !state.runs[queuedRun] ? queuedRun : (state.currentRunId ?? record.currentRunId);
   const observedRun = runId ? state.runs[runId] : undefined;
   const run =
-    observedRun && runId === stoppedRun && ['queued', 'running'].includes(observedRun.status)
+    observedRun &&
+    runId === stoppedRun &&
+    (['queued', 'running'].includes(observedRun.status) || observedRun.verificationRoomId)
       ? {
           ...observedRun,
           status: 'stopped' as const,
@@ -218,12 +220,18 @@ function ConversationView({
   const active =
     !!runId &&
     runId !== stoppedRun &&
-    (!run || run.status === 'queued' || run.status === 'running');
+    (!run ||
+      run.status === 'queued' ||
+      run.status === 'running' ||
+      (run.status === 'waiting' && !!run.verificationRoomId));
   const mode = latestPermission(record, state.permissionMode, state.permissionVersion, modeReceipt);
   const connected = stream.connection === 'open' && state.lastSeq >= record.lastEventSeq;
   const mayWrite = record.canWrite && connected && !command.busy && !stopCommand.busy;
   const question = run?.question;
-  const blocked = !!run?.approvalId || (!!question && !question.questionId);
+  const blocked =
+    !!run?.approvalId ||
+    (!!question && !question.questionId) ||
+    (run?.status === 'waiting' && !!run.verificationRoomId);
   const emptyText = record.canWrite
     ? '可以提问，或说明希望 Agent 完成的工作。'
     : '此对话还没有消息。';

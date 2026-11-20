@@ -1061,7 +1061,8 @@ async function main() {
           (
             await harness.pool.query(
               `SELECT c.id FROM verification_link l JOIN external_model_conversation c ON c.id=l.room_id
-          WHERE l.run_id=$1 AND c.active_model IS NOT NULL`,
+          JOIN verification_wait w ON w.room_id=c.id
+          WHERE l.run_id=$1 AND c.active_model IS NOT NULL AND w.state='waiting'`,
               [requested.runId],
             )
           ).rowCount === 1,
@@ -1072,7 +1073,8 @@ async function main() {
           (
             await harness.pool.query(
               `SELECT c.id FROM verification_link l JOIN external_model_conversation c ON c.id=l.room_id
-          WHERE l.run_id=$1 AND c.stopped_by IS NOT NULL`,
+          JOIN verification_wait w ON w.room_id=c.id
+          WHERE l.run_id=$1 AND c.stopped_by IS NOT NULL AND w.state='cancelled'`,
               [requested.runId],
             )
           ).rowCount === 1,
@@ -1223,6 +1225,7 @@ async function main() {
             'verification_cursor_count_and_settings',
             'verification_realtime_stream_and_global_search',
             'review_verification_returns_evidence_to_origin',
+            'browser_review_decision_resumes_original_conversation',
             'agent_verification_waits_and_resumes_with_human_input',
             'stopping_conversation_stops_linked_verification',
             'cursor_unavailable_reaches_review_uncertainty',

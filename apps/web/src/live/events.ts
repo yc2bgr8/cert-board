@@ -45,6 +45,7 @@ export type LiveRun = {
   approvalId: string | null;
   question: LiveQuestion | null;
   reviewId: string | null;
+  verificationRoomId?: string | null;
   pendingSteeringCount: number;
   summary: string;
   workspaceChange: { summary: string; workspaceVersion: string | null; seq: number } | null;
@@ -125,6 +126,7 @@ export function reduceConversationEvent(
         approvalId: null,
         question: null,
         reviewId: null,
+        verificationRoomId: null,
         pendingSteeringCount: 0,
         summary: '等待执行。',
         workspaceChange: null,
@@ -257,6 +259,8 @@ export function reduceConversationEvent(
       if (p.status) run.status = p.status;
       if (p.reviewId) run.reviewId = p.reviewId;
       if (p.approvalId) run.approvalId = p.approvalId;
+      if (p.status)
+        run.verificationRoomId = p.status === 'waiting' ? (p.verificationRoomId ?? null) : null;
       if (p.pendingSteeringCount !== undefined) run.pendingSteeringCount = p.pendingSteeringCount;
       if (p.status && terminalRunStatuses.has(p.status)) {
         run.question = null;

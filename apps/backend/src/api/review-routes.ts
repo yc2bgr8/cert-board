@@ -486,6 +486,12 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
           input.action === 'approved' ? 'completed' : 'stopped',
         );
       await tx.query(
+        `INSERT INTO goal_event(goal_id,source,source_key)
+         SELECT goal_id,'review_decision',$2::varchar FROM run WHERE id=$1 AND goal_id IS NOT NULL
+         ON CONFLICT(source,source_key) DO NOTHING`,
+        [card.run_id, saved.id],
+      );
+      await tx.query(
         "INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id,before_hash,after_hash) VALUES($1,'browser',$2,'review_card',$3,$4,$4)",
         [actor.userId, `review.${input.action}`, card.id, card.content_hash],
       );
