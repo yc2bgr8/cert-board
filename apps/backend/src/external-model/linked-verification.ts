@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { verificationTicketSchema, type VerificationTicket } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { stopRunVerifications } from '../runs/control.js';
@@ -38,13 +38,56 @@ async function untilAborted<T>(signal: AbortSignal, operation: () => Promise<T>)
   }
 }
 
+async function withConnection<T>(
+  pool: Pool,
+  signal: AbortSignal,
+  operation: (db: PoolClient) => Promise<T>,
+) {
+  if (signal.aborted) return;
+  const acquired = pool.connect();
+  const db = await untilAborted(signal, () => acquired);
+  if (!db) {
+    void acquired.then((late) => late.release()).catch(() => undefined);
+    return;
+  }
+  try {
+    return await untilAborted(signal, () => operation(db));
+  } finally {
+    // 中止时丢弃本次独占的连接，避免仍在执行的语句占住连接池。
+    db.release(signal.aborted);
+  }
+}
+
+async function stopLinkedRoom(pool: Pool, room: LinkedRun & { roomId: string }) {
+  const stop = async () => {
+    try {
+      return await withConnection(pool, AbortSignal.timeout(stopGraceMs), async (db) => {
+        await stopRunVerifications(db, room);
+        return true;
+      });
+    } catch {
+      return false;
+    }
+  };
+  if (await stop()) return;
+  console.warn('VERIFICATION_STOP_RETRY_SCHEDULED');
+  void (async () => {
+    for (const pause of [1000, 3000, 10_000]) {
+      await delay(pause, undefined, { ref: false });
+      if (await stop()) return;
+    }
+    console.warn('VERIFICATION_STOP_RETRY_EXHAUSTED');
+  })();
+}
+
 async function prepareConclusion(
   pool: Pool,
   roomId: string,
   projectId: string | null,
   raw: unknown,
+  db: Pick<Pool, 'query'> = pool,
 ) {
-  const conclusion = await readCheckedConclusion(pool, projectId, raw);
+  const conclusion = await readCheckedConclusion(db, projectId, raw);
   const categories = {
     trusted: '可信',
     disputed: '有分歧',
@@ -82,9 +125,9 @@ async function prepareConclusion(
   const protection = new ExternalModels(pool, undefined, undefined, 20_000_000_000n);
   let text: string;
   try {
-    const wordList = (await protection.words()).map(({ phrase }) => phrase);
+    const wordList = (await protection.words(db)).map(({ phrase }) => phrase);
     const prepared = redactExternalMessages([{ role: 'user', content: information }], wordList);
-    await protection.checkConfidentialSources(pool, prepared.messages);
+    await protection.checkConfidentialSources(db, prepared.messages);
     text = prepared.messages[0]!.content;
   } catch (error) {
     if (!(error instanceof AppError)) throw error;
@@ -139,14 +182,11 @@ export async function awaitLinkedVerification(
     signal,
     AbortSignal.timeout(Math.max(0, deadline - Date.now())),
   ]);
-  const stopRoom = () =>
-    untilAborted(AbortSignal.timeout(stopGraceMs), () =>
-      stopRunVerifications(pool, { ...run, roomId: ticket.roomId }).catch(() => undefined),
-    );
+  const stopRoom = () => stopLinkedRoom(pool, { ...run, roomId: ticket.roomId });
   try {
     while (!waiting.aborted && Date.now() < deadline) {
-      const snapshot = await untilAborted(waiting, () =>
-        pool.query<{
+      const snapshot = await withConnection(pool, waiting, (db) =>
+        db.query<{
           state: 'paused' | 'discussing' | 'completed';
           project_id: string | null;
           conclusion: unknown;
@@ -170,8 +210,8 @@ export async function awaitLinkedVerification(
       if (room.state === 'paused' || (room.state === 'completed' && !room.has_model_reply))
         return { roomId: ticket.roomId, status: 'unavailable', reason: unavailable };
       if (room.state === 'completed') {
-        const result = await untilAborted(waiting, () =>
-          prepareConclusion(pool, ticket.roomId, room.project_id, room.conclusion),
+        const result = await withConnection(pool, waiting, (db) =>
+          prepareConclusion(pool, ticket.roomId, room.project_id, room.conclusion, db),
         );
         if (!result || waiting.aborted || Date.now() >= deadline) break;
         return result;

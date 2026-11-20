@@ -323,42 +323,86 @@ test('队列剩余时间不足时停止等待，给原运行留下继续处理�
   expect(parent.rows[0]?.status).toBe('running');
 });
 
-test.each([
-  { headroom: 0, expectedPolls: 0 },
-  { headroom: 150, expectedPolls: 1 },
-])(
-  '已用尽或轮询阻塞时按核实截止时间返回（剩余 $headroom 毫秒）',
-  async ({ headroom, expectedPolls }) => {
-    await ready();
-    const { run, ticket } = await request('full');
-    const original = context.pool.query.bind(context.pool);
-    let polls = 0;
-    const spy = vi.spyOn(context.pool, 'query').mockImplementation(((...args: unknown[]) => {
-      if (
-        typeof args[0] === 'string' &&
-        args[0].includes('AS worker_ready FROM verification_link')
-      ) {
-        polls++;
-        return new Promise(() => undefined);
-      }
-      return Reflect.apply(original, context.pool, args);
-    }) as typeof context.pool.query);
-    try {
-      expect(
-        await awaitLinkedVerification(
-          context.pool,
-          run,
-          ticket,
-          new AbortController().signal,
-          Date.now() + 60_000 + headroom,
-        ),
-      ).toMatchObject({ status: 'unavailable', reason: expect.stringContaining('剩余时间') });
-      expect(polls).toBe(expectedPolls);
-    } finally {
-      spy.mockRestore();
-    }
-  },
-);
+test('等待额度已耗尽时仅为停止群聊领取连接', async () => {
+  await ready();
+  const { run, ticket } = await request('full');
+  const acquired = vi.fn();
+  context.pool.on('acquire', acquired);
+  try {
+    expect(
+      await awaitLinkedVerification(
+        context.pool,
+        run,
+        ticket,
+        new AbortController().signal,
+        Date.now() + 60_000,
+      ),
+    ).toMatchObject({ status: 'unavailable', reason: expect.stringContaining('剩余时间') });
+    expect(acquired).toHaveBeenCalledTimes(1);
+  } finally {
+    context.pool.off('acquire', acquired);
+  }
+});
+
+test('接近截止时间的真实阻塞轮询会释放数据库连接池名额', async () => {
+  await ready();
+  const { run, ticket } = await request('full');
+  const blocker = await context.pool.connect();
+  const removed = vi.fn();
+  context.pool.on('remove', removed);
+  try {
+    await blocker.query('BEGIN');
+    await blocker.query('LOCK TABLE verification_worker_state IN ACCESS EXCLUSIVE MODE');
+    expect(
+      await awaitLinkedVerification(
+        context.pool,
+        run,
+        ticket,
+        new AbortController().signal,
+        Date.now() + 60_500,
+      ),
+    ).toMatchObject({ status: 'unavailable', reason: expect.stringContaining('剩余时间') });
+    await vi.waitFor(() => expect(removed).toHaveBeenCalledTimes(1));
+  } finally {
+    context.pool.off('remove', removed);
+    await blocker.query('ROLLBACK');
+    blocker.release();
+  }
+});
+
+test('停止写入暂时失败时及时返回，在后台重试同一群聊', async () => {
+  await ready();
+  const { run, ticket } = await request('full');
+  const connect = vi
+    .spyOn(context.pool, 'connect')
+    .mockRejectedValueOnce(new Error('fixture storage failure'));
+  const warnings = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  try {
+    expect(
+      await awaitLinkedVerification(
+        context.pool,
+        run,
+        ticket,
+        new AbortController().signal,
+        Date.now() + 60_000,
+      ),
+    ).toMatchObject({ status: 'unavailable' });
+    expect(warnings).toHaveBeenCalledWith('VERIFICATION_STOP_RETRY_SCHEDULED');
+    await vi.waitFor(
+      async () => {
+        const room = await context.pool.query(
+          'SELECT stopped_by FROM external_model_conversation WHERE id=$1',
+          [ticket.roomId],
+        );
+        expect(room.rows[0]?.stopped_by).toBe(run.userId);
+      },
+      { timeout: 5_000, interval: 100 },
+    );
+  } finally {
+    warnings.mockRestore();
+    connect.mockRestore();
+  }
+});
 
 test('未绑定项目时采用原对话选择的维护 Agent', async () => {
   const userId = context.userId('MEMBER_A');
