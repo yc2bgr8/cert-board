@@ -84,12 +84,12 @@ test('代理探针只连接本机、识别CONNECT响应并拒绝报文注入', a
   }
 });
 
-test('代理构建在 APT 更新前切到 Azure 镜像，重试并保留锁定版本与完整 CI 检查', async () => {
+test('代理构建保留固定镜像源和版本，虚拟机先启动依赖再做集成验收', async () => {
   const dockerfile = await readFile(
     new URL('../deploy/egress/Dockerfile', import.meta.url),
     'utf8',
   );
-  const workflow = await readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const harness = await readFile(new URL('./acceptance-vm.mjs', import.meta.url), 'utf8');
   expect(dockerfile).toContain('/etc/apt/sources.list.d/ubuntu.sources');
   expect(dockerfile.indexOf('/etc/apt/sources.list.d/ubuntu.sources')).toBeLessThan(
     dockerfile.indexOf('apt-get -o Acquire::Retries=5 update'),
@@ -103,5 +103,7 @@ test('代理构建在 APT 更新前切到 Azure 镜像，重试并保留锁定�
   expect(dockerfile).not.toMatch(
     /Verify-(?:Peer|Host)\s*=\s*(?:false|0)|allow-unauthenticated|trusted=yes/iu,
   );
-  expect(workflow).toMatch(/pnpm dev:up[\s\S]*pnpm test:int/u);
+  expect(harness).toMatch(
+    /await pnpm\('dev-up', 'dev:up'\)[\s\S]*await pnpm\('integration', 'test:int'\)[\s\S]*await pnpm\('dev-down', 'dev:down'\)/u,
+  );
 });

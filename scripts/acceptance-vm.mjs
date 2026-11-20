@@ -1,0 +1,257 @@
+import { spawn, spawnSync } from 'node:child_process';
+import { appendFile, mkdir, mkdtemp, open, readFile, writeFile } from 'node:fs/promises';
+import { homedir, release } from 'node:os';
+import path from 'node:path';
+import { parseArgs, parseEnv } from 'node:util';
+import {
+  bundledBranches,
+  shaPattern,
+  skippedAcceptance,
+  validateAcceptanceScripts,
+  validateConfigurationPaths,
+} from './acceptance-vm-policy.mjs';
+
+const { values } = parseArgs({
+  options: {
+    bundle: { type: 'string' },
+    base: { type: 'string' },
+    head: { type: 'string' },
+    acceptance: { type: 'string', multiple: true },
+    'model-profile': { type: 'string' },
+    'config-only': { type: 'boolean' },
+  },
+});
+
+function readCommand(command, args, cwd) {
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', shell: false });
+  if (result.status !== 0) throw new Error(`${command} 检查失败，请核对虚拟机或提交。`);
+  return result.stdout.trim();
+}
+
+async function configureModels(root, profile) {
+  if (!profile || !path.isAbsolute(profile))
+    throw new Error('请在虚拟机提供已授权的模型配置文件。');
+  const config = parseEnv(await readFile(profile, 'utf8'));
+  const fields = [
+    'OPENROUTER_API_KEY',
+    'CERT_CURSOR_BUNDLE',
+    'CERT_CURSOR_PROFILE',
+    'CERT_CURSOR_PRIVACY_CONFIRMED',
+  ];
+  if (
+    fields.some((name) => !/^[A-Za-z0-9_./:-]+$/u.test(config[name] ?? '')) ||
+    config.CERT_CURSOR_PRIVACY_CONFIRMED !== '1' ||
+    !path.isAbsolute(config.CERT_CURSOR_BUNDLE) ||
+    !path.isAbsolute(config.CERT_CURSOR_PROFILE)
+  )
+    throw new Error('请先核对虚拟机的模型凭据、Cursor 专用登录和隐私设置。');
+  await appendFile(
+    path.join(root, '.env.local'),
+    `\n${fields.map((name) => `${name}=${config[name]}`).join('\n')}\n`,
+  );
+}
+
+function verifyMachine() {
+  if (process.platform !== 'linux' || /microsoft|wsl/iu.test(release()))
+    throw new Error('请在独立 Linux 虚拟机内运行验收。');
+  const vm = readCommand('systemd-detect-virt', ['--vm']);
+  if (!/^(?:kvm|qemu|oracle|vmware|microsoft)$/u.test(vm))
+    throw new Error('当前系统的虚拟机类型未通过核对。');
+  return vm;
+}
+
+function sandboxAbi() {
+  if (process.arch !== 'x64') throw new Error('沙箱验收需要 x86-64 Linux 客体。');
+  const abi = Number(
+    readCommand('python3', ['-c', 'import ctypes; print(ctypes.CDLL(None).syscall(444, 0, 0, 1))']),
+  );
+  if (!Number.isInteger(abi) || abi < 6)
+    throw new Error('验收虚拟机内核要求 Landlock ABI 6 或更高，请升级客体内核。');
+  return abi;
+}
+
+function testTree(root, bundle, base, head) {
+  readCommand('git', ['init', '--quiet'], root);
+  const refs = bundledBranches(readCommand('git', ['bundle', 'list-heads', bundle], root));
+  for (const sha of [base, head]) {
+    const ref = refs.get(sha);
+    if (!ref) throw new Error('Git 包未包含申报的两个分支提交。');
+    readCommand('git', ['fetch', '--quiet', '--no-tags', bundle, ref], root);
+    if (readCommand('git', ['rev-parse', 'FETCH_HEAD'], root) !== sha)
+      throw new Error('Git 包实际提交与申报编号不同。');
+  }
+  const tree = readCommand('git', ['merge-tree', '--write-tree', base, head], root);
+  if (!shaPattern.test(tree)) throw new Error('无法核对待合并的代码树。');
+  const merged = readCommand(
+    'git',
+    [
+      '-c',
+      'user.name=Cert Board Acceptance',
+      '-c',
+      'user.email=acceptance@cert-board.local',
+      'commit-tree',
+      tree,
+      '-p',
+      base,
+      '-p',
+      head,
+      '-m',
+      `VM acceptance of ${head} against ${base}`,
+    ],
+    root,
+  );
+  readCommand('git', ['checkout', '--quiet', '--detach', merged], root);
+  if (
+    readCommand('git', ['status', '--porcelain'], root) ||
+    readCommand('git', ['rev-parse', 'HEAD^{tree}'], root) !== tree
+  )
+    throw new Error('验收工作树不干净或版本不一致。');
+  return { tree, merged };
+}
+
+async function main() {
+  const { bundle, base, head, acceptance = [], 'config-only': configOnly } = values;
+  if (
+    !bundle ||
+    !path.isAbsolute(bundle) ||
+    !shaPattern.test(base ?? '') ||
+    !shaPattern.test(head ?? '') ||
+    base === head
+  )
+    throw new Error('请输入本机 Git 包的绝对路径、main 提交和最终提交的完整编号。');
+  const vm = verifyMachine();
+  if ((await readFile('/etc/cert-board-acceptance-vm', 'utf8')).trim() !== 'cert-board-acceptance')
+    throw new Error('请使用 cert-board 的专用验收虚拟机。');
+  const landlockAbi = sandboxAbi();
+  if (process.versions.node !== '24.22.2' || readCommand('pnpm', ['--version']) !== '9.15.9')
+    throw new Error('请使用 Node 24.22.2 和 pnpm 9.15.9。');
+  if (
+    readCommand('docker', ['ps', '-aq', '--filter', 'label=com.docker.compose.project=cert-board'])
+  )
+    throw new Error('验收虚拟机内发现上次的开发容器，请使用干净的虚拟机快照。');
+  const directory = await mkdtemp(path.join(homedir(), 'cert-board-acceptance-'));
+  // 外层临时目录和日志保持私有。容器内的测试用户需要读取挂载的工作树。
+  process.umask(0o022);
+  const root = path.join(directory, 'source');
+  await mkdir(root);
+  const { tree, merged } = testTree(root, bundle, base, head);
+  const report = {
+    status: 'running',
+    scope: configOnly ? 'configuration' : 'business',
+    base,
+    head,
+    mergeTree: tree,
+    testCommit: merged,
+    vm,
+    kernel: release(),
+    landlockAbi,
+    startedAt: new Date().toISOString(),
+    steps: [],
+  };
+  const receipt = path.join(directory, 'report.json');
+  const save = () => writeFile(receipt, JSON.stringify(report, null, 2), { mode: 0o600 });
+  const step = async (name, command, args, script) => {
+    const logFile = path.join(directory, `${name}.log`);
+    const log = await open(logFile, 'wx', 0o600);
+    const started = Date.now();
+    let code;
+    try {
+      const child = spawn(command, args, {
+        cwd: root,
+        stdio: ['ignore', log.fd, log.fd],
+        shell: false,
+      });
+      code = await new Promise((resolve) => {
+        child.once('error', () => resolve(1));
+        child.once('close', (exit) => resolve(exit ?? 1));
+      });
+    } finally {
+      await log.close();
+    }
+    if (
+      code === 0 &&
+      ['test:real', 'test:l08'].includes(script) &&
+      skippedAcceptance(script, await readFile(logFile, 'utf8'))
+    )
+      code = 1;
+    report.steps.push({
+      name,
+      ...(script ? { script } : {}),
+      exitCode: code,
+      seconds: Math.round((Date.now() - started) / 1000),
+    });
+    await save();
+    console.log(`${name} ${code === 0 ? '通过' : '失败'}。`);
+    if (code !== 0) throw new Error(`${name} 未通过。详细日志保存在虚拟机。`);
+  };
+  const pnpm = (name, ...args) => step(name, 'pnpm', args);
+  console.log(`虚拟机验收报告 ${receipt}`);
+  await save();
+  try {
+    const registered =
+      JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).scripts ?? {};
+    validateAcceptanceScripts(acceptance, registered);
+    const changed = readCommand(
+      'git',
+      ['diff', '--name-only', '--no-renames', '-z', base, merged],
+      root,
+    )
+      .split('\0')
+      .filter(Boolean);
+    if (configOnly) {
+      validateConfigurationPaths(changed);
+      if (!acceptance.includes('docs:html'))
+        throw new Error('配置变更需要运行 docs:html 并核对工作树。');
+      if (readCommand('git', ['ls-files', '--', '.github/workflows/'], root))
+        throw new Error('虚拟机配置验收发现仍有 GitHub Actions 工作流。');
+      report.steps.push({ name: 'workflow-retired', exitCode: 0, seconds: 0 });
+      await save();
+    }
+    await pnpm('install', 'install', '--frozen-lockfile');
+    await pnpm('lint', 'lint');
+    await pnpm('typecheck', 'typecheck');
+    await pnpm('unit', 'test');
+    await pnpm('build', 'build');
+    await pnpm('python', 'test:py');
+    await pnpm('agent-eval', 'eval:agent');
+    await pnpm('env-init', 'env:init');
+    if (!configOnly) await configureModels(root, values['model-profile']);
+    try {
+      await pnpm('dev-up', 'dev:up');
+      await pnpm('integration', 'test:int');
+      await pnpm('browser', 'test:e2e');
+      for (const [index, name] of acceptance.entries())
+        await step(`pr-${index + 1}`, 'pnpm', ['run', name], name);
+      if (!configOnly) await pnpm('walkthrough', 'walkthrough:real');
+    } finally {
+      await pnpm('dev-down', 'dev:down');
+    }
+    await step('secrets', 'docker', [
+      'run',
+      '--rm',
+      '--network',
+      'none',
+      '-v',
+      `${root}:/repo:ro`,
+      'zricethezav/gitleaks:v8.24.3',
+      'git',
+      '/repo',
+      '--redact',
+      '--no-banner',
+    ]);
+    if (readCommand('git', ['status', '--porcelain'], root))
+      throw new Error('测试改变了验收工作树。');
+    report.status = 'passed';
+  } catch (error) {
+    report.status = 'failed';
+    throw error;
+  } finally {
+    report.completedAt = new Date().toISOString();
+    await save();
+  }
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : '虚拟机验收未完成。');
+  process.exitCode = 1;
+});
