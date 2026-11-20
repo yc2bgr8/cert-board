@@ -378,6 +378,46 @@ test('接近截止时间的真实阻塞轮询会释放数据库连接池名额',
   }
 });
 
+test('单次语句超时后在剩余核实时间内继续轮询', async () => {
+  await ready();
+  const { run, ticket } = await request('full');
+  const blocker = await context.pool.connect();
+  const removed = vi.fn();
+  const signal = new AbortController();
+  let waiting: ReturnType<typeof awaitLinkedVerification> | undefined;
+  let locked = false;
+  let returned = false;
+  context.pool.on('remove', removed);
+  try {
+    await blocker.query('BEGIN');
+    locked = true;
+    await blocker.query('LOCK TABLE verification_worker_state IN ACCESS EXCLUSIVE MODE');
+    waiting = awaitLinkedVerification(context.pool, run, ticket, signal.signal).then((value) => {
+      returned = true;
+      return value;
+    });
+    await vi.waitFor(() => expect(removed).toHaveBeenCalledTimes(1), { timeout: 8_000 });
+    expect(returned).toBe(false);
+    await blocker.query('ROLLBACK');
+    locked = false;
+    await context.pool.query("UPDATE external_model_conversation SET state='paused' WHERE id=$1", [
+      ticket.roomId,
+    ]);
+    await expect(waiting).resolves.toMatchObject({ status: 'unavailable' });
+    const room = await context.pool.query(
+      'SELECT stopped_by FROM external_model_conversation WHERE id=$1',
+      [ticket.roomId],
+    );
+    expect(room.rows[0]?.stopped_by).toBeNull();
+  } finally {
+    context.pool.off('remove', removed);
+    signal.abort();
+    if (locked) await blocker.query('ROLLBACK');
+    await waiting?.catch(() => undefined);
+    blocker.release();
+  }
+});
+
 test('核实专用连接异常断开后工作进程可完成收尾', async () => {
   await ready();
   const { run, ticket } = await request('full');

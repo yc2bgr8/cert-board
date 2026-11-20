@@ -16,6 +16,7 @@ const material =
 const waitLimitMs = 10 * 60 * 1000;
 const queueHeadroomMs = 60_000;
 const stopGraceMs = 5_000;
+const statementTimedOut = Symbol('verification_statement_timeout');
 
 export function linkedVerificationDeadline(nowMs: number, queueExpiresAtMs?: number) {
   const fullWait = nowMs + waitLimitMs;
@@ -70,7 +71,8 @@ async function withConnection<T>(
   } catch (error) {
     const code =
       typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
-    if (active.aborted || /^(?:08[A-Z0-9]{3}|57014|57P0[123]|ECONNRESET|EPIPE)$/.test(code)) return;
+    if (active.aborted || /^(?:08[A-Z0-9]{3}|57P0[123]|ECONNRESET|EPIPE)$/.test(code)) return;
+    if (code === '57014') return statementTimedOut;
     throw error;
   } finally {
     const reusable = committed && !active.aborted;
@@ -85,10 +87,16 @@ async function stopLinkedRoom(pool: Pool, room: LinkedRun & { roomId: string }) 
   const stop = async () => {
     try {
       const deadline = Date.now() + stopGraceMs;
-      return await withConnection(pool, AbortSignal.timeout(stopGraceMs), deadline, async (db) => {
-        await stopRunVerifications(db, room);
-        return true;
-      });
+      const result = await withConnection(
+        pool,
+        AbortSignal.timeout(stopGraceMs),
+        deadline,
+        async (db) => {
+          await stopRunVerifications(db, room);
+          return true;
+        },
+      );
+      return result === true;
     } catch {
       return false;
     }
@@ -207,6 +215,8 @@ export async function awaitLinkedVerification(
     AbortSignal.timeout(Math.max(0, deadline - Date.now())),
   ]);
   const stopRoom = () => stopLinkedRoom(pool, { ...run, roomId: ticket.roomId });
+  const nextPoll = () =>
+    delay(Math.max(0, Math.min(450, deadline - Date.now())), undefined, { signal: waiting });
   try {
     while (!waiting.aborted && Date.now() < deadline) {
       const snapshot = await withConnection(pool, waiting, deadline, (db) =>
@@ -228,6 +238,10 @@ export async function awaitLinkedVerification(
           [ticket.roomId, run.runId, run.conversationId, run.userId, verificationWorkerStateId],
         ),
       );
+      if (snapshot === statementTimedOut) {
+        await nextPoll();
+        continue;
+      }
       if (!snapshot || waiting.aborted || Date.now() >= deadline) break;
       const room = snapshot.rows[0];
       if (!room) throw new AppError(404, 'VERIFICATION_LINK_MISSING', '当前运行的核实记录不可用。');
@@ -237,6 +251,10 @@ export async function awaitLinkedVerification(
         const result = await withConnection(pool, waiting, deadline, (db) =>
           prepareConclusion(pool, ticket.roomId, room.project_id, room.conclusion, db),
         );
+        if (result === statementTimedOut) {
+          await nextPoll();
+          continue;
+        }
         if (!result || waiting.aborted || Date.now() >= deadline) break;
         return result;
       }
@@ -244,9 +262,7 @@ export async function awaitLinkedVerification(
         await stopRoom();
         return { roomId: ticket.roomId, status: 'unavailable', reason: unavailable };
       }
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      await delay(Math.min(450, remaining), undefined, { signal: waiting });
+      await nextPoll();
     }
   } catch (error) {
     if (!waiting.aborted) throw error;
