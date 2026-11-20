@@ -3,21 +3,27 @@ import { sha256Schema } from './documents.js';
 import { docReadToolInputSchema } from './document-tools.js';
 import { workspacePathSchema } from './workspace-path.js';
 
+const encoder = new TextEncoder();
 const nameSchema = z
   .string()
   .min(1)
-  .max(160)
   .transform((value) => value.normalize('NFC'))
   .refine(
     (value) =>
-      value.trim() === value &&
+      Array.from(value).length <= 160 &&
+      encoder.encode(value).length <= 200 &&
+      !value.startsWith(' ') &&
+      !value.endsWith(' ') &&
       !value.endsWith('.') &&
       !value.startsWith('.') &&
       !value.includes('/') &&
       !value.includes('\\') &&
       !value.includes(':') &&
-      !/\p{Cc}/u.test(value),
+      !/[<>"|?*\p{C}]/u.test(value) &&
+      !/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(value),
+    '别名须为 NFC 文本，最长 160 字符且不超过 200 字节，不可使用路径和保留字符。',
   );
+const sandboxPath = workspacePathSchema.refine((value) => encoder.encode(value).length <= 512);
 const inputSource = z.discriminatedUnion('source', [
   z
     .object({
@@ -65,7 +71,7 @@ export const sandboxResultSchema = z
       .array(
         z
           .object({
-            path: workspacePathSchema,
+            path: sandboxPath,
             byteSize: z
               .number()
               .int()
@@ -93,19 +99,23 @@ export const codeRunOutputSchema = sandboxResultSchema
       )
       .max(16),
     readsWorkspace: z.boolean(),
+    saveStatus: z.enum(['temporary', 'saved', 'skipped']),
+    outputDirectory: workspacePathSchema.nullable(),
+    saveError: z
+      .enum(['NO_OUTPUT', 'PROGRAM_FAILED', 'PATH_UNAVAILABLE', 'STORAGE_FAILED'])
+      .optional(),
     outputCount: z.number().int().min(0).max(32),
     outputHashes: z.array(sha256Schema).max(32),
     files: z
       .array(
         z
           .object({
-            path: workspacePathSchema,
+            path: sandboxPath,
             byteSize: z.number().int().nonnegative(),
             sha256: sha256Schema,
-            workspacePath: workspacePathSchema.nullable(),
           })
           .strict(),
       )
-      .max(12),
+      .max(32),
   })
   .strict();

@@ -17,7 +17,7 @@ import {
 } from '../workspace/service.js';
 import { documentInProject, highestDocumentLevel } from './document-context.js';
 import type { ToolDefinition, ToolExecutionContext } from './registry.js';
-import { sandboxMaximumBytes, type SandboxClient } from '../sandbox/client.js';
+import { sandboxMaximumBytes, sandboxWorkTimeMs, type SandboxClient } from '../sandbox/client.js';
 import { workspaceDraftUndo } from './workspace-tools.js';
 
 type RunInput = z.infer<typeof codeRunInputSchema>;
@@ -125,10 +125,32 @@ function documentType(path: string) {
   return mediaTypes.get(extension) ?? 'application/octet-stream';
 }
 
+function boundedStorage(store: DocumentBlobStore, signal: AbortSignal): DocumentBlobStore {
+  async function wait<T>(action: () => Promise<T>) {
+    const unavailable = () =>
+      new AppError(503, 'SANDBOX_STORAGE_TIMEOUT', '输入或产出传输超时，请减少文件后再试。');
+    if (signal.aborted) throw unavailable();
+    let abort: (() => void) | undefined;
+    const ended = new Promise<never>((_resolve, reject) => {
+      abort = () => reject(unavailable());
+      signal.addEventListener('abort', abort, { once: true });
+    });
+    try {
+      return await Promise.race([action(), ended]);
+    } finally {
+      if (abort) signal.removeEventListener('abort', abort);
+    }
+  }
+  return {
+    get: (hash) => wait(() => store.get(hash)),
+    put: (bytes) => wait(() => store.put(bytes)),
+  };
+}
+
 function summary(
   result: Outcome,
   input: Pick<Awaited<ReturnType<typeof inputFiles>>, 'documents' | 'readsWorkspace'>,
-  directory?: string,
+  save: Pick<RunOutput, 'saveStatus' | 'outputDirectory' | 'saveError'>,
 ): RunOutput {
   const { files, stdout, stderr, stdoutTruncated, stderrTruncated, ...meta } = result;
   const slice = (value: string) => Array.from(value).slice(0, 2_500).join('');
@@ -136,22 +158,27 @@ function summary(
   const visibleStderr = slice(stderr);
   const summarized = {
     ...meta,
-    ...input,
+    documents: input.documents,
+    readsWorkspace: input.readsWorkspace,
+    ...save,
     stdout: visibleStdout,
     stderr: visibleStderr,
     stdoutTruncated: stdoutTruncated || visibleStdout !== stdout,
     stderrTruncated: stderrTruncated || visibleStderr !== stderr,
     outputCount: files.length,
     outputHashes: files.map(({ sha256 }) => sha256),
-    files: files.slice(0, 12).map(({ path, byteSize, sha256 }) => ({
-      path,
-      byteSize,
-      sha256,
-      workspacePath: directory ? `${directory}/${path}` : null,
-    })),
+    files: files.map(({ path, byteSize, sha256 }) => ({ path, byteSize, sha256 })),
   };
-  while (summarized.files.length && Buffer.byteLength(JSON.stringify(summarized), 'utf8') > 45_000)
-    summarized.files.pop();
+  while (JSON.stringify(summarized).length > 32_000 && (summarized.stdout || summarized.stderr)) {
+    summarized.stdout = Array.from(summarized.stdout)
+      .slice(0, Math.floor(summarized.stdout.length / 3))
+      .join('');
+    summarized.stderr = Array.from(summarized.stderr)
+      .slice(0, Math.floor(summarized.stderr.length / 3))
+      .join('');
+  }
+  summarized.stdoutTruncated ||= summarized.stdout !== stdout;
+  summarized.stderrTruncated ||= summarized.stderr !== stderr;
   return codeRunOutputSchema.parse(summarized);
 }
 
@@ -174,9 +201,9 @@ function metadata(save: boolean): ToolMetadata {
         ? '只需查看运行结果时用 code_run；不保存工作区版本，不写决定记录。'
         : '保留结果文件时用 code_run_save；查原文用 doc_read；外部资料用批准的网页工具。',
       parameters:
-        'code 为 Python，timeoutSeconds 为 1 至 120 秒，inputs 为工作区路径或资料 UUID 加版本。输入以 name 放在 inputs/，产出写在 outputs/。资料若没有原件，内容是已有版本的解析 JSON。日志和产出明细会截断，已有产出从 ws_list 查看。' +
+        'code 为 Python，timeoutSeconds 为 1 至 120 秒，inputs 为工作区路径或资料 UUID 加版本。输入以 name 放在 inputs/，产出写在 outputs/。资料若没有原件，内容是已有版本的解析 JSON。清单列出全部产出，日志标注截断时可在下一次运行中按行分段输出。' +
         (save
-          ? 'outputDirectory 为工作副本相对目录，expectedDraftVersion 取 ws_list，不覆盖既有文件。'
+          ? 'outputDirectory 为工作副本相对目录，expectedDraftVersion 取 ws_list。保存成功后可用 ws_list 查看，已有文件不会覆盖。'
           : '临时文件随运行清理。'),
       example: save
         ? {
@@ -195,21 +222,34 @@ export function buildSandboxTools(
   store: DocumentBlobStore,
   client: Pick<SandboxClient, 'run'>,
 ): ToolDefinition[] {
+  const pending = new WeakMap<
+    ToolExecutionContext,
+    { signal: AbortSignal; storage: DocumentBlobStore }
+  >();
+  const work = (ctx: ToolExecutionContext) => {
+    const current = pending.get(ctx);
+    if (current) return current;
+    const limit = AbortSignal.timeout(sandboxWorkTimeMs);
+    const signal = ctx.signal ? AbortSignal.any([ctx.signal, limit]) : limit;
+    const scoped = { signal, storage: boundedStorage(store, signal) };
+    pending.set(ctx, scoped);
+    return scoped;
+  };
   const run = async (ctx: ToolExecutionContext, data: RunInput) => {
-    const input = await inputFiles(ctx, store, data.inputs);
+    const { storage, signal } = work(ctx);
+    const input = await inputFiles(ctx, storage, data.inputs);
     const output = await client.run(
       { code: data.code, timeoutSeconds: data.timeoutSeconds, files: input.files },
-      ctx.signal,
+      signal,
     );
-    return { output, input };
+    return { output, input, storage, signal };
   };
   const refresh = async (ctx: ToolExecutionContext, cached: unknown) => {
     const result = codeRunOutputSchema.parse(cached);
     const levels: DataLevel[] = [ctx.maxDataLevel];
     for (const reference of result.documents)
       levels.push((await documentInProject(ctx, reference.id)).dataLevel);
-    if (result.readsWorkspace || result.files.some((file) => file.workspacePath))
-      levels.push((await scope(ctx)).dataLevel);
+    if (result.readsWorkspace) levels.push((await scope(ctx)).dataLevel);
     return highestDocumentLevel(levels);
   };
   return [
@@ -221,10 +261,7 @@ export function buildSandboxTools(
       async execute(ctx, raw) {
         const { output, input } = await run(ctx, codeRunInputSchema.parse(raw));
         return {
-          data: summary(output, {
-            documents: input.documents,
-            readsWorkspace: input.readsWorkspace,
-          }),
+          data: summary(output, input, { saveStatus: 'temporary', outputDirectory: null }),
           dataLevel: input.dataLevel,
         };
       },
@@ -233,35 +270,48 @@ export function buildSandboxTools(
       metadata: metadata(true),
       inputSchema: codeRunSaveInputSchema,
       outputSchema: codeRunOutputSchema,
-      undo: workspaceDraftUndo(store),
+      undo: { ...workspaceDraftUndo((ctx) => work(ctx).storage), allowNoChange: true },
       refreshDataLevel: refresh,
       async execute(ctx, raw) {
         const data = codeRunSaveInputSchema.parse(raw);
         const current = await scope(ctx, 'draft', true);
-        const { output, input } = await run(ctx, data);
-        if (output.status !== 'ok' || !output.files.length)
-          throw new AppError(
-            422,
-            'SANDBOX_NO_SAVED_OUTPUT',
-            '程序未完成或 outputs/ 为空。可先用 code_run 查看日志。',
-          );
-        if (ctx.signal?.aborted)
-          throw new AppError(409, 'SANDBOX_RUN_STOPPED', '运行已经停止，未登记运行产出。');
+        const { output, input, storage, signal } = await run(ctx, data);
         const dataLevel = highestDocumentLevel([input.dataLevel, current.dataLevel]);
-        for (const file of output.files) {
-          await writeDraftArtifact(ctx.tx, store, ctx.actor, current.draft!.id, {
-            path: `${data.outputDirectory}/${file.path}`,
-            bytes: file.bytes,
-            dataLevel,
-            mediaType: documentType(file.path),
-          });
+        const source = { documents: input.documents, readsWorkspace: true };
+        const skipped = (saveError: NonNullable<RunOutput['saveError']>) => ({
+          data: summary(output, source, {
+            saveStatus: 'skipped',
+            outputDirectory: null,
+            saveError,
+          }),
+          dataLevel,
+          noChange: true as const,
+        });
+        if (output.status !== 'ok') return skipped('PROGRAM_FAILED');
+        if (!output.files.length) return skipped('NO_OUTPUT');
+        await ctx.tx.query('SAVEPOINT sandbox_outputs');
+        try {
+          for (const file of output.files) {
+            if (signal.aborted)
+              throw new AppError(503, 'SANDBOX_STORAGE_TIMEOUT', '产出传输超时。');
+            await writeDraftArtifact(ctx.tx, storage, ctx.actor, current.draft!.id, {
+              path: `${data.outputDirectory}/${file.path}`,
+              bytes: file.bytes,
+              dataLevel,
+              mediaType: documentType(file.path),
+            });
+          }
+        } catch (error) {
+          await ctx.tx.query('ROLLBACK TO SAVEPOINT sandbox_outputs');
+          if (!(error instanceof AppError)) throw error;
+          return skipped(error.statusCode >= 500 ? 'STORAGE_FAILED' : 'PATH_UNAVAILABLE');
         }
+        await ctx.tx.query('RELEASE SAVEPOINT sandbox_outputs');
         return {
-          data: summary(
-            output,
-            { documents: input.documents, readsWorkspace: true },
-            data.outputDirectory,
-          ),
+          data: summary(output, source, {
+            saveStatus: 'saved',
+            outputDirectory: data.outputDirectory,
+          }),
           dataLevel,
           afterVersion: await workspaceVersionToken(ctx.tx, ctx.actor, current.draft!.id),
         };

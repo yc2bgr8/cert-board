@@ -165,10 +165,11 @@ function metadata(
 }
 
 export function workspaceDraftUndo(
-  store: DocumentBlobStore,
+  store: DocumentBlobStore | ((context: ToolExecutionContext) => DocumentBlobStore),
   publishes = false,
   pathInput = false,
 ): ToolUndoSpec {
+  const storage = (ctx: ToolExecutionContext) => (typeof store === 'function' ? store(ctx) : store);
   return {
     beforeSchema: workspaceToolUndoStateSchema,
     async capture(ctx, input) {
@@ -182,7 +183,13 @@ export function workspaceDraftUndo(
         targetType: 'workspace_draft',
         targetId,
         beforeVersion: await workspaceVersionToken(ctx.tx, ctx.actor, targetId),
-        beforeState: await captureWorkspaceUndo(ctx.tx, store, ctx.actor, targetId, publishes),
+        beforeState: await captureWorkspaceUndo(
+          ctx.tx,
+          storage(ctx),
+          ctx.actor,
+          targetId,
+          publishes,
+        ),
       };
     },
     async currentVersion(ctx, record) {
@@ -197,7 +204,7 @@ export function workspaceDraftUndo(
         throw fail('WORKSPACE_DRAFT_FORBIDDEN', '不能撤销其他对话的工作副本。', 403);
       return restoreWorkspaceUndo(
         ctx.tx,
-        store,
+        storage(ctx),
         ctx.actor,
         record.targetId,
         workspaceToolUndoStateSchema.parse(record.beforeState),

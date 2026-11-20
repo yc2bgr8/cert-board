@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
-from contextlib import suppress
+from contextlib import asynccontextmanager, contextmanager, suppress
 from pathlib import Path
 from threading import Event, Lock
 from time import monotonic, sleep
@@ -26,10 +26,26 @@ MAX_INPUT = 12 * 1024 * 1024
 MAX_BODY = 18 * 1024 * 1024
 MAX_OUTPUT = 12 * 1024 * 1024
 MAX_CONSOLE = 16_384
+JOB_MEMORY_LIMIT = 768 * 1024 * 1024
+PAGE_SIZE = os.sysconf("SC_PAGE_SIZE")
 SCRATCH = Path("/scratch")
 RUNNER = Path(__file__).with_name("runner.py")
 gate = Lock()
-app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@asynccontextmanager
+async def lifespan(application):
+    application.state.isolated = False
+    probe_code = "import os\nassert os.getuid() != 0"
+    try:
+        probe = await to_thread.run_sync(run, RunRequest(code=probe_code, timeoutSeconds=5), Event())
+        application.state.isolated = probe["status"] == "ok"
+    except (SandboxError, OSError, ValueError):
+        pass
+    yield
+
+
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
 class SandboxError(Exception):
@@ -40,7 +56,7 @@ class SandboxError(Exception):
 
 class InputFile(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    name: str = Field(min_length=1, max_length=160)
+    name: str = Field(min_length=1, max_length=320)
     bodyBase64: str = Field(max_length=16 * 1024 * 1024)
 
 
@@ -60,9 +76,10 @@ def file_name(value):
     name = unicodedata.normalize("NFC", value)
     if (
         name.strip(" .") != name or not name or name in {".", ".."}
-        or re.search(r"[:/\\]", name)
+        or re.search(r'[:/\\<>"|?*]', name)
+        or re.match(r"(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)", name, re.IGNORECASE | re.ASCII)
         or any(unicodedata.category(character).startswith("C") for character in name)
-        or len(name.encode("utf-8")) > 200
+        or len(name) > 160 or len(name.encode("utf-8")) > 200
     ):
         raise SandboxError("SANDBOX_PATH_REJECTED")
     return name
@@ -91,7 +108,7 @@ def materialize(files, folder):
 
 def run_child(root, temporary, seconds, disconnected):
     environment = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "PATH": f"{Path(sys.executable).parent}:/usr/local/bin:/usr/bin:/bin",
         "LANG": "C.UTF-8",
         "HOME": str(temporary),
         "TMPDIR": str(temporary),
@@ -105,53 +122,96 @@ def run_child(root, temporary, seconds, disconnected):
         "OMP_NUM_THREADS": "1",
         "OPENBLAS_NUM_THREADS": "1",
     }
-    with (root / "stdout").open("wb") as stdout, (root / "stderr").open("wb") as stderr:
-        child = subprocess.Popen(
-            [sys.executable, str(RUNNER), str(root), str(seconds)],
-            cwd=root, env=environment, stdin=subprocess.DEVNULL,
-            stdout=stdout, stderr=stderr, start_new_session=True,
-        )
-        deadline = monotonic() + seconds
-        timed_out = False
+    receiver, reporter = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
         try:
-            while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG) is None:
-                if disconnected.is_set():
-                    break
-                if monotonic() >= deadline:
-                    timed_out = True
-                    break
-                sleep(0.02)
+            with (root / "stdout").open("wb") as stdout, (root / "stderr").open("wb") as stderr:
+                child = subprocess.Popen(
+                    [sys.executable, str(RUNNER), str(root), str(seconds), str(reporter)],
+                    cwd=root, env=environment, stdin=subprocess.DEVNULL, pass_fds=(reporter,),
+                    stdout=stdout, stderr=stderr, start_new_session=True,
+                )
         finally:
-            # 子进程尚未回收，PID 不会在清理进程组期间被复用。
-            with suppress(ProcessLookupError):
-                os.killpg(child.pid, signal.SIGKILL)
-            child.wait()
-    status = ("timed_out" if timed_out or child.returncode == -signal.SIGXCPU else
-              "ok" if child.returncode == 0 else "memory_limit" if child.returncode == 73 else "failed")
+            os.close(reporter)
+        stopped = wait_for_job(child, seconds, disconnected)
+        report = os.read(receiver, 2)
+    finally:
+        os.close(receiver)
+    if stopped is None and not report.startswith(b"R"):
+        raise SandboxError("SANDBOX_SETUP_FAILED", 503)
+    status = (stopped if stopped else "timed_out" if child.returncode == -signal.SIGXCPU else
+              "ok" if child.returncode == 0 else "memory_limit" if report == b"RM" else "failed")
     return status, child.returncode
+
+
+def wait_for_job(child, seconds, disconnected):
+    deadline = monotonic() + seconds
+    try:
+        while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT | os.WNOHANG) is None:
+            if disconnected.is_set():
+                return "failed"
+            if monotonic() >= deadline:
+                return "timed_out"
+            if job_rss(child.pid) > JOB_MEMORY_LIMIT:
+                return "memory_limit"
+            sleep(0.02)
+        return None
+    finally:
+        # 子进程尚未回收，PID 不会在清理进程组期间被复用。
+        with suppress(ProcessLookupError):
+            os.killpg(child.pid, signal.SIGKILL)
+        child.wait()
+
+
+def job_rss(group):
+    pages = 0
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isascii() or not entry.name.isdecimal():
+            continue
+        try:
+            fields = (entry / "stat").read_bytes().rsplit(b")", 1)[1].split()
+            if int(fields[2]) == group:
+                pages += int(fields[21])
+        except (FileNotFoundError, ProcessLookupError, IndexError, ValueError):
+            pass
+    return pages * PAGE_SIZE
 
 
 def console(path, root):
     with path.open("rb") as source:
         data = source.read(MAX_CONSOLE + 1)
-    return data[:MAX_CONSOLE].decode("utf-8", errors="replace").replace(str(root), "."), len(data) > MAX_CONSOLE
+    visible = data[:MAX_CONSOLE].decode("utf-8", errors="replace")
+    # 工具回执写入 JSONB，标准输出里的 NUL 必须转换成可存储的文本。
+    return visible.replace("\0", "\ufffd").replace(str(root), "."), len(data) > MAX_CONSOLE
 
 
 def artifacts(root):
     files = []
     size = 0
     paths = set()
-    for directory, folders, names in os.walk(root, followlinks=False):
+    entries = 0
+    def unavailable(_error):
+        raise SandboxError("SANDBOX_OUTPUT_TYPE_REJECTED")
+
+    for directory, folders, names in os.walk(root, onerror=unavailable, followlinks=False):
         parent = Path(directory)
         for name in sorted([*folders, *names]):
             path = parent / name
+            entries += 1
+            parts = path.relative_to(root).parts
+            if entries > 128 or len(parts) > 12:
+                raise SandboxError("SANDBOX_OUTPUT_LIMIT", 413)
             metadata = path.lstat()
+            relative = "/".join(file_name(part) for part in parts)
+            if len(relative.encode("utf-8")) > 512:
+                raise SandboxError("SANDBOX_PATH_REJECTED")
             if stat.S_ISDIR(metadata.st_mode):
+                if not metadata.st_mode & stat.S_IRUSR:
+                    raise SandboxError("SANDBOX_OUTPUT_TYPE_REJECTED")
                 continue
             if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
                 raise SandboxError("SANDBOX_OUTPUT_TYPE_REJECTED")
-            relative = "/".join(file_name(part) for part in path.relative_to(root).parts)
-            if relative in paths or len(relative) > 512:
+            if relative in paths:
                 raise SandboxError("SANDBOX_PATH_REJECTED")
             paths.add(relative)
             size += metadata.st_size
@@ -163,10 +223,66 @@ def artifacts(root):
     return sorted(files, key=lambda row: row["path"])
 
 
+def clear_tree(parent, name):
+    # 使用目录描述符逐层清理，避免深目录触发 Python 递归或完整路径长度限制。
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+    def enter(directory, entry):
+        os.chmod(entry, 0o700, dir_fd=directory)
+        descriptor = os.open(entry, flags, dir_fd=directory)
+        try:
+            items = iter(os.listdir(descriptor))
+        except BaseException:
+            os.close(descriptor)
+            raise
+        return descriptor, (entry, items)
+
+    descriptor, first = enter(parent, name)
+    stack = [first]
+    try:
+        while stack:
+            entry, items = stack[-1]
+            child = next(items, None)
+            if child is None:
+                above = os.open("..", flags, dir_fd=descriptor)
+                try:
+                    os.rmdir(entry, dir_fd=above)
+                except BaseException:
+                    os.close(above)
+                    raise
+                os.close(descriptor)
+                descriptor = above
+                stack.pop()
+            elif stat.S_ISDIR(os.stat(child, dir_fd=descriptor, follow_symlinks=False).st_mode):
+                below, frame = enter(descriptor, child)
+                os.close(descriptor)
+                descriptor = below
+                stack.append(frame)
+            else:
+                os.unlink(child, dir_fd=descriptor)
+    finally:
+        os.close(descriptor)
+
+
+@contextmanager
+def job_directory():
+    path = Path(tempfile.mkdtemp(prefix="job-", dir=SCRATCH))
+    try:
+        yield path
+    finally:
+        parent = os.open(SCRATCH, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            clear_tree(parent, path.name)
+        except OSError as error:
+            app.state.isolated = False
+            raise SandboxError("SANDBOX_CLEANUP_FAILED", 503) from error
+        finally:
+            os.close(parent)
+
+
 def run(request, disconnected):
     started = monotonic()
-    with tempfile.TemporaryDirectory(prefix="job-", dir=SCRATCH) as directory:
-        root = Path(directory)
+    with job_directory() as root:
         inputs, outputs, temporary = (root / name for name in ("inputs", "outputs", "tmp"))
         for folder in (inputs, outputs, temporary):
             folder.mkdir(mode=0o700)
@@ -174,8 +290,6 @@ def run(request, disconnected):
         code = request.code.encode("utf-8")
         (root / "program.py").write_bytes(code)
         status, exit_code = run_child(root, temporary, request.timeoutSeconds, disconnected)
-        if exit_code == 126:
-            raise SandboxError("SANDBOX_SETUP_FAILED", 503)
         stdout, stdout_truncated = console(root / "stdout", root)
         stderr, stderr_truncated = console(root / "stderr", root)
         return {"status": status, "exitCode": exit_code, "elapsedMs": round((monotonic() - started) * 1000),
@@ -186,6 +300,8 @@ def run(request, disconnected):
 
 @app.get("/health")
 async def health():
+    if not app.state.isolated:
+        raise SandboxError("SANDBOX_SETUP_FAILED", 503)
     return {"status": "ok"}
 
 
@@ -199,6 +315,8 @@ async def watch_disconnect(request, disconnected):
 
 @app.post("/run")
 async def execute(request: Request):
+    if not app.state.isolated:
+        raise SandboxError("SANDBOX_SETUP_FAILED", 503)
     if request.headers.get("content-type", "").partition(";")[0].lower().strip() != "application/json":
         raise SandboxError("SANDBOX_INPUT_INVALID", 415)
     if request.headers.get("content-encoding", "identity").lower() != "identity":

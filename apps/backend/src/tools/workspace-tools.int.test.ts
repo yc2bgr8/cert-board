@@ -140,9 +140,7 @@ test('沙箱只读运行允许预览，保存产出进入工作副本并可撤�
   const preview = codeRunOutputSchema.parse(
     (await combined.execute(reference(readonly), 'code_run', { code, inputs })).data,
   );
-  expect(preview.files).toEqual([
-    expect.objectContaining({ path: '报告.pdf', workspacePath: null }),
-  ]);
+  expect(preview.files).toEqual([expect.objectContaining({ path: '报告.pdf' })]);
   const draft = owner.draft!;
   const request = {
     code,
@@ -157,15 +155,53 @@ test('沙箱只读运行允许预览，保存产出进入工作副本并可撤�
   const saved = await combined.execute(reference(), 'code_run_save', request);
   expect(saved.undoId).toEqual(expect.any(String));
   const output = codeRunOutputSchema.parse(saved.data);
-  expect(output.files[0]?.workspacePath).toBe('交付/代码产出/报告.pdf');
+  expect(output.outputDirectory).toBe('交付/代码产出');
   const stored = await context.pool.query(
     'SELECT sha256,media_type FROM workspace_draft_file WHERE draft_id=$1 AND path=$2 AND NOT is_deleted',
     [draft.id, '交付/代码产出/报告.pdf'],
   );
   expect(stored.rows).toEqual([{ sha256: hash(data), media_type: 'application/pdf' }]);
   expect(await store.get(stored.rows[0].sha256)).toEqual(data);
+  const currentDraft = await list();
+  const duplicate = await combined.execute(reference(), 'code_run_save', {
+    ...request,
+    expectedDraftVersion: currentDraft.draftVersion,
+  });
+  expect(duplicate.undoId).toBeNull();
+  expect(duplicate.data).toMatchObject({ saveStatus: 'skipped', saveError: 'PATH_UNAVAILABLE' });
+  expect((await list()).draftVersion).toBe(currentDraft.draftVersion);
   await combined.undo(reference(), saved.undoId!);
   expect((await list()).items.some((entry) => entry.path === '交付/代码产出/报告.pdf')).toBe(false);
+
+  const largePaths = Array.from(
+    { length: 32 },
+    (_, index) => `${'a'.repeat(160)}/${'b'.repeat(160)}/${'c'.repeat(160)}/${index}.pdf`,
+  );
+  fetchMock.mockImplementationOnce(async (_url, init) => {
+    const script = JSON.parse(String(init?.body)).code as string;
+    return Response.json({
+      status: 'ok',
+      exitCode: 0,
+      elapsedMs: 1,
+      codeSha256: hash(script),
+      inputHashes: [],
+      stdout: '\u001b'.repeat(2500),
+      stderr: '\u001b'.repeat(2500),
+      stdoutTruncated: false,
+      stderrTruncated: false,
+      files: largePaths.map((path) => ({
+        path,
+        sha256: hash(data),
+        byteSize: data.length,
+        bodyBase64: data.toString('base64'),
+      })),
+    });
+  });
+  const manifest = codeRunOutputSchema.parse(
+    (await combined.execute(reference(readonly), 'code_run', { code })).data,
+  );
+  expect(manifest.files.map((file) => file.path)).toEqual(largePaths);
+  expect(manifest.stdoutTruncated).toBe(true);
 });
 
 test('真实登记工具读取、写中文Markdown、精确编辑和保存返回可审核版本', async () => {

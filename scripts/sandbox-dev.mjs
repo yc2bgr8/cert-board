@@ -31,6 +31,7 @@ if (action === 'test') {
     docker([
       'run',
       '--rm',
+      '--init',
       '--network',
       'none',
       '--read-only',
@@ -47,7 +48,7 @@ if (action === 'test') {
       '--cpus',
       '2',
       '--tmpfs',
-      '/scratch:size=256m,uid=65532,gid=65532,mode=0700',
+      '/scratch:size=256m,nr_inodes=4096,uid=65532,gid=65532,mode=0700',
       image,
     ]);
 } else if (Object.hasOwn(operation, action)) {

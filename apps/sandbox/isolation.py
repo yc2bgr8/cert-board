@@ -25,10 +25,20 @@ _BIND_TCP = 1
 _CONNECT_TCP = 2
 _SCOPE_SIGNAL = 2
 _SCOPE_ABSTRACT_UNIX = 1
+# 新版 Linux 的原生 64 位编号可能尚未收入镜像中 libseccomp 的名称表。
+_METADATA_SYSCALLS = {"setxattrat": 463, "removexattrat": 466, "file_setattr": 469}
 
+_EXECUTE = 1
 _WRITE = 1 << 1
+_READ_FILE = 1 << 2
+_READ_DIRECTORY = 1 << 3
+_READ = _READ_FILE | _READ_DIRECTORY
 _OUTPUT_RIGHTS = _WRITE | sum(1 << bit for bit in (4, 5, 7, 8, 9, 10, 12, 13, 14))
-_HANDLED_FILES = _OUTPUT_RIGHTS | (1 << 6) | (1 << 11)
+_HANDLED_FILES = _OUTPUT_RIGHTS | _READ | _EXECUTE | (1 << 6) | (1 << 11)
+_RUNTIME_DIRECTORIES = ("/app/.venv", "/usr/lib", "/usr/lib64", "/usr/local", "/usr/bin",
+                        "/usr/share", "/etc/fonts", "/etc/libreoffice", "/var/cache/fontconfig")
+_RUNTIME_FILES = ("/dev/zero", "/dev/urandom", "/dev/random", "/etc/ld.so.cache",
+                  "/etc/passwd", "/etc/group", "/etc/localtime", "/etc/nsswitch.conf")
 
 _ALLOW = 0x7FFF0000
 _RETURN_ERROR = 0x00050000
@@ -60,19 +70,28 @@ def _syscall(number, *args):
     return result
 
 
-def _restrict_landlock(output, temporary):
+def _restrict_landlock(work):
     if platform.machine() not in {"x86_64", "aarch64"} or _syscall(_CREATE_RULESET, 0, 0, 1) < 6:
         raise OSError("Required Landlock ABI is unavailable")
     config = _Ruleset(_HANDLED_FILES, _BIND_TCP | _CONNECT_TCP, _SCOPE_ABSTRACT_UNIX | _SCOPE_SIGNAL)
     descriptor = _syscall(_CREATE_RULESET, c.byref(config), c.sizeof(config), 0)
     try:
-        for path in (output, temporary):
-            directory = os.open(path, os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC)
+        grants = [
+            (work / "program.py", _READ_FILE),
+            (work / "inputs", _READ),
+            (work / "outputs", _OUTPUT_RIGHTS | _READ),
+            (work / "tmp", _OUTPUT_RIGHTS | _READ),
+            ("/dev/null", _READ_FILE | _WRITE),
+        ]
+        grants.extend((path, _READ | _EXECUTE) for path in _RUNTIME_DIRECTORIES if os.path.isdir(path))
+        grants.extend((path, _READ_FILE) for path in _RUNTIME_FILES if os.path.isfile(path) or path.startswith("/dev/"))
+        for path, access in grants:
+            node = os.open(path, os.O_PATH | os.O_CLOEXEC)
             try:
-                rule = _PathRule(_OUTPUT_RIGHTS, directory)
+                rule = _PathRule(access, node)
                 _syscall(_ADD_RULE, descriptor, _RULE_PATH_BENEATH, c.byref(rule), 0)
             finally:
-                os.close(directory)
+                os.close(node)
         _syscall(_RESTRICT_SELF, descriptor, 0)
     finally:
         os.close(descriptor)
@@ -86,7 +105,9 @@ def _restrict_syscalls():
     def deny(syscall, *comparisons, error=errno.EPERM):
         number = _SECCOMP.seccomp_syscall_resolve_name(syscall.encode("ascii"))
         if number < 0:
-            raise OSError("Required system-call symbol is unavailable")
+            number = _METADATA_SYSCALLS.get(syscall, -1)
+            if number < 0:
+                raise OSError("Required system-call symbol is unavailable")
         rules = (_Compare * len(comparisons))(*comparisons)
         result = _SECCOMP.seccomp_rule_add_array(context, _RETURN_ERROR | error, number, len(rules), rules)
         if result < 0:
@@ -94,8 +115,15 @@ def _restrict_syscalls():
 
     try:
         for name in ("setsid", "setpgid", "setns", "unshare", "ptrace", "process_vm_readv",
-                     "process_vm_writev", "pidfd_getfd", "io_uring_setup", "userfaultfd", "bpf"):
+                     "process_vm_writev", "pidfd_getfd", "io_uring_setup", "userfaultfd", "bpf",
+                     "process_madvise", "process_mrelease", "move_pages", "migrate_pages", "setpriority",
+                     "ioprio_set", "chmod", "fchmod", "fchmodat", "fchmodat2", "chown", "lchown",
+                     "fchown", "fchownat", "utime", "utimes", "futimesat", "utimensat",
+                     "setxattr", "lsetxattr", "fsetxattr", "removexattr", "lremovexattr", "fremovexattr",
+                     *_METADATA_SYSCALLS):
             deny(name)
+        for name in ("prlimit64", "sched_setaffinity", "sched_setparam", "sched_setscheduler", "sched_setattr"):
+            deny(name, _Compare(0, _CMP_NE, 0, 0))
         deny("clone3", error=errno.ENOSYS)
         for flag in (0x20000, 0x02000000, 0x04000000, 0x08000000, 0x10000000, 0x20000000, 0x40000000):
             deny("clone", _Compare(0, _CMP_MASKED_EQ, flag, flag))
@@ -108,8 +136,8 @@ def _restrict_syscalls():
         _SECCOMP.seccomp_release(context)
 
 
-def constrain(output, temporary):
+def constrain(work):
     if _LIBC.prctl(38, 1, 0, 0, 0) != 0:  # PR_SET_NO_NEW_PRIVS
         raise OSError(c.get_errno(), "Cannot set no-new-privileges")
-    _restrict_landlock(output, temporary)
+    _restrict_landlock(work)
     _restrict_syscalls()

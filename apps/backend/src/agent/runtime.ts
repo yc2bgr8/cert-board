@@ -30,6 +30,7 @@ import { ModelGateway } from '../modelgw/service.js';
 import { createToolRuntime } from './tool-runtime.js';
 import { loadAgentDefinition } from './definitions.js';
 import { toolLabel, toolSummary } from './tool-progress.js';
+import { sandboxWorkTimeMs } from '../sandbox/client.js';
 import { assertRunLease, renewRunLease, releaseRunLease } from '../runs/lease.js';
 import { lockOwnedRun } from '../runs/lock.js';
 import { RUN_CONTROL_CHANNEL } from '../runs/control.js';
@@ -320,8 +321,8 @@ export async function executeAgentRun(
       ownerId: authority.lease.ownerId,
       generation: authority.lease.generation,
     };
-    // 沙箱请求含上传和返回最多 155 秒。工具事务期间锁定运行行，心跳必须在调用前延长租约。
-    const sandboxLeaseSeconds = 180;
+    // 工具事务锁定运行行。调用前延租，覆盖整个文件传输和执行时限，并留出数据库提交时间。
+    const sandboxLeaseSeconds = sandboxWorkTimeMs / 1000 + 40;
     heartbeat = setInterval(() => {
       if (renewal || closing || controller.signal.aborted) return;
       renewal = renewRunLease(pool, {

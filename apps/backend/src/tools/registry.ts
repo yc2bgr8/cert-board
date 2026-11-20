@@ -62,6 +62,7 @@ export interface ToolHandlerResult<Output = unknown> {
   data: Output;
   dataLevel: DataLevel;
   afterVersion?: VersionInput;
+  noChange?: true;
 }
 export interface ToolUndoRecord extends UndoCapture {
   id: string;
@@ -75,6 +76,7 @@ export interface ToolUndoRecord extends UndoCapture {
 }
 export interface ToolUndoSpec<Input = unknown> {
   beforeSchema: ZodType;
+  allowNoChange?: true;
   capture(
     ctx: ToolExecutionContext,
     input: Input,
@@ -224,7 +226,6 @@ function versionToken(value: unknown): string | null {
   return parsed.data;
 }
 const safeReviewHints = new Map<string, string>([
-  ['SANDBOX_NO_SAVED_OUTPUT', '程序未完成或 outputs/ 为空。可先用 code_run 查看日志。'],
   ['SANDBOX_DUPLICATE_INPUT', '输入别名重复，请为每个文件使用不同名称。'],
   ['SANDBOX_INPUT_LIMIT', '输入合计超过 12 MiB，请减少文件后重试。'],
   ['SANDBOX_OUTPUT_LIMIT', '产出超过文件数或总大小上限，请拆分处理后重试。'],
@@ -1121,6 +1122,7 @@ export class ToolRegistry {
       const actual = versionToken(await callback(() => spec.currentVersion(ctx, before!)));
       if (actual !== before.beforeVersion)
         throw fail(409, 'TOOL_TARGET_CONFLICT', '目标版本已变化，请重新读取业务记录后重试。');
+      if (spec.allowNoChange) await ctx.tx.query('SAVEPOINT tool_write');
       const undo = await ctx.tx.query<{ id: string }>(
         `INSERT INTO undo_record(invocation_id,run_id,conversation_id,user_id,tool_name,tool_version,target_type,target_id,before_state,before_version,status)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending') RETURNING id`,
@@ -1179,11 +1181,18 @@ export class ToolRegistry {
         throw fail(500, 'TOOL_OUTPUT_INVALID', '工具输出转换后无效，本次业务写入已撤销。');
       result = normalized.data;
     }
+    if (result.noChange && (!undoId || !definition.undo?.allowNoChange))
+      throw fail(500, 'TOOL_OUTPUT_INVALID', '该工具未登记无写入回执，本次操作已撤销。');
     if (undoId && before && definition.undo) {
       const actual = versionToken(
         await callback(() => definition.undo!.currentVersion(ctx, before!)),
       );
-      if (
+      if (result.noChange) {
+        if (result.afterVersion || actual !== before.beforeVersion)
+          throw fail(500, 'TOOL_WRITE_VERSION_INVALID', '无写入回执的版本已改变，本次操作已撤销。');
+        await ctx.tx.query('ROLLBACK TO SAVEPOINT tool_write');
+        undoId = null;
+      } else if (
         !result.afterVersion ||
         actual !== result.afterVersion ||
         result.afterVersion === before.beforeVersion
@@ -1193,10 +1202,12 @@ export class ToolRegistry {
           'TOOL_WRITE_VERSION_INVALID',
           '写入后版本未推进或与实际业务版本不一致，本次业务写入已撤销。',
         );
-      await ctx.tx.query(
-        "UPDATE undo_record SET after_version=$1,status='available',updated_at=CURRENT_TIMESTAMP WHERE id=$2",
-        [result.afterVersion, undoId],
-      );
+      else
+        await ctx.tx.query(
+          "UPDATE undo_record SET after_version=$1,status='available',updated_at=CURRENT_TIMESTAMP WHERE id=$2",
+          [result.afterVersion, undoId],
+        );
+      if (definition.undo.allowNoChange) await ctx.tx.query('RELEASE SAVEPOINT tool_write');
     }
     return this.complete(
       ctx,

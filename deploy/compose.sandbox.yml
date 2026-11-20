@@ -8,12 +8,13 @@ x-read-only: &read-only
 services:
   sandbox:
     <<: *read-only
+    init: true
     image: cert-board-sandbox-runtime
     build:
       context: ./apps/sandbox
       target: runtime
     networks: [sandbox-only]
-    tmpfs: ['/scratch:size=256m,uid=65532,gid=65532,mode=0700']
+    tmpfs: ['/scratch:size=256m,nr_inodes=4096,uid=65532,gid=65532,mode=0700']
     mem_limit: 1g
     cpus: 2
     pids_limit: 96

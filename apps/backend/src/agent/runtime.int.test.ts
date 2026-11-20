@@ -130,29 +130,37 @@ test('Agent 剧本在容器模式收不到核实工具，宿主模式仍能使�
   }
 });
 
-test('沙箱通过 Agent 执行时，事件只记录代码、输入及产出的哈希与耗时', async () => {
+test.each(['ok', 'timed_out'] as const)('沙箱执行 %s 时只记录哈希与耗时', async (status) => {
   const context = await createIntegrationContext();
   close = () => context.close();
   const store = new MemoryStore();
   await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
   await seedDevelopmentBudgetPolicy(context.pool, 'test');
-  const target = await queued(context, 'read_only');
+  const saving = status === 'timed_out';
+  const target = await queued(context, saving ? 'ask' : 'read_only');
   const code = 'print("合成程序正文")';
   const codeSha256 = createHash('sha256').update(code).digest('hex');
   const artifact = Buffer.from('合成产出正文');
   const outputSha256 = createHash('sha256').update(artifact).digest('hex');
   const output = {
-    status: 'ok' as const,
-    exitCode: 0,
+    status,
+    exitCode: saving ? -9 : 0,
     elapsedMs: 17,
     codeSha256,
     stdout: '合成输出正文',
     stderr: '',
     stdoutTruncated: false,
     stderrTruncated: false,
-    files: [
-      { path: '合成产出.txt', byteSize: artifact.length, sha256: outputSha256, bytes: artifact },
-    ],
+    files: saving
+      ? []
+      : [
+          {
+            path: '合成产出.txt',
+            byteSize: artifact.length,
+            sha256: outputSha256,
+            bytes: artifact,
+          },
+        ],
   };
   let inputHashes: string[] = [];
   const run: SandboxClient['run'] = async ({ files }) => {
@@ -176,9 +184,10 @@ test('沙箱通过 Agent 执行时，事件只记录代码、输入及产出的�
       kind: 'fixture',
       async send() {
         return round++ === 0
-          ? call('code_run', {
+          ? call(saving ? 'code_run_save' : 'code_run', {
               code,
               inputs: [{ source: 'workspace', path: 'AGENTS.md', name: '示例.md' }],
+              ...(saving ? { expectedDraftVersion: 1, outputDirectory: '交付/合成' } : {}),
             })
           : result({ role: 'assistant', content: '已完成计算。' });
       },
@@ -195,7 +204,11 @@ test('沙箱通过 Agent 执行时，事件只记录代码、输入及产出的�
     },
     target.runId,
   );
-  expect(outcome.status).toBe('completed');
+  if (saving) {
+    expect(outcome).toMatchObject({ status: 'stopped', reasonCode: 'REVIEW_NOT_SUBMITTED' });
+  } else {
+    expect(outcome.status).toBe('completed');
+  }
   const events = await context.pool.query(
     'SELECT * FROM run_event WHERE run_id=$1 AND sandbox_input_hashes IS NOT NULL',
     [target.runId],
@@ -205,10 +218,16 @@ test('沙箱通过 Agent 执行时，事件只记录代码、输入及产出的�
   expect(events.rows[0]).toMatchObject({
     content_hash: codeSha256,
     sandbox_input_hashes: inputHashes,
-    sandbox_output_hashes: [outputSha256],
+    sandbox_output_hashes: saving ? [] : [outputSha256],
     duration_ms: '17',
   });
   expect(JSON.stringify(events.rows)).not.toMatch(/合成|示例/);
+  if (saving) {
+    const undo = await context.pool.query('SELECT id FROM undo_record WHERE run_id=$1', [
+      target.runId,
+    ]);
+    expect(undo.rowCount).toBe(0);
+  }
 });
 
 test('收尾时租约已到期的旧执行者不能写入完成状态或发出终态事件', async () => {

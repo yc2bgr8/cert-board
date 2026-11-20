@@ -37,7 +37,10 @@ const page = z.object({
 });
 const matches = z.object({ items: z.array(z.unknown()).max(30), hasMore: z.boolean() });
 const approval = z.object({ approvalId: z.string().uuid(), status: z.literal('pending') });
-const sandboxStatus = z.object({ status: z.enum(['ok', 'timed_out', 'memory_limit', 'failed']) });
+const sandboxStatus = z.object({
+  status: z.enum(['ok', 'timed_out', 'memory_limit', 'failed']),
+  saveStatus: z.enum(['temporary', 'saved', 'skipped']),
+});
 
 export function toolLabel(name: string) {
   return labels[name] ?? '执行登记工具';
@@ -52,6 +55,7 @@ export function toolSummary(name: string, data: unknown, isError: boolean): stri
       if (parsed.data.status === 'timed_out') return '沙箱到达运行时限，已终止程序';
       if (parsed.data.status === 'memory_limit') return '沙箱达到内存上限，已终止程序';
       if (parsed.data.status === 'failed') return '沙箱程序执行失败';
+      if (parsed.data.saveStatus === 'skipped') return '沙箱已运行，未保存产出';
     }
   }
   if (name === 'doc_read') {

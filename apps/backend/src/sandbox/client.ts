@@ -4,6 +4,7 @@ import { sandboxBaseUrl, sandboxResultSchema, type BackendConfig } from '@cert-b
 import { AppError } from '../api/errors.js';
 
 export const sandboxMaximumBytes = 12 * 1024 * 1024;
+export const sandboxWorkTimeMs = 170_000;
 const responseMaximumBytes = 18 * 1024 * 1024;
 const errorShape = z.object({ code: z.string().regex(/^SANDBOX_[A-Z0-9_]{1,64}$/u) });
 const checksum = (content: Buffer | string) => createHash('sha256').update(content).digest('hex');
