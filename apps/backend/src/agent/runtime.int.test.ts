@@ -362,7 +362,7 @@ test('子任务并行共享父运行的账本，证据冲突时拦截同行写�
   ]);
 });
 
-test.each(['多轮', '单轮超长', '空摘要'] as const)(
+test.each(['多轮', '单轮超长', '空摘要', '压缩窗口不足'] as const)(
   '长对话经模型网关压缩并保留原始消息（%s）',
   async (scenario) => {
     const context = await createIntegrationContext();
@@ -374,7 +374,7 @@ test.each(['多轮', '单轮超长', '空摘要'] as const)(
     const original =
       scenario === '多轮'
         ? '合成历史起点。'
-        : `${'段'.repeat(scenario === '空摘要' ? 52_000 : 70_000)}\n${tail}`;
+        : `${'段'.repeat(scenario === '单轮超长' ? 70_000 : 52_000)}\n${tail}`;
     const origin = await queued(context, 'read_only', undefined, original);
     for (let index = 0; scenario === '多轮' && index < 10; index++) {
       await appendConversationMessage(context.pool, {
@@ -400,6 +400,7 @@ test.each(['多轮', '单轮超长', '空摘要'] as const)(
           id: 'scripted-summary',
           upstreamModel: 'scripted/summary',
           purposes: ['compression'],
+          ...(scenario === '压缩窗口不足' ? { contextLength: 30_000 } : {}),
         },
       ],
     };
@@ -426,7 +427,8 @@ test.each(['多轮', '单轮超长', '空摘要'] as const)(
             });
           }
           expect(request.messages[0]?.content).toContain(decision);
-          if (scenario === '空摘要') expect(request.messages[1]?.content).toBe(original);
+          if (scenario === '空摘要' || scenario === '压缩窗口不足')
+            expect(request.messages[1]?.content).toBe(original);
           else expect(request.messages[1]?.content).toContain('合成压缩摘要');
           if (scenario === '单轮超长') expect(request.messages[1]?.content).toContain(tail);
           expect(request.messages.at(-1)?.content).toBe('请引用项目说明中对写法不一致的决定。');
@@ -440,7 +442,8 @@ test.each(['多轮', '单轮超长', '空摘要'] as const)(
       target.runId,
     );
     expect(outcome.status).toBe('completed');
-    expect(summarized).toBeGreaterThan(0);
+    if (scenario === '压缩窗口不足') expect(summarized).toBe(0);
+    else expect(summarized).toBeGreaterThan(0);
     const originals = await context.pool.query(
       'SELECT count(*)::int AS count FROM conversation_message WHERE run_id=$1',
       [origin.runId],
@@ -454,118 +457,155 @@ test.each(['多轮', '单轮超长', '空摘要'] as const)(
   },
 );
 
-test.each([false, true])('版本重查必须解决原字段冲突，是否省略字段为 %s', async (omitField) => {
-  const context = await createIntegrationContext();
-  close = () => context.close();
-  const store = new MemoryStore();
-  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
-  await seedDevelopmentBudgetPolicy(context.pool, 'test');
-  let documentId = '';
-  for (const version of [1, 2]) {
-    const imported = await ingestParsedDocument(context.pool, store, {
-      projectId: context.projectId,
-      sourceKey: 'SUB-FIXTURE',
-      name: '合成版本.pdf',
-      sourcePath: '合成版本.pdf',
-      sourceSnapshot: createHash('sha256').update(`subagent-fixture-${version}`).digest('hex'),
-      originalSha256: createHash('sha256').update(String(version)).digest('hex'),
-      dataLevel: 'internal',
-      authorType: 'external',
-      sourceMetadata: {},
-      pages: [
+test.each(['解决原字段', '省略原字段', '用其他资料核对原字段'] as const)(
+  '版本重查必须使用新版依据（%s）',
+  async (scenario) => {
+    const context = await createIntegrationContext();
+    close = () => context.close();
+    const store = new MemoryStore();
+    await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+    await seedDevelopmentBudgetPolicy(context.pool, 'test');
+    let documentId = '';
+    for (const version of [1, 2]) {
+      const imported = await ingestParsedDocument(context.pool, store, {
+        projectId: context.projectId,
+        sourceKey: 'SUB-FIXTURE',
+        name: '合成版本.pdf',
+        sourcePath: '合成版本.pdf',
+        sourceSnapshot: createHash('sha256').update(`subagent-fixture-${version}`).digest('hex'),
+        originalSha256: createHash('sha256').update(String(version)).digest('hex'),
+        dataLevel: 'internal',
+        authorType: 'external',
+        sourceMetadata: {},
+        pages: [
+          {
+            pageNumber: 1,
+            text: `CB-FIXTURE-${version}`,
+            method: 'text',
+            locatorKind: 'physical_page',
+          },
+        ],
+      });
+      documentId = imported.documentId;
+    }
+    const alternate =
+      scenario === '用其他资料核对原字段'
+        ? await ingestParsedDocument(context.pool, store, {
+            projectId: context.projectId,
+            sourceKey: 'SUB-ALTERNATE',
+            name: '合成旧清单.pdf',
+            sourcePath: '合成旧清单.pdf',
+            sourceSnapshot: createHash('sha256').update('alternate-subagent').digest('hex'),
+            originalSha256: null,
+            dataLevel: 'internal',
+            authorType: 'external',
+            sourceMetadata: {},
+            pages: [
+              { pageNumber: 1, text: 'CB-FIXTURE-1', method: 'text', locatorKind: 'physical_page' },
+            ],
+          })
+        : null;
+    const target = await queued(context, 'read_only');
+    const models: ModelGatewayConfig = {
+      ...config,
+      models: [
+        config.models[0]!,
         {
-          pageNumber: 1,
-          text: `CB-FIXTURE-${version}`,
-          method: 'text',
-          locatorKind: 'physical_page',
+          ...config.models[0]!,
+          id: 'scripted-version-child',
+          upstreamModel: 'scripted/version-child',
+          purposes: ['subagent'],
         },
       ],
-    });
-    documentId = imported.documentId;
-  }
-  const target = await queued(context, 'read_only');
-  const models: ModelGatewayConfig = {
-    ...config,
-    models: [
-      config.models[0]!,
+    };
+    const seen: number[] = [];
+    const gateway = new ModelGateway(
+      context.pool,
+      models,
       {
-        ...config.models[0]!,
-        id: 'scripted-version-child',
-        upstreamModel: 'scripted/version-child',
-        purposes: ['subagent'],
-      },
-    ],
-  };
-  const seen: number[] = [];
-  const gateway = new ModelGateway(
-    context.pool,
-    models,
-    {
-      kind: 'fixture',
-      async send(model, request) {
-        const last = request.messages.at(-1);
-        if (model.id === 'scripted') {
+        kind: 'fixture',
+        async send(model, request) {
+          const last = request.messages.at(-1);
+          if (model.id === 'scripted') {
+            if (last?.role !== 'tool')
+              return call('subagent_run', {
+                tasks: [
+                  { key: 'left', title: '定位一', assignment: '核对编号' },
+                  { key: 'right', title: '定位二', assignment: '核对编号' },
+                ],
+              });
+            expect(JSON.parse(last.content)).toMatchObject({ status: 'completed', conflicts: [] });
+            return result({ role: 'assistant', content: '已按最新版重新核对。' });
+          }
+          const user = request.messages[1];
+          if (user?.role !== 'user') throw new Error('missing task');
+          const task = z
+            .object({ key: z.string(), assignment: z.string() })
+            .parse(JSON.parse(user.content));
+          const isReread = task.assignment.includes('最新可读版');
           if (last?.role !== 'tool')
-            return call('subagent_run', {
-              tasks: [
-                { key: 'left', title: '定位一', assignment: '核对编号' },
-                { key: 'right', title: '定位二', assignment: '核对编号' },
-              ],
+            return call('doc_read', {
+              id: documentId,
+              version: isReread || task.key === 'right' ? 2 : 1,
+              page: 1,
             });
-          expect(JSON.parse(last.content)).toMatchObject({ status: 'completed', conflicts: [] });
-          return result({ role: 'assistant', content: '已按最新版重新核对。' });
-        }
-        const user = request.messages[1];
-        if (user?.role !== 'user') throw new Error('missing task');
-        const task = z
-          .object({ key: z.string(), assignment: z.string() })
-          .parse(JSON.parse(user.content));
-        const isReread = task.assignment.includes('最新可读版');
-        if (last?.role !== 'tool')
-          return call('doc_read', {
-            id: documentId,
-            version: isReread || task.key === 'right' ? 2 : 1,
-            page: 1,
-          });
-        const read = documentPageReadSchema.parse(JSON.parse(last.content));
-        seen.push(read.version);
-        return result({
-          role: 'assistant',
-          content: JSON.stringify({
-            summary: '按原文核对',
-            missing: [],
-            drafts: [],
-            claims: [
+          const read = documentPageReadSchema.parse(JSON.parse(last.content));
+          if (read.documentId === documentId) seen.push(read.version);
+          if (alternate && isReread && read.documentId === documentId)
+            return call('doc_read', { id: alternate.documentId, version: 1, page: 1 });
+          const sources = request.messages.flatMap((message) =>
+            message.role === 'tool'
+              ? [documentPageReadSchema.parse(JSON.parse(message.content))]
+              : [],
+          );
+          const claim = (field: string, receipt: typeof read, id: string) => ({
+            id,
+            object: '合成器械',
+            field,
+            value: receipt.text,
+            unit: null,
+            status: 'checked',
+            sources: [
               {
-                id: task.key,
-                object: '合成器械',
-                field: isReread && omitField ? '其他字段' : '编号',
-                value: read.text,
-                unit: null,
-                status: 'checked',
-                sources: [{ documentId, version: read.version, page: read.page, quote: read.text }],
+                documentId: receipt.documentId,
+                version: receipt.version,
+                page: receipt.page,
+                quote: receipt.text,
               },
             ],
-          }),
-        });
+          });
+          const claims = [
+            claim(isReread && scenario === '省略原字段' ? '其他字段' : '编号', read, task.key),
+          ];
+          if (alternate && isReread) claims.push(claim('版本记录', sources[0]!, 'version-entry'));
+          return result({
+            role: 'assistant',
+            content: JSON.stringify({
+              summary: '按原文核对',
+              missing: [],
+              drafts: [],
+              claims,
+            }),
+          });
+        },
       },
-    },
-    { environment: 'test' },
-  );
-  const outcome = await executeAgentRun(
-    {
-      pool: context.pool,
-      store,
-      gateway,
-      models,
-      definitions: (code) => buildAgentTools(store, code, context.pool),
-    },
-    target.runId,
-  );
-  expect(outcome.status).toBe(omitField ? 'waiting' : 'completed');
-  if (omitField) expect(outcome.questionId).toEqual(expect.any(String));
-  expect(seen.sort()).toEqual([1, 2, 2, 2]);
-});
+      { environment: 'test' },
+    );
+    const outcome = await executeAgentRun(
+      {
+        pool: context.pool,
+        store,
+        gateway,
+        models,
+        definitions: (code) => buildAgentTools(store, code, context.pool),
+      },
+      target.runId,
+    );
+    expect(outcome.status).toBe(scenario === '解决原字段' ? 'completed' : 'waiting');
+    if (scenario !== '解决原字段') expect(outcome.questionId).toEqual(expect.any(String));
+    expect(seen.sort()).toEqual([1, 2, 2, 2]);
+  },
+);
 
 test('收尾时租约已到期的旧执行者不能写入完成状态或发出终态事件', async () => {
   const context = await createIntegrationContext();

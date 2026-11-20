@@ -215,15 +215,23 @@ export async function investigateSubagents(
     if (conflict.kind !== 'value') continue;
     const key = subagentFieldKey(conflict.subject, conflict.field);
     if (
-      conflict.claims.some(({ task }) => {
+      conflict.claims.some(({ task, claim: original }) => {
         const child = repeated.results.find((result) => result.key === task);
+        const expected = latest.filter(({ documentId }) =>
+          original.sources.some((source) => source.documentId === documentId),
+        );
         return (
           child?.status !== 'completed' ||
           !child.report.claims.some(
             (claim) =>
               claim.status === 'checked' &&
               claim.sources.length > 0 &&
-              subagentFieldKey(claim.object, claim.field) === key,
+              subagentFieldKey(claim.object, claim.field) === key &&
+              expected.every(({ documentId, version }) =>
+                claim.sources.some(
+                  (source) => source.documentId === documentId && source.version === version,
+                ),
+              ),
           )
         );
       })

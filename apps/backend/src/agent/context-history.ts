@@ -52,7 +52,10 @@ export async function compactAgentHistory(input: {
 
   const summaryTokens = Math.min(1600, compressionModel.maxOutputTokens);
   const window = Math.min(80_000, compressionModel.contextLength - summaryTokens - 24_000);
-  if (window < 12_000) throw historyTooLong();
+  if (window < 12_000) {
+    if (originalFits) return history;
+    throw historyTooLong();
+  }
   const partSize = Math.min(4000, Math.floor((window - 2000) / 6));
   const records = history.slice(0, cut).flatMap((message, index) => {
     const characters = Array.from(message.content ?? '');
