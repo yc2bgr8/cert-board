@@ -5,9 +5,11 @@ import path from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import pg from 'pg';
 import { chromium, type Page } from 'playwright-core';
-import { parseBackendConfig } from '@cert-board/shared';
+import { parseBackendConfig, reviewDiffSchema, reviewEvidenceRefSchema } from '@cert-board/shared';
 import { developmentProjectId } from '../projects/seed.js';
 import { nanoToUsd } from '../budget/meter.js';
+import { createDependencies } from '../dependencies.js';
+import { BlobStore } from '../documents/blob-store.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
@@ -135,6 +137,60 @@ async function review(page: Page, pool: pg.Pool, cardId: string, output: string,
   await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
 }
 
+async function inspectSubmission(pool: pg.Pool, cardId: string, skill: 'R09' | 'M02') {
+  const { rows } = await pool.query<{ skill_id: string; diff: unknown; evidence_refs: unknown }>(
+    "SELECT skill_id,diff,evidence_refs FROM review_card WHERE id=$1 AND status='pending'",
+    [cardId],
+  );
+  const row = rows[0];
+  assert.equal(row?.skill_id, skill, '审核卡使用预期技能');
+  const evidence = reviewEvidenceRefSchema.array().parse(row?.evidence_refs);
+  const { rows: documents } = await pool.query<{ source_key: string }>(
+    'SELECT source_key FROM document WHERE id=ANY($1::uuid[])',
+    [evidence.map(({ documentId }) => documentId)],
+  );
+  const keys = new Set(documents.map(({ source_key }) => source_key));
+  const expected =
+    skill === 'R09' ? ['D035'] : ['PREVIEW-M02-REG', 'PREVIEW-M02-FEE', 'PREVIEW-M02-AGENT'];
+  assert.ok(
+    expected.every((key) => keys.has(key)),
+    '审核卡引用了本案全部预期资料',
+  );
+  if (skill === 'R09') {
+    assert.ok(
+      ['K170825', 'K170285'].every((number) =>
+        evidence.some(({ quote }) => quote.includes(number)),
+      ),
+      '审核卡保留实际的两种编号写法',
+    );
+  }
+  return reviewDiffSchema
+    .parse(row?.diff)
+    .changes.filter(({ afterSha256 }) => afterSha256 !== null);
+}
+
+async function verifyRevision(
+  pool: pg.Pool,
+  blobs: BlobStore,
+  cardId: string,
+  original: Awaited<ReturnType<typeof inspectSubmission>>,
+) {
+  const revised = await inspectSubmission(pool, cardId, 'R09');
+  const candidates = revised.filter(
+    ({ path, afterSha256 }) =>
+      path.toLowerCase().endsWith('.md') &&
+      !original.some((old) => old.afterSha256 === afterSha256),
+  );
+  const reports = await Promise.all(candidates.map(({ afterSha256 }) => blobs.get(afterSha256!)));
+  assert.ok(
+    reports.some((data) => {
+      const text = data.toString('utf8');
+      return ['核查范围', '已核实', '待核实'].every((section) => text.includes(section));
+    }),
+    '修改版报告实际补充核查范围、已核实和待核实',
+  );
+}
+
 async function verifyTools(pool: pg.Pool, conversationId: string) {
   const list = (
     await pool.query<{ tool_name: string }>(
@@ -211,7 +267,9 @@ async function main() {
   if (!password || !evidenceFolder || !testedCommit) throw new Error('WALKTHROUGH_ENVIRONMENT');
   const startedAt = new Date();
   await mkdir(evidenceFolder, { recursive: true });
-  const pool = new pg.Pool({ connectionString: config.DATABASE_URL, max: 2 });
+  const resources = createDependencies(config);
+  const pool = resources.database;
+  const blobs = new BlobStore(resources.storage, config.MINIO_BUCKET);
   const browser = await chromium.launch({
     executablePath: await installedBrowser(),
     headless: true,
@@ -228,7 +286,12 @@ async function main() {
     });
     const page = await browserContext.newPage();
     stage = '真实浏览器登录';
-    await page.goto(config.WEB_ORIGIN);
+    const home = await page.goto(config.WEB_ORIGIN);
+    const instance = process.env.CERT_WALKTHROUGH_INSTANCE;
+    if (process.env.CERT_WALKTHROUGH_DIAGNOSTIC !== '1') {
+      assert.ok(instance);
+      assert.equal(home?.headers()['x-cert-preview-instance'], instance);
+    }
     await page.getByRole('textbox', { name: '账号', exact: true }).fill('zhangsan');
     await page.getByLabel('密码', { exact: true }).fill(password);
     await page.getByRole('button', { name: '登录', exact: true }).click();
@@ -254,13 +317,15 @@ async function main() {
       '请使用 R09 检查 L08 申报包中对比器械 K 号的写法，写入核查报告并提交审核。请逐页核对、引用两处原文，保留不确定事项。',
     );
     const original = await waitForReview(page, pool, registration, 1);
+    const firstReport = await inspectSubmission(pool, original, 'R09');
     await review(page, pool, original, path.join(evidenceFolder, 'r09-first-review.png'), false);
     stage = '真实 R09 修改重提和人工通过';
     await send(
       page,
-      '请在报告中补充本次资料核查的范围，明确区分已核实和待核实事项，保存后重新提交审核。',
+      '请在原报告补充“核查范围”“已核实”“待核实”三个小节，写明本次资料范围，明确区分已核实和待核实事项，保存并重新提交审核。',
     );
     const revised = await waitForReview(page, pool, registration, 2);
+    await verifyRevision(pool, blobs, revised, firstReport);
     await review(page, pool, revised, path.join(evidenceFolder, 'r09-approved.png'), true);
     const registrationTools = await verifyTools(pool, registration);
 
@@ -271,6 +336,7 @@ async function main() {
       '请使用 M02 核对三类合成年度注册档案，报告实际读取的记录、证据和待核实事项，保存并提交审核。',
     );
     const maintenanceReview = await waitForReview(page, pool, maintenance, 1);
+    await inspectSubmission(pool, maintenanceReview, 'M02');
     await review(
       page,
       pool,
@@ -322,6 +388,7 @@ async function main() {
     const proof = {
       status: 'passed',
       commit: testedCommit,
+      instance,
       errorId,
       verification,
       registration: {
@@ -342,7 +409,7 @@ async function main() {
     console.log(`真实浏览器走查完成。记录在 ${evidenceFolder}。`);
   } finally {
     await browser.close();
-    await pool.end();
+    await resources.close();
   }
 }
 

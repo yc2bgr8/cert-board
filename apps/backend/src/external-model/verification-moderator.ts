@@ -26,7 +26,7 @@ export function createVerificationModerator(
     instructions: string,
     transcript: readonly Pick<VerificationMessage, 'type' | 'text'>[],
     localReviewModel?: string,
-    peer?: { modelId: string; beforeDispatch: () => Promise<void> },
+    peer?: { modelId: string; exchangeId: string; beforeDispatch: () => Promise<void> },
   ) {
     if (!scope.room.projectId && !localReviewModel) return null;
     const { rows } = await database.query<{
@@ -93,7 +93,7 @@ export function createVerificationModerator(
           stream: false,
         },
         {
-          requestKey: randomUUID(),
+          requestKey: peer?.exchangeId ?? randomUUID(),
           runId,
           conversationId: context.id,
           userId: context.user_id,
@@ -132,7 +132,7 @@ export function createVerificationModerator(
   }
   return {
     async peer(
-      scope: Scope,
+      scope: Scope & { exchangeId: string },
       prompt: VerificationPrompt,
       modelId: string,
       beforeDispatch: () => Promise<void>,
@@ -142,7 +142,7 @@ export function createVerificationModerator(
         prompt.instructions,
         prompt.transcript.map(({ role, text }) => ({ type: 'human', text: `${role}：${text}` })),
         undefined,
-        { modelId, beforeDispatch },
+        { modelId, exchangeId: scope.exchangeId, beforeDispatch },
       );
       if (!reply) return null;
       const archive = z.record(z.string(), z.unknown()).safeParse(structured(reply.text));

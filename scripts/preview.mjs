@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { mkdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -107,6 +108,7 @@ async function acceptedVersion() {
   if (
     proof.status !== 'passed' ||
     proof.commit !== evidence.commit ||
+    typeof proof.instance !== 'string' ||
     !proof.errorId ||
     !proof.registration?.url ||
     !proof.maintenance?.url ||
@@ -147,13 +149,14 @@ async function acceptedRoot(commit) {
   return source;
 }
 
-async function waitForReady(port, route = '/health') {
+async function waitForReady(port, route, instance, serviceExited) {
   for (let attempt = 0; attempt < 30; attempt++) {
+    if (serviceExited()) break;
     try {
       const result = await fetch(`http://127.0.0.1:${port}${route}`, {
         signal: AbortSignal.timeout(1500),
       });
-      if (result.ok) return;
+      if (result.ok && result.headers.get('x-cert-preview-instance') === instance) return;
     } catch {
       /* 回环服务启动中 */
     }
@@ -173,6 +176,8 @@ export async function startPreview(slotName, preparedSource) {
   await node(['--import', 'tsx', 'apps/backend/src/preview/seed.ts'], source, seed);
   if (slotName !== 'lan') await pnpm(['build'], source);
   const services = [];
+  const instance = randomUUID();
+  let exited = false;
   const stop = async () => {
     for (const service of services)
       if (service.child.exitCode === null) service.child.kill('SIGTERM');
@@ -190,12 +195,19 @@ export async function startPreview(slotName, preparedSource) {
           process.execPath,
           ['--import', 'tsx', `apps/backend/src/${backendEntries[kind]}`],
           source,
-          backendEnvironment(kind, runtime),
+          {
+            ...backendEnvironment(kind, runtime),
+            ...(kind === 'api' ? { CERT_PREVIEW_INSTANCE: instance } : {}),
+          },
           path.join(logDirectory, `${kind}.log`),
           kind === 'api' && slotName === 'lan',
         ),
       );
-    await waitForReady(slot.apiPort);
+    for (const service of services)
+      void service.done.then(() => {
+        exited = true;
+      });
+    await waitForReady(slot.apiPort, '/health', instance, () => exited);
     const web = path.join(source, 'apps', 'web');
     services.push(
       launch(
@@ -212,11 +224,18 @@ export async function startPreview(slotName, preparedSource) {
           '--strictPort',
         ],
         web,
-        { ...baseEnvironment(), CERT_PREVIEW_API_PORT: String(slot.apiPort) },
+        {
+          ...baseEnvironment(),
+          CERT_PREVIEW_API_PORT: String(slot.apiPort),
+          CERT_PREVIEW_INSTANCE: instance,
+        },
         path.join(logDirectory, 'web.log'),
       ),
     );
-    await waitForReady(slot.webPort, '/');
+    void services.at(-1).done.then(() => {
+      exited = true;
+    });
+    await waitForReady(slot.webPort, '/', instance, () => exited);
     console.log(
       `预览地址 ${runtime.WEB_ORIGIN}，账号 zhangsan，密码使用 .env.local 的 DEV_ZHANGSAN_PASSWORD。`,
     );
@@ -224,6 +243,8 @@ export async function startPreview(slotName, preparedSource) {
       stop,
       done: Promise.race(services.map(({ done }) => done)),
       api: services[0].child,
+      instance,
+      exited: () => exited,
       runtime,
       source,
     };

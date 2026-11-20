@@ -29,6 +29,13 @@ async function startApi() {
   if (config.HOST === '0.0.0.0' && !existsSync('/.dockerenv'))
     throw new Error('接口仅在 Docker 内部可监听容器网卡');
   const app = createApp(config);
+  const previewInstance = process.env.CERT_PREVIEW_INSTANCE;
+  if (previewInstance && /^[0-9a-f-]{36}$/u.test(previewInstance)) {
+    app.addHook('onSend', async (_request, reply, payload) => {
+      reply.header('x-cert-preview-instance', previewInstance);
+      return payload;
+    });
+  }
   if (config.WEB_ORIGIN === 'http://127.0.0.1:28380' && process.send) installPreviewDrain(app);
   let stopping = false;
   const stop = async () => {

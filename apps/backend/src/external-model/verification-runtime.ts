@@ -94,7 +94,7 @@ export type VerificationRuntime = {
     model: VerificationModel,
     prompt: VerificationPrompt,
     beforeDispatch: () => Promise<void>,
-    scope?: Pick<ModeratorContext, 'room' | 'ownerId'>,
+    scope?: Pick<ModeratorContext, 'room' | 'ownerId'> & { exchangeId: string },
   ): Promise<unknown>;
 };
 

@@ -45,15 +45,23 @@ async function main() {
           DEV_ZHANGSAN_PASSWORD: runtime.DEV_ZHANGSAN_PASSWORD,
           CERT_WALKTHROUGH_EVIDENCE_DIR: folder,
           CERT_WALKTHROUGH_COMMIT: commit,
+          ...(live ? { CERT_WALKTHROUGH_INSTANCE: live.instance } : {}),
           CERT_WALKTHROUGH_DIAGNOSTIC: diagnostic ? '1' : '0',
           CERT_WALKTHROUGH_VERIFICATION_ONLY: verificationOnly ? '1' : '0',
         },
       },
     );
-    process.exitCode = await new Promise((resolve) => {
+    const completed = new Promise((resolve) => {
       child.once('error', () => resolve(1));
       child.once('close', (code) => resolve(code ?? 1));
     });
+    process.exitCode = live
+      ? await Promise.race([completed, live.done.then(() => 1)])
+      : await completed;
+    if (live?.exited()) {
+      child.kill('SIGTERM');
+      throw new Error('预览进程在正式走查结束前退出。');
+    }
     if (process.exitCode === 0 && !diagnostic) {
       const result = JSON.parse(await readFile(path.join(folder, 'result.json'), 'utf8'));
       const current = clean();

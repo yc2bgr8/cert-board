@@ -43,6 +43,7 @@ import {
   verificationCatalog,
   verificationReply,
   VerificationChannelError,
+  type VerificationChannelStatus,
   type ModeratorContext,
   type VerificationPrompt,
   type VerificationRuntime,
@@ -252,16 +253,13 @@ export class VerificationRooms {
     const defaults = draftDefaults(this.models);
     if (!rows[0]) return defaults;
     const saved = verificationSettingsInputSchema.parse(rows[0]);
-    const migrated = defaults.models.some(
-      ({ channel, id }) => channel === 'gateway' && !saved.models.some((row) => row.id === id),
-    );
     return {
       ...saved,
       models: defaults.models.map((model) => {
         const prior = saved.models.find(
           ({ id, channel }) => id === model.id && channel === model.channel,
         );
-        return prior && !migrated ? prior : model;
+        return prior ?? model;
       }),
     };
   }
@@ -285,6 +283,21 @@ export class VerificationRooms {
     return result.rows[0]?.gateway_ready === true;
   }
 
+  private async readyMembers(
+    db: Executor,
+    participants: VerificationModel[],
+    projectId: string | null,
+    cursor: VerificationChannelStatus,
+  ) {
+    const gateway =
+      projectId !== null &&
+      participants.some(({ channel }) => channel === 'gateway') &&
+      (await this.gatewayAvailable(db));
+    return participants.filter(({ channel }) =>
+      channel === 'cursor' ? cursor === 'ready' || cursor === 'fixture' : gateway,
+    );
+  }
+
   async settings() {
     const { rows } = await this.pool.query<{ model: string; calls: number }>(
       `SELECT model,COUNT(*)::integer AS calls FROM external_model_exchange
@@ -293,11 +306,12 @@ export class VerificationRooms {
        GROUP BY model ORDER BY model`,
     );
     const money = await this.pool.query<{ model: string; actualNano: string; unknown: number }>(
-      `SELECT model,COALESCE(sum(actual_nano),0)::text AS "actualNano",
-        count(*) FILTER(WHERE status='unknown')::int AS unknown FROM external_model_exchange
-        WHERE channel='gateway' AND dispatched_at IS NOT NULL
-        AND date_trunc('month',dispatched_at AT TIME ZONE 'Asia/Shanghai')=date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Shanghai')
-        GROUP BY model ORDER BY model`,
+      `SELECT e.model,COALESCE(sum(COALESCE(u.actual_nano,e.actual_nano)),0)::text AS "actualNano",
+        count(*) FILTER(WHERE e.status='unknown' AND u.actual_nano IS NULL)::int AS unknown
+        FROM external_model_exchange e LEFT JOIN usage_ledger u ON u.request_key=e.request_key
+        WHERE e.channel='gateway' AND e.dispatched_at IS NOT NULL
+        AND date_trunc('month',e.dispatched_at AT TIME ZONE 'Asia/Shanghai')=date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Shanghai')
+        GROUP BY e.model ORDER BY e.model`,
     );
     return verificationSettingsSchema.parse({
       ...(await this.preferences(this.pool)),
@@ -437,31 +451,31 @@ export class VerificationRooms {
   ) {
     const project = input.projectId ? await getProject(db, actor, input.projectId) : null;
     const official = await this.preferences(db);
-    const participants = this.models.flatMap((model) => {
+    const selected = this.models.flatMap((model) => {
       const preference = official.models.find(({ id }) => id === model.id);
       return preference?.enabled && preference.defaultParticipant
         ? [{ ...model, channel: preference.channel }]
         : [];
     });
+    const participants = selected.filter(({ channel }) => project || channel === 'cursor');
     const title = Array.from(input.question.replace(/\s+/gu, ' ')).slice(0, 70).join('');
     const channel = await this.channelStatus(db);
     const source = origin ? await this.linkedSource(db, origin) : undefined;
     if (origin && !source) throw roomAbsent();
     const host = source?.agent_code ?? project?.projectType ?? 'registration';
     const channelReady =
-      ((channel === 'ready' || channel === 'fixture') &&
-        participants.some(({ channel: kind }) => kind === 'cursor')) ||
-      (participants.some(({ channel: kind }) => kind === 'gateway') &&
-        (await this.gatewayAvailable(db)));
+      (await this.readyMembers(db, participants, project?.id ?? null, channel)).length > 0;
     const unavailable = source?.confidential
       ? '原对话含保密资料，当前无法自动核实。请用项目资料继续，并记录不确定事项。'
       : origin && !participants.length
         ? '核实群聊未配置默认模型。请在设置中核对后继续。'
         : channelReady
           ? null
-          : channel === 'unavailable' || channel === 'ready' || channel === 'fixture'
-            ? '默认核实通道暂不可用，请检查外部模型设置。'
-            : channelFailureText[channel];
+          : !project && selected.some(({ channel }) => channel === 'gateway')
+            ? 'OpenRouter 核实需要关联项目。请返回后选择项目重新发起，或恢复 Cursor 通道。'
+            : channel === 'unavailable' || channel === 'ready' || channel === 'fixture'
+              ? '默认核实通道暂不可用，请检查外部模型设置。'
+              : channelFailureText[channel];
     const inserted = await db.query(
       `INSERT INTO external_model_conversation(id,user_id,title,project_id,host_agent,state,participants)
        VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING RETURNING id`,
@@ -690,16 +704,13 @@ export class VerificationRooms {
       ...(input.mention ? { mention: input.mention } : {}),
     });
     const channel = await this.channelStatus(db);
+    const participants = verificationModelSchema.array().parse(room.participants);
+    const ready = await this.readyMembers(db, participants, room.projectId, channel);
     await db.query(
       `UPDATE external_model_conversation SET human_joined=true,state=$2,
        stopped_by=CASE WHEN state='discussing' THEN stopped_by ELSE NULL END,
        conclusion=CASE WHEN state='discussing' THEN conclusion ELSE NULL END WHERE id=$1`,
-      [
-        id,
-        channel === 'ready' || channel === 'fixture' || (await this.gatewayAvailable(db))
-          ? 'discussing'
-          : 'paused',
-      ],
+      [id, ready.length ? 'discussing' : 'paused'],
     );
   }
 
@@ -895,8 +906,14 @@ export class VerificationRooms {
           (candidate) =>
             candidate.id === model.id && candidate.enabled && candidate.channel === model.channel,
         );
+      const ready = await this.readyMembers(
+        db,
+        participants,
+        room.projectId,
+        await this.channelStatus(db),
+      );
       const eligible = eligibleParticipants(
-        participants.filter((model) => !failed.has(model.id) && enabled(model)),
+        ready.filter((model) => !failed.has(model.id) && enabled(model)),
         attempts,
         preference.autoRounds,
         room.humanJoined,
@@ -1323,7 +1340,7 @@ export class VerificationRooms {
           });
           dispatched = true;
         },
-        { room: publicRoom(work.room), ownerId: work.room.ownerId },
+        { room: publicRoom(work.room), ownerId: work.room.ownerId, exchangeId: sent.archiveId },
       );
       if (
         wire &&
@@ -1384,20 +1401,29 @@ export class VerificationRooms {
     await this.transaction(async (db) => {
       const current = await this.room(db, id, true);
       if (current.leaseId !== work.leaseId) return;
+      const gatewayAmount =
+        dispatched && model.channel === 'gateway'
+          ? ((
+              await db.query<{ actual_nano: string | null }>(
+                "SELECT actual_nano FROM usage_ledger WHERE request_key=$1 AND status IN ('settled','not_sent')",
+                [sent.archiveId],
+              )
+            ).rows[0]?.actual_nano ??
+            nanoAmountSchema.safeParse(raw?.costNano).data ??
+            null)
+          : null;
       await db.query(
         `UPDATE external_model_exchange SET status=$2,actual_nano=$4,returned=$3,updated_at=clock_timestamp()
          WHERE id=$1 AND status='reserved'`,
         [
           sent.archiveId,
           dispatched
-            ? model.channel === 'cursor' || nanoAmountSchema.safeParse(raw?.costNano).success
+            ? model.channel === 'cursor' || gatewayAmount !== null
               ? 'settled'
               : 'unknown'
             : 'not_sent',
           raw === null ? null : JSON.stringify(raw),
-          !dispatched || model.channel === 'cursor'
-            ? '0'
-            : (nanoAmountSchema.safeParse(raw?.costNano).data ?? null),
+          !dispatched || model.channel === 'cursor' ? '0' : gatewayAmount,
         ],
       );
       await this.append(db, id, post);
