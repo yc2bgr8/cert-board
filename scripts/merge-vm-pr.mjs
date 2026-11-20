@@ -1,8 +1,13 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, readFile, rmdir } from 'node:fs/promises';
+import { mkdir, readFile, rmdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { verifyMergeReport, verifyRemotePair } from './acceptance-vm-policy.mjs';
+import {
+  shaPattern,
+  verifyMergedCommit,
+  verifyMergeReport,
+  verifyRemotePair,
+} from './acceptance-vm-policy.mjs';
 
 const { values } = parseArgs({
   options: {
@@ -10,6 +15,8 @@ const { values } = parseArgs({
     report: { type: 'string' },
     'reviewed-head': { type: 'string' },
     subject: { type: 'string' },
+    acceptance: { type: 'string', multiple: true },
+    'no-special-checks': { type: 'boolean' },
   },
 });
 const gh = process.env.CERT_BOARD_GH_EXECUTABLE || 'gh';
@@ -24,17 +31,35 @@ async function main() {
   if (!/^[1-9]\d*$/u.test(values.pr ?? '') || !values.report || !values.subject?.trim())
     throw new Error('请输入 PR 编号、虚拟机通过报告、已复审提交及合并标题。');
   const report = JSON.parse(await readFile(values.report, 'utf8'));
-  verifyMergeReport(report, values['reviewed-head']);
+  if (Boolean(values.acceptance) === Boolean(values['no-special-checks']))
+    throw new Error('请输入已复审的专项清单，或明确确认本 PR 无专项。');
+  verifyMergeReport(report, values['reviewed-head'], values.acceptance ?? []);
   const common = run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir']);
   const lock = path.join(common, 'cert-board-vm-merge.lock');
+  const owner = path.join(lock, 'owner.json');
   try {
     await mkdir(lock);
   } catch (error) {
     if (error?.code === 'EEXIST')
-      throw new Error('已有合并在进行，请等同一工作区的合并任务结束。', { cause: error });
+      throw new Error('已有合并锁。请按仓库验收说明核对 owner.json 和远端 PR 状态。', {
+        cause: error,
+      });
     throw error;
   }
+  let recorded = false;
   try {
+    await writeFile(
+      owner,
+      JSON.stringify({
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        pr: values.pr,
+        base: report.base,
+        head: report.head,
+      }),
+      { flag: 'wx', mode: 0o600 },
+    );
+    recorded = true;
     if (run('git', ['status', '--porcelain'])) throw new Error('请先保存工作区改动再合并。');
     const pr = JSON.parse(
       run(gh, [
@@ -64,19 +89,29 @@ async function main() {
       values.subject,
     ]);
     const merged = JSON.parse(
-      run(gh, ['pr', 'view', values.pr, '--json', 'state,mergeCommit,url']),
+      run(gh, ['pr', 'view', values.pr, '--json', 'state,baseRefName,mergeCommit,url']),
     );
-    run('git', ['fetch', 'origin', 'main']);
     const commit = merged.mergeCommit?.oid;
-    if (
-      merged.state !== 'MERGED' ||
-      !commit ||
-      run('git', ['show', '-s', '--format=%P', commit]) !== report.base ||
-      run('git', ['show', '-s', '--format=%T', commit]) !== report.mergeTree
-    )
-      throw new Error('远端合并结果与虚拟机报告不同，请暂停后续合并并检查 main。');
+    if (typeof commit !== 'string' || !shaPattern.test(commit))
+      throw new Error('找不到已合并的提交，请检查 GitHub 上的 PR 状态。');
+    run('git', ['fetch', 'origin', 'refs/heads/main']);
+    const fetchedMain = run('git', ['rev-parse', 'FETCH_HEAD']);
+    const inMain =
+      spawnSync('git', ['merge-base', '--is-ancestor', commit, fetchedMain], {
+        stdio: 'ignore',
+        windowsHide: true,
+        shell: false,
+      }).status === 0;
+    verifyMergedCommit(report, {
+      state: merged.state,
+      baseRefName: merged.baseRefName,
+      inMain,
+      parent: inMain ? run('git', ['show', '-s', '--format=%P', commit]) : null,
+      tree: inMain ? run('git', ['show', '-s', '--format=%T', commit]) : null,
+    });
     console.log(JSON.stringify({ commit, tree: report.mergeTree, url: merged.url }));
   } finally {
+    if (recorded) await unlink(owner);
     await rmdir(lock);
   }
 }

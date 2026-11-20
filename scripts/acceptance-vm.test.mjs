@@ -10,6 +10,7 @@ import {
   validateAcceptanceScripts,
   validateConfigurationPaths,
   verifyMergeReport,
+  verifyMergedCommit,
   verifyRemotePair,
 } from './acceptance-vm-policy.mjs';
 
@@ -92,15 +93,51 @@ test('合并要求完整已复审报告，main 或 PR 变化就阻止', () => {
     baseRefOid: base,
     headRefOid: head,
   };
-  expect(() => verifyMergeReport(report, head)).not.toThrow();
-  expect(() => verifyMergeReport(report, tree)).toThrow('完整');
-  expect(() => verifyMergeReport({ ...report, steps: report.steps.slice(0, -1) }, head)).toThrow(
-    '完整',
-  );
+  expect(() => verifyMergeReport(report, head, [])).not.toThrow();
+  expect(() => verifyMergeReport(report, head)).toThrow('完整');
+  expect(() => verifyMergeReport(report, head, ['test:real'])).toThrow('完整');
+  expect(() => verifyMergeReport(report, tree, [])).toThrow('完整');
   expect(() =>
-    verifyMergeReport({ ...report, steps: [...report.steps, { name: 'pr-1', exitCode: 0 }] }, head),
+    verifyMergeReport({ ...report, steps: report.steps.slice(0, -1) }, head, []),
   ).toThrow('完整');
+  expect(() =>
+    verifyMergeReport(
+      { ...report, steps: [...report.steps, { name: 'pr-1', exitCode: 0 }] },
+      head,
+      ['test:real'],
+    ),
+  ).toThrow('完整');
+  expect(() =>
+    verifyMergeReport(
+      {
+        ...report,
+        steps: [...report.steps, { name: 'pr-1', script: 'test:l08', exitCode: 0 }],
+      },
+      head,
+      ['test:real'],
+    ),
+  ).toThrow('完整');
+  expect(() =>
+    verifyMergeReport(
+      {
+        ...report,
+        steps: [...report.steps, { name: 'pr-1', script: 'test:real', exitCode: 0 }],
+      },
+      head,
+      ['test:real'],
+    ),
+  ).not.toThrow();
   expect(() => verifyRemotePair(report, pr, base)).not.toThrow();
   expect(() => verifyRemotePair(report, pr, tree)).toThrow('重新验收');
   expect(() => verifyRemotePair(report, { ...pr, headRefOid: tree }, base)).toThrow('重新验收');
+});
+
+test('相同父提交与代码树仍需实际进入 main', () => {
+  const report = { base, mergeTree: tree };
+  const merged = { state: 'MERGED', baseRefName: 'main', parent: base, tree, inMain: true };
+  expect(() => verifyMergedCommit(report, merged)).not.toThrow();
+  expect(() => verifyMergedCommit(report, { ...merged, inMain: false })).toThrow('检查 main');
+  expect(() => verifyMergedCommit(report, { ...merged, baseRefName: 'other' })).toThrow(
+    '检查 main',
+  );
 });

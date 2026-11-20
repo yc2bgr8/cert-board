@@ -200,6 +200,8 @@ async function main() {
       .filter(Boolean);
     if (configOnly) {
       validateConfigurationPaths(changed);
+      if (!acceptance.includes('docs:html'))
+        throw new Error('配置变更需要运行 docs:html 并核对工作树。');
       if (readCommand('git', ['ls-files', '--', '.github/workflows/'], root))
         throw new Error('虚拟机配置验收发现仍有 GitHub Actions 工作流。');
       report.steps.push({ name: 'workflow-retired', exitCode: 0, seconds: 0 });

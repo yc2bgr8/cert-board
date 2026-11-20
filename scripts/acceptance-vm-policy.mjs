@@ -60,12 +60,15 @@ export function skippedAcceptance(script, log) {
   );
 }
 
-export function verifyMergeReport(report, reviewedHead) {
+export function verifyMergeReport(report, reviewedHead, expectedAcceptance) {
   const required = [
     ...originalChecks,
     report?.scope === 'configuration' ? 'workflow-retired' : 'walkthrough',
   ];
   const steps = Array.isArray(report?.steps) ? report.steps : [];
+  const actualAcceptance = steps
+    .filter((step) => /^pr-/u.test(step.name))
+    .map(({ script }) => script);
   if (
     report?.status !== 'passed' ||
     !['configuration', 'business'].includes(report.scope) ||
@@ -79,9 +82,25 @@ export function verifyMergeReport(report, reviewedHead) {
     !report.completedAt ||
     new Set(steps.map(({ name }) => name)).size !== steps.length ||
     steps.some((step) => step.exitCode !== 0 || (/^pr-/u.test(step.name) && !step.script)) ||
-    required.some((name) => !steps.some((step) => step.name === name))
+    required.some((name) => !steps.some((step) => step.name === name)) ||
+    !Array.isArray(expectedAcceptance) ||
+    expectedAcceptance.some((script) => !/^[a-z][a-z0-9:.-]*$/u.test(script)) ||
+    (report.scope === 'configuration' && !expectedAcceptance.includes('docs:html')) ||
+    actualAcceptance.length !== expectedAcceptance.length ||
+    expectedAcceptance.some((script, index) => script !== actualAcceptance[index])
   )
     throw new Error('缺少当前已复审提交的完整通过报告。');
+}
+
+export function verifyMergedCommit(report, { state, baseRefName, parent, tree, inMain }) {
+  if (
+    state !== 'MERGED' ||
+    baseRefName !== 'main' ||
+    parent !== report.base ||
+    tree !== report.mergeTree ||
+    !inMain
+  )
+    throw new Error('远端合并结果与虚拟机报告不同，请暂停后续合并并检查 main。');
 }
 
 export function verifyRemotePair(report, pr, main) {
