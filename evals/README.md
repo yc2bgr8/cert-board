@@ -2,8 +2,10 @@
 
 剧本模型测试不需要模型密钥。真实模型测试只在本地运行，费用必须累计记录。
 
-`pnpm eval:agent` 运行 `apps/backend/src/agent/pi/kernel.test.ts` 的固定剧本，以及 Pi 依赖隔离测试。剧本通过与后台相同的 `runAgentKernel`、真实 Pi 1.3 事件流和工具适配器执行；只把模型回执与工具业务结果替换为合成夹具，不直接调用 Registry 代替 Agent 循环。
+`pnpm eval:agent` 根据 `evals/agent/suites.json` 运行内核剧本、依赖隔离和合成业务场景。剧本通过与后台相同的 `runAgentKernel`、真实 Pi 1.3 事件流和工具适配器执行。模型回执和业务工具结果由合成夹具提供。
 
-覆盖多轮读写、串行工具、审核/提案后停止、模式与权限拒绝的传播、错误后修正、取消信号、累计用量、预算停止、历史工具配对、调用编号和错误脱敏。命令不读取 `.env.local`，不继承模型密钥或数据库地址，不调用真实模型。
+覆盖多轮读写、串行工具、插话、停止、审核或提案等待、权限拒绝、错误回执、预算与历史。`evals/agent/scenarios.json` 另外覆盖合成 L08 核查送审、保存冲突、M02 缺证据及使用既有核实回执继续。默认命令使用脱敏环境，独立于 `.env.local` 和测试库。
 
-这组评测验证内核行为；真实角色授权、事务回滚、执行权和审核约束仍以 `pnpm test:int` 的 PostgreSQL 集成测试验收。业务技能质量与并行只读优化后续评测，不冒称本命令已验收。
+启动隔离测试服务后，`pnpm eval:agent --integration` 运行复用的 PostgreSQL 场景，覆盖真实授权、工作区冲突、浏览器命令语义、子任务冲突、后台唤醒和 L08 送审。它们也纳入通用 `pnpm test:int`。
+
+真实模型基线以通过的独立虚拟机报告和标准走查回执为来源。执行 `pnpm eval:agent:baseline <report.json> <result.json>` 得到脱敏时长、场景结果和费用。[真实回归基线](../docs/evidence/Agent真实模型回归基线.md)

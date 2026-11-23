@@ -25,6 +25,18 @@ test('评测固定执行真实Pi内核的剧本套件与依赖隔离检查，不
     'run',
     'apps/backend/src/agent/pi/kernel.test.ts',
     'apps/backend/src/agent/pi/dependencies.test.ts',
+    'apps/backend/src/agent/evaluation/scenarios.test.ts',
   ]);
   expect(args.join(' ')).not.toContain('placeholder');
+});
+
+test('集成模式复用真实测试库的 Agent、工作区和浏览器命令回归', () => {
+  const [entry, ...files] = agentEvaluationArguments(true);
+  expect(entry).toMatch(/scripts[\\/]test-integration\.mjs$/u);
+  expect(files).toEqual([
+    'apps/backend/src/agent/runtime.int.test.ts',
+    'apps/backend/src/agent/l08-flow.int.test.ts',
+    'apps/backend/src/workspace/service.int.test.ts',
+    'apps/backend/src/api/conversation-write-routes.int.test.ts',
+  ]);
 });

@@ -1,0 +1,13 @@
+{
+  "headless": [
+    "apps/backend/src/agent/pi/kernel.test.ts",
+    "apps/backend/src/agent/pi/dependencies.test.ts",
+    "apps/backend/src/agent/evaluation/scenarios.test.ts"
+  ],
+  "integration": [
+    "apps/backend/src/agent/runtime.int.test.ts",
+    "apps/backend/src/agent/l08-flow.int.test.ts",
+    "apps/backend/src/workspace/service.int.test.ts",
+    "apps/backend/src/api/conversation-write-routes.int.test.ts"
+  ]
+}

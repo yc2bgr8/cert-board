@@ -6,6 +6,8 @@
 
 独立 Linux 诊断虚拟机通过六项技能集成测试、lint 和 typecheck。专项命令 `pnpm test:int apps/backend/src/skills/rollback.int.test.ts apps/backend/src/skills/versions.int.test.ts` 涵盖最低样本、阈值、并发扫描、驳回再取样、浏览器回退、提醒、通知配额和阈值审计。`pnpm test:e2e` 使用合成样本通过浏览器阈值设置、从「待我处理」进入对应提案、批准和更新通知。标准真实模型走查随干净快照全套验收执行。
 
+候选 `c69e2b900d7b` 的 15 项正式虚拟机验收已全部通过，含 521 项集成、标准真实模型走查和密钥扫描。独立复审通过并合并至 `e9ebfb3`。稳定预览的 0035 已应用，网页和 API 均返回 200。标准真实走查已结算 2.7528364 美元，待核账 0 笔。[PR #59](https://github.com/yc2bgr8/cert-board/pull/59)
+
 ## 界面证据
 
 - 界面稿 12 的「待我处理」沿用原布局，新增技能回退筛选和带编号、版本的事项。实际截图为 1440×900，使用合成事项。[待我处理截图](../evidence/prd8/prd8-12-skill-rollback-inbox.png)
