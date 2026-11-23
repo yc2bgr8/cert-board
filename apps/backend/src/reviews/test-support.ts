@@ -20,6 +20,7 @@ export async function createReviewTestContext(
     readToolName?: string;
     readText?: string;
     documentOwner?: MemberKey;
+    attachment?: { path: string; text: string };
   } = {},
 ) {
   const base = await createIntegrationContext();
@@ -42,6 +43,18 @@ export async function createReviewTestContext(
       "INSERT INTO workspace_file(version_id,path,sha256,byte_size,data_level,media_type) VALUES($1,'交付/核查报告.md',$2,0,'internal','text/markdown')",
       [workspaceVersion, createHash('sha256').update('').digest('hex')],
     );
+    if (options.attachment) {
+      const { path, text } = options.attachment;
+      await base.pool.query(
+        "INSERT INTO workspace_file(version_id,path,sha256,byte_size,data_level,media_type) VALUES($1,$2,$3,$4,'internal','text/markdown')",
+        [
+          workspaceVersion,
+          path,
+          createHash('sha256').update(text).digest('hex'),
+          Buffer.byteLength(text),
+        ],
+      );
+    }
     await base.pool.query('UPDATE workspace SET current_version_id=$1 WHERE id=$2', [
       workspaceVersion,
       workspaceId,

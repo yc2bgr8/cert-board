@@ -32,16 +32,17 @@ const chineseUnits = definitions
   .join('|');
 const gap = '[ \\t\\u00a0\\u202f]*';
 const numberBoundary = '(?<![A-Za-z0-9.+−-])(?<!\\d[,， \\u00a0\\u202f])';
-const unitBoundary = `(?![A-Za-z\\p{N}⁻])(?!${gap}(?:[/⁄^⋅·*×]|per\\b))`;
+const unitBoundary = `(?![A-Za-z\\p{N}⁻])(?!${gap}(?:[/⁄^⋅·×]|per\\b|\\*${gap}[\\p{L}\\p{N}%]))`;
 const decimal = '[+−-]?(?:\\d{1,3}(?:[,，]\\d{3}){1,2}|\\d{1,9})(?:\\.\\d{1,6})?';
 const rangeSeparator = '(?:-|−|–|—|~|～|至|to\\b)';
 const unitAtom = `(?:cm${gap}h[2₂]o|°${gap}[A-Za-z]|℃|${chineseUnits}|[A-Za-zµμΩ%][A-Za-z\\p{N}µμΩ]*)[\\p{N}^⁻]*`;
-const unitLexeme = `(?!to\\b)${unitAtom}(?:${gap}(?:[/⁄⋅·]|per\\b)${gap}${unitAtom})*`;
+const unitLexeme = `(?!to\\b)${unitAtom}(?:${gap}(?:[/⁄⋅·*×]|per\\b)${gap}(?:${decimal}${gap})?${unitAtom})*`;
 const submitted = new RegExp(`^(${decimal})(?:${gap}${rangeSeparator}${gap}(${decimal}))?$`, 'iu');
 const sourceRange = new RegExp(
-  `${numberBoundary}(${decimal})${gap}(${unitLexeme})?${gap}(${rangeSeparator})${gap}(${decimal})${gap}(${unitLexeme})?${unitBoundary}`,
+  `${numberBoundary}(${decimal})${gap}(${unitLexeme})?${gap}(${rangeSeparator})${gap}(${decimal})(?:${gap}(${unitLexeme}))?`,
   'giu',
 );
+const completeUnit = new RegExp(`^${unitBoundary}`, 'iu');
 const sourceScalar = new RegExp(
   `${numberBoundary}(${decimal})${gap}(${unitLexeme})${unitBoundary}`,
   'giu',
@@ -67,14 +68,19 @@ function supportedUnit(raw: string | undefined, family: string) {
 }
 
 function matchesQuote(quote: string, expected: bigint[], unit: Unit) {
-  const ranges = [...quote.matchAll(sourceRange)].filter(
-    ([, , startUnit, separator, , endUnit]) => {
-      if (separator?.toLowerCase() !== 'to' || !startUnit || !endUnit) return true;
-      const first = units.get(unitKey(startUnit));
-      const last = units.get(unitKey(endUnit));
-      return !first || !last || first.family === last.family;
-    },
-  );
+  const ranges = [...quote.matchAll(sourceRange)].filter((range) => {
+    const [, , startUnit, separator, , endUnit] = range;
+    if (
+      separator?.toLowerCase() !== 'to' ||
+      !startUnit ||
+      !endUnit ||
+      !/\b(?:add|mix|dissolve)[ \t]+$/iu.test(quote.slice(0, range.index))
+    )
+      return true;
+    const first = units.get(unitKey(startUnit));
+    const last = units.get(unitKey(endUnit));
+    return !first || !last || first.family === last.family;
+  });
   if (expected.length === 2) {
     return ranges.some((range) => {
       const last = supportedUnit(range[5], unit.family);
@@ -82,6 +88,7 @@ function matchesQuote(quote: string, expected: bigint[], unit: Unit) {
       return (
         first !== undefined &&
         last !== undefined &&
+        completeUnit.test(quote.slice(range.index + range[0].length)) &&
         scaledDecimal(range[1]!, first.scale) === expected[0] &&
         scaledDecimal(range[4]!, last.scale) === expected[1]
       );

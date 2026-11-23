@@ -13,15 +13,8 @@ const cardCount = async () =>
   Number((await context!.pool.query('SELECT count(*) FROM review_card')).rows[0].count);
 
 test('同对话重提独立显示本次修改与所有待批文件', async () => {
-  context = await createReviewTestContext();
-  const attachment = createHash('sha256').update('仍待批的附件').digest('hex');
-  const addAttachment = (versionId: string) =>
-    context!.pool.query(
-      `INSERT INTO workspace_file(version_id,path,sha256,byte_size,data_level,media_type)
-     VALUES($1,'交付/待批附件.md',$2,18,'internal','text/markdown')`,
-      [versionId, attachment],
-    );
-  await addAttachment(context.workspaceVersion);
+  const attachment = { path: '交付/待批附件.md', text: '仍待批的附件' };
+  context = await createReviewTestContext({ attachment });
   const firstReview = reviewSubmitResultSchema.parse((await context.submit()).data);
   const next = (
     await context.pool.query<{ id: string }>(
@@ -36,7 +29,11 @@ test('同对话重提独立显示本次修改与所有待批文件', async () =>
      VALUES($1,'交付/核查报告.md',$2,24,'internal','text/markdown')`,
     [next, after],
   );
-  await addAttachment(next);
+  await context.pool.query(
+    `INSERT INTO workspace_file(version_id,path,sha256,byte_size,data_level,media_type)
+     SELECT $1,path,sha256,byte_size,data_level,media_type FROM workspace_file WHERE version_id=$2 AND path=$3`,
+    [next, context.workspaceVersion, attachment.path],
+  );
   await context.pool.query('UPDATE workspace SET current_version_id=$1 WHERE id=$2', [
     next,
     context.workspaceId,
@@ -83,7 +80,12 @@ test('同对话重提独立显示本次修改与所有待批文件', async () =>
       baseVersionId: null,
       changes: expect.arrayContaining([
         { path: '交付/核查报告.md', change: 'added', beforeSha256: null, afterSha256: after },
-        { path: '交付/待批附件.md', change: 'added', beforeSha256: null, afterSha256: attachment },
+        {
+          path: attachment.path,
+          change: 'added',
+          beforeSha256: null,
+          afterSha256: createHash('sha256').update(attachment.text).digest('hex'),
+        },
       ]),
     },
   });
