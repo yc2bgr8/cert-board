@@ -8,6 +8,7 @@ import {
   reviewDiffSchema,
   structuredSubmissionSchema,
 } from '@cert-board/shared';
+import { approvedReviewReceipt } from '../goals/goal-events.js';
 import type { startBrowserHarness } from './browser-harness.js';
 import { browserReviewPath, browserRevisionText } from './browser-review-fixture.js';
 
@@ -293,8 +294,8 @@ export async function reviewBrowserFlow(
   assert.ok(decided.session_id);
   await page.screenshot({ path: path.join(output, 'review-approved.png'), fullPage: true });
   await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
-  await page.getByText('已收到审核通过通知。', { exact: true }).waitFor();
-  assert.equal(firstDecision.observed.calls, 1);
+  await page.getByText(approvedReviewReceipt, { exact: true }).waitFor();
+  assert.equal(firstDecision.observed.calls, 0);
   await actions.until(async () =>
     Boolean(
       (
@@ -368,9 +369,9 @@ export async function reviewBrowserFlow(
   await card.getByText('已通过，工作区版本已冻结。', { exact: true }).waitFor();
   await page.getByRole('button', { name: '关闭右栏', exact: true }).click();
   await actions.until(
-    async () => (await page.getByText('已收到审核通过通知。', { exact: true }).count()) === 2,
+    async () => (await page.getByText(approvedReviewReceipt, { exact: true }).count()) === 2,
   );
-  assert.equal(secondDecision.observed.calls, 1);
+  assert.equal(secondDecision.observed.calls, 0);
   const followup = await harness.pool.query<{ wake_run_id: string }>(
     `SELECT e.wake_run_id FROM goal_event e JOIN review_decision d ON d.id::text=e.source_key
      WHERE e.source='review_decision' AND d.card_id=$1 AND e.wake_run_id IS NOT NULL`,
@@ -382,6 +383,17 @@ export async function reviewBrowserFlow(
     .getByRole('status')
     .filter({ hasText: /^已完成$/ });
   await completed.waitFor();
+  assert.equal(
+    (
+      await harness.pool.query(
+        `SELECT 1 FROM goal_event e JOIN review_decision d ON d.id::text=e.source_key
+         JOIN usage_ledger u ON u.run_id=e.wake_run_id
+         WHERE e.source='review_decision' AND d.card_id=ANY($1::uuid[])`,
+        [[firstCard.id, nextCard.id]],
+      )
+    ).rowCount,
+    0,
+  );
   assert.equal(
     (await harness.pool.query('SELECT status FROM run WHERE id=$1', [next.runId])).rows[0]?.status,
     'completed',

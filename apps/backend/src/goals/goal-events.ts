@@ -16,6 +16,7 @@ const waitingStatus = {
   manual: 'waiting_decision',
 } as const;
 const inactive = "('waiting_materials','waiting_external','waiting_decision')";
+export const approvedReviewReceipt = '审核已通过，批准版本已冻结。';
 const unavailable = () =>
   new AppError(409, 'GOAL_CONTROL_CONFLICT', '目标状态或方向已更新，请刷新后再处理。');
 
@@ -367,7 +368,10 @@ export async function scanReviewDecisionEvents(pool: Pool) {
         requestKey: row.event_id,
         message: {
           role: 'user',
-          content: `系统续跑通知。审核卡 ${row.card_id} 已由人${row.action === 'approved' ? '通过' : '退回'}。请核对原对话与审核记录，说明需继续处理的事项。禁止代办人工审批或对外发送。`,
+          content:
+            row.action === 'approved'
+              ? `系统续跑通知。审核卡 ${row.card_id} 已由人通过，批准版本已冻结。只根据原对话确认决定，简要说明已明确的待办。请直接回复，不重新读取已送审的草稿、不写入或重新提审。进一步工作等待新的人工任务。禁止代办人工审批或对外发送。`
+              : `系统续跑通知。审核卡 ${row.card_id} 已由人退回。请核对原对话与审核记录，说明需继续处理的事项。禁止代办人工审批或对外发送。`,
         },
       });
     });

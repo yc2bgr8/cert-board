@@ -100,19 +100,68 @@ test('继续投递用票据编号去重，原运行初始投递仍可保留', as
   const run = await queued();
   const ticketId = randomUUID();
   const calls: Array<{ runId: string; ticketId?: string }> = [];
+  let releaseInitial!: () => void;
+  const hold = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
   expect(await enqueueAgentRun(source, run.runId)).toBe(run.runId);
-  expect(await enqueueAgentRun(source, run.runId, ticketId)).toBe(ticketId);
-  expect(await enqueueAgentRun(source, run.runId, ticketId)).toBeNull();
   await consumeAgentRuns(
     source,
     async (runId, _signal, ticket) => {
       calls.push({ runId, ...(ticket ? { ticketId: ticket } : {}) });
+      if (!ticket) await hold;
     },
     () => false,
   );
+  try {
+    // 人工批准产生续跑票据时，原作业已领取并开始处理。
+    await vi.waitFor(() => expect(calls).toEqual([{ runId: run.runId }]), { timeout: 5000 });
+    expect(await enqueueAgentRun(source, run.runId, ticketId)).toBe(ticketId);
+    expect(await enqueueAgentRun(source, run.runId, ticketId)).toBeNull();
+  } finally {
+    releaseInitial();
+  }
   expect((await finalJob(run.runId)).data).toEqual({ runId: run.runId });
   expect((await finalJob(ticketId)).data).toEqual({ runId: run.runId, ticketId });
   expect(calls).toEqual([{ runId: run.runId }, { runId: run.runId, ticketId }]);
+});
+
+test('两个独立运行可以重叠，同一运行的续跑留到原任务退出后', async () => {
+  const source = await queue();
+  const first = await queued();
+  const other = await queued();
+  const ticket = randomUUID();
+  const started = new Set<string>();
+  let releaseFirst!: () => void;
+  const hold = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+
+  await consumeAgentRuns(
+    source,
+    async (runId, _signal, ticketId) => {
+      started.add(ticketId ?? runId);
+      if (runId === first.runId && ticketId === undefined) await hold;
+    },
+    () => false,
+  );
+  try {
+    await enqueueAgentRun(source, first.runId);
+    await vi.waitFor(() => expect(started.has(first.runId)).toBe(true), { timeout: 5000 });
+    await enqueueAgentRun(source, first.runId, ticket);
+    await enqueueAgentRun(source, other.runId);
+    await vi.waitFor(
+      () => {
+        expect(started.has(other.runId)).toBe(true);
+        expect(started.has(ticket)).toBe(false);
+      },
+      { timeout: 5000 },
+    );
+  } finally {
+    releaseFirst();
+  }
+  expect((await finalJob(ticket)).state).toBe('completed');
+  expect((await finalJob(other.runId)).state).toBe('completed');
 });
 
 test('队列错误只保存固定信息，未开始run落failed且不重放', async () => {

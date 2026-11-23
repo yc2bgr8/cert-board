@@ -4,13 +4,19 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import pg from 'pg';
-import { chromium, type Page } from 'playwright-core';
-import { parseBackendConfig, reviewDiffSchema, reviewEvidenceRefSchema } from '@cert-board/shared';
+import { chromium, type BrowserContext, type Page } from 'playwright-core';
+import {
+  parseBackendConfig,
+  reviewDiffSchema,
+  reviewEvidenceRefSchema,
+  type PermissionMode,
+} from '@cert-board/shared';
 import { developmentProjectId } from '../projects/seed.js';
 import { nanoToUsd } from '../budget/meter.js';
 import { createDependencies } from '../dependencies.js';
 import { BlobStore } from '../documents/blob-store.js';
 import { requiredRevisionSections, revisionSections } from './walkthrough-report.js';
+import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthrough-batch.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
@@ -40,7 +46,7 @@ async function freshConversation(
   page: Page,
   projectId: string,
   title: string,
-  permissionMode: 'ask' | 'full',
+  permissionMode: PermissionMode,
 ) {
   await page.getByRole('button', { name: '新对话', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '新对话', exact: true });
@@ -68,7 +74,9 @@ async function send(page: Page, text: string, button = '发送') {
       /\/api\/conversations\/[^/]+\/(?:messages|answers)$/u.test(new URL(response.url()).pathname),
   );
   await page.getByRole('button', { name: button, exact: true }).click();
-  assert.equal((await saved).status(), 200);
+  const response = await saved;
+  assert.equal(response.status(), 200);
+  return (await response.json()) as { runId: string; kind?: string };
 }
 
 async function waitForReview(
@@ -219,7 +227,25 @@ async function verifyTools(pool: pg.Pool, conversationId: string) {
   return list;
 }
 
-async function exerciseVerification(page: Page, pool: pg.Pool, evidenceFolder: string) {
+async function exerciseVerification(
+  page: Page,
+  pool: pg.Pool,
+  evidenceFolder: string,
+  onOpened?: (id: string) => void,
+) {
+  const readyUntil = Date.now() + 30_000;
+  let workerReady = false;
+  while (Date.now() < readyUntil) {
+    const worker = await pool.query(
+      "SELECT 1 FROM verification_worker_state WHERE status='ready' AND gateway_ready AND updated_at > NOW() - interval '15 seconds'",
+    );
+    if (worker.rowCount) {
+      workerReady = true;
+      break;
+    }
+    await wait(500);
+  }
+  assert.ok(workerReady, '外部核实进程必须同时就绪 Cursor 和 OpenRouter');
   await page.getByRole('button', { name: '外部模型', exact: true }).click();
   const group = page.getByRole('region', { name: '外部核实群聊', exact: true });
   const created = page.waitForResponse(
@@ -239,6 +265,7 @@ async function exerciseVerification(page: Page, pool: pg.Pool, evidenceFolder: s
   const opened = await created;
   assert.equal(opened.status(), 200);
   const { id } = (await opened.json()) as { id: string };
+  onOpened?.(id);
   let tested: { channel: string; model: string; status: string }[] = [];
   const until = Date.now() + 7 * 60_000;
   while (Date.now() < until) {
@@ -258,7 +285,7 @@ async function exerciseVerification(page: Page, pool: pg.Pool, evidenceFolder: s
       'SELECT state FROM external_model_conversation WHERE id=$1',
       [id],
     );
-    if (status.rows[0]?.state === 'completed') break;
+    if (['paused', 'completed'].includes(status.rows[0]?.state ?? '')) break;
     await wait(1500);
   }
   assert.ok(tested.some((item) => item.channel === 'cursor' && item.model === 'grok-4-7'));
@@ -273,6 +300,26 @@ async function exerciseVerification(page: Page, pool: pg.Pool, evidenceFolder: s
   await page.screenshot({ path: path.join(evidenceFolder, 'verification-v7.png') });
   return { id, channels: tested };
 }
+
+export type WalkthroughBatchContext = {
+  page: Page;
+  browserContext: BrowserContext;
+  pool: pg.Pool;
+  blobs: BlobStore;
+  evidenceFolder: string;
+  origin: string;
+  blockedRequestCount: () => number;
+  registrationProject: string;
+  maintenanceProject: string;
+  openConversation: typeof freshConversation;
+  send: typeof send;
+  waitForReview: typeof waitForReview;
+  review: typeof review;
+  inspectSubmission: typeof inspectSubmission;
+  verifyRevision: typeof verifyRevision;
+  verifyTools: typeof verifyTools;
+  exerciseVerification: typeof exerciseVerification;
+};
 
 async function main() {
   const config = parseBackendConfig(process.env);
@@ -312,11 +359,40 @@ async function main() {
     await page.getByLabel('密码', { exact: true }).fill(password);
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
+    if (process.env.CERT_WALKTHROUGH_BATCH === '1') {
+      stage = '多场真实对话走查';
+      await exerciseBatch({
+        page,
+        browserContext,
+        pool,
+        blobs,
+        evidenceFolder,
+        origin: config.WEB_ORIGIN,
+        blockedRequestCount: () => blocked,
+        registrationProject: developmentProjectId,
+        maintenanceProject: maintenanceProjectId,
+        openConversation: freshConversation,
+        send,
+        waitForReview,
+        review,
+        inspectSubmission,
+        verifyRevision,
+        verifyTools,
+        exerciseVerification,
+      });
+      return;
+    }
     if (
       process.env.CERT_WALKTHROUGH_DIAGNOSTIC === '1' &&
       process.env.CERT_WALKTHROUGH_VERIFICATION_ONLY === '1'
     ) {
       stage = '单独诊断 v7 的两条真实核实通道';
+      await freshConversation(
+        page,
+        developmentProjectId,
+        '双通道诊断的项目计量上下文',
+        'read_only',
+      );
       const verified = await exerciseVerification(page, pool, evidenceFolder);
       await writeFile(
         path.join(evidenceFolder, 'verification-result.json'),
@@ -328,10 +404,7 @@ async function main() {
     }
     stage = '真实 R09 首次送审';
     const registration = await freshConversation(page, developmentProjectId, 'R09 真实走查', 'ask');
-    await send(
-      page,
-      '请使用 R09 检查 L08 申报包中对比器械 K 号的写法，写入核查报告并提交审核。请逐页核对、引用两处原文，保留不确定事项。',
-    );
+    await send(page, registrationPrompt);
     const original = await waitForReview(page, pool, registration, 1);
     const firstReport = await inspectSubmission(pool, original, 'R09');
     await review(page, pool, original, path.join(evidenceFolder, 'r09-first-review.png'), false);
@@ -347,10 +420,7 @@ async function main() {
 
     stage = '真实 M02 维护核查';
     const maintenance = await freshConversation(page, maintenanceProjectId, 'M02 真实走查', 'full');
-    await send(
-      page,
-      '请使用 M02 核对三类合成年度注册档案，报告实际读取的记录、证据和待核实事项，保存并提交审核。',
-    );
+    await send(page, maintenancePrompt);
     const maintenanceReview = await waitForReview(page, pool, maintenance, 1);
     await inspectSubmission(pool, maintenanceReview, 'M02');
     await review(
