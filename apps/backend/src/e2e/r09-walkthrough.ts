@@ -50,13 +50,22 @@ export async function checkR09Revision(
   const original = reviewDiffSchema
     .parse(initial.diff)
     .changes.find(({ path }) => path === reportPath);
-  const current = reviewDiffSchema.parse(revised.diff).changes;
+  const { changes: current, approvalBase } = reviewDiffSchema.parse(revised.diff);
   assert.equal(current.length, 1, '重提审核只应显示这一份报告的修改。');
   const change = current[0]!;
   assert.ok(original?.afterSha256 && change.afterSha256 && change.beforeSha256);
   assert.equal(change.change, 'modified');
   assert.equal(change.path, reportPath);
   assert.equal(change.beforeSha256, original.afterSha256);
+  assert.ok(
+    approvalBase?.changes.some(
+      (item) =>
+        item.path === reportPath &&
+        item.change === 'added' &&
+        item.afterSha256 === change.afterSha256,
+    ),
+    '重提审核的完整待批范围应包含本轮报告。',
+  );
   const [before, after] = await Promise.all([
     blobs.get(original.afterSha256),
     blobs.get(change.afterSha256),
@@ -68,6 +77,7 @@ export async function checkR09Revision(
   return {
     twoEdits: true,
     exactCitationChecks: true,
+    cumulativeReviewDiff: true,
     cost: await conversationCosts(pool, conversationId),
   };
 }
@@ -86,6 +96,25 @@ async function conversationCosts(pool: pg.Pool, conversationId: string) {
   );
   assert.ok(cost.some(({ model }) => model === 'openai/gpt-6.2-astra-pro'));
   return cost.map(({ paid, ...row }) => ({ ...row, usd: nanoToUsd(BigInt(paid)) }));
+}
+
+export async function readOnlyWorkspaceSnapshot(
+  pool: pg.Pool,
+  projectId: string,
+  conversationId: string,
+) {
+  const { rows } = await pool.query<{ workspace: unknown }>(
+    `SELECT jsonb_build_object(
+       'current', w.current_version_id,
+       'versions', (SELECT count(*) FROM workspace_version WHERE workspace_id=w.id),
+       'draft', (SELECT jsonb_build_object('version',d.version,'base',d.base_version_id,'files',
+         (SELECT jsonb_agg(to_jsonb(f) ORDER BY f.path) FROM workspace_draft_file f WHERE f.draft_id=d.id))
+         FROM workspace_draft d WHERE d.workspace_id=w.id AND d.conversation_id=$2)
+     ) AS workspace FROM workspace w WHERE project_id=$1`,
+    [projectId, conversationId],
+  );
+  assert.equal(rows.length, 1);
+  return rows[0]!.workspace;
 }
 
 export async function checkR09PackageReadOnly(
@@ -152,10 +181,23 @@ export async function checkR09PackageReadOnly(
         sourceKey === 'D023' && page === 17 && /20-30/u.test(text) && /cool/iu.test(text),
     ),
   );
+  const { rows: messages } = await pool.query<{ text: string }>(
+    `SELECT message_json->>'content' AS text FROM conversation_message
+       WHERE run_id=$1 AND message_json->>'role'='assistant'
+         AND jsonb_typeof(message_json->'content')='string' AND btrim(message_json->>'content')<>''
+       ORDER BY seq DESC LIMIT 1`,
+    [runId],
+  );
+  const summary = /核对摘要[：:]\s*水温\s*不同用途\s*[,，]\s*MSDS\s*待核证据[。.]?/u;
+  const summaryLine = messages[0]?.text.trim().split(/\r?\n/u).at(-1)?.trim() ?? '';
+  assert.ok(
+    summaryLine.match(summary)?.[0] === summaryLine,
+    '只读核查的最终回复需包含证据复判摘要。',
+  );
   await page
     .locator('article.live-agent-message')
-    .filter({ hasText: /核对摘要[：:]\s*水温\s*不同用途\s*[,，]\s*MSDS\s*待核证据/u })
     .last()
+    .getByText(summary)
     .waitFor({ timeout: 15_000 });
   const review = await pool.query('SELECT 1 FROM review_card WHERE conversation_id=$1', [
     conversationId,

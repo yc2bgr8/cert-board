@@ -60,7 +60,7 @@ export const reviewEvidenceRefSchema = documentCitationSchema
   .extend({ readInvocationId: id })
   .strict();
 export type ReviewEvidenceRef = z.infer<typeof reviewEvidenceRefSchema>;
-export const reviewDiffSchema = z
+const reviewDiffSectionSchema = z
   .object({
     baseVersionId: id.nullable(),
     changes: z
@@ -77,6 +77,9 @@ export const reviewDiffSchema = z
       .max(1000, '单次改动过多，请缩小交付范围后提交。'),
   })
   .strict();
+export const reviewDiffSchema = reviewDiffSectionSchema.extend({
+  approvalBase: reviewDiffSectionSchema.optional(),
+});
 export const reviewSubmitResultSchema = z
   .object({
     reviewId: id,

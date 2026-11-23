@@ -16,6 +16,8 @@ const definitions = [
   ['voltage', 1n, ['v', 'volt', 'volts']],
   ['mass', 1n, ['g', '克']],
   ['mass', 1000n, ['kg', '千克']],
+  ['volume', 1n, ['ml', '毫升']],
+  ['volume', 1000n, ['l', '升']],
 ] as const;
 const unitKey = (value: string) => value.normalize('NFKC').replace(/\s+/gu, '').toLowerCase();
 const units = new Map<string, Unit>(
@@ -30,14 +32,14 @@ const chineseUnits = definitions
   .join('|');
 const gap = '[ \\t\\u00a0\\u202f]*';
 const numberBoundary = '(?<![A-Za-z0-9.+−-])(?<!\\d[,， \\u00a0\\u202f])';
-const unitBoundary = '(?![A-Za-z\\p{N}/⁄^⋅·*×⁻])';
+const unitBoundary = `(?![A-Za-z\\p{N}⁻])(?!${gap}(?:[/⁄^⋅·*×]|per\\b))`;
 const decimal = '[+−-]?(?:\\d{1,3}(?:[,，]\\d{3}){1,2}|\\d{1,9})(?:\\.\\d{1,6})?';
 const rangeSeparator = '(?:-|−|–|—|~|～|至|to\\b)';
 const unitAtom = `(?:cm${gap}h[2₂]o|°${gap}[A-Za-z]|℃|${chineseUnits}|[A-Za-zµμΩ%][A-Za-z\\p{N}µμΩ]*)[\\p{N}^⁻]*`;
 const unitLexeme = `(?!to\\b)${unitAtom}(?:${gap}(?:[/⁄⋅·]|per\\b)${gap}${unitAtom})*`;
 const submitted = new RegExp(`^(${decimal})(?:${gap}${rangeSeparator}${gap}(${decimal}))?$`, 'iu');
 const sourceRange = new RegExp(
-  `${numberBoundary}(${decimal})${gap}(${unitLexeme})?${gap}${rangeSeparator}${gap}(${decimal})${gap}(${unitLexeme})?${unitBoundary}`,
+  `${numberBoundary}(${decimal})${gap}(${unitLexeme})?${gap}(${rangeSeparator})${gap}(${decimal})${gap}(${unitLexeme})?${unitBoundary}`,
   'giu',
 );
 const sourceScalar = new RegExp(
@@ -65,16 +67,23 @@ function supportedUnit(raw: string | undefined, family: string) {
 }
 
 function matchesQuote(quote: string, expected: bigint[], unit: Unit) {
-  const ranges = [...quote.matchAll(sourceRange)];
+  const ranges = [...quote.matchAll(sourceRange)].filter(
+    ([, , startUnit, separator, , endUnit]) => {
+      if (separator?.toLowerCase() !== 'to' || !startUnit || !endUnit) return true;
+      const first = units.get(unitKey(startUnit));
+      const last = units.get(unitKey(endUnit));
+      return !first || !last || first.family === last.family;
+    },
+  );
   if (expected.length === 2) {
     return ranges.some((range) => {
-      const last = supportedUnit(range[4], unit.family);
+      const last = supportedUnit(range[5], unit.family);
       const first = range[2] ? supportedUnit(range[2], unit.family) : last;
       return (
         first !== undefined &&
         last !== undefined &&
         scaledDecimal(range[1]!, first.scale) === expected[0] &&
-        scaledDecimal(range[3]!, last.scale) === expected[1]
+        scaledDecimal(range[4]!, last.scale) === expected[1]
       );
     });
   }

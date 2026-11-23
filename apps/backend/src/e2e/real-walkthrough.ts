@@ -19,7 +19,7 @@ import { requiredRevisionSections, revisionSections } from './walkthrough-report
 import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthrough-batch.js';
 import { checkOfficialBrowserRun } from './official-walkthrough.js';
 import { checkRulesBrowserRun } from './rules-walkthrough.js';
-import { checkR09PackageReadOnly, checkR09Revision, r09Replacements } from './r09-walkthrough.js';
+import { checkR09PackageReadOnly, checkR09Revision, r09Replacements, readOnlyWorkspaceSnapshot } from './r09-walkthrough.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
@@ -133,10 +133,16 @@ async function waitForReview(
   throw new Error('WALKTHROUGH_REVIEW_TIMEOUT');
 }
 
-async function review(page: Page, pool: pg.Pool, cardId: string, output: string, approve: boolean) {
+async function review(page: Page, pool: pg.Pool, cardId: string, output: string, approve: boolean, pendingReport?: string) {
   await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
   const card = page.getByRole('article', { name: '审核结果', exact: true });
   await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
+  if (pendingReport) {
+    const complete = card.locator('details').filter({ hasText: '完整待批改动' });
+    await complete.locator('summary').click();
+    await complete.getByText(pendingReport, { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(path.dirname(output), 'r09-complete-diff.png') });
+  }
   if (approve) {
     await card.getByRole('button', { name: '通过', exact: true }).click();
     await card.getByText('已通过，工作区版本已冻结。', { exact: true }).waitFor();
@@ -374,17 +380,23 @@ async function main() {
       const revised = await waitForReview(page, pool, conversation, 2);
       await inspectSubmission(pool, revised, 'R09');
       const proof = await checkR09Revision(pool, blobs, original, revised, conversation, reportPath);
-      await review(page, pool, revised, path.join(evidenceFolder, 'r09-eval-approved.png'), true);
+      await review(page, pool, revised, path.join(evidenceFolder, 'r09-eval-approved.png'), true, reportPath);
       stage = 'R09 整包候选复判的只读浏览器专项';
       const readOnly = await freshConversation(page, developmentProjectId, 'R09 整包候选复判', 'read_only');
+      const workspaceBefore = await readOnlyWorkspaceSnapshot(pool, developmentProjectId, readOnly);
       const { runId } = await send(page,
         '请按 R09 对 L08 整包做只读核查，先运行 rules_run 的 R3、R5，再复判候选。实际读取 D021 第29页和 D023 第17页原文，判断两处水温对应的试验用途。核对 MSDS 的 R5 证据完整性，说明仅一处定位时如何归类。不要保存或提交。最后一行用「核对摘要：水温 [同一用途|不同用途|待核]，MSDS [已证实差异|待核证据]。」的格式，按证据填实际状态。',
       );
       const packageProof = await checkR09PackageReadOnly(page, pool, runId, readOnly);
+      assert.deepEqual(
+        await readOnlyWorkspaceSnapshot(pool, developmentProjectId, readOnly),
+        workspaceBefore,
+        '只读整包核查应保留工作区版本及工作副本。',
+      );
       assert.equal(blocked, 0);
       await writeFile(
         path.join(evidenceFolder, 'r09-result.json'),
-        JSON.stringify({ ...proof, packageProof, status: 'passed', instance, commit: testedCommit, approvedInBrowser: true }, null, 2),
+        JSON.stringify({ ...proof, packageProof: { ...packageProof, workspaceUnchanged: true }, status: 'passed', instance, commit: testedCommit, approvedInBrowser: true }, null, 2),
         'utf8',
       );
       console.log('R09 原文、两处改稿和浏览器批准专项通过。');

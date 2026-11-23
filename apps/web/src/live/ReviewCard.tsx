@@ -52,6 +52,78 @@ function ReviewSection({ title, children }: { title: string; children: ReactNode
   );
 }
 
+function ReviewChanges({
+  section,
+  projectId,
+  workspaceVersion,
+  onOpenDiff,
+  onOpenFile,
+}: Pick<Props, 'onOpenDiff' | 'onOpenFile'> & {
+  section: Pick<ReviewCardView['diff'], 'baseVersionId' | 'changes'>;
+  projectId: string;
+  workspaceVersion: string;
+}) {
+  const { baseVersionId, changes } = section;
+  return (
+    <>
+      {!changes.length && <p className="live-review-meta">没有工作区文件改动。</p>}
+      {baseVersionId && changes.length > 0 && (
+        <button
+          type="button"
+          className="live-review-link"
+          onClick={() => onOpenDiff({ projectId, from: baseVersionId, to: workspaceVersion })}
+        >
+          查看版本改动
+        </button>
+      )}
+      <ul className="live-review-file-list">
+        {changes.map((file) => {
+          const readableVersion = file.change === 'deleted' ? baseVersionId : workspaceVersion;
+          return (
+            <li key={file.path}>
+              <span className="live-review-identifier">{file.path}</span>
+              <span className="live-review-meta">{changeLabels[file.change]}</span>
+              <div className="live-review-actions">
+                {baseVersionId && (
+                  <button
+                    type="button"
+                    className="live-review-link"
+                    onClick={() =>
+                      onOpenDiff({
+                        projectId,
+                        from: baseVersionId,
+                        to: workspaceVersion,
+                        path: file.path,
+                      })
+                    }
+                  >
+                    查看对比
+                  </button>
+                )}
+                {readableVersion && (
+                  <button
+                    type="button"
+                    className="live-review-link"
+                    onClick={() =>
+                      onOpenFile({
+                        projectId,
+                        versionId: readableVersion,
+                        path: file.path,
+                      })
+                    }
+                  >
+                    {file.change === 'deleted' ? '打开原文件' : '打开文件'}
+                  </button>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
 function evidenceKey(ref: DocumentCitation) {
   return JSON.stringify([ref.documentId, ref.version, ref.page, ref.quote]);
 }
@@ -178,7 +250,6 @@ function ReviewCardContent({
       ref.version !== sources[0]?.version ||
       ref.page !== sources[0]?.page,
   );
-  const { baseVersionId } = card.diff;
   const { submission } = card;
 
   function refresh() {
@@ -330,67 +401,25 @@ function ReviewCardContent({
           )}
         </ReviewSection>
         <ReviewSection title="改动">
-          {!card.diff.changes.length && <p className="live-review-meta">没有工作区文件改动。</p>}
-          {baseVersionId && card.diff.changes.length > 0 && (
-            <button
-              type="button"
-              className="live-review-link"
-              onClick={() =>
-                onOpenDiff({
-                  projectId: card.projectId,
-                  from: baseVersionId,
-                  to: card.workspaceVersion,
-                })
-              }
-            >
-              查看版本改动
-            </button>
+          <ReviewChanges
+            section={card.diff}
+            projectId={card.projectId}
+            workspaceVersion={card.workspaceVersion}
+            onOpenDiff={onOpenDiff}
+            onOpenFile={onOpenFile}
+          />
+          {card.diff.approvalBase && (
+            <details className="live-review-complete-diff">
+              <summary>完整待批改动（{card.diff.approvalBase.changes.length}）</summary>
+              <ReviewChanges
+                section={card.diff.approvalBase}
+                projectId={card.projectId}
+                workspaceVersion={card.workspaceVersion}
+                onOpenDiff={onOpenDiff}
+                onOpenFile={onOpenFile}
+              />
+            </details>
           )}
-          <ul className="live-review-file-list">
-            {card.diff.changes.map((file) => {
-              const readableVersion =
-                file.change === 'deleted' ? baseVersionId : card.workspaceVersion;
-              return (
-                <li key={file.path}>
-                  <span className="live-review-identifier">{file.path}</span>
-                  <span className="live-review-meta">{changeLabels[file.change]}</span>
-                  <div className="live-review-actions">
-                    {baseVersionId && (
-                      <button
-                        type="button"
-                        className="live-review-link"
-                        onClick={() =>
-                          onOpenDiff({
-                            projectId: card.projectId,
-                            from: baseVersionId,
-                            to: card.workspaceVersion,
-                            path: file.path,
-                          })
-                        }
-                      >
-                        查看对比
-                      </button>
-                    )}
-                    {readableVersion && (
-                      <button
-                        type="button"
-                        className="live-review-link"
-                        onClick={() =>
-                          onOpenFile({
-                            projectId: card.projectId,
-                            versionId: readableVersion,
-                            path: file.path,
-                          })
-                        }
-                      >
-                        {file.change === 'deleted' ? '打开原文件' : '打开文件'}
-                      </button>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
         </ReviewSection>
         <ReviewSection title="依据">
           {sources[0] && secondLocation && (

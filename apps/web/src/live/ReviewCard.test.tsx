@@ -217,6 +217,30 @@ it('展示八部分、过程判断、版本和精确证据，只用浏览器批�
   });
 });
 
+it('重提先显示本次修改，同时可以展开完整待批文件', async () => {
+  fixture((card) => {
+    card.diff.approvalBase = {
+      baseVersionId: null,
+      changes: [
+        ...card.diff.changes,
+        {
+          path: 'reports/仍待审核.md',
+          change: 'added',
+          beforeSha256: null,
+          afterSha256: 'b'.repeat(64),
+        },
+      ],
+    };
+  });
+  const summary = await screen.findByText('完整待批改动（2）');
+  const details = summary.closest('details');
+  expect(details?.open).toBe(false);
+  expect(details?.textContent).toContain('reports/仍待审核.md');
+  await waitFor(() => {
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '通过' }).disabled).toBe(false);
+  });
+});
+
 it('工作区已保存新版本时，历史卡可读且冻结按钮不可操作', async () => {
   const { workspace } = fixture();
   vi.mocked(api.workspace).mockResolvedValue({ ...workspace, currentVersionId: randomUUID() });

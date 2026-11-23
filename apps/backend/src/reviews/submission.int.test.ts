@@ -12,8 +12,16 @@ afterEach(async () => {
 const cardCount = async () =>
   Number((await context!.pool.query('SELECT count(*) FROM review_card')).rows[0].count);
 
-test('同对话重提沿用上一张待审卡的交付版本，仅显示本次文件修改', async () => {
+test('同对话重提独立显示本次修改与所有待批文件', async () => {
   context = await createReviewTestContext();
+  const attachment = createHash('sha256').update('仍待批的附件').digest('hex');
+  const addAttachment = (versionId: string) =>
+    context!.pool.query(
+      `INSERT INTO workspace_file(version_id,path,sha256,byte_size,data_level,media_type)
+     VALUES($1,'交付/待批附件.md',$2,18,'internal','text/markdown')`,
+      [versionId, attachment],
+    );
+  await addAttachment(context.workspaceVersion);
   const firstReview = reviewSubmitResultSchema.parse((await context.submit()).data);
   const next = (
     await context.pool.query<{ id: string }>(
@@ -28,13 +36,14 @@ test('同对话重提沿用上一张待审卡的交付版本，仅显示本次�
      VALUES($1,'交付/核查报告.md',$2,24,'internal','text/markdown')`,
     [next, after],
   );
+  await addAttachment(next);
   await context.pool.query('UPDATE workspace SET current_version_id=$1 WHERE id=$2', [
-    next, context.workspaceId,
+    next,
+    context.workspaceId,
   ]);
-  await context.pool.query(
-    "UPDATE run SET status='completed',finished_at=now() WHERE id=$1",
-    [context.caller.runId],
-  );
+  await context.pool.query("UPDATE run SET status='completed',finished_at=now() WHERE id=$1", [
+    context.caller.runId,
+  ]);
   const run = (
     await context.pool.query<{ id: string }>(
       `INSERT INTO run(conversation_id,user_id,project_id,goal_id,direction_version,status)
@@ -45,20 +54,40 @@ test('同对话重提沿用上一张待审卡的交付版本，仅显示本次�
   ).rows[0]!.id;
   const caller = { ...context.caller, runId: run, callId: randomUUID() };
   await context.read(caller);
-  const revision = reviewSubmitResultSchema.parse((await context.submit(
-    { ...context.submission, workspaceVersion: next },
-    { ...caller, callId: randomUUID() },
-  )).data);
-  const first = (await context.pool.query('SELECT status FROM review_card WHERE id=$1', [firstReview.reviewId])).rows[0];
+  const revision = reviewSubmitResultSchema.parse(
+    (
+      await context.submit(
+        { ...context.submission, workspaceVersion: next },
+        { ...caller, callId: randomUUID() },
+      )
+    ).data,
+  );
+  const first = (
+    await context.pool.query('SELECT status FROM review_card WHERE id=$1', [firstReview.reviewId])
+  ).rows[0];
   expect(first?.status).toBe('pending');
-  const { rows: [card] } = await context.pool.query('SELECT diff FROM review_card WHERE id=$1', [revision.reviewId]);
+  const {
+    rows: [card],
+  } = await context.pool.query('SELECT diff FROM review_card WHERE id=$1', [revision.reviewId]);
   expect(card.diff).toEqual({
     baseVersionId: context.workspaceVersion,
-    changes: [{
-      path: '交付/核查报告.md', change: 'modified',
-      beforeSha256: createHash('sha256').update('').digest('hex'), afterSha256: after,
-    }],
+    changes: [
+      {
+        path: '交付/核查报告.md',
+        change: 'modified',
+        beforeSha256: createHash('sha256').update('').digest('hex'),
+        afterSha256: after,
+      },
+    ],
+    approvalBase: {
+      baseVersionId: null,
+      changes: expect.arrayContaining([
+        { path: '交付/核查报告.md', change: 'added', beforeSha256: null, afterSha256: after },
+        { path: '交付/待批附件.md', change: 'added', beforeSha256: null, afterSha256: attachment },
+      ]),
+    },
   });
+  expect(card.diff.approvalBase.changes).toHaveLength(2);
 });
 
 test.each(['检查项', '证据数'] as const)('提交审核执行发布技能的%s要求', async (requirement) => {
