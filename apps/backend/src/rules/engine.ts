@@ -224,9 +224,17 @@ function contacts(pages: Occurrence[]) {
   const groups = new Map<string, ValueMap>();
   for (const page of pages) {
     for (const contact of page.text.matchAll(
-      /(?:Submitter|Official contact person|Contact person)\s*[:：]\s*(?:Mr\.|Ms\.|Mrs\.|Dr\.)?\s*([^\r\n\t|]{1,120})/giu,
+      /(?:Submitter|Official contact person|Contact person)[ \t]*[:：]([^\r\n\t|]{0,120})/giu,
     )) {
-      const name = contact[1]!
+      const inline = contact[1]!.trim();
+      const next = inline
+        ? ''
+        : (/^\r?\n[ \t]*([^\r\n\t|]{1,120})/u.exec(
+            page.text.slice(contact.index + contact[0].length),
+          )?.[1] ?? '');
+      const field = inline || (/^[^:：\r\n]{1,36}[:：]/u.test(next) ? '' : next);
+      const name = field
+        .replace(/^(?:Mr\.|Ms\.|Mrs\.|Dr\.)[ \t]+/iu, '')
         .split(/\s+(?:Title|Phone|Fax|Email|Address|Applicant)\s*[:：]|[;（(]/iu, 1)[0]!
         .trim()
         .replace(/\s+/gu, ' ');
@@ -302,10 +310,10 @@ function parameters(pages: Occurrence[]) {
   );
 }
 
-const modelToken = '[A-Z][A-Z0-9]{1,11}-[A-Z]{2}';
+const modelToken = '[A-Z][A-Z0-9]{1,11}-[A-Z0-9]{1,12}(?:-[A-Z0-9]{1,12}){0,3}';
 const colorToken = '(?:Blue|Purple|Transparent|White|Black|Pink|Green|Clear)';
 const rowTokens = (prefix: string, token: string) =>
-  new RegExp(`${prefix}\\s+((?:${token}\\s+){0,29}${token})\\b`, 'u');
+  new RegExp(`${prefix}\\s+((?:${token}\\s+){0,29}${token})(?=\\s|$)`, 'u');
 const modelRow = rowTokens('Model', modelToken);
 const upperRow = rowTokens('upper tray', colorToken);
 const lowerRow = rowTokens('lower\\s*tray', colorToken);
@@ -372,12 +380,17 @@ function decodedEntities(text: string) {
 }
 
 const inlineMarkup = new Set(['b', 'em', 'i', 'span', 'strong', 'sub', 'sup', 'u']);
-function xfaFieldText(raw: string) {
+function xfaFields(raw: string) {
   return decodedEntities(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gu, '$1'))
-    .replace(/<!--[\s\S]*?-->/gu, '\n')
+    .replace(/<!--[\s\S]*?-->/gu, '')
     .replace(/<\/?([A-Za-z][\w:.-]*)\b[^<>]*>/gu, (_markup, tag: string) =>
-      inlineMarkup.has(tag.split(':').at(-1)!.toLowerCase()) ? '' : '\n',
-    );
+      inlineMarkup.has(tag.split(':').at(-1)!.toLowerCase())
+        ? ''
+        : tag.toLowerCase() === 'br'
+          ? '\n'
+          : '\0',
+    )
+    .split('\0');
 }
 
 function attachmentReferences(documents: RuleDocument[]) {
@@ -392,12 +405,12 @@ function attachmentReferences(documents: RuleDocument[]) {
     ).map(lower);
     const stems = attached.map(stem).filter(Boolean);
     const refs = new Set<string>();
-    for (const match of xfaFieldText(source.referencesText).matchAll(
-      /please[ \t]+see[ \t]*:?[ \t]*([^\r\n]+)/giu,
-    )) {
-      for (const part of match[1]!.split(/,|;|、|\band\b/giu)) {
-        const name = part.replace(/^[ .:]+|[ .:]+$/gu, '');
-        if (name.length >= 3 && name.length <= 80 && /[A-Za-z]/u.test(name)) refs.add(name);
+    for (const field of xfaFields(source.referencesText)) {
+      for (const match of field.matchAll(/please[ \t]+see\s*:?\s*([^\r\n]+)/giu)) {
+        for (const part of match[1]!.split(/,|;|、|\band\b/giu)) {
+          const name = part.replace(/^[ .:]+|[ .:]+$/gu, '');
+          if (name.length >= 3 && name.length <= 80 && /[A-Za-z]/u.test(name)) refs.add(name);
+        }
       }
     }
     const missing = [...refs].sort().filter((reference) => {

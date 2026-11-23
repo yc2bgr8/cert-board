@@ -162,6 +162,24 @@ test('R2 保留多词姓名并忽略空白申请人字段', () => {
       ],
     },
   ]);
+  expect(
+    runConsistencyRules(
+      [
+        document('A', 'Contact person:\nOfficial contact person: Alice Green'),
+        document('B', 'Official contact person: Alice Green'),
+      ],
+      new Set(['R2']),
+    ),
+  ).toEqual([]);
+  expect(
+    runConsistencyRules(
+      [
+        document('A', 'Contact person:\nAlice Mary Chen'),
+        document('B', 'Contact person: Alice Mary Tan'),
+      ],
+      new Set(['R2']),
+    ),
+  ).toHaveLength(1);
 });
 
 test('R3 保留温度正负号并在引用限额前识别跨文档差异', () => {
@@ -203,6 +221,15 @@ test('R4 接受单型号配置表并发现下托颜色差异', () => {
       ],
     },
   ]);
+  expect(
+    runConsistencyRules(
+      [
+        document('A', 'Model L08-TB\nupper tray White\nlower tray Blue'),
+        document('B', 'Model L08-TB-2\nupper tray White\nlower tray Purple'),
+      ],
+      new Set(['R4']),
+    ),
+  ).toEqual([]);
 });
 
 test('R5 以 XFA 字段为界，不用相邻字段的附件名掩盖未匹配引用', () => {
@@ -212,7 +239,7 @@ test('R5 以 XFA 字段为界，不用相邻字段的附件名掩盖未匹配引
         ...document('A', 'eSTAR 可读原件示例'),
         isEstar: true,
         attachmentNames: ['Instructions.pdf'],
-        referencesText: '<a>please see: <b>MSDS</b></a><b1>Instructions.pdf</b1>',
+        referencesText: '<a>please see:\n<b>MSDS</b></a><b1>Instructions.pdf</b1>',
       },
     ],
     new Set(['R5']),
