@@ -511,6 +511,26 @@ export async function sendConversationMessageTx(
       await saved(tx, actor, conversationId, data.requestKey, 'message', intent.hash, result);
       return result;
     }
+    // 待审核的报告已交付。新一轮处理修改意见，原审核卡仍保留给人查看和决定。
+    await tx.query(
+      `UPDATE run SET status='completed',lease_owner=NULL,lease_expires_at=NULL,
+       finished_at=COALESCE(finished_at,CURRENT_TIMESTAMP),version=version+1,updated_at=CURRENT_TIMESTAMP
+       WHERE id=$1`,
+      [current.id],
+    );
+    await appendConversationEventTx(tx, {
+      runId: current.id,
+      userId: actor.userId,
+      requestKey: data.requestKey,
+      event: {
+        type: 'run_status',
+        payload: {
+          status: 'completed',
+          reasonCode: 'REVIEW_REVISION_STARTED',
+          message: '已收到修改意见，接下来在同一对话中处理。原审核卡仍可查看。',
+        },
+      },
+    });
   }
   const created = await newRun(tx, actor, context, data.requestKey, data.text);
   await tx.query(

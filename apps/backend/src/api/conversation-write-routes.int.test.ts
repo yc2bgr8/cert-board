@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import type { Notification } from 'pg';
 import { afterAll, beforeAll, expect, it } from 'vitest';
@@ -565,7 +566,7 @@ it('等待过程批准时对话中的已批准不能越过浏览器决定入口'
       .rowCount,
   ).toBe(1);
 });
-it('待审核时修改意见开启同对话新轮次，原审核卡保持pending和原内容', async () => {
+it('待审核时修改意见开启同对话新轮次并结束原轮次，原审核卡保持pending和原内容', async () => {
   const review = await createReviewTestContext();
   try {
     const approved = await review.submit();
@@ -588,6 +589,11 @@ it('待审核时修改意见开启同对话新轮次，原审核卡保持pending
       )
     ).rows[0];
     const login = await review.login();
+    const recovery = await readFile(
+      new URL('../db/migrations/0034_close_detached_review_runs.sql', import.meta.url),
+      'utf8',
+    );
+    expect((await review.pool.query(recovery)).rowCount).toBe(0);
     const response = await review.app.inject({
       method: 'POST',
       url: `/api/conversations/${conversationId}/messages`,
@@ -597,6 +603,27 @@ it('待审核时修改意见开启同对话新轮次，原审核卡保持pending
     expect(response.statusCode).toBe(200);
     expect(response.json().kind).toBe('queued');
     expect(response.json().runId).not.toBe(review.caller.runId);
+    expect(
+      (await review.pool.query('SELECT status FROM run WHERE id=$1', [review.caller.runId])).rows[0]
+        ?.status,
+    ).toBe('completed');
+    expect(
+      (
+        await review.pool.query(
+          `SELECT 1 FROM conversation_event WHERE run_id=$1 AND type='run_status'
+           AND payload_json->>'reasonCode'='REVIEW_REVISION_STARTED'`,
+          [review.caller.runId],
+        )
+      ).rowCount,
+    ).toBe(1);
+    // 模拟升级前的新旧轮次并存。恢复旧运行状态，保留当前新轮次与原审核卡。
+    await review.pool.query("UPDATE run SET status='waiting' WHERE id=$1", [review.caller.runId]);
+    expect((await review.pool.query(recovery)).rowCount).toBe(1);
+    expect((await review.pool.query(recovery)).rowCount).toBe(0);
+    expect(
+      (await review.pool.query('SELECT status FROM run WHERE id=$1', [response.json().runId]))
+        .rows[0]?.status,
+    ).toBe('queued');
     expect(
       (
         await review.pool.query(
