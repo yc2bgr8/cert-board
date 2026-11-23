@@ -1,0 +1,118 @@
+[
+  {
+    "id": "r09-l08-review",
+    "description": "在合成 L08 工作副本核查两处编号、保存、检查并送审",
+    "prompt": "请核对 L08 两处对比器械编号，保留来源和待核实事项，保存后提交审核。",
+    "status": "waiting_review",
+    "turns": [
+      {
+        "tool": "skill_load",
+        "input": { "id": "R09" },
+        "result": { "kind": "data", "data": { "skill": "R09", "checks": ["V1", "V3"] } }
+      },
+      {
+        "tool": "doc_read",
+        "input": { "document": "L08-QA-035", "version": 1, "page": 1 },
+        "result": {
+          "kind": "data",
+          "data": {
+            "document": "L08-QA-035",
+            "version": 1,
+            "page": 1,
+            "text": "合成证据：编号写法为 K170825 和 K170285，正确写法待核对。"
+          }
+        }
+      },
+      {
+        "tool": "ws_write",
+        "input": {
+          "path": "交付/一致性检查.md",
+          "text": "L08-QA-035 第 1 版第 1 页出现 K170825 和 K170285。正确编号待核对。"
+        },
+        "result": { "kind": "data", "data": { "changedFiles": 1 } }
+      },
+      {
+        "tool": "workspace_save",
+        "input": { "baseVersion": "fixture-v1", "summary": "保存一致性核对" },
+        "result": { "kind": "data", "data": { "workspaceVersion": "fixture-v2" } }
+      },
+      {
+        "tool": "check_run",
+        "input": { "checks": ["V1", "V3"], "version": "fixture-v2" },
+        "result": { "kind": "data", "data": { "passed": true, "checks": ["V1", "V3"] } }
+      },
+      {
+        "tool": "submit_for_review",
+        "input": {
+          "version": "fixture-v2",
+          "uncertain": ["正确编号待核对"],
+          "source": "L08-QA-035:1:1"
+        },
+        "result": { "kind": "data", "terminal": "review", "data": { "reviewId": "fixture-review" } }
+      }
+    ]
+  },
+  {
+    "id": "workspace-conflict",
+    "description": "保存基线发生冲突后停下来询问",
+    "prompt": "基于刚读过的工作区版本保存报告。",
+    "status": "waiting_question",
+    "turns": [
+      {
+        "tool": "workspace_save",
+        "input": { "baseVersion": "fixture-v1", "summary": "保存合成报告" },
+        "result": {
+          "kind": "error",
+          "code": "WORKSPACE_CONFLICT",
+          "message": "原版本已变化，请核对最新内容后再决定如何合并。"
+        }
+      },
+      {
+        "tool": "ask_user",
+        "input": { "question": "工作区出现新版本。请确认是否先查看对方的修改。" },
+        "result": { "kind": "data", "terminal": "question", "data": { "status": "waiting" } }
+      }
+    ]
+  },
+  {
+    "id": "m02-missing-evidence",
+    "description": "合成年审资料缺原件时提问，保留已读记录",
+    "prompt": "核对合成 M02 年审记录中的缴费凭证。",
+    "status": "waiting_question",
+    "turns": [
+      {
+        "tool": "doc_search",
+        "input": { "query": "合成年审 缴费凭证" },
+        "result": { "kind": "data", "data": { "items": [], "missing": "缴费凭证" } }
+      },
+      {
+        "tool": "ask_user",
+        "input": { "question": "未找到缴费凭证。请提供凭证或允许将其标为待核实。" },
+        "result": { "kind": "data", "terminal": "question", "data": { "status": "waiting" } }
+      }
+    ]
+  },
+  {
+    "id": "resume-with-verification-receipt",
+    "description": "已有核实回执交还同一个内核，读取原文后等待人工确认",
+    "prompt": "核实示例编号在原文中的写法。",
+    "status": "waiting_question",
+    "continuation": {
+      "tool": "consult_external_model",
+      "input": { "question": "核实来源是否足够" },
+      "receipt": { "status": "ready", "summary": "外部核实说明来源不足，需查看原文。" }
+    },
+    "turns": [
+      {
+        "tool": "doc_read",
+        "input": { "document": "L08-QA-035", "version": 1, "page": 1 },
+        "result": { "kind": "data", "data": { "text": "合成原文仍有两个不一致写法。" } }
+      },
+      {
+        "tool": "ask_user",
+        "input": { "question": "证据仍不能确定编号。请确认是否有权威原件。" },
+        "result": { "kind": "data", "terminal": "question", "data": { "status": "waiting" } }
+      }
+    ]
+  }
+]
