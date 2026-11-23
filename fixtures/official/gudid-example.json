@@ -1,0 +1,16 @@
+{
+  "gudid": {
+    "device": {
+      "publicVersionDate": "2026-03-03T00:00:00.000Z",
+      "brandName": "XIENCE ALPINE",
+      "companyName": "ABBOTT VASCULAR INC.",
+      "identifiers": {
+        "identifier": [
+          {
+            "deviceId": "08717648200274"
+          }
+        ]
+      }
+    }
+  }
+}

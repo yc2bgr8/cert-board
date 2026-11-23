@@ -26,7 +26,7 @@ COPY sandbox-hosts /etc/squid/hosts
 
 FROM squid-runtime AS web-fetch
 COPY fetch.conf /etc/squid/squid.conf
-COPY hosts /etc/squid/hosts
+COPY fetch-hosts /etc/squid/hosts
 
 FROM squid-runtime AS development
 COPY allowlist /etc/squid/allowlist

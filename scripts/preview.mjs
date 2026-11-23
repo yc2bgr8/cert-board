@@ -26,7 +26,7 @@ export function previewGitHead() {
   return git('rev-parse', 'HEAD');
 }
 
-export async function previewEnvironment(slotName) {
+export async function previewEnvironment(slotName, officialFetcher = false) {
   if (!slotKeys.includes(slotName)) throw new Error('请选择 lan 或 walkthrough。');
   const slot = previewSlots[slotName];
   const local = parseEnv(await readFile(path.join(root, '.env.local'), 'utf8'));
@@ -45,6 +45,9 @@ export async function previewEnvironment(slotName) {
     DATABASE_URL: database.href,
     TEST_DATABASE_URL: test.href,
     MINIO_BUCKET: slot.bucket,
+    ...(slotName === 'walkthrough' && officialFetcher
+      ? { CERT_FETCHER_URL: 'http://127.0.0.1:28084/' }
+      : {}),
   };
   delete runtime.CERT_DEV_MODEL_ID;
   const seed = {
@@ -165,8 +168,8 @@ async function waitForReady(port, route, instance, serviceExited) {
   throw new Error('预览服务未就绪，请检查独立端口、数据库与日志。');
 }
 
-export async function startPreview(slotName, preparedSource) {
-  const { slot, runtime, seed } = await previewEnvironment(slotName);
+export async function startPreview(slotName, preparedSource, officialFetcher = false) {
+  const { slot, runtime, seed } = await previewEnvironment(slotName, officialFetcher);
   const source = preparedSource ?? root;
   if (slotName === 'lan' && !preparedSource) throw new Error('稳定预览缺少已验收版本。');
   const logDirectory = path.join(root, '.local', 'preview', slotName);

@@ -2,10 +2,14 @@ import { readFile } from 'node:fs/promises';
 import { parseEnv } from 'node:util';
 import { spawn } from 'node:child_process';
 import { backendEnvironment } from './start-backend.mjs';
+import { localProcessEnvironment } from './dev.mjs';
 
 try {
-  const local = parseEnv(await readFile(new URL('../.env.local', import.meta.url), 'utf8'));
-  if (!local.OPENROUTER_API_KEY) {
+  const official = process.argv.includes('--official');
+  const local = official
+    ? {}
+    : parseEnv(await readFile(new URL('../.env.local', import.meta.url), 'utf8'));
+  if (!official && !local.OPENROUTER_API_KEY) {
     console.log('跳过真实模型测试：.env.local 未配置 OPENROUTER_API_KEY。');
   } else {
     const child = spawn(
@@ -13,14 +17,16 @@ try {
       [
         '--import',
         'tsx',
-        process.argv.includes('--agent') || process.argv.includes('--l08')
-          ? 'apps/backend/src/agent/real-smoke.ts'
-          : 'apps/backend/src/modelgw/real-smoke.ts',
+        official
+          ? 'apps/backend/src/official/real-smoke.ts'
+          : process.argv.includes('--agent') || process.argv.includes('--l08')
+            ? 'apps/backend/src/agent/real-smoke.ts'
+            : 'apps/backend/src/modelgw/real-smoke.ts',
         ...(process.argv.includes('--l08') ? ['--l08'] : []),
       ],
       {
         cwd: new URL('..', import.meta.url),
-        env: backendEnvironment('worker', local),
+        env: official ? localProcessEnvironment() : backendEnvironment('worker', local),
         stdio: 'inherit',
         windowsHide: true,
         shell: false,

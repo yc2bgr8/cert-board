@@ -1,0 +1,19 @@
+{
+  "meta": {
+    "results": {
+      "total": 1
+    }
+  },
+  "results": [
+    {
+      "k_number": "K253845",
+      "decision_date": "2026-03-03",
+      "product_code": "LRK",
+      "device_name": "Anti Snoring Mouthpiece (L08-BP, L08-PT, L08-BT, L08-TP, L08-TB, L08-PB)",
+      "openfda": {
+        "regulation_number": "872.5570",
+        "device_class": "2"
+      }
+    }
+  ]
+}

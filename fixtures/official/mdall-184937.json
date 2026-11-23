@@ -1,0 +1,191 @@
+[
+  {
+    "original_licence_no": 113514,
+    "company_id": 184937,
+    "licence_name": "POSITIVE AIRWAY PRESSURE DEVICE (X8)",
+    "first_licence_status_dt": "2025-06-13",
+    "end_date": null,
+    "licence_type_cd": "S",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 113617,
+    "company_id": 184937,
+    "licence_name": "POSITIVE AIRWAY PRESSURE DEVICE (X7)",
+    "first_licence_status_dt": "2025-07-03",
+    "end_date": null,
+    "licence_type_cd": "S",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 113645,
+    "company_id": 184937,
+    "licence_name": "CPAP NASAL MASK",
+    "first_licence_status_dt": "2025-07-11",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 113647,
+    "company_id": 184937,
+    "licence_name": "CPAP FULL FACE MASK",
+    "first_licence_status_dt": "2025-07-11",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 113648,
+    "company_id": 184937,
+    "licence_name": "CPAP NASAL PILLOW MASK",
+    "first_licence_status_dt": "2025-07-11",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115477,
+    "company_id": 184937,
+    "licence_name": "CPAP FILTER",
+    "first_licence_status_dt": "2026-05-27",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115498,
+    "company_id": 184937,
+    "licence_name": "NASAL REPLACEMENT CUSHION",
+    "first_licence_status_dt": "2026-05-29",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115500,
+    "company_id": 184937,
+    "licence_name": "SILICONE NASAL REPLACEMENT CUSHION",
+    "first_licence_status_dt": "2026-05-29",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115521,
+    "company_id": 184937,
+    "licence_name": "FRAME TUBE ASSEMBLY",
+    "first_licence_status_dt": "2026-06-02",
+    "end_date": null,
+    "licence_type_cd": "D",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115526,
+    "company_id": 184937,
+    "licence_name": "REPLACEMENT TUBE FOR CPAP",
+    "first_licence_status_dt": "2026-06-03",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115527,
+    "company_id": 184937,
+    "licence_name": "FULL FACE MASK ASSEMBLY FOR CPAP",
+    "first_licence_status_dt": "2026-06-03",
+    "end_date": null,
+    "licence_type_cd": "D",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115529,
+    "company_id": 184937,
+    "licence_name": "ELBOW CONNECTOR",
+    "first_licence_status_dt": "2026-06-04",
+    "end_date": null,
+    "licence_type_cd": "D",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115569,
+    "company_id": 184937,
+    "licence_name": "WATERLESS HUMIDIFIER",
+    "first_licence_status_dt": "2026-06-11",
+    "end_date": null,
+    "licence_type_cd": "D",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115593,
+    "company_id": 184937,
+    "licence_name": "SILICONE FULL FACE CUSHION FOR CPAP",
+    "first_licence_status_dt": "2026-06-15",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115704,
+    "company_id": 184937,
+    "licence_name": "IN-LINE FILTER FOR CPAP",
+    "first_licence_status_dt": "2026-07-02",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115789,
+    "company_id": 184937,
+    "licence_name": "CPAP REPLACEMENT CUSHION",
+    "first_licence_status_dt": "2026-07-15",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115852,
+    "company_id": 184937,
+    "licence_name": "HEADGEAR FRAME ASSEMBLY",
+    "first_licence_status_dt": "2026-07-24",
+    "end_date": null,
+    "licence_type_cd": "D",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115883,
+    "company_id": 184937,
+    "licence_name": "NASAL REPLACEMENT CUSHION",
+    "first_licence_status_dt": "2026-07-31",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 115936,
+    "company_id": 184937,
+    "licence_name": "REPLACEMENT FRAME KIT",
+    "first_licence_status_dt": "2026-08-12",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 116311,
+    "company_id": 184937,
+    "licence_name": "FOAM FULL FACE REPLACEMENT CUSHION",
+    "first_licence_status_dt": "2026-10-02",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  },
+  {
+    "original_licence_no": 116320,
+    "company_id": 184937,
+    "licence_name": "FABRIC FULL FACE REPLACEMENT CUSHION",
+    "first_licence_status_dt": "2026-10-02",
+    "end_date": null,
+    "licence_type_cd": "F",
+    "appl_risk_class": 2
+  }
+]

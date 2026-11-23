@@ -1,0 +1,9 @@
+# 保留既有公开抓取入口。只解决开发机 Fake-IP，Squid 私网拒绝及 HTTPS 证书校验仍生效。
+104.18.2.115 openrouter.ai
+104.18.3.115 openrouter.ai
+# 2026-11-23 使用公共 DNS 和独立验收客体 TLS 核对的既有官方数据入口。
+40.39.226.114 api.fda.gov
+56.137.13.18 api.fda.gov
+205.193.192.22 health-products.canada.ca
+3.217.176.226 accessgudid.nlm.nih.gov
+3.94.60.161 accessgudid.nlm.nih.gov

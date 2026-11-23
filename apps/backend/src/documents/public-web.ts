@@ -19,7 +19,12 @@ const digest = (value: string | Buffer) => createHash('sha256').update(value).di
 export const webSourceKey = (url: string) => `W-${digest(url)}`;
 const cacheLifetime = 24 * 60 * 60 * 1000;
 
-export async function cachedPublicWebArchive(tx: PoolClient, projectId: string, url: string) {
+export async function cachedPublicWebArchive(
+  tx: PoolClient,
+  projectId: string,
+  url: string,
+  sourceKey = webSourceKey(url),
+) {
   const result = await tx.query<{
     documentId: string;
     version: number;
@@ -36,7 +41,7 @@ export async function cachedPublicWebArchive(tx: PoolClient, projectId: string, 
      FROM document d JOIN document_version v ON v.document_id=d.id
      LEFT JOIN document_page p ON p.version_id=v.id AND p.page_number=1
      WHERE d.project_id=$1 AND d.source_key=$2 ORDER BY v.version_no DESC LIMIT 1`,
-    [projectId, webSourceKey(url)],
+    [projectId, sourceKey],
   );
   const row = result.rows[0];
   if (row?.voided) throw new AppError(409, 'DOCUMENT_VOIDED', '该网页资料已作废，请由负责人处理。');
@@ -87,6 +92,7 @@ export async function archivePublicWebSnapshot(
   projectId: string,
   downloaded: Awaited<ReturnType<typeof downloadPublicWebSnapshot>>,
   sourceType: WebArchiveInfo['sourceType'],
+  sourceKey = webSourceKey(downloaded.snapshot.url),
 ) {
   const { bytes, snapshot } = downloaded;
   const archive = webArchiveInfoSchema.parse({
@@ -100,7 +106,6 @@ export async function archivePublicWebSnapshot(
   const original = await store.put(bytes);
   if (original.sha256 !== snapshot.sha256 || original.byteSize !== bytes.byteLength)
     throw new AppError(500, 'WEB_STORAGE_MISMATCH', '网页原件存储校验失败，未登记资料。');
-  const sourceKey = webSourceKey(snapshot.url);
   const placeholder = !snapshot.text.trim();
   const saved = await ingestParsedDocument(
     pool,
