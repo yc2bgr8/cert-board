@@ -203,13 +203,21 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
         await page.unroute(route);
       }
       await reconnect.click();
-      requireProof(
-        (await page.evaluate(() => performance.timeOrigin)) === originalDocument,
-        '事件流重连时原页面被重新加载',
-      );
       const restoredStream = await received(run.runId, readPrompt);
       requireProof(restoredStream !== originalStream, '未通过新事件流补收断线期间的消息');
-      return run;
+      await runStatus(run.runId);
+      await didRead(run.runId);
+      await page
+        .getByRole('status')
+        .filter({ hasText: /^已完成$/u })
+        .waitFor();
+      const replayed = page.getByText(readPrompt, { exact: true });
+      await replayed.waitFor();
+      requireProof((await replayed.count()) === 1, '重连后用户消息重复');
+      requireProof(
+        (await page.evaluate(() => performance.timeOrigin)) === originalDocument,
+        '重连收到消息和完成状态时原页面已被重新加载',
+      );
     } finally {
       await network.detach();
     }
@@ -449,52 +457,41 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
     scenes.push({
       name,
       run: async (proof) => {
-        let run: Awaited<ReturnType<WalkthroughBatchContext['send']>>;
-        if (kind === '事件流重连') {
-          run = await reconnectConversation(proof);
-        } else if (kind === '运行中刷新') {
-          await refreshDuringRun(proof);
-          return;
-        } else {
-          const id = await open(proof, name, 'read_only');
-          if (kind === '错误页恢复') {
-            await page.goto(`${origin}/?conversation=${randomUUID()}`);
+        if (kind === '事件流重连') return reconnectConversation(proof);
+        if (kind === '运行中刷新') return refreshDuringRun(proof);
+        const id = await open(proof, name, 'read_only');
+        if (kind === '错误页恢复') {
+          await page.goto(`${origin}/?conversation=${randomUUID()}`);
+          await page
+            .getByRole('alert')
+            .filter({ hasText: /错误编号/u })
+            .waitFor();
+          await page.goto(`${origin}/?conversation=${id}`);
+        }
+        if (kind === '消息失败重试') {
+          const route = `**/api/conversations/${id}/messages`;
+          await page.route(route, async (request) => {
+            if (request.request().method() === 'POST') await request.abort();
+            else await request.fallback();
+          });
+          try {
+            await page.getByRole('textbox', { name: '消息', exact: true }).fill(readPrompt);
+            await page.getByRole('button', { name: '发送', exact: true }).click();
             await page
               .getByRole('alert')
               .filter({ hasText: /错误编号/u })
               .waitFor();
-            await page.goto(`${origin}/?conversation=${id}`);
+          } finally {
+            await page.unroute(route);
           }
-          if (kind === '消息失败重试') {
-            const route = `**/api/conversations/${id}/messages`;
-            await page.route(route, async (request) => {
-              if (request.request().method() === 'POST') await request.abort();
-              else await request.fallback();
-            });
-            try {
-              await page.getByRole('textbox', { name: '消息', exact: true }).fill(readPrompt);
-              await page.getByRole('button', { name: '发送', exact: true }).click();
-              await page
-                .getByRole('alert')
-                .filter({ hasText: /错误编号/u })
-                .waitFor();
-            } finally {
-              await page.unroute(route);
-            }
-          }
-          run = await ctx.send(page, readPrompt);
         }
+        const run = await ctx.send(page, readPrompt);
         await runStatus(run.runId);
         await didRead(run.runId);
-        if (kind === '事件流重连')
-          await page
-            .getByRole('status')
-            .filter({ hasText: /^已完成$/u })
-            .waitFor();
         await page.getByText(readPrompt, { exact: true }).waitFor();
         requireProof(
           (await page.getByText(readPrompt, { exact: true }).count()) === 1,
-          '刷新或重连后用户消息重复',
+          '恢复后用户消息重复',
         );
       },
     });
