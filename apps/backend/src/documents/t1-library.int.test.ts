@@ -70,6 +70,15 @@ test('实际T1种子重复运行不增加版本或页，59个来源身份保持'
     'SELECT (SELECT count(*)::int FROM document) AS documents,(SELECT count(*)::int FROM document_version) AS versions,(SELECT count(*)::int FROM document_page) AS pages',
   );
   expect(rows.rows).toEqual([{ documents: 59, versions: 59, pages: 664 }]);
+  const { rows: datasets } = await database.pool.query<{ sha256: string; names: string[] }>(
+    `SELECT v.source_metadata->>'xfaDatasetsSha256' AS sha256,
+      v.source_metadata->'xfaAttachmentNames' AS names
+      FROM document_version v WHERE v.document_id=$1 AND v.version_no=1`,
+    [placeholder],
+  );
+  expect(datasets[0]?.sha256).toMatch(/^[0-9a-f]{64}$/u);
+  expect(datasets[0]?.names.length).toBeGreaterThan(10);
+  expect((await storage.store.get(datasets[0]!.sha256)).toString('utf8')).toContain('MSDS');
 });
 
 test('资料读取分页与检索返回确实存在的两个K号，不声称原始PDF已导入', async () => {

@@ -16,6 +16,7 @@ import { AppError } from '../api/errors.js';
 export const maximumDocumentBytes = 96 * 1024 * 1024;
 const maximumResponseBytes = 150 * 1024 * 1024;
 const maximumPages = 800;
+const maximumXfaBytes = 5 * 1024 * 1024;
 const parseResponse = z.object({
   sha256: sha256Schema,
   kind: documentFormatSchema,
@@ -209,5 +210,24 @@ export class DocumentParserClient {
         throw invalid();
       return { name: item.name, sourceNames: item.sourceNames, sha256: item.sha256, bytes };
     });
+  }
+
+  async estarDatasets(content: Buffer, sha256: string, signal?: AbortSignal) {
+    const { raw } = await this.#parsed(content, sha256, 'estar', signal);
+    const value = z.object({
+      xfaDatasetsBase64: z.string().max(Math.ceil(maximumXfaBytes / 3) * 4).nullable().optional(),
+    }).safeParse(raw);
+    if (!value.success) throw invalid();
+    const base64 = value.data.xfaDatasetsBase64;
+    if (!base64) return null;
+    const bytes = Buffer.from(base64, 'base64');
+    if (bytes.length > maximumXfaBytes || bytes.toString('base64') !== base64) throw invalid();
+    const listing = attachmentResponse.safeParse(raw);
+    if (!listing.success) throw invalid();
+    const attachmentNames = [...new Set(listing.data.attachments.flatMap(
+      ({ name, sourceNames }) => [name, ...sourceNames],
+    ))];
+    if (attachmentNames.length > 256) return null;
+    return { bytes, attachmentNames };
   }
 }

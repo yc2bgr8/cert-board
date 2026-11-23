@@ -118,18 +118,21 @@ export async function startWorker() {
       environment: config.NODE_ENV,
     });
     const store = new BlobStore(resources.storage, config.MINIO_BUCKET);
-    if (config.CERT_DOCSVC_URL) {
-      const originalStore = new BlobStore(
+    const ruleSources = config.CERT_DOCSVC_URL ? {
+      store: new BlobStore(
         resources.storage,
         config.MINIO_BUCKET,
         maximumDocumentBytes,
-      );
+      ),
+      parser: new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
+    } : undefined;
+    if (ruleSources) {
+      const { store: originalStore, parser } = ruleSources;
       const packageStore = new BlobStore(
         resources.storage,
         config.MINIO_BUCKET,
         maximumIntakeBytes,
       );
-      const parser = new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME);
       stopDocumentWorker = startDocumentParseWorker(resources.database, originalStore, parser, () =>
         logger.warn({ event: 'document_parse_deferred' }, '暂未能处理资料解析任务，稍后再试。'),
       );
@@ -162,6 +165,7 @@ export async function startWorker() {
         resources.database,
         config.CONTAINER_RUNTIME,
         sandbox,
+        ruleSources,
       )),
       ...webTools,
     ];

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-31 一致性检查规则库</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#l08-回放">L08 回放</a><a class="level-2" href="#验收">验收</a></nav><main><h1 id="pr-31-一致性检查规则库">PR-31 一致性检查规则库</h1>
+<p><code>rules_run</code> 对项目内指定资料版本运行 R0–R7。省略资料清单时检查当前项目的可读版本。结果保留规则版本、候选编号、实际资料编号和位置。规则定义集中维护适用资料类别、输出格式和比较参数。模型可选择规则子集并按同一版本分页。数据库迁移 0036 加入 <code>rule_false_positive</code>，记录规则及版本、候选、资料版本、人工登记人、原因和处理。<a href="../决定记录.html#d-063-rv-05-复现和候选边界">D-063</a></p>
+<h2 id="l08-回放">L08 回放</h2>
+<p>对仓库 T1 页文本、eSTAR 数据集和附件清单运行全部规则。复现 RV-05 的 13 条候选，覆盖 GT1、GT2、GT3、GT4、GT5、GT6、GT8。GT7 需要拿正式申报清单核对项目缺件，留给 PR-32 的技能流程。两条新增发现和一条已核实误报的分类来自 RV-05 人工回看。<a href="../调研/验证报告_RV01-RV05_v0.3.html#63-额外发现与误报">RV-05 第 6.3 节</a></p>
+<table><thead><tr><th>规则</th><th>候选数</th><th>回放结果及实现差异</th></tr></thead><tbody><tr><td>R0</td><td>4</td><td>Cover letter 与耐久性报告涉及 GT1。器械图片第 8 页小标题和货架寿命报告表格编号是两条新增发现。首版按同名 PDF 分组比选，使用现有 Node 行比较，显示首个差异位置及变化行数。</td></tr><tr><td>R1</td><td>1</td><td>K170285 与 K170825 疑似对调。复用 V2 的近似度计算。</td></tr><tr><td>R2</td><td>1</td><td>比对申报联系人。原文明确写出申请人字段时另按申请人分组。</td></tr><tr><td>R3</td><td>2</td><td>冲洗水温差异复现。储存温度同时命中试剂和产品，该条为原验证已确认的误报。浸泡时间、尺寸和使用期限的明确字段先换算到统一单位再比对。</td></tr><tr><td>R4</td><td>1</td><td>L08-TB 下托蓝色、紫色两种写法。型号表及材料段分别抽取，不把 <code>upper tray and lower tray</code> 等叙述误认成颜色行。</td></tr><tr><td>R5</td><td>1</td><td>eSTAR 中 MSDS 引用与清单不匹配是候选。引用定位到源版本的数据集，原 PDF 占位页仍不可引用为正文。</td></tr><tr><td>R6</td><td>2</td><td>两个材料报告命中结论栏为 <code>/</code> 的提示，需结合试验要求解释。</td></tr><tr><td>R7</td><td>1</td><td>接触时长与使用期限同时出现，交人判断累计接触评估。</td></tr></tbody></table>
+<h2 id="验收">验收</h2>
+<ul><li><code>pnpm test apps/backend/src/rules/rv05.test.ts</code> 检查全部八规则、13 条候选、已知问题覆盖、MSDS 数据集与单位换算。</li><li>集成检查覆盖资料版本和项目权限、旧回执复核、数据集定位、已有 T1 导入幂等与误报登记约束。</li><li>干净虚拟机同时运行 <code>docs:html</code>、<code>test:rules</code> 和标准真实走查。真实专项在 L08 运行 R1 与 R5，读取 D035 证据并送审，由浏览器批准。</li></ul>
+<p>规则为开发草稿，待注册人员确认。后续技能发布前按 PR-32 复判候选、登记误报并回归。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

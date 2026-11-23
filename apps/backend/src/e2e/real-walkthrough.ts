@@ -18,6 +18,7 @@ import { BlobStore } from '../documents/blob-store.js';
 import { requiredRevisionSections, revisionSections } from './walkthrough-report.js';
 import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthrough-batch.js';
 import { checkOfficialBrowserRun } from './official-walkthrough.js';
+import { checkRulesBrowserRun } from './rules-walkthrough.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
@@ -360,6 +361,25 @@ async function main() {
     await page.getByLabel('密码', { exact: true }).fill(password);
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
+    if (process.env.CERT_WALKTHROUGH_RULES_ONLY === '1') {
+      stage = '一致性规则库的真实浏览器专项';
+      const conversation = await freshConversation(page, developmentProjectId, 'L08 一致性规则核对', 'full');
+      const { runId } = await send(
+        page,
+        '请按 R09 对 L08 资料运行 rules_run 的 R1 和 R5，报告候选编号差异和 eSTAR 附件引用疑点。核实 D035 的编号原文并按规则回执引用实际资料，附件疑点待我核实。保存简短说明，按正常流程提交审核并保留原件原样。',
+      );
+      const cardId = await waitForReview(page, pool, conversation, 1);
+      const proof = await checkRulesBrowserRun(page, pool, runId, cardId);
+      await review(page, pool, cardId, path.join(evidenceFolder, 'rules-approved.png'), true);
+      assert.equal(blocked, 0);
+      await writeFile(
+        path.join(evidenceFolder, 'rules-result.json'),
+        JSON.stringify({ ...proof, status: 'passed', instance, commit: testedCommit, approvedInBrowser: true }, null, 2),
+        'utf8',
+      );
+      console.log('一致性规则库真实浏览器验收通过。');
+      return;
+    }
     if (process.env.CERT_WALKTHROUGH_OFFICIAL_ONLY === '1') {
       stage = '官方编号和 V2 的真实浏览器专项';
       const conversation = await freshConversation(page, developmentProjectId, 'L08 官方编号核对', 'full');

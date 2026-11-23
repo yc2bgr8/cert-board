@@ -14,8 +14,10 @@ import { developmentProjectId } from '../projects/seed.js';
 import type { BlobStore } from './blob-store.js';
 import { ingestParsedDocument } from './service.js';
 
+const defaultDirectory = fileURLToPath(new URL('../../../../fixtures/l08/t1_out/', import.meta.url));
+
 export async function readT1Fixture(
-  directory = fileURLToPath(new URL('../../../../fixtures/l08/t1_out/', import.meta.url)),
+  directory = defaultDirectory,
 ) {
   const [documentText, pageText] = await Promise.all([
     readFile(path.join(directory, 'documents.json'), 'utf8'),
@@ -75,7 +77,20 @@ export async function seedT1Documents(
   if (!developmentProjectSeedConfigSchema.safeParse(environment).success)
     throw new DevelopmentSeedError('T1开发种子只允许development/test环境运行。');
   const fixture = await readT1Fixture(directory);
+  const roots = fixture.documents.filter((doc) =>
+    doc.ext === '.pdf' && fixture.documents.some((child) => child.parent === doc.id),
+  );
+  const datasets = roots.length === 1
+    ? await readFile(path.join(directory ?? defaultDirectory, 'estar_datasets.xml')).catch((error: unknown) => {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return null;
+      throw error;
+    })
+    : null;
+  if (datasets && datasets.length > 5 * 1024 * 1024)
+    throw new DevelopmentSeedError('T1 的 eSTAR 数据集超过大小上限。');
+  const xfaBlob = datasets ? await store.put(datasets) : null;
   for (const doc of fixture.documents) {
+    const xfa = xfaBlob && doc.id === roots[0]?.id ? xfaBlob.sha256 : undefined;
     const pages = fixture.pages
       .filter((page) => page.doc === doc.id)
       .sort((a, b) => a.page - b.page)
@@ -92,7 +107,9 @@ export async function seedT1Documents(
       sourceKey: doc.id,
       name: doc.name.normalize('NFC'),
       sourcePath: doc.path.normalize('NFC'),
-      sourceSnapshot: fixture.snapshot,
+      sourceSnapshot: xfa
+        ? createHash('sha256').update(fixture.snapshot).update(xfa).digest('hex')
+        : fixture.snapshot,
       originalSha256: doc.sha256,
       dataLevel: 'internal',
       authorType: 'external',
@@ -110,6 +127,11 @@ export async function seedT1Documents(
         parserReportedStatus: doc.status,
         originalFileStored: false,
         originalHashProvenance: 'T1清单；本次未重算原文件哈希',
+        ...(xfa ? {
+          xfaDatasetsSha256: xfa,
+          xfaAttachmentNames: fixture.documents.filter((child) => child.parent === doc.id)
+            .map((child) => child.name.normalize('NFC')),
+        } : {}),
       },
     });
   }
