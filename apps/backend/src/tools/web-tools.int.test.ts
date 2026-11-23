@@ -188,7 +188,18 @@ test('V2 用官方存档字段和材料原文发现 K 号对调，拒绝缺失�
   await expect(invoke('identifier_check', ledgerRequest(previous))).resolves.toMatchObject({
     data: { status: 'unavailable', code: 'V2_LEDGER_SOURCE_REQUIRED' },
   });
-  const ledger = await importVerifiedLicenceLedger(context.pool, store, ledgerDraft);
+  await expect(
+    importVerifiedLicenceLedger(context.pool, store, { ...ledgerDraft, sourceKey: 'O-reserved' }),
+  ).rejects.toMatchObject({ code: 'LEDGER_IMPORT_INVALID' });
+  const ledger = await importVerifiedLicenceLedger(context.pool, store, {
+    ...ledgerDraft,
+    sourceMetadata: { webArchive: lookup.evidence.archive },
+  });
+  const registered = await context.pool.query(
+    "SELECT source_metadata ? 'webArchive' AS archive FROM document_version WHERE id=$1",
+    [ledger.versionId],
+  );
+  expect(registered.rows[0]?.archive).toBe(false);
   expect(ledger).toMatchObject({ documentId: previous.documentId, version: previous.version + 1 });
   await expect(invoke('identifier_check', ledgerRequest(ledger))).resolves.toMatchObject({
     data: { status: 'possible_typo' },

@@ -14,6 +14,7 @@ export async function importVerifiedLicenceLedger(
   if (
     !parsed.success ||
     parsed.data.authorType !== 'human' ||
+    /^(?:O|W)-/iu.test(parsed.data.sourceKey) ||
     !parsed.data.pages.some(({ isPlaceholder, text }) => !isPlaceholder && text.trim())
   )
     throw new AppError(
@@ -29,7 +30,6 @@ export async function importVerifiedLicenceLedger(
     ...parsed.data,
     sourceSnapshot,
     sourceMetadata: {
-      ...parsed.data.sourceMetadata,
       sourceRole: 'licence_ledger',
       reviewedSnapshot: parsed.data.sourceSnapshot,
     },
