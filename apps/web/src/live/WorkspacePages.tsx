@@ -16,6 +16,7 @@ export const noticeLabels: Record<Notice['kind'], string> = {
   deadline: '期限提醒',
   verification: '外部核实',
   outbound: '外发结果',
+  skill: '技能回退提醒',
 };
 const filters = [
   'all',
@@ -27,6 +28,7 @@ const filters = [
   'deadline',
   'verification',
   'outbound',
+  'skill',
 ] as const;
 const time = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
@@ -47,6 +49,7 @@ function noticeAction(kind: Notice['kind']) {
   if (kind === 'proposal') return '查看提案';
   if (kind === 'verification') return '查看核实群聊';
   if (kind === 'outbound') return '查看和对账';
+  if (kind === 'skill') return '查看技能提案';
   return '打开对话';
 }
 
@@ -177,8 +180,10 @@ export function Inbox({
                     >
                       <span>
                         <strong>
-                          {projects.find((project) => project.id === item.projectId)?.name ??
-                            '项目对话'}
+                          {item.skillRollback
+                            ? `${item.skillRollback.skillId} ${item.skillRollback.activeVersion}`
+                            : (projects.find((project) => project.id === item.projectId)?.name ??
+                              '项目对话')}
                         </strong>
                         <span className={`live-notice-chip is-${item.kind}`}>
                           {item.verification?.kind === 'blocked'
@@ -196,7 +201,7 @@ export function Inbox({
               </section>
             ))}
           {snapshot?.truncated && (
-            <p className="live-page-message live-muted">当前列出前 50 项，处理后继续更新。</p>
+            <p className="live-page-message live-muted">还有待处理事项，处理后会继续更新。</p>
           )}
         </section>
         <aside className="live-page-side" aria-label="到期和完成记录">

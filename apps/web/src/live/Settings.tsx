@@ -27,6 +27,7 @@ export function Settings({
   maintenance,
   onMaintenanceChange,
   notificationConnection,
+  skillRollbackFocus = null,
   openVerification,
 }: {
   open: boolean;
@@ -37,6 +38,7 @@ export function Settings({
   maintenance: boolean;
   onMaintenanceChange(value: boolean): void;
   notificationConnection: StreamConnection;
+  skillRollbackFocus?: string | null;
   openVerification(roomId: string): void;
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -181,7 +183,7 @@ export function Settings({
                   management={user.isManagement}
                   openRoom={openVerification}
                 />
-                <SkillVersions userId={user.id} />
+                <SkillVersions userId={user.id} rollbackFocus={skillRollbackFocus} />
                 <section id="about-cert-board" className="live-page-card">
                   <header className="live-page-card-head">
                     <h2>关于</h2>

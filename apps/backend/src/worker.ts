@@ -38,6 +38,7 @@ import {
   scanVerificationNotices,
 } from './goals/verification-wakeups.js';
 import { scanGoalEvents, scanReviewDecisionEvents } from './goals/goal-events.js';
+import { scanSkillRollbackProposals } from './skills/rollback.js';
 
 export async function startWorker() {
   const config = parseBackendConfig(process.env);
@@ -336,6 +337,7 @@ export async function startWorker() {
       maintenance = (async () => {
         await reconcile();
         await purgeExpiredModelRequests(resources.database);
+        await scanSkillRollbackProposals(resources.database);
       })()
         .catch(() => logger.warn({ event: 'maintenance_deferred' }, '后台维护暂未完成，稍后重试。'))
         .finally(() => {

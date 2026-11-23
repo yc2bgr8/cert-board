@@ -134,6 +134,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const [newHeaderAgent, setNewHeaderAgent] = useState<AgentCode>('registration');
   const [dialog, setDialog] = useState<'new' | 'search' | 'settings' | null>(null);
   const [maintenanceSettings, setMaintenanceSettings] = useState(false);
+  const [skillRollbackFocus, setSkillRollbackFocus] = useState<string | null>(null);
   const [narrow, setNarrow] = useState(
     () => window.matchMedia?.('(max-width: 1023px)').matches ?? false,
   );
@@ -254,13 +255,19 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       ? [...projects, selectedProject]
       : projects;
 
-  const openDialog = useCallback((value: 'new' | 'search' | 'settings') => {
-    returnFocus.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (value === 'new' || value === 'settings') setMobileOpen(false);
-    if (value === 'settings') setMaintenanceSettings(false);
-    setDialog(value);
-  }, []);
+  const openDialog = useCallback(
+    (value: 'new' | 'search' | 'settings', focusSkill: string | null = null) => {
+      returnFocus.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      if (value === 'new' || value === 'settings') setMobileOpen(false);
+      if (value === 'settings') {
+        setMaintenanceSettings(false);
+        setSkillRollbackFocus(focusSkill);
+      }
+      setDialog(value);
+    },
+    [],
+  );
   const closePanel = useCallback(() => {
     setPanels([]);
     const element = panelOrigin.current;
@@ -436,6 +443,10 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       window.history.replaceState(window.history.state, '', current);
   }, [view, conversationId]);
   const openNotice = (item: MemberNotificationSnapshot['items'][number]) => {
+    if (item.kind === 'skill') {
+      openDialog('settings', item.id);
+      return;
+    }
     if (item.verification) {
       openVerification(item.verification.roomId, item.id);
       return;
@@ -1005,6 +1016,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           maintenance={showMaintenance}
           onMaintenanceChange={setMaintenanceSettings}
           notificationConnection={notifications.connection}
+          skillRollbackFocus={skillRollbackFocus}
           openVerification={openVerification}
         />
       </ProjectShell>

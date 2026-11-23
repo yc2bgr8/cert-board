@@ -655,7 +655,75 @@ async function main() {
     await captureWorkbench(page, output, 'pr24-skill-rollback.png');
     await rollbackSkill.click();
     await card.getByRole('button', { name: '停用当前版本', exact: true }).waitFor();
+    stage = '技能回退提案的阈值、待我处理和浏览器批准';
+    await list.selectOption(secondSkill.id);
+    await card.getByRole('button', { name: '启用所选版本', exact: true }).click();
+    await card.getByRole('button', { name: '停用当前版本', exact: true }).waitFor();
+    const policyPanel = settings.getByRole('region', { name: '技能回退与阈值', exact: true });
+    await policyPanel.getByRole('spinbutton', { name: '退回率阈值', exact: true }).fill('55');
+    const policySaved = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === '/api/skill-rollback-policy',
+    );
+    await policyPanel.getByRole('button', { name: '保存退回阈值', exact: true }).click();
+    assert.equal((await policySaved).status(), 200);
+    // 页面验收使用合成统计，真实审核决定的取样和提案去重由集成测试覆盖。
+    const seeded = await harness.pool.query<{ id: string }>(
+      `INSERT INTO skill_rollback_proposal(skill_id,active_version_id,target_version_id,release_revision,evidence,status)
+       SELECT id,$1,$2,revision,$3::jsonb,'pending' FROM skill WHERE id='R01' RETURNING id`,
+      [
+        secondSkill.id,
+        firstSkill.id,
+        JSON.stringify({
+          total: 10,
+          rejected: 6,
+          from: '2026-11-19T00:00:00.000Z',
+          to: '2026-11-23T00:00:00.000Z',
+          previous: { total: 10, rejected: 2 },
+          reasons: ['请核对资料的版本和页码。'],
+        }),
+      ],
+    );
+    const proposalId = seeded.rows[0]!.id;
     await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
+    await page.getByRole('button', { name: /待我处理/u }).click();
+    const rollbackNotice = page
+      .getByRole('region', { name: '待我处理事项', exact: true })
+      .getByRole('button', { name: /查看技能提案/u });
+    await rollbackNotice.waitFor();
+    await rollbackNotice.getByText('R01 0.2.0-demo', { exact: true }).waitFor();
+    await captureWorkbench(page, output, 'prd8-12-skill-rollback-inbox.png');
+    await rollbackNotice.click();
+    const rollbackProposal = settings.getByRole('article', { name: '技能回退提案', exact: true });
+    await rollbackProposal
+      .getByText('样本 10 张，退回 6 张，退回率 60%。', { exact: true })
+      .waitFor();
+    await rollbackProposal.getByText('请核对资料的版本和页码。', { exact: true }).waitFor();
+    await page.waitForFunction(
+      (id) => document.activeElement?.id === `skill-rollback-${id}`,
+      proposalId,
+    );
+    const proposalBox = await rollbackProposal.boundingBox();
+    assert(proposalBox && proposalBox.y >= 0 && proposalBox.y + proposalBox.height <= 900);
+    await captureWorkbench(page, output, 'prd8-15-skill-rollback-settings.png');
+    const rollbackAccepted = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/skill-rollback-proposals/${proposalId}/decision`,
+    );
+    await rollbackProposal.getByRole('button', { name: '批准退回上一版', exact: true }).click();
+    assert.equal((await rollbackAccepted).status(), 200);
+    assert.deepEqual(
+      (
+        await harness.pool.query('SELECT status FROM skill_rollback_proposal WHERE id=$1', [
+          proposalId,
+        ])
+      ).rows[0],
+      { status: 'approved' },
+    );
+    await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
+    await rollbackNotice.waitFor({ state: 'hidden' });
     stage = '外部核实：发起、人工插话和原样存档';
     await page.getByRole('button', { name: '设置', exact: true }).click();
     const lexicon = settings.getByRole('region', { name: '保密词表', exact: true });
@@ -1398,6 +1466,7 @@ async function main() {
             'verification_realtime_stream_and_global_search',
             'review_verification_returns_evidence_to_origin',
             'browser_review_decision_resumes_original_conversation',
+            'skill_rollback_from_inbox_with_browser_approval',
             'agent_verification_waits_and_resumes_with_human_input',
             'stopping_conversation_stops_linked_verification',
             'cursor_unavailable_reaches_review_uncertainty',
@@ -1435,6 +1504,8 @@ async function main() {
             'pr-u4-12-inbox.png',
             'pr-15-12-deadline-inbox.png',
             'pr-u4-15-settings.png',
+            'prd8-12-skill-rollback-inbox.png',
+            'prd8-15-skill-rollback-settings.png',
             'pr-u4-16-management.png',
             'pr-d6-14a-verification.png',
             'pr-d6-14b-verification.png',
