@@ -30,6 +30,8 @@ test('V7 识别两端带单位的完整区间，拒绝端点、数值尾段和�
   );
   expect(checkQuantityClaim(claim(5, 'g', 'Dose: 5g–10g / 100 mL.'))).toBe('quantity_mismatch');
   expect(checkQuantityClaim(claim(5, 'g', 'Dose: 5 g * 100 mL.'))).toBe('quantity_mismatch');
+  expect(checkQuantityClaim(claim(5, 'g', 'Dose: 5 g * (100 mL).'))).toBe('quantity_mismatch');
+  expect(checkQuantityClaim(claim(100, 'mL', 'Dose: 5 g * (100 mL).'))).toBe('quantity_mismatch');
   expect(checkQuantityClaim(claim(5, 'g', 'Dose: 5 g *\n* Follow label.'))).toBeNull();
   expect(checkQuantityClaim(claim(5, 'cm', '气道压力为 5 cm H₂O。'))).toBe('quantity_mismatch');
 });
@@ -42,6 +44,7 @@ test('V7 核对单位和整个范围，不从不相干单位或一个端点推�
   expect(checkQuantityClaim(claim(10, 'mm', '尺寸为 1 cm。'))).toBeNull();
   expect(checkQuantityClaim(claim(5, 'g', 'Add 5 g to 10 mL of water.'))).toBeNull();
   expect(checkQuantityClaim(claim(10, 'mL', 'Add 5 g to 10 mL of water.'))).toBeNull();
+  expect(checkQuantityClaim(claim(5, 'g', 'Add exactly 5 g to 10 mL of water.'))).toBeNull();
   expect(checkQuantityClaim(claim(5, 'kg', 'Allowed range: 5 kg to 10 cm.'))).toBe(
     'quantity_mismatch',
   );

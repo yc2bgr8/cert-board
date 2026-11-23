@@ -32,11 +32,16 @@ const chineseUnits = definitions
   .join('|');
 const gap = '[ \\t\\u00a0\\u202f]*';
 const numberBoundary = '(?<![A-Za-z0-9.+−-])(?<!\\d[,， \\u00a0\\u202f])';
-const unitBoundary = `(?![A-Za-z\\p{N}⁻])(?!${gap}(?:[/⁄^⋅·×]|per\\b|\\*${gap}[\\p{L}\\p{N}%]))`;
+const compoundTail = `${gap}(?:[/⁄^⋅·×]|\\bper\\b|\\*${gap}(?=\\S))`;
+const unitBoundary = `(?![A-Za-z\\p{N}⁻])(?!${compoundTail})`;
 const decimal = '[+−-]?(?:\\d{1,3}(?:[,，]\\d{3}){1,2}|\\d{1,9})(?:\\.\\d{1,6})?';
 const rangeSeparator = '(?:-|−|–|—|~|～|至|to\\b)';
 const unitAtom = `(?:cm${gap}h[2₂]o|°${gap}[A-Za-z]|℃|${chineseUnits}|[A-Za-zµμΩ%][A-Za-z\\p{N}µμΩ]*)[\\p{N}^⁻]*`;
-const unitLexeme = `(?!to\\b)${unitAtom}(?:${gap}(?:[/⁄⋅·*×]|per\\b)${gap}(?:${decimal}${gap})?${unitAtom})*`;
+const unitLexeme = `(?!to\\b)${unitAtom}`;
+const compoundQuantity = new RegExp(
+  `${numberBoundary}${decimal}${gap}${unitAtom}${compoundTail}`,
+  'iu',
+);
 const submitted = new RegExp(`^(${decimal})(?:${gap}${rangeSeparator}${gap}(${decimal}))?$`, 'iu');
 const sourceRange = new RegExp(
   `${numberBoundary}(${decimal})${gap}(${unitLexeme})?${gap}(${rangeSeparator})${gap}(${decimal})(?:${gap}(${unitLexeme}))?`,
@@ -68,13 +73,17 @@ function supportedUnit(raw: string | undefined, family: string) {
 }
 
 function matchesQuote(quote: string, expected: bigint[], unit: Unit) {
+  // 复合算式只交人工核对，避免把分子、分母或乘积因子当作独立证据。
+  if (compoundQuantity.test(quote)) return false;
   const ranges = [...quote.matchAll(sourceRange)].filter((range) => {
     const [, , startUnit, separator, , endUnit] = range;
     if (
       separator?.toLowerCase() !== 'to' ||
       !startUnit ||
       !endUnit ||
-      !/\b(?:add|mix|dissolve)[ \t]+$/iu.test(quote.slice(0, range.index))
+      !/\b(?:add|mix|dissolve)(?:[ \t]+(?:exactly|approximately|about))?[ \t]+$/iu.test(
+        quote.slice(0, range.index),
+      )
     )
       return true;
     const first = units.get(unitKey(startUnit));
