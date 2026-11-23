@@ -2,7 +2,10 @@ import { readFile, stat } from 'node:fs/promises';
 import { parseBackendConfig } from '@cert-board/shared';
 import { createDependencies } from '../dependencies.js';
 import { BlobStore } from './blob-store.js';
-import { importVerifiedLicenceLedger } from './licence-ledger-import.js';
+import {
+  decodeLicenceLedgerSnapshot,
+  importVerifiedLicenceLedger,
+} from './licence-ledger-import.js';
 
 async function main() {
   const file = process.argv[2];
@@ -11,7 +14,7 @@ async function main() {
     throw new Error('LEDGER_IMPORT_UNAVAILABLE');
   const source = await stat(file);
   if (!source.isFile() || source.size > 30 * 1024 * 1024) throw new Error('LEDGER_IMPORT_SIZE');
-  const parsed: unknown = JSON.parse(await readFile(file, 'utf8'));
+  const parsed = decodeLicenceLedgerSnapshot(await readFile(file));
   const dependencies = createDependencies(config);
   try {
     const store = new BlobStore(dependencies.storage, config.MINIO_BUCKET);

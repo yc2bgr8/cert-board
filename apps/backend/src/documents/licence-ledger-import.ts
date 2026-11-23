@@ -5,6 +5,10 @@ import { AppError } from '../api/errors.js';
 import type { DocumentBlobStore } from './blob-store.js';
 import { ingestParsedDocument } from './service.js';
 
+export function decodeLicenceLedgerSnapshot(bytes: Uint8Array): unknown {
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
+}
+
 export async function importVerifiedLicenceLedger(
   pool: Pool,
   store: DocumentBlobStore,
