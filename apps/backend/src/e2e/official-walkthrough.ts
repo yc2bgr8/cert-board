@@ -10,6 +10,13 @@ import {
 } from '@cert-board/shared';
 import { nanoToUsd } from '../budget/meter.js';
 
+export function officialReviewConclusionMatches(value: string) {
+  const [lead] = value.trim().split(/[。.!！?？]/u, 1);
+  return /^编号核对[：:]\s*材料\s*K170285\s*[，,]\s*官方\s*K170825\s*[，,]\s*差异\s*疑似笔误\s*[，,]\s*状态\s*待确认$/u.test(
+    lead?.trim() ?? '',
+  );
+}
+
 export async function checkOfficialBrowserRun(
   page: Page,
   pool: pg.Pool,
@@ -101,10 +108,10 @@ export async function checkOfficialBrowserRun(
     .filter({
       has: page.getByRole('heading', { name: '结论', exact: true }),
     })
+    .locator('.markdown-content')
     .innerText();
-  assert.match(
-    conclusion,
-    /编号核对[：:]\s*材料\s*K170285\s*[，,]\s*官方\s*K170825\s*[，,]\s*差异\s*疑似笔误\s*[，,]\s*状态\s*待确认\s*(?:[。.]|$)/u,
+  assert.ok(
+    officialReviewConclusionMatches(conclusion),
     '审核结论未按本次走查的格式标明两个编号、疑似笔误及待确认状态',
   );
   await card.getByRole('button', { name: '通过', exact: true }).click();
