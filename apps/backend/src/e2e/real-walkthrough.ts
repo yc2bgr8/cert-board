@@ -308,6 +308,7 @@ export type WalkthroughBatchContext = {
   blobs: BlobStore;
   evidenceFolder: string;
   origin: string;
+  blockedRequestCount: () => number;
   registrationProject: string;
   maintenanceProject: string;
   openConversation: typeof freshConversation;
@@ -367,6 +368,7 @@ async function main() {
         blobs,
         evidenceFolder,
         origin: config.WEB_ORIGIN,
+        blockedRequestCount: () => blocked,
         registrationProject: developmentProjectId,
         maintenanceProject: maintenanceProjectId,
         openConversation: freshConversation,
@@ -378,7 +380,6 @@ async function main() {
         verifyTools,
         exerciseVerification,
       });
-      assert.equal(blocked, 0);
       return;
     }
     if (

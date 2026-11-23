@@ -16,6 +16,7 @@ const waitingStatus = {
   manual: 'waiting_decision',
 } as const;
 const inactive = "('waiting_materials','waiting_external','waiting_decision')";
+export const approvedReviewReceipt = '审核已通过，批准版本已冻结。';
 const unavailable = () =>
   new AppError(409, 'GOAL_CONTROL_CONFLICT', '目标状态或方向已更新，请刷新后再处理。');
 

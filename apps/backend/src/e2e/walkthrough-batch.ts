@@ -2,8 +2,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
+import { conversationPublicEventSchema } from '@cert-board/shared';
 import type { WalkthroughBatchContext } from './real-walkthrough.js';
 import { nanoToUsd } from '../budget/meter.js';
+import { approvedReviewReceipt } from '../goals/goal-events.js';
 
 const primaryModel = 'openai/gpt-6.2-astra-pro';
 export const registrationPrompt =
@@ -14,7 +16,7 @@ const readPrompt =
   '只读走查。请先通过工具读取项目资料，简要说明其中已核实的一项和仍待核实的一项。不要送审、改文件或发消息。';
 const deadline = 16 * 60_000;
 
-type Proof = { conversationIds: string[]; verificationIds: string[] };
+type Proof = { conversationIds: string[]; verificationIds: string[]; resampledRuns?: string[] };
 type Scene = { name: string; run(proof: Proof, folder: string): Promise<void> };
 type SceneResult = Proof & { name: string; passed: boolean; problem: string | null };
 
@@ -22,6 +24,10 @@ class SceneError extends Error {}
 
 function requireProof(value: unknown, code: string): asserts value {
   if (!value) throw new SceneError(code);
+}
+
+export function confirmsReviewApproval(reply: string) {
+  return reply === approvedReviewReceipt;
 }
 
 async function until<T>(
@@ -52,23 +58,33 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
     proof.conversationIds.push(id);
     return id;
   };
-  const runStatus = async (id: string, expected = 'completed', approvalOnly = false) => {
-    await until(async () => {
-      const row = (await pool.query<{ status: string }>('SELECT status FROM run WHERE id=$1', [id]))
-        .rows[0];
-      if (row?.status === expected) return true;
-      if (approvalOnly && row?.status === 'stopped') {
-        const boundary = await pool.query(
-          `SELECT 1 FROM conversation_event WHERE run_id=$1 AND type='run_status'
+  const runStatus = async (
+    id: string,
+    expected = 'completed',
+    approvalOnly = false,
+    window = deadline,
+  ) => {
+    await until(
+      async () => {
+        const row = (
+          await pool.query<{ status: string }>('SELECT status FROM run WHERE id=$1', [id])
+        ).rows[0];
+        if (row?.status === expected) return true;
+        if (approvalOnly && row?.status === 'stopped') {
+          const boundary = await pool.query(
+            `SELECT 1 FROM conversation_event WHERE run_id=$1 AND type='run_status'
            AND payload_json->>'reasonCode'='REVIEW_NOT_SUBMITTED'`,
-          [id],
-        );
-        if (boundary.rowCount) return true;
-      }
-      if (row && ['completed', 'failed', 'stopped', 'budget_exhausted'].includes(row.status))
-        throw new SceneError(`运行未达预期 ${id} ${row.status}`);
-      return undefined;
-    }, `运行超时 ${id}`);
+            [id],
+          );
+          if (boundary.rowCount) return true;
+        }
+        if (row && ['completed', 'failed', 'stopped', 'budget_exhausted'].includes(row.status))
+          throw new SceneError(`运行未达预期 ${id} ${row.status}`);
+        return undefined;
+      },
+      `运行超时 ${id}`,
+      window,
+    );
   };
   const didRead = async (runId: string) => {
     const read = await pool.query(
@@ -82,7 +98,8 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
       async () => {
         const result = await pool.query<{ run_id: string }>(
           `SELECT e.wake_run_id AS run_id FROM goal_event e JOIN review_decision d ON d.id::text=e.source_key
-         WHERE e.source='review_decision' AND d.card_id=$1 AND e.wake_run_id IS NOT NULL`,
+         WHERE e.source='review_decision' AND d.card_id=$1 AND d.action='approved'
+           AND e.wake_run_id IS NOT NULL`,
           [card],
         );
         return result.rows[0]?.run_id;
@@ -91,6 +108,171 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
       120_000,
     );
     await runStatus(run);
+    const { rows } = await pool.query<{ reply: string }>(
+      `SELECT m.message_json->>'content' AS reply FROM conversation_message m JOIN run r ON r.id=m.run_id
+       WHERE r.id=$1 AND m.message_json->>'role'='assistant'
+         AND NOT EXISTS (SELECT 1 FROM tool_invocation WHERE run_id=$1)
+         AND NOT EXISTS (SELECT 1 FROM review_card WHERE run_id=$1)
+         AND NOT EXISTS (SELECT 1 FROM workspace_draft draft
+           WHERE draft.conversation_id=r.conversation_id AND draft.updated_at>=r.created_at)
+       ORDER BY m.seq DESC LIMIT 1`,
+      [run],
+    );
+    const reply = rows[0]?.reply;
+    requireProof(
+      reply && confirmsReviewApproval(reply),
+      `审核后的续跑未按原对话直接确认决定 ${run}`,
+    );
+  };
+
+  const reconnectConversation = async (proof: Proof) => {
+    const observed = new Map<string, { requestId: string; content: string }>();
+    const streams = new Map<string, string>();
+    const network = await browserContext.newCDPSession(page);
+    try {
+      await network.send('Network.enable');
+      network.on('Network.responseReceived', ({ requestId, response }) => {
+        const url = new URL(response.url);
+        if (
+          url.origin === origin &&
+          response.status === 200 &&
+          response.mimeType === 'text/event-stream'
+        )
+          streams.set(requestId, url.pathname);
+      });
+      const id = await open(proof, '事件流重连', 'read_only');
+      const eventsPath = `/api/conversations/${id}/events`;
+      const route = `**${eventsPath}*`;
+      const reconnect = page
+        .getByRole('region', { name: '项目对话', exact: true })
+        .getByRole('button', { name: '重新连接', exact: true });
+      network.on('Network.eventSourceMessageReceived', ({ eventName, data, requestId }) => {
+        if (eventName !== 'user_message') return;
+        try {
+          const parsed = conversationPublicEventSchema.safeParse(JSON.parse(data));
+          if (
+            parsed.success &&
+            parsed.data.type === 'user_message' &&
+            parsed.data.conversationId === id
+          )
+            observed.set(parsed.data.runId, { requestId, content: parsed.data.payload.content });
+        } catch {
+          // 格式错误的事件没有有效回执，由走查超时记录。
+        }
+      });
+      const received = (runId: string, content: string) =>
+        until(
+          async () => {
+            const event = observed.get(runId);
+            return event?.content === content && streams.get(event.requestId) === eventsPath
+              ? event.requestId
+              : undefined;
+          },
+          `接收页未从事件流读到用户消息 ${runId}`,
+          30_000,
+        );
+
+      const beforePrompt = `${readPrompt} 这是断线前的任务。`;
+      const before = await ctx.send(page, beforePrompt);
+      const originalStream = await received(before.runId, beforePrompt);
+      await page.getByText(beforePrompt, { exact: true }).waitFor();
+      await runStatus(before.runId);
+      await page
+        .getByRole('status')
+        .filter({ hasText: /^已完成$/u })
+        .waitFor();
+      const originalDocument = await page.evaluate(() => performance.timeOrigin);
+      let run: Awaited<ReturnType<WalkthroughBatchContext['send']>>;
+      await page.route(route, (request) => request.abort());
+      try {
+        await page.evaluate(() => window.stop());
+        await reconnect.waitFor();
+        const sender = await browserContext.newPage();
+        try {
+          await sender.goto(`${origin}/?conversation=${id}`);
+          run = await ctx.send(sender, readPrompt);
+        } finally {
+          await sender.close();
+        }
+        requireProof(
+          !observed.has(run.runId) &&
+            (await page.getByText(readPrompt, { exact: true }).count()) === 0,
+          '断线浏览器已经收到其他标签页的新消息',
+        );
+      } finally {
+        await page.unroute(route);
+      }
+      await reconnect.click();
+      requireProof(
+        (await page.evaluate(() => performance.timeOrigin)) === originalDocument,
+        '事件流重连时原页面被重新加载',
+      );
+      const restoredStream = await received(run.runId, readPrompt);
+      requireProof(restoredStream !== originalStream, '未通过新事件流补收断线期间的消息');
+      return run;
+    } finally {
+      await network.detach();
+    }
+  };
+
+  const refreshDuringRun = async (proof: Proof) => {
+    const end = Date.now() + deadline;
+    const remaining = () => {
+      const ms = end - Date.now();
+      requireProof(ms > 0, '运行中刷新走查已到截止时间');
+      return ms;
+    };
+    const processing = page.getByRole('status').filter({ hasText: /^正在处理$/u });
+    const currentStatus = (id: string, runId: string) =>
+      until(
+        async () => {
+          const { rows } = await pool.query<{ status: string }>(
+            `SELECT r.status FROM conversation c JOIN run r ON r.id=c.current_run_id
+           WHERE c.id=$1 AND r.id=$2`,
+            [id, runId],
+          );
+          const status = rows[0]?.status;
+          if (status === 'completed') return status;
+          if (status === 'running' && (await processing.isVisible())) return status;
+          if (status && !['queued', 'running'].includes(status))
+            throw new SceneError(`刷新场景的同一运行未正常执行 ${runId} ${status}`);
+          return undefined;
+        },
+        `刷新场景没有显示同一运行正在处理 ${runId}`,
+        Math.min(remaining(), 30_000),
+      );
+    for (let attempt = 0; attempt < 2; attempt++) {
+      remaining();
+      const id = await open(proof, '运行中刷新', 'read_only');
+      remaining();
+      const run = await ctx.send(page, readPrompt);
+      if ((await currentStatus(id, run.runId)) === 'running') {
+        await page.reload({
+          waitUntil: 'domcontentloaded',
+          timeout: Math.min(remaining(), 30_000),
+        });
+        if ((await currentStatus(id, run.runId)) === 'running') {
+          await runStatus(run.runId, 'completed', false, remaining());
+          await didRead(run.runId);
+          await page
+            .getByRole('status')
+            .filter({ hasText: /^已完成$/u })
+            .waitFor({ timeout: remaining() });
+          const submitted = page.getByText(readPrompt, { exact: true });
+          await submitted.waitFor({ timeout: remaining() });
+          requireProof((await submitted.count()) === 1, '刷新后用户消息重复');
+          remaining();
+          return;
+        }
+      }
+      await page
+        .getByRole('status')
+        .filter({ hasText: /^已完成$/u })
+        .waitFor({ timeout: remaining() });
+      await didRead(run.runId);
+      (proof.resampledRuns ??= []).push(run.runId);
+    }
+    throw new SceneError('两次采样均正常结束，未能验证运行中的刷新恢复');
   };
 
   for (const skill of ['R09', 'M02'] as const) {
@@ -267,47 +449,48 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
     scenes.push({
       name,
       run: async (proof) => {
-        const id = await open(proof, name, 'read_only');
-        if (kind === '错误页恢复') {
-          await page.goto(`${origin}/?conversation=${randomUUID()}`);
-          await page
-            .getByRole('alert')
-            .filter({ hasText: /错误编号/u })
-            .waitFor();
-          await page.goto(`${origin}/?conversation=${id}`);
-        }
-        if (kind === '消息失败重试') {
-          const route = `**/api/conversations/${id}/messages`;
-          await page.route(route, async (request) => {
-            if (request.request().method() === 'POST') await request.abort();
-            else await request.fallback();
-          });
-          try {
-            await page.getByRole('textbox', { name: '消息', exact: true }).fill(readPrompt);
-            await page.getByRole('button', { name: '发送', exact: true }).click();
+        let run: Awaited<ReturnType<WalkthroughBatchContext['send']>>;
+        if (kind === '事件流重连') {
+          run = await reconnectConversation(proof);
+        } else if (kind === '运行中刷新') {
+          await refreshDuringRun(proof);
+          return;
+        } else {
+          const id = await open(proof, name, 'read_only');
+          if (kind === '错误页恢复') {
+            await page.goto(`${origin}/?conversation=${randomUUID()}`);
             await page
               .getByRole('alert')
               .filter({ hasText: /错误编号/u })
               .waitFor();
-          } finally {
-            await page.unroute(route);
+            await page.goto(`${origin}/?conversation=${id}`);
           }
-        }
-        const run = await ctx.send(page, readPrompt);
-        if (kind === '运行中刷新') await page.reload();
-        if (kind === '事件流重连') {
-          const route = `**/api/conversations/${id}/events*`;
-          await page.route(route, (request) => request.abort());
-          try {
-            await page.reload();
-            await page.getByRole('button', { name: '重新连接', exact: true }).waitFor();
-          } finally {
-            await page.unroute(route);
+          if (kind === '消息失败重试') {
+            const route = `**/api/conversations/${id}/messages`;
+            await page.route(route, async (request) => {
+              if (request.request().method() === 'POST') await request.abort();
+              else await request.fallback();
+            });
+            try {
+              await page.getByRole('textbox', { name: '消息', exact: true }).fill(readPrompt);
+              await page.getByRole('button', { name: '发送', exact: true }).click();
+              await page
+                .getByRole('alert')
+                .filter({ hasText: /错误编号/u })
+                .waitFor();
+            } finally {
+              await page.unroute(route);
+            }
           }
-          await page.getByRole('button', { name: '重新连接', exact: true }).click();
+          run = await ctx.send(page, readPrompt);
         }
         await runStatus(run.runId);
         await didRead(run.runId);
+        if (kind === '事件流重连')
+          await page
+            .getByRole('status')
+            .filter({ hasText: /^已完成$/u })
+            .waitFor();
         await page.getByText(readPrompt, { exact: true }).waitFor();
         requireProof(
           (await page.getByText(readPrompt, { exact: true }).count()) === 1,
@@ -356,6 +539,16 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
     });
   }
   return scenes;
+}
+
+export function batchHasPassed(results: readonly SceneResult[], blockedRequests: number) {
+  const ids = results.flatMap(({ conversationIds, verificationIds }) => [
+    ...conversationIds,
+    ...verificationIds,
+  ]);
+  return (
+    blockedRequests === 0 && results.every((row) => row.passed) && new Set(ids).size === ids.length
+  );
 }
 
 export async function exerciseBatch(ctx: WalkthroughBatchContext) {
@@ -409,11 +602,9 @@ export async function exerciseBatch(ctx: WalkthroughBatchContext) {
      FROM usage_ledger WHERE created_at >= $1 GROUP BY model_id ORDER BY model_id`,
     [startedAt],
   );
-  const ids = results.flatMap(({ conversationIds, verificationIds }) => [
-    ...conversationIds,
-    ...verificationIds,
-  ]);
-  const passed = results.every((row) => row.passed) && new Set(ids).size === ids.length;
+  await ctx.browserContext.close();
+  const rejectedRequests = ctx.blockedRequestCount();
+  const passed = batchHasPassed(results, rejectedRequests);
   await writeFile(
     path.join(ctx.evidenceFolder, 'q2-result.json'),
     JSON.stringify(
@@ -421,6 +612,7 @@ export async function exerciseBatch(ctx: WalkthroughBatchContext) {
         status: passed ? 'passed' : 'failed',
         commit: process.env.CERT_WALKTHROUGH_COMMIT,
         instance: process.env.CERT_WALKTHROUGH_INSTANCE,
+        blockedRequests: rejectedRequests,
         cases: results,
         cost: usage.rows.map(({ paid, ...rest }) => ({ ...rest, usd: nanoToUsd(BigInt(paid)) })),
       },
@@ -428,5 +620,5 @@ export async function exerciseBatch(ctx: WalkthroughBatchContext) {
       2,
     ),
   );
-  requireProof(passed, '多场走查仍有未通过项');
+  requireProof(passed, rejectedRequests ? '浏览器尝试发送非本站请求' : '多场走查仍有未通过项');
 }
