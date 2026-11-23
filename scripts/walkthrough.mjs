@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,9 +66,8 @@ async function main() {
       throw new Error('预览进程在正式走查结束前退出。');
     }
     if (process.exitCode === 0 && !diagnostic) {
-      const result = JSON.parse(
-        await readFile(path.join(folder, batch ? 'q2-result.json' : 'result.json'), 'utf8'),
-      );
+      const rawResult = await readFile(path.join(folder, batch ? 'q2-result.json' : 'result.json'));
+      const result = JSON.parse(rawResult.toString('utf8'));
       const current = clean();
       if (
         result.status !== 'passed' ||
@@ -82,7 +82,16 @@ async function main() {
         const staged = `${previewEvidence}.tmp`;
         await writeFile(
           staged,
-          JSON.stringify({ status: 'passed', commit, evidence: folder }, null, 2),
+          JSON.stringify(
+            {
+              status: 'passed',
+              commit,
+              evidence: folder,
+              resultSha256: createHash('sha256').update(rawResult).digest('hex'),
+            },
+            null,
+            2,
+          ),
           'utf8',
         );
         await rename(staged, previewEvidence);

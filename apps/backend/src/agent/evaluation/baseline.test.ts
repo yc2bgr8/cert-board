@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -99,31 +100,54 @@ test('拒绝旧提交、失败走查、缺模型计量及未齐备的工具或�
   ).toThrow();
 });
 
-test('只接受本次验收目录和有效时间窗中的走查回执', () => {
+test('核对验收目录、时间窗、标准走查的唯一索引和回执摘要', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'cert-board-baseline-'));
   try {
+    const receipt = JSON.stringify(proof);
     const writeEvidence = (name: string) => {
       const vm = path.join(root, name);
-      const dir = path.join(
-        vm,
-        'source',
-        '.local',
-        'preview',
-        'evidence',
-        '2026-11-23T11-15-00-000Z',
-      );
+      const preview = path.join(vm, 'source', '.local', 'preview');
+      const dir = path.join(preview, 'evidence', '2026-11-23T11-15-00-000Z');
       mkdirSync(dir, { recursive: true });
       const reportPath = path.join(vm, 'report.json');
       const resultPath = path.join(dir, 'result.json');
+      const pointerPath = path.join(preview, 'walkthrough.json');
       writeFileSync(reportPath, JSON.stringify(report));
-      writeFileSync(resultPath, JSON.stringify(proof));
+      writeFileSync(resultPath, receipt);
       utimesSync(resultPath, new Date(recorded.completedAt), new Date(recorded.completedAt));
-      return { reportPath, resultPath };
+      const writePointer = (legacy = false) => {
+        writeFileSync(
+          pointerPath,
+          JSON.stringify({
+            status: 'passed',
+            commit,
+            evidence: dir,
+            ...(legacy ? {} : { resultSha256: createHash('sha256').update(receipt).digest('hex') }),
+          }),
+        );
+        const issuedAt = new Date(recorded.completedAt + 1000);
+        utimesSync(pointerPath, issuedAt, issuedAt);
+      };
+      writePointer();
+      return { reportPath, resultPath, preview, writePointer };
     };
     const first = writeEvidence('first');
     const other = writeEvidence('other');
     expect(readBaselineFiles(first.reportPath, first.resultPath).testCommit).toBe(commit);
     expect(() => readBaselineFiles(first.reportPath, other.resultPath)).toThrow();
+    const alternative = path.join(first.preview, 'evidence', '2026-11-23T11-15-01-000Z');
+    mkdirSync(alternative, { recursive: true });
+    const alternativeResult = path.join(alternative, 'result.json');
+    writeFileSync(alternativeResult, receipt);
+    utimesSync(alternativeResult, new Date(recorded.completedAt), new Date(recorded.completedAt));
+    expect(() => readBaselineFiles(first.reportPath, alternativeResult)).toThrow();
+    first.writePointer(true);
+    expect(() => readBaselineFiles(first.reportPath, first.resultPath)).toThrow();
+    first.writePointer();
+    writeFileSync(first.resultPath, receipt + '\n');
+    utimesSync(first.resultPath, new Date(recorded.completedAt), new Date(recorded.completedAt));
+    expect(() => readBaselineFiles(first.reportPath, first.resultPath)).toThrow();
+    writeFileSync(first.resultPath, receipt);
     const later = new Date('2026-11-23T11:17:00.000Z');
     utimesSync(first.resultPath, later, later);
     expect(() => readBaselineFiles(first.reportPath, first.resultPath)).toThrow();

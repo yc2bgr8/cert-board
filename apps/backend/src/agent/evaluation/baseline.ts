@@ -1,4 +1,5 @@
 import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -77,6 +78,12 @@ const resultSchema = z.object({
     )
     .length(2),
 });
+const proofPointerSchema = z.object({
+  status: z.literal('passed'),
+  commit: sha,
+  evidence: z.string().min(1),
+  resultSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+});
 
 type EvidenceInterval = { startedAt: number; completedAt: number };
 
@@ -132,7 +139,8 @@ export function summarizeAgentBaseline(
 export function readBaselineFiles(reportFile: string, resultFile: string) {
   const reportPath = realpathSync(reportFile);
   const resultPath = realpathSync(resultFile);
-  const root = path.join(path.dirname(reportPath), 'source', '.local', 'preview', 'evidence');
+  const preview = path.join(path.dirname(reportPath), 'source', '.local', 'preview');
+  const root = path.join(preview, 'evidence');
   const [folder, name, ...rest] = path.relative(root, resultPath).split(path.sep);
   const timestamp = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/u.exec(folder ?? '');
   if (
@@ -143,14 +151,25 @@ export function readBaselineFiles(reportFile: string, resultFile: string) {
   )
     throw new Error('请使用同一次虚拟机验收保留的原目录。');
   const [, hour, minute, second, fraction] = timestamp;
-  return summarizeAgentBaseline(
+  const pointerPath = path.join(preview, 'walkthrough.json');
+  const pointer = proofPointerSchema.parse(JSON.parse(readFileSync(pointerPath, 'utf8')));
+  const rawResult = readFileSync(resultPath);
+  const completedAt = statSync(resultPath).mtimeMs;
+  const baseline = summarizeAgentBaseline(
     JSON.parse(readFileSync(reportPath, 'utf8')) as unknown,
-    JSON.parse(readFileSync(resultPath, 'utf8')) as unknown,
-    {
-      startedAt: Date.parse(`${hour}:${minute}:${second}.${fraction}Z`),
-      completedAt: statSync(resultPath).mtimeMs,
-    },
+    JSON.parse(rawResult.toString('utf8')) as unknown,
+    { startedAt: Date.parse(`${hour}:${minute}:${second}.${fraction}Z`), completedAt },
   );
+  const indexedAt = statSync(pointerPath).mtimeMs;
+  if (
+    pointer.commit !== baseline.testCommit ||
+    realpathSync(pointer.evidence) !== path.dirname(resultPath) ||
+    indexedAt < completedAt ||
+    indexedAt > Date.parse(baseline.completedAt) ||
+    createHash('sha256').update(rawResult).digest('hex') !== pointer.resultSha256
+  )
+    throw new Error('标准走查索引与回执不匹配。');
+  return baseline;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
