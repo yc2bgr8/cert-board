@@ -381,11 +381,17 @@ async function main() {
       await inspectSubmission(pool, revised, 'R09');
       const proof = await checkR09Revision(pool, blobs, original, revised, conversation, reportPath);
       await review(page, pool, revised, path.join(evidenceFolder, 'r09-eval-approved.png'), true, reportPath);
+      const { rows: [approval] } = await pool.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM review_card WHERE conversation_id=$1 AND status='approved'",
+        [conversation],
+      );
+      const approvedCards = approval?.count;
+      assert.equal(approvedCards, 1, '改稿对话应只通过重提后的审核卡。');
       stage = 'R09 整包候选复判的只读浏览器专项';
       const readOnly = await freshConversation(page, developmentProjectId, 'R09 整包候选复判', 'read_only');
       const workspaceBefore = await readOnlyWorkspaceSnapshot(pool, developmentProjectId, readOnly);
       const { runId } = await send(page,
-        '请按 R09 对 L08 整包做只读核查，先运行 rules_run 的 R3、R5，再复判候选。实际读取 D021 第29页和 D023 第17页原文，判断两处水温对应的试验用途。最终回复把两处原文分别写成「用途 D021 第29页：」「用途 D023 第17页：」开头的两行，每行用中文直角引号「」包住同时含温度数值、单位和试验动作的逐字英文原文。用途根据原文填写“冲洗”“冷却”或“待核”。另写一行「MSDS：已定位 [资料编号] 第[页码]页 [发现]；缺失：[第二处独立证据]。」。保留“已定位”和“缺失：”两个标签，填入从实际回执判断的发现和需要哪项证据。不要保存或提交。最后一行用「核对摘要：水温 [同一用途|不同用途|待核]，MSDS [已证实差异|待核证据]。」的格式，按证据填实际状态。',
+        '请按 R09 对 L08 整包做只读核查，先运行 rules_run 的 R3、R5，再复判候选。实际读取 D021 第29页和 D023 第17页原文，判断两处水温对应的试验用途。最终回复把两处原文分别写成「用途 D021 第29页：」「用途 D023 第17页：」开头的两行，每行用中文直角引号「」包住同时含温度数值、单位和试验动作的逐字英文原文。用途根据原文填写“冲洗”“冷却”或“待核”。另写一行「MSDS：已定位 [资料编号] 第[页码]页 [发现]；缺失：[选项]。」。根据 R5 回执在“实际 MSDS 附件”“第二处独立证据”“无缺件”“待核信息”中选一项，原样放在缺失字段的末尾。已有定位的解释写在分号之前。不要保存或提交。最后一行用「核对摘要：水温 [同一用途|不同用途|待核]，MSDS [已证实差异|待核证据]。」的格式，按证据填实际状态。',
       );
       const packageProof = await checkR09PackageReadOnly(page, pool, runId, readOnly);
       assert.deepEqual(
@@ -396,7 +402,7 @@ async function main() {
       assert.equal(blocked, 0);
       await writeFile(
         path.join(evidenceFolder, 'r09-result.json'),
-        JSON.stringify({ ...proof, packageProof: { ...packageProof, workspaceUnchanged: true }, status: 'passed', instance, commit: testedCommit, approvedInBrowser: true }, null, 2),
+        JSON.stringify({ ...proof, packageProof: { ...packageProof, workspaceUnchanged: true }, status: 'passed', instance, commit: testedCommit, approvedInBrowser: true, approvedCards }, null, 2),
         'utf8',
       );
       console.log('R09 原文、两处改稿和浏览器批准专项通过。');

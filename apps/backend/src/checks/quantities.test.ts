@@ -89,9 +89,12 @@ test('V7 回查完整来源页，拒绝原文截取的端点、算式因子及�
     'quantity_mismatch',
   );
   expect(checkWithSource(claim(10, 'V', '10 V'), () => '输出电压为 10 V*。')).toBeNull();
-  expect(
-    checkWithSource(claim(10, 'V', '10 V'), () => '输出电压 10 V\n* 测量应在室温进行。'),
-  ).toBeNull();
+  expect(checkWithSource(claim(10, 'V', '10 V'), () => '换算值 = 10 V\n* 2。')).toBe(
+    'quantity_mismatch',
+  );
+  expect(checkWithSource(claim(10, 'V', '10 V'), () => '输出电压 10 V\n* 测量应在室温进行。')).toBe(
+    'quantity_mismatch',
+  );
   expect(
     checkWithSource(claim(25, '℃', '25 °C'), () => 'Date: 24/11/2026\nPage 29\n25 °C.'),
   ).toBeNull();
