@@ -77,6 +77,11 @@ import {
   skillVersionViewSchema,
   skillActionSchema,
   skillActionResultSchema,
+  skillRollbackPolicySchema,
+  skillRollbackPolicyInputSchema,
+  skillRollbackListSchema,
+  skillRollbackDecisionInputSchema,
+  skillRollbackDecisionResultSchema,
   type AuthResponse,
   type DataLevel,
   type IntakeCategory,
@@ -89,6 +94,8 @@ import {
   type ReviewDecisionInput,
   type ProposalDecision,
   type OutboundResolutionInput,
+  type SkillRollbackPolicyInput,
+  type SkillRollbackDecisionInput,
   type ExternalModelWordInput,
   type VerificationCreate,
   type VerificationMessageInput,
@@ -234,6 +241,24 @@ const externalPage = (cursor: string | null) =>
   cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
 export const api = {
   skills: (signal?: AbortSignal) => request('/api/skills', skillPageSchema, signalOption(signal)),
+  skillRollbackPolicy: (signal?: AbortSignal) =>
+    request('/api/skill-rollback-policy', skillRollbackPolicySchema, signalOption(signal)),
+  saveSkillRollbackPolicy: (input: SkillRollbackPolicyInput) =>
+    request('/api/skill-rollback-policy', skillRollbackPolicySchema, {
+      method: 'POST',
+      body: checked(skillRollbackPolicyInputSchema, input),
+    }),
+  skillRollbackProposals: (signal?: AbortSignal) =>
+    request('/api/skill-rollback-proposals', skillRollbackListSchema, signalOption(signal)),
+  decideSkillRollback: (id: string, input: SkillRollbackDecisionInput) =>
+    request(
+      `/api/skill-rollback-proposals/${identifier(id)}/decision`,
+      skillRollbackDecisionResultSchema,
+      {
+        method: 'POST',
+        body: checked(skillRollbackDecisionInputSchema, input),
+      },
+    ),
   skillVersion: (id: string, versionId: string, signal?: AbortSignal) =>
     request(
       `/api/skills/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`,

@@ -2,10 +2,17 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SkillActionInput } from '@cert-board/shared';
 import { api, createRequestKey, errorMessage } from './api.js';
+import { SkillRollbackPanel } from './SkillRollbackPanel.js';
 
 const permissionLabels = { read_only: '只读', ask: '请求批准', full: '完全允许' };
 
-export function SkillVersions({ userId }: { userId: string }) {
+export function SkillVersions({
+  userId,
+  rollbackFocus = null,
+}: {
+  userId: string;
+  rollbackFocus?: string | null;
+}) {
   const [open, setOpen] = useState(false);
   const [skillId, setSkillId] = useState('');
   const [versionId, setVersionId] = useState('');
@@ -164,6 +171,7 @@ export function SkillVersions({ userId }: { userId: string }) {
           )}
         </div>
       )}
+      <SkillRollbackPanel userId={userId} focusId={rollbackFocus} />
     </section>
   );
 }

@@ -5,6 +5,7 @@ import type {
   DeadlineStage,
   ReminderProfile,
   SkillVersionMetadata,
+  SkillRollbackEvidence,
   VerificationClaim,
   VerificationConclusion,
   VerificationModel,
@@ -775,6 +776,91 @@ export const skillRelease = pgTable(
     check(
       'skill_release_active',
       sql`CASE WHEN ${table.action} = 'disable' THEN ${table.activeVersionId} IS NULL ELSE ${table.activeVersionId} IS NOT DISTINCT FROM ${table.targetVersionId} END`,
+    ),
+  ],
+);
+
+export const skillRollbackPolicy = pgTable(
+  'skill_rollback_policy',
+  {
+    id: varchar('id', { length: 12 }).primaryKey(),
+    minimumCards: integer('minimum_cards').notNull(),
+    rejectionPercent: integer('rejection_percent').notNull(),
+    revision: integer('revision').notNull(),
+  },
+  (table) => [
+    check('skill_rollback_policy_id', sql`${table.id}='default'`),
+    check('skill_rollback_policy_count', sql`${table.minimumCards} BETWEEN 1 AND 100`),
+    check('skill_rollback_policy_percent', sql`${table.rejectionPercent} BETWEEN 1 AND 100`),
+    check('skill_rollback_policy_revision', sql`${table.revision}>0`),
+  ],
+);
+
+export const skillRollbackProposal = pgTable(
+  'skill_rollback_proposal',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    skillId: varchar('skill_id', { length: 3 })
+      .notNull()
+      .references(() => skill.id, { onDelete: 'restrict' }),
+    activeVersionId: uuid('active_version_id').notNull(),
+    targetVersionId: uuid('target_version_id'),
+    releaseRevision: integer('release_revision').notNull(),
+    evidence: jsonb('evidence').$type<SkillRollbackEvidence>().notNull(),
+    status: varchar('status', { length: 12 }).notNull(),
+    decidedBy: uuid('decided_by'),
+    sessionId: uuid('session_id'),
+    requestKey: uuid('request_key'),
+    dismissedCount: integer('dismissed_count'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+  },
+  (table) => [
+    foreignKey({
+      name: 'skill_rollback_active_version',
+      columns: [table.skillId, table.activeVersionId],
+      foreignColumns: [skillVersion.skillId, skillVersion.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'skill_rollback_target_version',
+      columns: [table.skillId, table.targetVersionId],
+      foreignColumns: [skillVersion.skillId, skillVersion.id],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'skill_rollback_browser_session',
+      columns: [table.sessionId, table.decidedBy],
+      foreignColumns: [webSession.id, webSession.userId],
+    }).onDelete('restrict'),
+    unique('skill_rollback_request_key').on(table.requestKey),
+    uniqueIndex('skill_rollback_open_per_skill')
+      .on(table.skillId)
+      .where(sql`${table.status} IN ('pending','notice')`),
+    index('skill_rollback_version_history').on(
+      table.skillId,
+      table.activeVersionId,
+      table.decidedAt,
+    ),
+    check(
+      'skill_rollback_status',
+      sql`${table.status} IN ('pending','notice','approved','dismissed','expired')`,
+    ),
+    check('skill_rollback_revision', sql`${table.releaseRevision}>0`),
+    check(
+      'skill_rollback_target',
+      sql`(${table.status}<>'pending' OR ${table.targetVersionId} IS NOT NULL)
+    AND (${table.status}<>'notice' OR ${table.targetVersionId} IS NULL)`,
+    ),
+    check(
+      'skill_rollback_audit_fields',
+      sql`((${table.status} IN ('approved','dismissed'))
+    AND ${table.decidedAt} IS NOT NULL AND ${table.sessionId} IS NOT NULL AND ${table.decidedBy} IS NOT NULL AND ${table.requestKey} IS NOT NULL)
+    OR ((${table.status} NOT IN ('approved','dismissed'))
+    AND ${table.decidedAt} IS NULL AND ${table.sessionId} IS NULL AND ${table.decidedBy} IS NULL AND ${table.requestKey} IS NULL)`,
+    ),
+    check(
+      'skill_rollback_dismissed_count',
+      sql`CASE WHEN ${table.status}='dismissed'
+    THEN ${table.dismissedCount} IS NOT NULL AND ${table.dismissedCount}>=0 ELSE ${table.dismissedCount} IS NULL END`,
     ),
   ],
 );
@@ -2225,6 +2311,9 @@ export const reviewCard = pgTable(
     ),
     index('review_card_project_status_idx').on(table.projectId, table.status),
     index('review_card_project_decided_idx').on(table.projectId, table.decidedAt),
+    index('review_card_skill_statistics_idx')
+      .on(table.skillId, table.skillVersion, table.decidedAt)
+      .where(sql`${table.status} IN ('approved','rejected')`),
   ],
 );
 
