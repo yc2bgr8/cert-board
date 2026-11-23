@@ -20,14 +20,18 @@ export function normalizeIdentifier(field: CheckField, value: string) {
 }
 
 export function identifierInQuote(field: CheckField, identifier: string, quote: string) {
+  if (!identifier) return false;
   const text = quote.toUpperCase();
+  const alphanumeric = /^[A-Z0-9]$/u;
   const adjacent = field === 'device_identifier' ? /^[A-Z0-9._+/-]$/u : /^[A-Z0-9]$/u;
   let cursor = text.indexOf(identifier);
   while (cursor >= 0) {
-    if (
-      !adjacent.test(text[cursor - 1] ?? '') &&
-      !adjacent.test(text[cursor + identifier.length] ?? '')
-    )
+    const end = cursor + identifier.length;
+    const before = text[cursor - 1] ?? '';
+    const after = text[end] ?? '';
+    const dottedPrefix = before === '.' && alphanumeric.test(text[cursor - 2] ?? '');
+    const dottedSuffix = after === '.' && alphanumeric.test(text[end + 1] ?? '');
+    if (!adjacent.test(before) && !adjacent.test(after) && !dottedPrefix && !dottedSuffix)
       return true;
     cursor = text.indexOf(identifier, cursor + 1);
   }

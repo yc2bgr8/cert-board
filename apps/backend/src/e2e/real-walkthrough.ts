@@ -365,7 +365,7 @@ async function main() {
       const conversation = await freshConversation(page, developmentProjectId, 'L08 官方编号核对', 'full');
       const { runId } = await send(
         page,
-        '请在 L08 项目按 R09 做一项编号核对。先读取 D035 中 K170285 的原文，再用 official_lookup 核对公开的 K170825，读取其官方存档中的 identifier 字段，调用 identifier_check（V2）比较。请把两个来源的原文、疑似笔误结论和需要我确认之处存成简短核对说明，并按流程提交审核。不要修改源材料中的编号。',
+        '请在 L08 项目按 R09 做一项编号核对。先读取 D035 中 K170285 的原文，再用 official_lookup 核对公开的 K170825，读取其官方存档中的 identifier 字段，调用 identifier_check（V2）比较。请按流程保存简短说明并送审。在审核卡结论中用一句话写明两个编号及其关系，在下一句写明是否待我确认。请引用两个来源的原文，保留源材料原样。',
       );
       const cardId = await waitForReview(page, pool, conversation, 1);
       const proof = await checkOfficialBrowserRun(page, pool, runId, cardId, evidenceFolder);
