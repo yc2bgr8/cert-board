@@ -138,9 +138,17 @@ function sourceSupportsClaim(pageText: string, quote: string, expected: bigint[]
   const excerpt = normalizeWhitespace(quote);
   const first = text.indexOf(excerpt);
   if (!excerpt || first < 0) return false;
+  // 每段空白仍占一位，与归一化后的引文位置对齐。
   const amounts = pageText
     .trim()
-    .replace(/\s+/gu, (spaces) => (/[\r\n]/u.test(spaces) ? '\n' : ' '))
+    .replace(/\s+/gu, (spaces: string, offset: number, page: string) => {
+      if (
+        /\r?\n[ \t]*\r?\n/u.test(spaces) &&
+        /^[*＊][ \t]+\[[ xX]\](?:[ \t]|$)/u.test(page.slice(offset + spaces.length))
+      )
+        return '\f';
+      return /[\r\n]/u.test(spaces) ? '\n' : ' ';
+    })
     .replace(/(?<!\d)(?:\d{4}\/\d{1,2}\/\d{1,2}|\d{1,2}\/\d{1,2}\/\d{4})(?!\d)/gu, (date) =>
       ' '.repeat(date.length),
     );
