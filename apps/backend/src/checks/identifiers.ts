@@ -31,8 +31,7 @@ export function identifierInQuote(field: CheckField, identifier: string, quote: 
     const after = text[end] ?? '';
     const dottedPrefix =
       field === 'regulation_number' && before === '.' && alphanumeric.test(text[cursor - 2] ?? '');
-    const dottedSuffix =
-      field === 'regulation_number' && after === '.' && alphanumeric.test(text[end + 1] ?? '');
+    const dottedSuffix = after === '.' && alphanumeric.test(text[end + 1] ?? '');
     if (!adjacent.test(before) && !adjacent.test(after) && !dottedPrefix && !dottedSuffix)
       return true;
     cursor = text.indexOf(identifier, cursor + 1);

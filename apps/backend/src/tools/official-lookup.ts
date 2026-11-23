@@ -42,7 +42,7 @@ export function createOfficialRateLimit() {
       const available = previous?.next ?? now;
       const used = previous?.day === day ? previous.used : 0;
       if (signal?.aborted) throw new AppError(409, 'WEB_STOPPED', '运行已停止，官方请求未发出。');
-      if (available > expires || (host === 'api.fda.gov' && used >= 900))
+      if ((available > now && available > expires) || (host === 'api.fda.gov' && used >= 900))
         throw new AppError(
           429,
           'OFFICIAL_RATE_LIMIT',

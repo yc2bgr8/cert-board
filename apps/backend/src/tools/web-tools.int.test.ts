@@ -13,6 +13,7 @@ import { createApp } from '../app.js';
 import { AppError } from '../api/errors.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { FetcherRedirect } from '../documents/fetcher-client.js';
+import { importVerifiedLicenceLedger } from '../documents/licence-ledger-import.js';
 import { ingestParsedDocument } from '../documents/service.js';
 import { createIntegrationContext } from '../test-support/context.js';
 import { docReadTool } from './doc-read.js';
@@ -170,19 +171,31 @@ test('V2 用官方存档字段和材料原文发现 K 号对调，拒绝缺失�
     references: [request.observed],
   })).resolves.toMatchObject({ data: { status: 'unavailable', code: 'V2_LEDGER_SOURCE_REQUIRED' } });
   const ledgerText = '证照台账 对比器械编号 K170825。';
-  const ledger = await ingestParsedDocument(context.pool, store, {
+  const ledgerDraft = {
     projectId: context.projectId, sourceKey: 'PR30-LEDGER', name: '合成证照台账',
     sourcePath: 'pr30-ledger.txt', sourceSnapshot: digest(Buffer.from(ledgerText)),
-    dataLevel: 'internal', authorType: 'human', sourceMetadata: { sourceRole: 'licence_ledger' },
+    dataLevel: 'internal', authorType: 'human',
     pages: [{ pageNumber: 1, text: ledgerText, method: 'text', locatorKind: 'extraction_unit' }],
-  });
-  await expect(invoke('identifier_check', {
+  };
+  const previous = await ingestParsedDocument(context.pool, store, ledgerDraft);
+  const ledgerRequest = (ref: { documentId: string; version: number }) => ({
     ...request,
     referenceType: 'ledger',
     references: [{ identifier: 'K170825', evidence: {
-      documentId: ledger.documentId, version: ledger.version, page: 1, quote: ledgerText,
+      documentId: ref.documentId, version: ref.version, page: 1, quote: ledgerText,
     } }],
-  })).resolves.toMatchObject({ data: { status: 'possible_typo' } });
+  });
+  await expect(invoke('identifier_check', ledgerRequest(previous))).resolves.toMatchObject({
+    data: { status: 'unavailable', code: 'V2_LEDGER_SOURCE_REQUIRED' },
+  });
+  const ledger = await importVerifiedLicenceLedger(context.pool, store, ledgerDraft);
+  expect(ledger).toMatchObject({ documentId: previous.documentId, version: previous.version + 1 });
+  await expect(invoke('identifier_check', ledgerRequest(ledger))).resolves.toMatchObject({
+    data: { status: 'possible_typo' },
+  });
+  await expect(importVerifiedLicenceLedger(context.pool, store, ledgerDraft)).resolves.toMatchObject({
+    version: ledger.version, created: false,
+  });
 });
 
 test('截止日回查的可下载存档不带未来记录，只读查询不写入', async () => {
