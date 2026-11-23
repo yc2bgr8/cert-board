@@ -67,6 +67,7 @@ export async function enqueueAgentRun(
   if (!parsed.success) throw new Error('INVALID_AGENT_JOB');
   return boss.send(AGENT_QUEUE, parsed.data, {
     id: ticketId ?? verificationId ?? runId,
+    group: { id: runId },
     retryLimit: 0,
   });
 }
@@ -85,10 +86,12 @@ export async function consumeAgentRuns(
 ) {
   const workOptions = {
     batchSize: 1,
-    localConcurrency: 1,
+    localConcurrency: 2,
+    groupConcurrency: 1,
     pollingIntervalSeconds: 1,
     includeMetadata: true,
   } as const;
+  const activeRuns = new Map<string, Promise<void>>();
   return boss.work<AgentJob, void, typeof workOptions>(AGENT_QUEUE, workOptions, async (jobs) => {
     for (const job of jobs) {
       const parsed = jobSchema.safeParse(job.data);
@@ -97,8 +100,13 @@ export async function consumeAgentRuns(
         job.id === (parsed.data.ticketId ?? parsed.data.verificationId ?? parsed.data.runId)
           ? parsed.data
           : null;
+      // 升级前已入队的任务没有分组，也必须等同一运行的本机任务退出。
+      const prior = data ? activeRuns.get(data.runId) : undefined;
+      const slot = Promise.withResolvers<void>();
+      if (data) activeRuns.set(data.runId, slot.promise);
       try {
         if (!data) throw new Error('INVALID_AGENT_JOB');
+        await prior;
         if (closing() || job.signal.aborted) throw new Error('AGENT_WORKER_CLOSING');
         const expiresAtMs = job.startedOn.getTime() + job.expireInSeconds * 1000;
         if (!Number.isSafeInteger(expiresAtMs)) throw new Error('INVALID_AGENT_JOB_DEADLINE');
@@ -110,6 +118,9 @@ export async function consumeAgentRuns(
         const error = new Error('AGENT_JOB_FAILED');
         delete error.stack;
         throw error;
+      } finally {
+        if (data && activeRuns.get(data.runId) === slot.promise) activeRuns.delete(data.runId);
+        slot.resolve();
       }
       // 队列只存运行和续跑票据编号，回执正文保存在私有对话中。
     }
