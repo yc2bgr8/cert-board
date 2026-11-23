@@ -544,7 +544,10 @@ test('显式 V7 复算与 V1 原文同时通过才接受数值或范围', async 
   const data = submission(first);
   data.claims[0] = {
     ...data.claims[0]!,
-    field: '浸泡时间', value: 60, unit: 'min', quantityCheck: true,
+    field: '浸泡时间',
+    value: 60,
+    unit: 'min',
+    quantityCheck: true,
     sources: [first, second],
   };
   const verified = await checkSubmission(context.pool, caller, data);
@@ -555,11 +558,23 @@ test('显式 V7 复算与 V1 原文同时通过才接受数值或范围', async 
   const mismatched = await checkSubmission(context.pool, caller, data);
   expect(mismatched.passed).toBe(false);
   expect(mismatched.checks.find(({ code }) => code === 'V7')).toMatchObject({
-    status: 'failed', issues: [{ code: 'quantity_mismatch', path: 'claims[0].value' }],
+    status: 'failed',
+    issues: [{ code: 'quantity_mismatch', path: 'claims[0].value' }],
   });
   data.claims[0]!.value = 60;
   data.claims[0]!.sources[1]!.quote = '另行写入但资料里没有的浸泡时间 60 分钟。';
   expect((await checkSubmission(context.pool, caller, data)).passed).toBe(false);
+});
+
+test('V1 引文真实也不能让截取的区间端点通过 V7', async () => {
+  const source = await addSource({ text: '储存范围 20–25℃。' });
+  const ref = { ...source, quote: '25℃' };
+  const data = submission(ref);
+  Object.assign(data.claims[0]!, { value: 25, unit: '℃', quantityCheck: true });
+  const report = await checkSubmission(context.pool, caller, data);
+  expect(report.checks.find(({ code }) => code === 'V1')?.status).toBe('passed');
+  expect(report.checks.find(({ code }) => code === 'V7')?.status).toBe('failed');
+  expect(report.passed).toBe(false);
 });
 
 test('没有来源或evidence不能让空检查冒充通过', async () => {

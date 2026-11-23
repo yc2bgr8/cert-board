@@ -1,4 +1,5 @@
 import type { StructuredSubmission } from '@cert-board/shared';
+import { normalizeWhitespace } from './quotes.js';
 
 type Claim = StructuredSubmission['claims'][number];
 type Unit = { family: string; scale: bigint };
@@ -11,15 +12,15 @@ const definitions = [
   ['duration', 86400n, ['day', 'days', '天']],
   ['calendar_months', 1n, ['month', 'months', '个月', '月']],
   ['calendar_months', 12n, ['year', 'years', '年']],
-  ['temperature_c', 1n, ['°c', '℃', '摄氏度']],
-  ['pressure_cm_water', 1n, ['cmh2o', 'cmh₂o']],
-  ['voltage', 1n, ['v', 'volt', 'volts']],
+  ['temperature_c', 1n, ['°C', '℃', '摄氏度']],
+  ['pressure_cm_water', 1n, ['cmH2O', 'cmH₂O']],
+  ['voltage', 1n, ['V', 'volt', 'volts']],
   ['mass', 1n, ['g', '克']],
   ['mass', 1000n, ['kg', '千克']],
-  ['volume', 1n, ['ml', '毫升']],
-  ['volume', 1000n, ['l', '升']],
+  ['volume', 1n, ['mL', 'ml', '毫升']],
+  ['volume', 1000n, ['L', 'l', '升']],
 ] as const;
-const unitKey = (value: string) => value.normalize('NFKC').replace(/\s+/gu, '').toLowerCase();
+const unitKey = (value: string) => value.normalize('NFKC').replace(/\s+/gu, '');
 const units = new Map<string, Unit>(
   definitions.flatMap(([family, scale, labels]) =>
     labels.map((label) => [unitKey(label), { family, scale }] as const),
@@ -32,14 +33,15 @@ const chineseUnits = definitions
   .join('|');
 const gap = '[ \\t\\u00a0\\u202f]*';
 const numberBoundary = '(?<![A-Za-z0-9.+−-])(?<!\\d[,， \\u00a0\\u202f])';
-const compoundTail = `${gap}(?:[/⁄^⋅·×]|\\bper\\b|\\*${gap}(?=\\S))`;
+const operator = '(?:[/⁄^⋅·×÷±]|\\bper\\b|\\*)';
+const compoundTail = `${gap}${operator}${gap}(?=[(\\p{L}\\p{N}%+−-])`;
 const unitBoundary = `(?![A-Za-z\\p{N}⁻])(?!${compoundTail})`;
 const decimal = '[+−-]?(?:\\d{1,3}(?:[,，]\\d{3}){1,2}|\\d{1,9})(?:\\.\\d{1,6})?';
 const rangeSeparator = '(?:-|−|–|—|~|～|至|to\\b)';
 const unitAtom = `(?:cm${gap}h[2₂]o|°${gap}[A-Za-z]|℃|${chineseUnits}|[A-Za-zµμΩ%][A-Za-z\\p{N}µμΩ]*)[\\p{N}^⁻]*`;
 const unitLexeme = `(?!to\\b)${unitAtom}`;
 const compoundQuantity = new RegExp(
-  `${numberBoundary}${decimal}${gap}${unitAtom}${compoundTail}`,
+  `${numberBoundary}${decimal}(?:${gap}${unitLexeme})?${compoundTail}`,
   'iu',
 );
 const submitted = new RegExp(`^(${decimal})(?:${gap}${rangeSeparator}${gap}(${decimal}))?$`, 'iu');
@@ -72,17 +74,17 @@ function supportedUnit(raw: string | undefined, family: string) {
   return unit?.family === family ? unit : undefined;
 }
 
-function matchesQuote(quote: string, expected: bigint[], unit: Unit) {
+function matchingAmounts(text: string, expected: bigint[], unit: Unit) {
   // 复合算式只交人工核对，避免把分子、分母或乘积因子当作独立证据。
-  if (compoundQuantity.test(quote)) return false;
-  const ranges = [...quote.matchAll(sourceRange)].filter((range) => {
+  if (compoundQuantity.test(text)) return [];
+  const ranges = [...text.matchAll(sourceRange)].filter((range) => {
     const [, , startUnit, separator, , endUnit] = range;
     if (
       separator?.toLowerCase() !== 'to' ||
       !startUnit ||
       !endUnit ||
       !/\b(?:add|mix|dissolve)(?:[ \t]+(?:exactly|approximately|about))?[ \t]+$/iu.test(
-        quote.slice(0, range.index),
+        text.slice(0, range.index),
       )
     )
       return true;
@@ -91,19 +93,19 @@ function matchesQuote(quote: string, expected: bigint[], unit: Unit) {
     return !first || !last || first.family === last.family;
   });
   if (expected.length === 2) {
-    return ranges.some((range) => {
+    return ranges.filter((range) => {
       const last = supportedUnit(range[5], unit.family);
       const first = range[2] ? supportedUnit(range[2], unit.family) : last;
       return (
         first !== undefined &&
         last !== undefined &&
-        completeUnit.test(quote.slice(range.index + range[0].length)) &&
+        completeUnit.test(text.slice(range.index + range[0].length)) &&
         scaledDecimal(range[1]!, first.scale) === expected[0] &&
         scaledDecimal(range[4]!, last.scale) === expected[1]
       );
     });
   }
-  return [...quote.matchAll(sourceScalar)].some((match) => {
+  return [...text.matchAll(sourceScalar)].filter((match) => {
     const end = match.index + match[0].length;
     if (ranges.some((range) => range.index < end && range.index + range[0].length > match.index))
       return false;
@@ -112,11 +114,34 @@ function matchesQuote(quote: string, expected: bigint[], unit: Unit) {
   });
 }
 
-export function checkQuantityClaim(claim: Claim): 'quantity_format' | 'quantity_mismatch' | null {
+function sourceSupportsClaim(pageText: string, quote: string, expected: bigint[], unit: Unit) {
+  const text = normalizeWhitespace(pageText);
+  const excerpt = normalizeWhitespace(quote);
+  const first = text.indexOf(excerpt);
+  if (!excerpt || first < 0) return false;
+  const matches = matchingAmounts(text, expected, unit);
+  for (let offset = first; offset >= 0; offset = text.indexOf(excerpt, offset + 1)) {
+    if (
+      !matches.some(
+        (item) => item.index >= offset && item.index + item[0].length <= offset + excerpt.length,
+      )
+    )
+      return false;
+  }
+  return true;
+}
+
+export function checkQuantityClaim(
+  claim: Claim,
+  sourcePage: (source: Claim['sources'][number]) => string | undefined,
+): 'quantity_format' | 'quantity_mismatch' | null {
   const unit = claim.unit ? units.get(unitKey(claim.unit)) : undefined;
   const match = submitted.exec(String(claim.value).trim());
   if (!unit || !match) return 'quantity_format';
   const expected = normalized(match, unit);
-  const matches = ({ quote }: Claim['sources'][number]) => matchesQuote(quote, expected, unit);
+  const matches = (citation: Claim['sources'][number]) => {
+    const text = sourcePage(citation);
+    return text !== undefined && sourceSupportsClaim(text, citation.quote, expected, unit);
+  };
   return claim.sources.length > 0 && claim.sources.every(matches) ? null : 'quantity_mismatch';
 }

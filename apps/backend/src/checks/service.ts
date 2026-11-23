@@ -203,19 +203,26 @@ export async function checkSubmission(
       method: found.method,
       ocrScore: found.ocrScore,
     });
-    if (!quoteAppears(found.text, ref.quote)) v1.push({ code: 'quote_mismatch', path });
+    if (!quoteAppears(found.text, ref.quote)) {
+      v1.push({ code: 'quote_mismatch', path });
+      return;
+    }
+    return found.text;
   };
   for (const [index, claim] of submission.claims.entries()) {
+    if (claim.sources.length === 0)
+      v1.push({ code: 'missing_evidence', path: `claims[${index}].sources` });
+    const pages = new Map<(typeof claim.sources)[number], string>();
+    for (const [position, citation] of claim.sources.entries()) {
+      const text = await checkCitation(citation, `claims[${index}].sources[${position}]`);
+      if (claim.quantityCheck && text !== undefined) pages.set(citation, text);
+    }
     if (claim.quantityCheck) {
       checkedQuantity = true;
-      const code = checkQuantityClaim(claim);
+      const code = checkQuantityClaim(claim, (ref) => pages.get(ref));
       if (code) v7.push({ code, path: `claims[${index}].value` });
     } else if (typeof claim.value === 'number' || claim.unit !== null)
       v3.push({ code: 'unsupported_quantity', path: `claims[${index}]` });
-    if (claim.sources.length === 0)
-      v1.push({ code: 'missing_evidence', path: `claims[${index}].sources` });
-    for (const [position, citation] of claim.sources.entries())
-      await checkCitation(citation, `claims[${index}].sources[${position}]`);
   }
   for (const [index, decision] of submission.decisions.entries())
     for (const [position, citation] of decision.sources.entries())
@@ -237,7 +244,9 @@ export async function checkSubmission(
         ? [{ code: 'V7', status: v7.length ? 'failed' : 'passed', issues: v7 }]
         : []),
     ],
-    notRun: notRun.filter((code) => !(code === 'V6' && v6.ran) && !(code === 'V7' && checkedQuantity)),
+    notRun: notRun.filter(
+      (code) => !(code === 'V6' && v6.ran) && !(code === 'V7' && checkedQuantity),
+    ),
     citations: [...citations.values()],
   });
 }

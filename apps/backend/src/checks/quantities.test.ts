@@ -1,6 +1,9 @@
 import { expect, test } from 'vitest';
 import type { StructuredSubmission } from '@cert-board/shared';
-import { checkQuantityClaim } from './quantities.js';
+import { checkQuantityClaim as checkWithSource } from './quantities.js';
+
+const checkQuantityClaim = (claim: StructuredSubmission['claims'][number]) =>
+  checkWithSource(claim, ({ quote }) => quote);
 
 const claim = (
   value: string | number,
@@ -53,4 +56,19 @@ test('V7 核对单位和整个范围，不从不相干单位或一个端点推�
   expect(checkQuantityClaim(claim(-5, '℃', '温度−5℃。'))).toBeNull();
   expect(checkQuantityClaim(claim(5, '℃', '温度−5℃。'))).toBe('quantity_mismatch');
   expect(checkQuantityClaim(claim(4, '未知单位', '测试值为 4。'))).toBe('quantity_format');
+});
+
+test('V7 回查完整来源页，拒绝原文截取的端点、算式因子及不同大小写的单位', () => {
+  expect(checkWithSource(claim(25, '℃', '25℃'), () => '允许范围 20–\n25℃。')).toBe(
+    'quantity_mismatch',
+  );
+  expect(checkWithSource(claim('20–25', '℃', '20– 25℃'), () => '允许范围 20–\n25℃。')).toBeNull();
+  expect(checkWithSource(claim(25, '℃', '25℃'), () => '目标 25℃。另一个范围是 20–25℃。')).toBe(
+    'quantity_mismatch',
+  );
+  expect(checkWithSource(claim(2, 'cm', '2 cm'), () => '宽度 1/2 cm。')).toBe('quantity_mismatch');
+  expect(checkQuantityClaim(claim(10, 'cm', '面积 5×10 cm。'))).toBe('quantity_mismatch');
+  expect(checkQuantityClaim(claim(5, 's', '导纳 5 S。'))).toBe('quantity_mismatch');
+  expect(checkQuantityClaim(claim(1, 'mm', '长度 1 Mm。'))).toBe('quantity_mismatch');
+  expect(checkQuantityClaim(claim(5, 'V', '电压 5 V。'))).toBeNull();
 });

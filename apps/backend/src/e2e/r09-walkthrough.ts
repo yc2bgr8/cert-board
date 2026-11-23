@@ -9,6 +9,7 @@ import {
   rulesRunResultSchema,
 } from '@cert-board/shared';
 import { nanoToUsd } from '../budget/meter.js';
+import { normalizeWhitespace } from '../checks/quotes.js';
 import type { BlobStore } from '../documents/blob-store.js';
 
 export const r09Replacements = [
@@ -117,6 +118,49 @@ export async function readOnlyWorkspaceSnapshot(
   return rows[0]!.workspace;
 }
 
+const packageSummary = /核对摘要[：:]\s*水温\s*不同用途\s*[,，]\s*MSDS\s*待核证据[。.]?/u;
+const packageSources = [
+  { key: 'D021', page: 29, use: '冲洗', originalUse: /rins/iu, temperature: /20-25/u },
+  { key: 'D023', page: 17, use: '冷却', originalUse: /cool/iu, temperature: /20-30/u },
+] as const;
+
+export function r09ReadOnlyAnswerMatches(
+  answer: string,
+  pages: readonly { sourceKey: string; page: number; text: string }[],
+) {
+  const lines = answer
+    .trim()
+    .split(/\r?\n/u)
+    .map((line) => line.trim());
+  const summary = lines.at(-1);
+  if (!summary || summary.match(packageSummary)?.[0] !== summary) return false;
+  for (const source of packageSources) {
+    const reads = pages.filter(
+      ({ sourceKey, page }) => sourceKey === source.key && page === source.page,
+    );
+    const locator = new RegExp(`\\b${source.key}\\s*第\\s*${source.page}\\s*页`, 'u');
+    const quoteMatches = lines.some((line) => {
+      if (!locator.test(line) || !line.includes(source.use)) return false;
+      const quote = line.match(/「([^」]+)」/u)?.[1];
+      return Boolean(
+        quote &&
+        source.originalUse.test(quote) &&
+        source.temperature.test(quote) &&
+        reads.some(({ text }) => normalizeWhitespace(text).includes(normalizeWhitespace(quote))),
+      );
+    });
+    if (!quoteMatches) return false;
+  }
+  return lines
+    .slice(0, -1)
+    .some(
+      (line) =>
+        /MSDS/iu.test(line) &&
+        /(?:缺|待补|未见|未找到|没有)/u.test(line) &&
+        /(?:第二处|另一处|独立|对照)/u.test(line),
+    );
+}
+
 export async function checkR09PackageReadOnly(
   page: Page,
   pool: pg.Pool,
@@ -188,16 +232,14 @@ export async function checkR09PackageReadOnly(
        ORDER BY seq DESC LIMIT 1`,
     [runId],
   );
-  const summary = /核对摘要[：:]\s*水温\s*不同用途\s*[,，]\s*MSDS\s*待核证据[。.]?/u;
-  const summaryLine = messages[0]?.text.trim().split(/\r?\n/u).at(-1)?.trim() ?? '';
   assert.ok(
-    summaryLine.match(summary)?.[0] === summaryLine,
-    '只读核查的最终回复需包含证据复判摘要。',
+    r09ReadOnlyAnswerMatches(messages[0]?.text ?? '', read),
+    '只读核查的最终回复需包含逐字引语、页码、各自用途、MSDS 证据缺口和复判摘要。',
   );
   await page
     .locator('article.live-agent-message')
     .last()
-    .getByText(summary)
+    .getByText(packageSummary)
     .waitFor({ timeout: 15_000 });
   const review = await pool.query('SELECT 1 FROM review_card WHERE conversation_id=$1', [
     conversationId,

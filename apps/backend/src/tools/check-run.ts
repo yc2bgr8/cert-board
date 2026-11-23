@@ -28,7 +28,7 @@ const metadata: ToolMetadata = {
     avoid:
       '不要用它代替doc_read或法规判断；它不证明模型实际读过，不验证哪个K号正确。通过后仍须submit_for_review，审批只能由人在浏览器完成。',
     parameters:
-      '直接传skill、workspaceVersion、conclusion、claims、decisions、evidence、missing、uncertain、nextStep。decisions必填，没有过程判断时传[]，每项至少一条原文。期限的value取deadline_calc的ISO到期点，deadlineCalculation填同一计算参数。数值复算时在该条claim填quantityCheck:true、数值或范围（如 60 或 "20–25"）和单位（如 min 或 °C），每条原文均须含对应值与单位。不同数值分条提交。陈述与判断合计最多20条，引用合计40条；引用用documentId/version/page/quote。K号是字符串，unit为null。V2 另用官方查询和标识符核对工具。例子为虚构格式，实际须用资料回执。',
+      '直接传skill、workspaceVersion、conclusion、claims、decisions、evidence、missing、uncertain、nextStep。decisions必填，没有过程判断时传[]，每项至少一条原文。期限的value取deadline_calc的ISO到期点，deadlineCalculation填同一计算参数。数值复算时在该条claim填quantityCheck:true、数值或范围（如 60 或 "20–25"）和单位（如 min 或 °C），每条原文须含对应的完整数值或范围及区分大小写的单位；程序回查来源页，复合算式交人工核对。不同数值分条提交。陈述与判断合计最多20条，引用合计40条；引用用documentId/version/page/quote。K号是字符串，unit为null。V2 另用官方查询和标识符核对工具。例子为虚构格式，实际须用资料回执。',
     example: {
       skill: { id: 'R09', version: '0.1.0' },
       workspaceVersion: '10000000-0000-4000-8000-000000000002',
