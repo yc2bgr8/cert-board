@@ -220,25 +220,28 @@ function identifierVariants(pages: Occurrence[]) {
   return output;
 }
 
+const contactLabel = /(?:Submitter|Official contact person|Contact person)[ \t]*[:：][ \t]*/giu;
+const nextField =
+  /^(?:Submitter|Official contact person|Contact person|Title|Phone|Fax|E-?mail|Address|Applicant|申请人)[ \t]*[:：]/iu;
+const contactTail = /[ \t]+(?:Title|Phone|Fax|E-?mail|Address|Applicant)[ \t]*[:：]|[\t|;（(]/iu;
+
 function contacts(pages: Occurrence[]) {
   const groups = new Map<string, ValueMap>();
   for (const page of pages) {
-    for (const contact of page.text.matchAll(
-      /(?:Submitter|Official contact person|Contact person)[ \t]*[:：]([^\r\n\t|]{0,120})/giu,
-    )) {
-      const inline = contact[1]!.trim();
-      const next = inline
-        ? ''
-        : (/^\r?\n[ \t]*([^\r\n\t|]{1,120})/u.exec(
-            page.text.slice(contact.index + contact[0].length),
-          )?.[1] ?? '');
-      const field = inline || (/^[^:：\r\n]{1,36}[:：]/u.test(next) ? '' : next);
-      const name = field
-        .replace(/^(?:Mr\.|Ms\.|Mrs\.|Dr\.)[ \t]+/iu, '')
-        .split(/\s+(?:Title|Phone|Fax|Email|Address|Applicant)\s*[:：]|[;（(]/iu, 1)[0]!
-        .trim()
-        .replace(/\s+/gu, ' ');
-      if (name && /\p{L}/u.test(name)) track(groups, '申报联系人', name, page);
+    const lines = page.text.split(/\r?\n/u);
+    for (const [index, line] of lines.entries()) {
+      for (const label of line.matchAll(contactLabel)) {
+        const inline = line.slice(label.index + label[0].length).trimStart();
+        const next = lines[index + 1]?.trimStart() ?? '';
+        const field = inline || (nextField.test(next) ? '' : next);
+        const name = field
+          .replace(/^(?:Mr\.|Ms\.|Mrs\.|Dr\.)[ \t]*/iu, '')
+          .split(contactTail, 1)[0]!
+          .trim()
+          .replace(/\s+/gu, ' ');
+        if (name.length <= 120 && /^[\p{L}.'’ -]*\p{L}[\p{L}.'’ -]*$/u.test(name))
+          track(groups, '申报联系人', name, page);
+      }
     }
     for (const applicant of page.text.matchAll(
       /^[ \t]*(?:Applicant|申请人)\s*[:：][ \t]+([^\r\n]{3,120})/gimu,
@@ -313,16 +316,16 @@ function parameters(pages: Occurrence[]) {
 const modelToken = '[A-Z][A-Z0-9]{1,11}-[A-Z0-9]{1,12}(?:-[A-Z0-9]{1,12}){0,3}';
 const colorToken = '(?:Blue|Purple|Transparent|White|Black|Pink|Green|Clear)';
 const rowTokens = (prefix: string, token: string) =>
-  new RegExp(`${prefix}\\s+((?:${token}\\s+){0,29}${token})(?=\\s|$)`, 'u');
+  new RegExp(`${prefix}[\\s|]+((?:${token}[\\s|]+){0,29}${token})(?=[\\s|]|$)`, 'u');
 const modelRow = rowTokens('Model', modelToken);
 const upperRow = rowTokens('upper tray', colorToken);
 const lowerRow = rowTokens('lower\\s*tray', colorToken);
 function modelConfiguration(pages: Occurrence[]) {
   const groups = new Map<string, ValueMap>();
   for (const page of pages) {
-    const models = modelRow.exec(page.text)?.[1]?.split(/\s+/u);
-    const upper = upperRow.exec(page.text)?.[1]?.split(/\s+/u);
-    const lowerColors = lowerRow.exec(page.text)?.[1]?.split(/\s+/u);
+    const models = modelRow.exec(page.text)?.[1]?.split(/[\s|]+/u);
+    const upper = upperRow.exec(page.text)?.[1]?.split(/[\s|]+/u);
+    const lowerColors = lowerRow.exec(page.text)?.[1]?.split(/[\s|]+/u);
     if (models && upper?.length === models.length && lowerColors?.length === models.length) {
       for (const [index, model] of models.entries()) {
         track(groups, `${model} 上托颜色`, lower(upper[index]!), page);
@@ -405,9 +408,16 @@ function attachmentReferences(documents: RuleDocument[]) {
     ).map(lower);
     const stems = attached.map(stem).filter(Boolean);
     const refs = new Set<string>();
+    const see = /please[ \t]+see[ \t]*:?[ \t]*/iu;
     for (const field of xfaFields(source.referencesText)) {
-      for (const match of field.matchAll(/please[ \t]+see\s*:?\s*([^\r\n]+)/giu)) {
-        for (const part of match[1]!.split(/,|;|、|\band\b/giu)) {
+      const lines = field.split(/\r?\n/u);
+      for (const [index, line] of lines.entries()) {
+        const marker = see.exec(line);
+        if (!marker) continue;
+        const next = lines[index + 1]?.trim() ?? '';
+        const value =
+          line.slice(marker.index + marker[0].length).trim() || (see.test(next) ? '' : next);
+        for (const part of value.split(/,|;|、|\band\b/giu)) {
           const name = part.replace(/^[ .:]+|[ .:]+$/gu, '');
           if (name.length >= 3 && name.length <= 80 && /[A-Za-z]/u.test(name)) refs.add(name);
         }

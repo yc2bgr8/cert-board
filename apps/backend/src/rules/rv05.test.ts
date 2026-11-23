@@ -103,17 +103,35 @@ test('R1 按完整 K 号归并写法，带点分后缀的文本不计入正常�
 });
 
 test('R2 只有实际跨文件的字段差异才作为候选', () => {
-  const document: RuleDocument = {
+  const first: RuleDocument = {
     key: 'A',
     name: 'A.pdf',
     pages: [{ page: 1, text: 'Contact person: Alice Green\nSubmitter: Bob Green' }],
   };
-  expect(runConsistencyRules([document], new Set(['R2']))).toEqual([]);
+  expect(runConsistencyRules([first], new Set(['R2']))).toEqual([]);
   expect(
     runConsistencyRules(
       [
-        document,
+        first,
         { key: 'B', name: 'B.pdf', pages: [{ page: 1, text: 'Contact person: Bob Green' }] },
+      ],
+      new Set(['R2']),
+    ),
+  ).toHaveLength(1);
+  expect(
+    runConsistencyRules(
+      [
+        document('A', 'Contact person:\tDr.Alice Green'),
+        document('B', 'Official contact person:\nDr. Alice Green Email: alice@example.test'),
+      ],
+      new Set(['R2']),
+    ),
+  ).toEqual([]);
+  expect(
+    runConsistencyRules(
+      [
+        document('A', 'Contact person:\tAlice Green'),
+        document('B', 'Official contact person:\nBob Green Email: bob@example.test'),
       ],
       new Set(['R2']),
     ),
@@ -230,6 +248,15 @@ test('R4 接受单型号配置表并发现下托颜色差异', () => {
       new Set(['R4']),
     ),
   ).toEqual([]);
+  expect(
+    runConsistencyRules(
+      [
+        document('A', 'Model L08-TB|\nupper tray White|\nlower tray Blue|'),
+        document('B', 'Model L08-TB|\nupper tray White|\nlower tray Purple|'),
+      ],
+      new Set(['R4']),
+    ),
+  ).toHaveLength(1);
 });
 
 test('R5 以 XFA 字段为界，不用相邻字段的附件名掩盖未匹配引用', () => {
@@ -245,4 +272,17 @@ test('R5 以 XFA 字段为界，不用相邻字段的附件名掩盖未匹配引
     new Set(['R5']),
   );
   expect(results).toMatchObject([{ ruleId: 'R5', values: [{ value: 'MSDS' }] }]);
+  expect(
+    runConsistencyRules(
+      [
+        {
+          ...document('A', 'eSTAR 示例'),
+          isEstar: true,
+          attachmentNames: [],
+          referencesText: '<reference>Please see:\nPlease see: MSDS.pdf</reference>',
+        },
+      ],
+      new Set(['R5']),
+    ),
+  ).toMatchObject([{ values: [{ value: 'MSDS.pdf' }] }]);
 });
