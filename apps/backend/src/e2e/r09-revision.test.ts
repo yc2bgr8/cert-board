@@ -25,26 +25,24 @@ test('只读走查要求最终答复包含逐字原文、各自用途与 MSDS �
     { sourceKey: 'D023', page: 17, text: 'Cool in water at 20-30 °C.' },
   ];
   const msds = { sourceKey: 'D099', page: 2 };
-  const summary = '核对摘要：水温 不同用途，MSDS 待核证据。';
-  const missing = '缺失：第二处独立证据。';
-  const answer = [
-    '冲洗 D021 第29页：「Rinse at 20-25 °C.」',
-    '冷却 D023 第17页：「Cool in water at 20-30 °C.」',
-    `MSDS：已定位 D099 第2页的附件引用；${missing}`,
-    summary,
-  ].join('\n');
+  const answer = {
+    用水证据: [
+      { 资料编号: 'D021', 页码: 29, 用途: '冲洗', 原文: pages[0]!.text },
+      { 资料编号: 'D023', 页码: 17, 用途: '冷却', 原文: pages[1]!.text },
+    ],
+    MSDS: { 资料编号: 'D099', 页码: 2, 状态: '待核证据', 缺失: '第二处独立证据' },
+  };
   const matches = (text: string) => r09ReadOnlyAnswerMatches(text, pages, msds);
-  expect(matches(answer)).toBe(true);
-  expect(matches(summary)).toBe(false);
-  expect(matches(answer.replace('Cool in water', 'Cool in solution'))).toBe(false);
-  expect(matches(answer.replace(missing, '可以结论'))).toBe(false);
-  expect(matches(answer.replace('冲洗 D021', '非冲洗 D021'))).toBe(false);
-  expect(matches(answer.replace(' °C.」', '」'))).toBe(false);
-  expect(matches(answer.replace('已定位 D099 第2页的附件引用；', ''))).toBe(false);
-  expect(matches(answer.replace('D099 第2页', 'D098 第2页'))).toBe(false);
-  expect(matches(answer.replace(missing, '缺失：实际 MSDS 附件。'))).toBe(true);
-  expect(matches(answer.replace(missing, '缺失：无，第二处独立证据已齐全'))).toBe(false);
-  expect(matches(answer.replace(missing, '缺失：无缺件，第二处独立证据已齐全'))).toBe(false);
-  expect(matches(answer.replace(missing, '缺失：第二处独立证据已找到，仍需归档附件'))).toBe(false);
-  expect(matches(answer.replace(missing, '缺失：无. 附件与第二处独立证据均齐备。'))).toBe(false);
+  const text = JSON.stringify(answer);
+  expect(matches(text)).toBe(true);
+  expect(matches(`\u0060\u0060\u0060json\n${text}\n\u0060\u0060\u0060`)).toBe(true);
+  expect(matches('水温不同用途，MSDS 待核证据。')).toBe(false);
+  expect(matches(text.replace('Cool in water', 'Cool in solution'))).toBe(false);
+  expect(matches(text.replace('冲洗', '非冲洗'))).toBe(false);
+  expect(matches(text.replace(' °C.', ''))).toBe(false);
+  expect(matches(text.replace('D099', 'D098'))).toBe(false);
+  expect(matches(text.replace('第二处独立证据', '实际附件'))).toBe(true);
+  expect(matches(text.replace('第二处独立证据', '无缺件'))).toBe(false);
+  expect(matches(text.replace('第二处独立证据', '无. 附件和独立证据均齐备'))).toBe(false);
+  expect(matches(text.replace('待核证据', '已证实差异'))).toBe(false);
 });

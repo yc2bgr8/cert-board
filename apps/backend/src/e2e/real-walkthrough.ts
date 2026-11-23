@@ -391,7 +391,7 @@ async function main() {
       const readOnly = await freshConversation(page, developmentProjectId, 'R09 整包候选复判', 'read_only');
       const workspaceBefore = await readOnlyWorkspaceSnapshot(pool, developmentProjectId, readOnly);
       const { runId } = await send(page,
-        '请按 R09 对 L08 整包做只读核查，先运行 rules_run 的 R3、R5，再复判候选。实际读取 D021 第29页和 D023 第17页原文，判断两处水温对应的试验用途。最终回复把两处原文分别写成「用途 D021 第29页：」「用途 D023 第17页：」开头的两行，每行用中文直角引号「」包住同时含温度数值、单位和试验动作的逐字英文原文。用途根据原文填写“冲洗”“冷却”或“待核”。另写一行「MSDS：已定位 [资料编号] 第[页码]页 [发现]；缺失：[选项]。」。根据 R5 回执在“实际 MSDS 附件”“第二处独立证据”“无缺件”“待核信息”中选一项，原样放在缺失字段的末尾。已有定位的解释写在分号之前。不要保存或提交。最后一行用「核对摘要：水温 [同一用途|不同用途|待核]，MSDS [已证实差异|待核证据]。」的格式，按证据填实际状态。',
+        '按 R09 只读检查 L08。先运行 rules_run 的 R3、R5，再读取 D021 第29页与 D023 第17页判断各自用水动作。最终回复只返回一个 JSON 对象，字段格式为 {"用水证据":[{"资料编号":"","页码":1,"用途":"","原文":""}],"MSDS":{"资料编号":"","页码":1,"状态":"","缺失":""}}。用水证据填两项，“用途”各从“冲洗”“冷却”“待核”选择，“原文”逐字摘录英文，包含该动作和含单位的温度范围。MSDS 的资料编号及页码用 R5 回执里的实际定位。“状态”从“待核证据”“已证实差异”“无缺件”选择。“缺失”从“实际附件”“第二处独立证据”“无缺件”“待核信息”选择。所有字段填入证据支持的值。不要保存或提交。',
       );
       const packageProof = await checkR09PackageReadOnly(page, pool, runId, readOnly);
       assert.deepEqual(

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { setTimeout as wait } from 'node:timers/promises';
 import type pg from 'pg';
 import type { Page } from 'playwright-core';
+import { z } from 'zod';
 import {
   checkReportSchema,
   documentPageReadSchema,
@@ -118,7 +119,18 @@ export async function readOnlyWorkspaceSnapshot(
   return rows[0]!.workspace;
 }
 
-const packageSummary = /核对摘要[：:]\s*水温\s*不同用途\s*[,，]\s*MSDS\s*待核证据[。.]?/u;
+const locationSchema = z.strictObject({ 资料编号: z.string(), 页码: z.number().int().positive() });
+const packageAnswerSchema = z.strictObject({
+  用水证据: z
+    .array(
+      locationSchema.extend({ 用途: z.enum(['冲洗', '冷却', '待核']), 原文: z.string().min(1) }),
+    )
+    .length(2),
+  MSDS: locationSchema.extend({
+    状态: z.enum(['待核证据', '已证实差异', '无缺件']),
+    缺失: z.enum(['实际附件', '第二处独立证据', '无缺件', '待核信息']),
+  }),
+});
 const packageSources = [
   {
     key: 'D021',
@@ -141,39 +153,39 @@ export function r09ReadOnlyAnswerMatches(
   pages: readonly { sourceKey: string; page: number; text: string }[],
   msds: { sourceKey: string; page: number },
 ) {
-  const lines = answer
-    .trim()
-    .split(/\r?\n/u)
-    .map((line) => line.trim());
-  const summary = lines.at(-1);
-  if (!summary || summary.match(packageSummary)?.[0] !== summary) return false;
-  for (const source of packageSources) {
-    const reads = pages.filter(
-      ({ sourceKey, page }) => sourceKey === source.key && page === source.page,
-    );
-    const locator = new RegExp(
-      `^(?:[-*]\\s+)?${source.use}\\s+${source.key}\\s*第\\s*${source.page}\\s*页`,
-      'u',
-    );
-    const quoteMatches = lines.some((line) => {
-      if (!locator.test(line)) return false;
-      const quote = line.match(/「([^」]+)」/u)?.[1];
-      return Boolean(
-        quote &&
-        source.originalUse.test(quote) &&
-        source.temperature.test(quote) &&
-        reads.some(({ text }) => normalizeWhitespace(text).includes(normalizeWhitespace(quote))),
-      );
-    });
-    if (!quoteMatches) return false;
+  const text = answer.trim();
+  const fenced = /^```(?:json)?\s*\r?\n([\s\S]+?)\r?\n```$/iu.exec(text);
+  let value: unknown;
+  try {
+    value = JSON.parse(fenced?.[1] ?? text);
+  } catch {
+    return false;
   }
-  return lines.slice(0, -1).some((line) => {
-    const note = /^(?:[-*]\s+)?MSDS[：:]\s*已定位\s*([^;；。]+)[;；](.+)$/iu.exec(line);
-    if (!note) return false;
-    const location = note[1]!.replace(/\s+/gu, '');
+  const parsed = packageAnswerSchema.safeParse(value);
+  if (!parsed.success) return false;
+  const returned = parsed.data.MSDS;
+  if (
+    returned.资料编号 !== msds.sourceKey ||
+    returned.页码 !== msds.page ||
+    returned.状态 !== '待核证据' ||
+    !['实际附件', '第二处独立证据'].includes(returned.缺失)
+  )
+    return false;
+  return packageSources.every((source) => {
+    const item = parsed.data.用水证据.find(
+      (row) => row.资料编号 === source.key && row.页码 === source.page,
+    );
     return (
-      location.startsWith(`${msds.sourceKey}第${msds.page}页`) &&
-      /^缺失\s*[：:]\s*(?:实际\s*MSDS\s*附件|第二处独立证据)[。.]?$/iu.test(note[2]!.trim())
+      !!item &&
+      item.用途 === source.use &&
+      source.originalUse.test(item.原文) &&
+      source.temperature.test(item.原文) &&
+      pages.some(
+        (read) =>
+          read.sourceKey === source.key &&
+          read.page === source.page &&
+          normalizeWhitespace(read.text).includes(normalizeWhitespace(item.原文)),
+      )
     );
   });
 }
@@ -255,7 +267,7 @@ export async function checkR09PackageReadOnly(
   await page
     .locator('article.live-agent-message')
     .last()
-    .getByText(packageSummary)
+    .getByText(/用水证据/u)
     .waitFor({ timeout: 15_000 });
   const review = await pool.query('SELECT 1 FROM review_card WHERE conversation_id=$1', [
     conversationId,
