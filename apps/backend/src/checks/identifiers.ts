@@ -23,14 +23,16 @@ export function identifierInQuote(field: CheckField, identifier: string, quote: 
   if (!identifier) return false;
   const text = quote.toUpperCase();
   const alphanumeric = /^[A-Z0-9]$/u;
-  const adjacent = field === 'device_identifier' ? /^[A-Z0-9._+/-]$/u : /^[A-Z0-9]$/u;
+  const adjacent = field === 'device_identifier' ? /^[A-Z0-9._+/-]$/u : alphanumeric;
   let cursor = text.indexOf(identifier);
   while (cursor >= 0) {
     const end = cursor + identifier.length;
     const before = text[cursor - 1] ?? '';
     const after = text[end] ?? '';
-    const dottedPrefix = before === '.' && alphanumeric.test(text[cursor - 2] ?? '');
-    const dottedSuffix = after === '.' && alphanumeric.test(text[end + 1] ?? '');
+    const dottedPrefix =
+      field === 'regulation_number' && before === '.' && alphanumeric.test(text[cursor - 2] ?? '');
+    const dottedSuffix =
+      field === 'regulation_number' && after === '.' && alphanumeric.test(text[end + 1] ?? '');
     if (!adjacent.test(before) && !adjacent.test(after) && !dottedPrefix && !dottedSuffix)
       return true;
     cursor = text.indexOf(identifier, cursor + 1);

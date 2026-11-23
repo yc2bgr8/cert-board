@@ -102,18 +102,11 @@ export async function checkOfficialBrowserRun(
       has: page.getByRole('heading', { name: '结论', exact: true }),
     })
     .innerText();
-  const identified = conclusion
-    .split(/[。！？\n]/u)
-    .find(
-      (sentence) =>
-        /K170285/u.test(sentence) &&
-        /K170825/u.test(sentence) &&
-        /疑似|可能/u.test(sentence) &&
-        /对调|笔误/u.test(sentence) &&
-        !/未发现|不存在|并非|不属于|排除/u.test(sentence),
-    );
-  assert.ok(identified, '审核结论未写明两个编号的疑似笔误关系');
-  assert.match(conclusion, /待.{0,8}(?:确认|核实)|请.{0,8}(?:确认|核实)/u);
+  assert.match(
+    conclusion,
+    /编号核对[：:]\s*材料\s*K170285\s*[，,]\s*官方\s*K170825\s*[，,]\s*差异\s*疑似笔误\s*[，,]\s*状态\s*待确认\s*(?:[。.]|$)/u,
+    '审核结论未按本次走查的格式标明两个编号、疑似笔误及待确认状态',
+  );
   await card.getByRole('button', { name: '通过', exact: true }).click();
   await card.getByText('已通过，工作区版本已冻结。', { exact: true }).waitFor();
   assert.equal(
