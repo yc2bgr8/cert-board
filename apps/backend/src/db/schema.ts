@@ -559,6 +559,38 @@ export const documentVersion = pgTable(
   ],
 );
 
+export const ruleFalsePositive = pgTable(
+  'rule_false_positive',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    documentVersionId: uuid('document_version_id')
+      .notNull()
+      .references(() => documentVersion.id, { onDelete: 'restrict' }),
+    ruleId: varchar('rule_id', { length: 8 }).notNull(),
+    ruleVersion: varchar('rule_version', { length: 24 }).notNull(),
+    findingKey: varchar('finding_key', { length: 64 }).notNull(),
+    reason: varchar('reason', { length: 1000 }).notNull(),
+    handling: varchar('handling', { length: 1000 }),
+    reportedBy: uuid('reported_by')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    ...timestamps(),
+  },
+  (table) => [
+    unique('rule_false_positive_finding_unique').on(
+      table.documentVersionId, table.ruleId, table.ruleVersion, table.findingKey,
+    ),
+    check('rule_false_positive_id_valid', sql`${table.ruleId} ~ '^R[0-7]$'`),
+    check('rule_false_positive_version_set', sql`length(btrim(${table.ruleVersion})) > 0`),
+    check('rule_false_positive_key_format', sql`${table.findingKey} ~ '^[a-f0-9]{64}$'`),
+    check('rule_false_positive_reason_set', sql`length(btrim(${table.reason})) > 0`),
+    check(
+      'rule_false_positive_handling_set',
+      sql`${table.handling} IS NULL OR length(btrim(${table.handling})) > 0`,
+    ),
+  ],
+);
+
 export const documentPage = pgTable(
   'document_page',
   {

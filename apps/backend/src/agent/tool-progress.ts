@@ -27,6 +27,7 @@ const labels: Readonly<Record<string, string>> = {
   web_fetch: '抓取并保存网页出处',
   official_lookup: '回查官方器械编号',
   identifier_check: '核对标识符及疑似笔误',
+  rules_run: '运行资料一致性检查规则',
   deadline_calc: '计算法域期限',
   reminder_set: '设置站内期限提醒',
 };

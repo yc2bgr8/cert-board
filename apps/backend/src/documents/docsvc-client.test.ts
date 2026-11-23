@@ -108,3 +108,24 @@ test('PDF 阅读器提示保留占位标记，不能成为检索证据', async (
     expect.objectContaining({ pageNumber: 1, isPlaceholder: true }),
   ]);
 });
+
+test('eSTAR 规则提取同一原件的数据集和附件名，并拒绝不规范的编码', async () => {
+  const datasets = Buffer.from('<xfa>please see: MSDS</xfa>');
+  const data = {
+    ...parsed,
+    kind: 'estar',
+    xfaDatasetsBase64: datasets.toString('base64'),
+    attachments: [{
+      name: 'Instructions.pdf', sourceNames: ['Instructions (original).pdf'],
+      sha256, byteSize: bytes.length, bodyBase64: bytes.toString('base64'),
+    }],
+  };
+  vi.stubGlobal('fetch', vi.fn()
+    .mockResolvedValueOnce(Response.json(data))
+    .mockResolvedValueOnce(Response.json({ ...data, xfaDatasetsBase64: '@@' })));
+  const client = new DocumentParserClient(address, 'host');
+  await expect(client.estarDatasets(bytes, sha256)).resolves.toEqual({
+    bytes: datasets, attachmentNames: ['Instructions.pdf', 'Instructions (original).pdf'],
+  });
+  await expect(client.estarDatasets(bytes, sha256)).rejects.toMatchObject({ code: 'DOC_RESPONSE_INVALID' });
+});

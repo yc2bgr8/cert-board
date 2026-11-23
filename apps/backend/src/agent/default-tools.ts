@@ -1,5 +1,6 @@
 import { checkRunTool } from '../tools/check-run.js';
 import { identifierCheckTool } from '../tools/identifier-check.js';
+import { rulesRunTool, type RulesOriginals } from '../tools/rules-run.js';
 import { submitForReviewTool } from '../tools/submit-for-review.js';
 import { proposeExternalTool } from '../tools/propose-external.js';
 import { queueInternalMessageTool } from '../tools/queue-internal-message.js';
@@ -23,6 +24,7 @@ export async function buildAgentTools(
   pool?: Pool,
   containerRuntime: BackendConfig['CONTAINER_RUNTIME'] = 'host',
   sandbox?: SandboxClient,
+  ruleSources?: RulesOriginals,
 ) {
   const skill = await loadAgentSkill(agentCode, {
     id: agentCode === 'registration' ? 'R09' : 'M02',
@@ -36,6 +38,7 @@ export async function buildAgentTools(
     ...(pool && containerRuntime === 'host' ? [consultExternalModelTool(pool)] : []),
     checkRunTool(),
     identifierCheckTool(),
+    rulesRunTool(store, ruleSources),
     deadlineCalcTool(),
     reminderSetTool(),
     submitForReviewTool(skill.reviewPolicy),
