@@ -34,7 +34,7 @@ const unitBoundary = '(?![A-Za-z\\p{N}/⁄^⋅·*×⁻])';
 const decimal = '[+−-]?(?:\\d{1,3}(?:[,，]\\d{3}){1,2}|\\d{1,9})(?:\\.\\d{1,6})?';
 const rangeSeparator = '(?:-|−|–|—|~|～|至|to\\b)';
 const unitAtom = `(?:cm${gap}h[2₂]o|°${gap}[A-Za-z]|℃|${chineseUnits}|[A-Za-zµμΩ%][A-Za-z\\p{N}µμΩ]*)[\\p{N}^⁻]*`;
-const unitLexeme = `${unitAtom}(?:${gap}(?:[/⁄⋅·]|per\\b)${gap}${unitAtom})*`;
+const unitLexeme = `(?!to\\b)${unitAtom}(?:${gap}(?:[/⁄⋅·]|per\\b)${gap}${unitAtom})*`;
 const submitted = new RegExp(`^(${decimal})(?:${gap}${rangeSeparator}${gap}(${decimal}))?$`, 'iu');
 const sourceRange = new RegExp(
   `${numberBoundary}(${decimal})${gap}(${unitLexeme})?${gap}${rangeSeparator}${gap}(${decimal})${gap}(${unitLexeme})?${unitBoundary}`,
