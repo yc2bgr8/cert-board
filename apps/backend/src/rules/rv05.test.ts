@@ -111,10 +111,7 @@ test('R2 只有实际跨文件的字段差异才作为候选', () => {
   expect(runConsistencyRules([first], new Set(['R2']))).toEqual([]);
   expect(
     runConsistencyRules(
-      [
-        first,
-        { key: 'B', name: 'B.pdf', pages: [{ page: 1, text: 'Contact person: Bob Green' }] },
-      ],
+      [first, { key: 'B', name: 'B.pdf', pages: [{ page: 1, text: 'Contact person: Bob Green' }] }],
       new Set(['R2']),
     ),
   ).toHaveLength(1);
@@ -198,6 +195,24 @@ test('R2 保留多词姓名并忽略空白申请人字段', () => {
       new Set(['R2']),
     ),
   ).toHaveLength(1);
+  expect(
+    runConsistencyRules(
+      [
+        document('A', 'Contact person:\nCompany name (legal): Acme Inc.'),
+        document('B', 'Contact person: Alice Green'),
+      ],
+      new Set(['R2']),
+    ),
+  ).toEqual([]);
+  expect(
+    runConsistencyRules(
+      [
+        document('A', 'Contact person: Jose\u0301 Garci\u0301a'),
+        document('B', 'Contact person: Alice Green'),
+      ],
+      new Set(['R2']),
+    )[0]?.values,
+  ).toContainEqual({ value: 'José García', count: 1 });
 });
 
 test('R3 保留温度正负号并在引用限额前识别跨文档差异', () => {
@@ -251,12 +266,24 @@ test('R4 接受单型号配置表并发现下托颜色差异', () => {
   expect(
     runConsistencyRules(
       [
-        document('A', 'Model L08-TB|\nupper tray White|\nlower tray Blue|'),
+        document(
+          'A',
+          'Model L08-TB|\nupper tray White|\nlower tray Blue|\nClear instructions follow.',
+        ),
         document('B', 'Model L08-TB|\nupper tray White|\nlower tray Purple|'),
       ],
       new Set(['R4']),
     ),
   ).toHaveLength(1);
+  expect(
+    runConsistencyRules(
+      [
+        document('A', 'Model|L08-TA||L08-TB|\nupper tray|White||White|\nlower tray||Blue|Purple|'),
+        document('B', 'Model L08-TA\nupper tray White\nlower tray Purple'),
+      ],
+      new Set(['R4']),
+    ),
+  ).toEqual([]);
 });
 
 test('R5 以 XFA 字段为界，不用相邻字段的附件名掩盖未匹配引用', () => {
@@ -279,7 +306,7 @@ test('R5 以 XFA 字段为界，不用相邻字段的附件名掩盖未匹配引
           ...document('A', 'eSTAR 示例'),
           isEstar: true,
           attachmentNames: [],
-          referencesText: '<reference>Please see:\nPlease see: MSDS.pdf</reference>',
+          referencesText: '<reference>Please see:\n\nPlease see:\n\n MSDS.pdf</reference>',
         },
       ],
       new Set(['R5']),

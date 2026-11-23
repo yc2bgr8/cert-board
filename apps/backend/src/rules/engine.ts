@@ -223,7 +223,7 @@ function identifierVariants(pages: Occurrence[]) {
 const contactLabel = /(?:Submitter|Official contact person|Contact person)[ \t]*[:：][ \t]*/giu;
 const nextField =
   /^(?:Submitter|Official contact person|Contact person|Title|Phone|Fax|E-?mail|Address|Applicant|申请人)[ \t]*[:：]/iu;
-const contactTail = /[ \t]+(?:Title|Phone|Fax|E-?mail|Address|Applicant)[ \t]*[:：]|[\t|;（(]/iu;
+const contactTail = /[ \t]+(?:Title|Phone|Fax|E-?mail|Address|Applicant)[ \t]*[:：]/iu;
 
 function contacts(pages: Occurrence[]) {
   const groups = new Map<string, ValueMap>();
@@ -234,12 +234,15 @@ function contacts(pages: Occurrence[]) {
         const inline = line.slice(label.index + label[0].length).trimStart();
         const next = lines[index + 1]?.trimStart() ?? '';
         const field = inline || (nextField.test(next) ? '' : next);
-        const name = field
+        const beforeContactDetails = field.split(contactTail, 1)[0]!;
+        if (/[:：]/u.test(beforeContactDetails)) continue;
+        const name = beforeContactDetails
           .replace(/^(?:Mr\.|Ms\.|Mrs\.|Dr\.)[ \t]*/iu, '')
-          .split(contactTail, 1)[0]!
+          .split(/[\t|;（(]/u, 1)[0]!
+          .normalize('NFC')
           .trim()
           .replace(/\s+/gu, ' ');
-        if (name.length <= 120 && /^[\p{L}.'’ -]*\p{L}[\p{L}.'’ -]*$/u.test(name))
+        if (name.length <= 120 && /^[\p{L}\p{M}.'’ -]*\p{L}[\p{L}\p{M}.'’ -]*$/u.test(name))
           track(groups, '申报联系人', name, page);
       }
     }
@@ -316,16 +319,37 @@ function parameters(pages: Occurrence[]) {
 const modelToken = '[A-Z][A-Z0-9]{1,11}-[A-Z0-9]{1,12}(?:-[A-Z0-9]{1,12}){0,3}';
 const colorToken = '(?:Blue|Purple|Transparent|White|Black|Pink|Green|Clear)';
 const rowTokens = (prefix: string, token: string) =>
-  new RegExp(`${prefix}[\\s|]+((?:${token}[\\s|]+){0,29}${token})(?=[\\s|]|$)`, 'u');
+  new RegExp(`${prefix}\\s+((?:${token}\\s+){0,29}${token})(?=\\s|$)`, 'u');
 const modelRow = rowTokens('Model', modelToken);
 const upperRow = rowTokens('upper tray', colorToken);
 const lowerRow = rowTokens('lower\\s*tray', colorToken);
+
+function pipeValues(lines: string[], prefix: string, token: string) {
+  const marker = new RegExp(`^[ \\t]*(?:\\|[ \\t]*)?${prefix}(?=[ \\t|]|$)`, 'u');
+  const row = lines.find((line) => line.includes('|') && marker.test(line));
+  if (row === undefined) return undefined;
+  const cells = row
+    .replace(marker, '')
+    .trim()
+    .replace(/^\|/u, '')
+    .replace(/\|$/u, '')
+    .split('|')
+    .map((cell) => cell.trim());
+  const complete = new RegExp(`^(?:${token})$`, 'u');
+  return cells.length <= 30 && cells.every((cell) => complete.test(cell)) ? cells : null;
+}
+
 function modelConfiguration(pages: Occurrence[]) {
   const groups = new Map<string, ValueMap>();
   for (const page of pages) {
-    const models = modelRow.exec(page.text)?.[1]?.split(/[\s|]+/u);
-    const upper = upperRow.exec(page.text)?.[1]?.split(/[\s|]+/u);
-    const lowerColors = lowerRow.exec(page.text)?.[1]?.split(/[\s|]+/u);
+    const lines = page.text.split(/\r?\n/u);
+    const pipeModels = pipeValues(lines, 'Model', modelToken);
+    const pipeUpper = pipeValues(lines, 'upper tray', colorToken);
+    const pipeLower = pipeValues(lines, 'lower[ \\t]*tray', colorToken);
+    const hasPipeRow = [pipeModels, pipeUpper, pipeLower].some((row) => row !== undefined);
+    const models = hasPipeRow ? pipeModels : modelRow.exec(page.text)?.[1]?.split(/\s+/u);
+    const upper = hasPipeRow ? pipeUpper : upperRow.exec(page.text)?.[1]?.split(/\s+/u);
+    const lowerColors = hasPipeRow ? pipeLower : lowerRow.exec(page.text)?.[1]?.split(/\s+/u);
     if (models && upper?.length === models.length && lowerColors?.length === models.length) {
       for (const [index, model] of models.entries()) {
         track(groups, `${model} 上托颜色`, lower(upper[index]!), page);
@@ -410,7 +434,10 @@ function attachmentReferences(documents: RuleDocument[]) {
     const refs = new Set<string>();
     const see = /please[ \t]+see[ \t]*:?[ \t]*/iu;
     for (const field of xfaFields(source.referencesText)) {
-      const lines = field.split(/\r?\n/u);
+      const lines = field
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .filter(Boolean);
       for (const [index, line] of lines.entries()) {
         const marker = see.exec(line);
         if (!marker) continue;
