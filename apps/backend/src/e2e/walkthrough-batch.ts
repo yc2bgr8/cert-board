@@ -131,8 +131,12 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
         const contact = await pool.query<{ id: string }>(
           `INSERT INTO contact(project_id,name,address,source,created_by,internal_user_id)
          SELECT $1,'合成走查联系人',$2,'Q2 独立验收临时绑定',a.id,b.id FROM app_user a CROSS JOIN app_user b
-         WHERE a.username='zhangsan' AND a.is_development AND b.username='wangmin' AND b.is_development RETURNING id`,
-          [registrationProject, `local-test-q2-${randomUUID()}`],
+           WHERE a.username='zhangsan' AND a.is_development AND b.username=$3 AND b.is_development RETURNING id`,
+          [
+            registrationProject,
+            `local-test-q2-${randomUUID()}`,
+            action === '本对话中都允许' ? 'admin' : 'wangmin',
+          ],
         );
         requireProof(contact.rows[0], '验收库缺少合成账号');
         const sent = await ctx.send(

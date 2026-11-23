@@ -233,6 +233,19 @@ async function exerciseVerification(
   evidenceFolder: string,
   onOpened?: (id: string) => void,
 ) {
+  const readyUntil = Date.now() + 30_000;
+  let workerReady = false;
+  while (Date.now() < readyUntil) {
+    const worker = await pool.query(
+      "SELECT 1 FROM verification_worker_state WHERE status='ready' AND gateway_ready AND updated_at > NOW() - interval '15 seconds'",
+    );
+    if (worker.rowCount) {
+      workerReady = true;
+      break;
+    }
+    await wait(500);
+  }
+  assert.ok(workerReady, '外部核实进程必须同时就绪 Cursor 和 OpenRouter');
   await page.getByRole('button', { name: '外部模型', exact: true }).click();
   const group = page.getByRole('region', { name: '外部核实群聊', exact: true });
   const created = page.waitForResponse(
@@ -272,7 +285,7 @@ async function exerciseVerification(
       'SELECT state FROM external_model_conversation WHERE id=$1',
       [id],
     );
-    if (status.rows[0]?.state === 'completed') break;
+    if (['paused', 'completed'].includes(status.rows[0]?.state ?? '')) break;
     await wait(1500);
   }
   assert.ok(tested.some((item) => item.channel === 'cursor' && item.model === 'grok-4-7'));
@@ -373,6 +386,12 @@ async function main() {
       process.env.CERT_WALKTHROUGH_VERIFICATION_ONLY === '1'
     ) {
       stage = '单独诊断 v7 的两条真实核实通道';
+      await freshConversation(
+        page,
+        developmentProjectId,
+        '双通道诊断的项目计量上下文',
+        'read_only',
+      );
       const verified = await exerciseVerification(page, pool, evidenceFolder);
       await writeFile(
         path.join(evidenceFolder, 'verification-result.json'),
