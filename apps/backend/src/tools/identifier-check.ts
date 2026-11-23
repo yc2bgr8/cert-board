@@ -76,74 +76,88 @@ export function identifierCheckTool(): ToolDefinition {
     inputSchema: identifierCheckInputSchema,
     outputSchema: identifierCheckResultSchema,
     async execute(ctx, raw) {
-      const input = identifierCheckInputSchema.parse(raw);
-      const cited = [input.observed, ...input.references];
-      const checked = [];
-      for (const [index, item] of cited.entries()) {
-        const { documentId, version, page, quote, offset } = item.evidence;
-        const identifier = normalizeIdentifier(input.field, item.identifier);
-        await documentInProject(ctx, documentId);
-        const source = await readDocumentPage(ctx.tx, ctx.actor, documentId, version, page, {
-          offset,
-          limit: 12000,
-        });
-        if (!quoteAppears(source.text, quote) || !identifierInQuote(input.field, identifier, quote))
-          throw new AppError(
-            422,
-            'V2_EVIDENCE_MISMATCH',
-            '编号没有出现在所引原文中，请重新读取正文并核对原样编号。',
-          );
-        if (index > 0 && input.referenceType === 'official') {
-          const archive = source.webArchive;
-          const attribute = officialField[input.field];
-          const literal = `"${attribute}": ${JSON.stringify(item.identifier)}`;
-          const path = archive ? new URL(archive.url).pathname : '';
+      try {
+        const input = identifierCheckInputSchema.parse(raw);
+        const cited = [input.observed, ...input.references];
+        const checked = [];
+        for (const [index, item] of cited.entries()) {
+          const { documentId, version, page, quote, offset } = item.evidence;
+          const identifier = normalizeIdentifier(input.field, item.identifier);
+          await documentInProject(ctx, documentId);
+          const source = await readDocumentPage(ctx.tx, ctx.actor, documentId, version, page, {
+            offset,
+            limit: 12000,
+          });
           if (
-            !source.sourceKey.startsWith('O-') ||
-            archive?.sourceType !== 'official' ||
-            !quote.includes(literal) ||
-            (input.field === 'k_number' && path !== '/device/510k.json') ||
-            (input.field === 'device_identifier' &&
-              !['/api/v2/devices/lookup.json', '/api/medical-devices/deviceidentifier/'].includes(
-                path,
-              ))
+            !quoteAppears(source.text, quote) ||
+            !identifierInQuote(input.field, identifier, quote)
           )
             throw new AppError(
               422,
-              'V2_OFFICIAL_SOURCE_REQUIRED',
-              '请引用 official_lookup 存档中与所选类型一致的编号字段。',
+              'V2_EVIDENCE_MISMATCH',
+              '编号没有出现在所引原文中，请重新读取正文并核对原样编号。',
             );
+          if (index > 0 && input.referenceType === 'official') {
+            const archive = source.webArchive;
+            const attribute = officialField[input.field];
+            const literal = `"${attribute}": ${JSON.stringify(item.identifier)}`;
+            const path = archive ? new URL(archive.url).pathname : '';
+            if (
+              !source.sourceKey.startsWith('O-') ||
+              archive?.sourceType !== 'official' ||
+              !quote.includes(literal) ||
+              (input.field === 'k_number' && path !== '/device/510k.json') ||
+              (input.field === 'device_identifier' &&
+                !['/api/v2/devices/lookup.json', '/api/medical-devices/deviceidentifier/'].includes(
+                  path,
+                ))
+            )
+              throw new AppError(
+                422,
+                'V2_OFFICIAL_SOURCE_REQUIRED',
+                '请引用 official_lookup 存档中与所选类型一致的编号字段。',
+              );
+          }
+          checked.push({
+            location: {
+              identifier,
+              documentId,
+              version,
+              page,
+              sourceKey: source.sourceKey,
+              contentSha256: source.contentSha256,
+            },
+            level: source.dataLevel,
+          });
         }
-        checked.push({
-          location: {
-            identifier,
-            documentId,
-            version,
-            page,
-            sourceKey: source.sourceKey,
-            contentSha256: source.contentSha256,
-          },
-          level: source.dataLevel,
-        });
+        const [observed, ...references] = checked.map(({ location }) => location);
+        const comparison = compareIdentifiers(
+          input.field,
+          observed!.identifier,
+          references.map(({ identifier }) => identifier),
+        );
+        const guidance = {
+          matched: '材料编号与至少一条所引记录一致。',
+          possible_typo: '存在近似编号，请核对原件和具体器械后再提出修订，交人确认。',
+          different: '材料编号与所引记录不同，请确认比对对象及编号来源。',
+        };
+        return {
+          data: { ...comparison, observed, references, guidance: guidance[comparison.status] },
+          dataLevel: highestDocumentLevel(checked.map(({ level }) => level)),
+        };
+      } catch (error) {
+        if (error instanceof AppError && error.code.startsWith('V2_'))
+          return {
+            data: { status: 'unavailable', code: error.code, message: error.message },
+            dataLevel: ctx.maxDataLevel,
+          };
+        throw error;
       }
-      const [observed, ...references] = checked.map(({ location }) => location);
-      const comparison = compareIdentifiers(
-        input.field,
-        observed!.identifier,
-        references.map(({ identifier }) => identifier),
-      );
-      const guidance = {
-        matched: '材料编号与至少一条所引记录一致。',
-        possible_typo: '存在近似编号，请核对原件和具体器械后再提出修订，交人确认。',
-        different: '材料编号与所引记录不同，请确认比对对象及编号来源。',
-      };
-      return {
-        data: { ...comparison, observed, references, guidance: guidance[comparison.status] },
-        dataLevel: highestDocumentLevel(checked.map(({ level }) => level)),
-      };
     },
     async refreshDataLevel(ctx, raw) {
-      const { observed, references } = identifierCheckResultSchema.parse(raw);
+      const result = identifierCheckResultSchema.parse(raw);
+      if (result.status === 'unavailable') return ctx.maxDataLevel;
+      const { observed, references } = result;
       const levels: DataLevel[] = [];
       for (const ref of [observed, ...references])
         levels.push(await refreshDocumentReference(ctx, ref, ref.contentSha256));

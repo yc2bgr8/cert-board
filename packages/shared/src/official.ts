@@ -109,7 +109,7 @@ const identifierLocation = z.strictObject({
   page: z.number().int().positive(),
   contentSha256: z.string().regex(/^[a-f0-9]{64}$/u),
 });
-export const identifierCheckResultSchema = z.strictObject({
+const identifierCheckSuccess = z.strictObject({
   status: z.enum(['matched', 'possible_typo', 'different']),
   observed: identifierLocation,
   references: z.array(identifierLocation).min(1).max(6),
@@ -123,3 +123,11 @@ export const identifierCheckResultSchema = z.strictObject({
     .max(6),
   guidance: z.string().max(240),
 });
+export const identifierCheckResultSchema = z.union([
+  identifierCheckSuccess,
+  z.strictObject({
+    status: z.literal('unavailable'),
+    code: z.string().regex(/^V2_[A-Z0-9_]{1,64}$/u),
+    message: z.string().min(1).max(400),
+  }),
+]);

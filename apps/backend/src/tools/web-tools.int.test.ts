@@ -163,7 +163,7 @@ test('V2 用官方存档字段和材料原文发现 K 号对调，拒绝缺失�
       ...request,
       observed: { ...request.observed, evidence: { ...request.observed.evidence, quote: '不存在的 K170285' } },
     }),
-  ).rejects.toMatchObject({ code: 'V2_EVIDENCE_MISMATCH' });
+  ).resolves.toMatchObject({ data: { status: 'unavailable', code: 'V2_EVIDENCE_MISMATCH' } });
 });
 
 test('截止日回查的可下载存档不带未来记录，只读查询不写入', async () => {
@@ -195,6 +195,15 @@ test('截止日回查的可下载存档不带未来记录，只读查询不写�
     cached: false,
   });
   expect(preview.store.blobs.size).toBe(0);
+});
+
+test('官方数据回查在保密对话中停止于出网之前', async () => {
+  const { store, client, invoke, run } = await scenario();
+  await context.pool.query("UPDATE run SET max_data_level='confidential' WHERE id=$1", [run.runId]);
+  const output = await invoke('official_lookup', officialInput);
+  expect(output.data).toMatchObject({ status: 'unavailable', code: 'WEB_CONFIDENTIAL_BLOCKED' });
+  expect(client.fetchPage).not.toHaveBeenCalled();
+  expect(store.blobs.size).toBe(0);
 });
 
 test('公开网页原件可用浏览器会话下载，页码原文与缓存稳定可重放', async () => {
