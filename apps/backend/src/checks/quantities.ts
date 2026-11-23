@@ -20,7 +20,27 @@ const definitions = [
   ['volume', 1n, ['mL', 'ml', '毫升']],
   ['volume', 1000n, ['L', 'l', '升']],
 ] as const;
-const unitKey = (value: string) => value.normalize('NFKC').replace(/\s+/gu, '');
+const unitNames = new Set([
+  'second',
+  'seconds',
+  'minute',
+  'minutes',
+  'hour',
+  'hours',
+  'day',
+  'days',
+  'month',
+  'months',
+  'year',
+  'years',
+  'volt',
+  'volts',
+]);
+function unitKey(value: string) {
+  const normalized = value.normalize('NFKC').replace(/\s+/gu, '');
+  const lower = normalized.toLowerCase();
+  return unitNames.has(lower) ? lower : normalized;
+}
 const units = new Map<string, Unit>(
   definitions.flatMap(([family, scale, labels]) =>
     labels.map((label) => [unitKey(label), { family, scale }] as const),
@@ -33,8 +53,8 @@ const chineseUnits = definitions
   .join('|');
 const gap = '[ \\t\\u00a0\\u202f]*';
 const numberBoundary = '(?<![A-Za-z0-9.+−-])(?<!\\d[,， \\u00a0\\u202f])';
-const operator = '(?:[/⁄^⋅·×÷±]|\\bper\\b|\\*)';
-const compoundTail = `${gap}${operator}${gap}(?=[(\\p{L}\\p{N}%+−-])`;
+const operator = '(?:[/⁄／∕^⋅·×÷±+*＊]|\\b(?:per|x)\\b|(?<=\\d)x(?=\\d))';
+const compoundTail = `${gap}${operator}${gap}(?=[(\\p{L}\\p{N}%+−-]|\\.\\d)`;
 const unitBoundary = `(?![A-Za-z\\p{N}⁻])(?!${compoundTail})`;
 const decimal = '[+−-]?(?:\\d{1,3}(?:[,，]\\d{3}){1,2}|\\d{1,9})(?:\\.\\d{1,6})?';
 const rangeSeparator = '(?:-|−|–|—|~|～|至|to\\b)';
@@ -119,7 +139,10 @@ function sourceSupportsClaim(pageText: string, quote: string, expected: bigint[]
   const excerpt = normalizeWhitespace(quote);
   const first = text.indexOf(excerpt);
   if (!excerpt || first < 0) return false;
-  const matches = matchingAmounts(text, expected, unit);
+  const amounts = text.replace(/(?<!\d)\d{4}\/\d{1,2}\/\d{1,2}(?!\d)/gu, (date) =>
+    ' '.repeat(date.length),
+  );
+  const matches = matchingAmounts(amounts, expected, unit);
   for (let offset = first; offset >= 0; offset = text.indexOf(excerpt, offset + 1)) {
     if (
       !matches.some(

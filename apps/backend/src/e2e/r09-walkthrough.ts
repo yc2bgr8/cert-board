@@ -120,13 +120,26 @@ export async function readOnlyWorkspaceSnapshot(
 
 const packageSummary = /核对摘要[：:]\s*水温\s*不同用途\s*[,，]\s*MSDS\s*待核证据[。.]?/u;
 const packageSources = [
-  { key: 'D021', page: 29, use: '冲洗', originalUse: /rins/iu, temperature: /20-25/u },
-  { key: 'D023', page: 17, use: '冷却', originalUse: /cool/iu, temperature: /20-30/u },
+  {
+    key: 'D021',
+    page: 29,
+    use: '冲洗',
+    originalUse: /rins/iu,
+    temperature: /20-25\s*(?:°\s*C|℃)/u,
+  },
+  {
+    key: 'D023',
+    page: 17,
+    use: '冷却',
+    originalUse: /cool/iu,
+    temperature: /20-30\s*(?:°\s*C|℃)/u,
+  },
 ] as const;
 
 export function r09ReadOnlyAnswerMatches(
   answer: string,
   pages: readonly { sourceKey: string; page: number; text: string }[],
+  msds: { sourceKey: string; page: number },
 ) {
   const lines = answer
     .trim()
@@ -138,9 +151,12 @@ export function r09ReadOnlyAnswerMatches(
     const reads = pages.filter(
       ({ sourceKey, page }) => sourceKey === source.key && page === source.page,
     );
-    const locator = new RegExp(`\\b${source.key}\\s*第\\s*${source.page}\\s*页`, 'u');
+    const locator = new RegExp(
+      `^(?:[-*]\\s+)?${source.use}\\s+${source.key}\\s*第\\s*${source.page}\\s*页`,
+      'u',
+    );
     const quoteMatches = lines.some((line) => {
-      if (!locator.test(line) || !line.includes(source.use)) return false;
+      if (!locator.test(line)) return false;
       const quote = line.match(/「([^」]+)」/u)?.[1];
       return Boolean(
         quote &&
@@ -151,14 +167,17 @@ export function r09ReadOnlyAnswerMatches(
     });
     if (!quoteMatches) return false;
   }
-  return lines
-    .slice(0, -1)
-    .some(
-      (line) =>
-        /MSDS/iu.test(line) &&
-        /(?:缺|待补|未见|未找到|没有)/u.test(line) &&
-        /(?:第二处|另一处|独立|对照)/u.test(line),
+  return lines.slice(0, -1).some((line) => {
+    const note = /^(?:[-*]\s+)?MSDS[：:]\s*已定位\s*([^;；。]+)[;；](.+)$/iu.exec(line);
+    if (!note) return false;
+    const location = note[1]!.replace(/\s+/gu, '');
+    const missing = note[2]!;
+    return (
+      location.startsWith(`${msds.sourceKey}第${msds.page}页`) &&
+      /(?:缺|待补|未见|未找到|没有)/u.test(missing) &&
+      /(?:第二处|另一处|独立|对照)/u.test(missing)
     );
+  });
 }
 
 export async function checkR09PackageReadOnly(
@@ -203,14 +222,13 @@ export async function checkR09PackageReadOnly(
         item.values.some(({ value }) => value === '20-30℃'),
     ),
   );
-  assert.ok(
-    rules.some(
-      (item) =>
-        item.ruleId === 'R5' &&
-        item.values.some(({ value }) => /MSDS/iu.test(value)) &&
-        item.references.length === 1,
-    ),
-  );
+  const msds = rules.find(
+    (item) =>
+      item.ruleId === 'R5' &&
+      item.values.some(({ value }) => /MSDS/iu.test(value)) &&
+      item.references.length === 1,
+  )?.references[0];
+  assert.ok(msds, 'R5 回执应提供一处 MSDS 定位。');
   const read = rows
     .filter(({ tool }) => tool === 'doc_read')
     .map(({ data }) => documentPageReadSchema.parse(data));
@@ -233,7 +251,7 @@ export async function checkR09PackageReadOnly(
     [runId],
   );
   assert.ok(
-    r09ReadOnlyAnswerMatches(messages[0]?.text ?? '', read),
+    r09ReadOnlyAnswerMatches(messages[0]?.text ?? '', read, msds),
     '只读核查的最终回复需包含逐字引语、页码、各自用途、MSDS 证据缺口和复判摘要。',
   );
   await page
@@ -248,6 +266,7 @@ export async function checkR09PackageReadOnly(
   return {
     differentUses: true,
     singleSourcePending: true,
+    exactReadOnlyEvidence: true,
     cost: await conversationCosts(pool, conversationId),
   };
 }

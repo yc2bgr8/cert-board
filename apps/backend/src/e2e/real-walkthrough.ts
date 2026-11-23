@@ -385,7 +385,7 @@ async function main() {
       const readOnly = await freshConversation(page, developmentProjectId, 'R09 整包候选复判', 'read_only');
       const workspaceBefore = await readOnlyWorkspaceSnapshot(pool, developmentProjectId, readOnly);
       const { runId } = await send(page,
-        '请按 R09 对 L08 整包做只读核查，先运行 rules_run 的 R3、R5，再复判候选。实际读取 D021 第29页和 D023 第17页原文，判断两处水温对应的试验用途。最终回复把两处原文分别写成「用途 D021 第29页：」「用途 D023 第17页：」开头的两行，每行用中文直角引号「」包住同时含温度与试验动作的逐字英文原文，用你判断的实际用途替换“用途”。另用一行写 MSDS，说明实际已定位的证据与缺失的另一处来源。不要保存或提交。最后一行用「核对摘要：水温 [同一用途|不同用途|待核]，MSDS [已证实差异|待核证据]。」的格式，按证据填实际状态。',
+        '请按 R09 对 L08 整包做只读核查，先运行 rules_run 的 R3、R5，再复判候选。实际读取 D021 第29页和 D023 第17页原文，判断两处水温对应的试验用途。最终回复把两处原文分别写成「用途 D021 第29页：」「用途 D023 第17页：」开头的两行，每行用中文直角引号「」包住同时含温度数值、单位和试验动作的逐字英文原文。用途根据原文填写“冲洗”“冷却”或“待核”。另写一行「MSDS：已定位 [资料编号] 第[页码]页 [发现]；[缺失的独立证据]。」。不要保存或提交。最后一行用「核对摘要：水温 [同一用途|不同用途|待核]，MSDS [已证实差异|待核证据]。」的格式，按证据填实际状态。',
       );
       const packageProof = await checkR09PackageReadOnly(page, pool, runId, readOnly);
       assert.deepEqual(

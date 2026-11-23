@@ -71,4 +71,12 @@ test('V7 回查完整来源页，拒绝原文截取的端点、算式因子及�
   expect(checkQuantityClaim(claim(5, 's', '导纳 5 S。'))).toBe('quantity_mismatch');
   expect(checkQuantityClaim(claim(1, 'mm', '长度 1 Mm。'))).toBe('quantity_mismatch');
   expect(checkQuantityClaim(claim(5, 'V', '电压 5 V。'))).toBeNull();
+  expect(checkWithSource(claim(10, 'V', '10 V'), () => '输出为 10 V / .5。')).toBe(
+    'quantity_mismatch',
+  );
+  expect(
+    checkWithSource(claim(25, '℃', '25 °C'), () => 'Date: 2026/11/24\nStorage temperature: 25 °C.'),
+  ).toBeNull();
+  expect(checkQuantityClaim(claim(30, 'Days', 'Shelf life: 30 DAYS.'))).toBeNull();
+  expect(checkQuantityClaim(claim(10, 'cm', 'Area: 5 x 10 cm.'))).toBe('quantity_mismatch');
 });
