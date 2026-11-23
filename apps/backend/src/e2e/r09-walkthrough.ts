@@ -155,15 +155,25 @@ export function r09ReadOnlyAnswerMatches(
 ) {
   const text = answer.trim();
   const fenced = /^```(?:json)?\s*\r?\n([\s\S]+?)\r?\n```$/iu.exec(text);
+  const payload = fenced?.[1] ?? text;
   let value: unknown;
   try {
-    value = JSON.parse(fenced?.[1] ?? text);
+    value = JSON.parse(payload);
   } catch {
     return false;
   }
   const parsed = packageAnswerSchema.safeParse(value);
   if (!parsed.success) return false;
   const returned = parsed.data.MSDS;
+  // JSON.parse 会覆盖重复字段，比较原始键数与已验证结构的键数。
+  const fields = [...payload.matchAll(/"(?:\\[\s\S]|[^"\\])*"/gu)].filter((token) =>
+    /^\s*:/u.test(payload.slice(token.index + token[0].length)),
+  ).length;
+  const parsedFields =
+    Object.keys(parsed.data).length +
+    Object.keys(returned).length +
+    parsed.data.用水证据.reduce((total, item) => total + Object.keys(item).length, 0);
+  if (fields !== parsedFields) return false;
   if (
     returned.资料编号 !== msds.sourceKey ||
     returned.页码 !== msds.page ||

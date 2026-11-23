@@ -144,7 +144,7 @@ function sourceSupportsClaim(pageText: string, quote: string, expected: bigint[]
     .replace(/\s+/gu, (spaces: string, offset: number, page: string) => {
       if (
         /\r?\n[ \t]*\r?\n/u.test(spaces) &&
-        /^[*＊][ \t]+\[[ xX]\](?:[ \t]|$)/u.test(page.slice(offset + spaces.length))
+        /^[*＊][ \t]+\[ \][ \t]+\p{L}/u.test(page.slice(offset + spaces.length))
       )
         return '\f';
       return /[\r\n]/u.test(spaces) ? '\n' : ' ';

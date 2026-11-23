@@ -21,7 +21,7 @@ test('两条修改期望保留其余原文，拒绝没有唯一匹配的初稿',
 
 test('只读走查要求最终答复包含逐字原文、各自用途与 MSDS 缺口', () => {
   const pages = [
-    { sourceKey: 'D021', page: 29, text: 'Rinse at 20-25 °C.' },
+    { sourceKey: 'D021', page: 29, text: 'Rinse at 20-25 °C. Refer to "Rinse": step 1.' },
     { sourceKey: 'D023', page: 17, text: 'Cool in water at 20-30 °C.' },
   ];
   const msds = { sourceKey: 'D099', page: 2 };
@@ -45,4 +45,6 @@ test('只读走查要求最终答复包含逐字原文、各自用途与 MSDS �
   expect(matches(text.replace('第二处独立证据', '无缺件'))).toBe(false);
   expect(matches(text.replace('第二处独立证据', '无. 附件和独立证据均齐备'))).toBe(false);
   expect(matches(text.replace('待核证据', '已证实差异'))).toBe(false);
+  expect(matches(text.replace('"状态":', '"状态":"无缺件","状态":'))).toBe(false);
+  expect(matches(text.replace('"状态":', '"\\u72b6态":"无缺件","状态":'))).toBe(false);
 });

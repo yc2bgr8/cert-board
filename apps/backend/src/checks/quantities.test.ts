@@ -98,6 +98,12 @@ test('V7 回查完整来源页，拒绝原文截取的端点、算式因子及�
   expect(
     checkWithSource(claim(10, 'V', '10 V'), () => '额定电压：10 V\n\n* [ ] 检查接地'),
   ).toBeNull();
+  expect(checkWithSource(claim(10, 'V', '10 V'), () => '换算值 = 10 V\n\n* [x] / 2。')).toBe(
+    'quantity_mismatch',
+  );
+  expect(checkWithSource(claim(10, 'V', '10 V'), () => '换算值 = 10 V\n\n* [ ] / 2。')).toBe(
+    'quantity_mismatch',
+  );
   expect(
     checkWithSource(claim(25, '℃', '25 °C'), () => 'Date: 24/11/2026\nPage 29\n25 °C.'),
   ).toBeNull();
