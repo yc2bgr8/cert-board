@@ -2,7 +2,6 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { Page } from 'playwright-core';
 import type { WalkthroughBatchContext } from './real-walkthrough.js';
 import { nanoToUsd } from '../budget/meter.js';
 

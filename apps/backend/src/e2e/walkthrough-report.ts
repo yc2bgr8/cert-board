@@ -2,7 +2,7 @@ export const requiredRevisionSections = ['核查范围', '已核实', '待核实
 
 export function revisionSections(markdown: Buffer) {
   const sections = new Map<string, string>();
-  let active: { name: string; level: number } | undefined;
+  const active: Array<{ name: string; level: number }> = [];
   let fence: string | undefined;
   for (const line of markdown.toString('utf8').split(/\r?\n/u)) {
     const delim = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
@@ -18,15 +18,15 @@ export function revisionSections(markdown: Buffer) {
     const heading = /^ {0,3}(#{1,6})(?:[ \t]+(.*)|[ \t]*$)/u.exec(line);
     if (heading) {
       const level = heading[1]!.length;
-      if (!active || level <= active.level) {
-        const label = heading[2]?.trim() ?? '';
-        const name = requiredRevisionSections.find((section) => label.startsWith(section));
-        active = name ? { name, level } : undefined;
-      }
+      while (active.length && level <= active.at(-1)!.level) active.pop();
+      const label = heading[2]?.trim() ?? '';
+      const name = requiredRevisionSections.find((section) => label.startsWith(section));
+      if (name) active.push({ name, level });
       continue;
     }
     const text = line.trim();
-    if (active && text) sections.set(active.name, `${sections.get(active.name) ?? ''}\n${text}`);
+    const section = active.at(-1)?.name;
+    if (section && text) sections.set(section, `${sections.get(section) ?? ''}\n${text}`);
   }
   return sections;
 }

@@ -42,3 +42,22 @@ test('Markdown 围栏内的标题与正文都不能替代报告内容', () => {
   );
   expect(revisionSections(report).size).toBe(0);
 });
+
+test('嵌套的指定核查小节分别保留各自的正文', () => {
+  const report = Buffer.from(
+    [
+      '# L08 核查',
+      '## 核查范围',
+      '申报资料两页。',
+      '### 已核实',
+      '两个编号写法不同。',
+      '### 待核实',
+      '原件仍待核对。',
+    ].join('\n'),
+  );
+  expect(Object.fromEntries(revisionSections(report))).toEqual({
+    核查范围: '\n申报资料两页。',
+    已核实: '\n两个编号写法不同。',
+    待核实: '\n原件仍待核对。',
+  });
+});
