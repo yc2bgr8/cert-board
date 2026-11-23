@@ -175,7 +175,7 @@ export function r09ReadOnlyAnswerMatches(
     return (
       location.startsWith(`${msds.sourceKey}第${msds.page}页`) &&
       /(?:缺|待补|未见|未找到|没有)/u.test(missing) &&
-      /(?:第二处|另一处|独立|对照)/u.test(missing)
+      /(?:第二处|另一处|独立|对照|附件|原件|文件|安全数据|报告)/u.test(missing)
     );
   });
 }
