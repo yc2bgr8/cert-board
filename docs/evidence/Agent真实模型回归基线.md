@@ -16,4 +16,4 @@
 
 两条业务场景均观察到技能加载、资料读取、计划、检查和送审调用。回归运行须使用同样的业务路径与模型配置。模型账本覆盖该轮标准走查，分开记录已结算和待核账项。
 
-复跑在独立虚拟机执行 `pnpm walkthrough:real`。通过后把该轮 `report.json` 和代码树下 `.local/preview/evidence/` 对应目录的 `result.json` 作为两个参数传给 `pnpm eval:agent:baseline`。命令校验两个文件中的验收提交一致，输出场景、时长、模型和费用。详细资料、截图、对话地址和具体错误编号保存在本机。[虚拟机验收](../本地虚拟机验收.md)
+复跑在独立虚拟机执行 `pnpm walkthrough:real`。通过后把同一验收目录的 `report.json` 和 `source/.local/preview/evidence/` 对应轮次的 `result.json` 作为两个参数传给 `pnpm eval:agent:baseline`。归档时保留目录结构和回执文件时间。命令校验验收提交、原目录和执行时间范围，输出场景、时长、模型和费用。详细资料、截图、对话地址和具体错误编号保存在本机。[虚拟机验收](../本地虚拟机验收.md)
