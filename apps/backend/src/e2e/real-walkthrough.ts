@@ -16,7 +16,7 @@ import { nanoToUsd } from '../budget/meter.js';
 import { createDependencies } from '../dependencies.js';
 import { BlobStore } from '../documents/blob-store.js';
 import { requiredRevisionSections, revisionSections } from './walkthrough-report.js';
-import { exerciseBatch } from './walkthrough-batch.js';
+import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthrough-batch.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
@@ -403,10 +403,7 @@ async function main() {
     }
     stage = '真实 R09 首次送审';
     const registration = await freshConversation(page, developmentProjectId, 'R09 真实走查', 'ask');
-    await send(
-      page,
-      '请使用 R09 检查 L08 申报包中对比器械 K 号的写法，写入核查报告并提交审核。请逐页核对、引用两处原文，保留不确定事项。',
-    );
+    await send(page, registrationPrompt);
     const original = await waitForReview(page, pool, registration, 1);
     const firstReport = await inspectSubmission(pool, original, 'R09');
     await review(page, pool, original, path.join(evidenceFolder, 'r09-first-review.png'), false);
@@ -422,10 +419,7 @@ async function main() {
 
     stage = '真实 M02 维护核查';
     const maintenance = await freshConversation(page, maintenanceProjectId, 'M02 真实走查', 'full');
-    await send(
-      page,
-      '请使用 M02 核对三类合成年度注册档案，报告实际读取的记录、证据和待核实事项，保存并提交审核。',
-    );
+    await send(page, maintenancePrompt);
     const maintenanceReview = await waitForReview(page, pool, maintenance, 1);
     await inspectSubmission(pool, maintenanceReview, 'M02');
     await review(

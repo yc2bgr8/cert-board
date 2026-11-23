@@ -6,6 +6,10 @@ import type { WalkthroughBatchContext } from './real-walkthrough.js';
 import { nanoToUsd } from '../budget/meter.js';
 
 const primaryModel = 'openai/gpt-6.2-astra-pro';
+export const registrationPrompt =
+  '请用 R09 核对 L08 资料 D035 中对比器械 K 号的两种写法。请通过资料工具重新读取 D035 的原文并引用，保留不确定性，保存报告并提交审核。以前的工作区报告只供参考。';
+export const maintenancePrompt =
+  '请用 M02 核对三类合成年度注册档案 PREVIEW-M02-REG、PREVIEW-M02-FEE 和 PREVIEW-M02-AGENT，先通过资料工具读取实际记录，引用证据，记录待核实事项，保存并提审。';
 const readPrompt =
   '只读走查。请先通过工具读取项目资料，简要说明其中已核实的一项和仍待核实的一项。不要送审、改文件或发消息。';
 const deadline = 16 * 60_000;
@@ -48,11 +52,19 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
     proof.conversationIds.push(id);
     return id;
   };
-  const runStatus = async (id: string, expected = 'completed') => {
+  const runStatus = async (id: string, expected = 'completed', approvalOnly = false) => {
     await until(async () => {
       const row = (await pool.query<{ status: string }>('SELECT status FROM run WHERE id=$1', [id]))
         .rows[0];
       if (row?.status === expected) return true;
+      if (approvalOnly && row?.status === 'stopped') {
+        const boundary = await pool.query(
+          `SELECT 1 FROM conversation_event WHERE run_id=$1 AND type='run_status'
+           AND payload_json->>'reasonCode'='REVIEW_NOT_SUBMITTED'`,
+          [id],
+        );
+        if (boundary.rowCount) return true;
+      }
       if (row && ['completed', 'failed', 'stopped', 'budget_exhausted'].includes(row.status))
         throw new SceneError(`运行未达预期 ${id} ${row.status}`);
       return undefined;
@@ -96,12 +108,7 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
             mode,
             skill === 'R09' ? registrationProject : maintenanceProject,
           );
-          await ctx.send(
-            page,
-            skill === 'R09'
-              ? '请用 R09 核对 L08 资料 D035 中对比器械 K 号的两种写法。请通过资料工具重新读取 D035 的原文并引用，保留不确定性，保存报告并提交审核。以前的工作区报告只供参考。'
-              : '请用 M02 核对三类合成年度注册档案 PREVIEW-M02-REG、PREVIEW-M02-FEE 和 PREVIEW-M02-AGENT，先通过资料工具读取实际记录，引用证据，记录待核实事项，保存并提审。',
-          );
+          await ctx.send(page, skill === 'R09' ? registrationPrompt : maintenancePrompt);
           let card = await ctx.waitForReview(page, pool, conversation, 1);
           const first = await ctx.inspectSubmission(pool, card, skill);
           if (revised) {
@@ -170,16 +177,18 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
           本对话中都允许: 'allow_conversation',
         }[action];
         requireProof(decision.rows[0]?.action === expected, `审批记录不符 ${sent.runId}`);
-        if (action === '拒绝')
+        if (action === '拒绝') {
+          await runStatus(sent.runId, 'completed', true);
           requireProof((await queue()).rowCount === 0, `拒绝后产生队列 ${sent.runId}`);
-        else
+        } else {
           await until(
             async () => ((await queue()).rowCount === 1 ? true : undefined),
             `允许后未产生测试队列 ${sent.runId}`,
             120_000,
           );
+          await runStatus(sent.runId, 'completed', true);
+        }
         await page.screenshot({ path: path.join(folder, 'approval.png') });
-        await runStatus(sent.runId);
       },
     });
   }
