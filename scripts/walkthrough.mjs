@@ -79,12 +79,13 @@ async function main() {
       )
         throw new Error('走查期间提交发生变化，请在同一提交下复跑。');
       if (!batch) {
+        const resultSha256 = createHash('sha256').update(rawResult).digest('hex');
         const receipt = JSON.stringify(
           {
             status: 'passed',
             commit,
             evidence: folder,
-            resultSha256: createHash('sha256').update(rawResult).digest('hex'),
+            resultSha256,
           },
           null,
           2,
@@ -93,6 +94,7 @@ async function main() {
         const staged = `${previewEvidence}.tmp`;
         await writeFile(staged, receipt, 'utf8');
         await rename(staged, previewEvidence);
+        console.log(`标准走查回执 ${path.basename(folder)} ${resultSha256}`);
       }
     }
   } finally {

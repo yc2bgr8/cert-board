@@ -17,6 +17,7 @@ const identifier = z
 const count = z.number().int().nonnegative().safe();
 const requiredTools = ['doc_read', 'skill_load', 'plan_update', 'check_run', 'submit_for_review'];
 const conversationUrl = 'http://127.0.0.1:28280/?conversation=';
+const receiptLogPrefix = '标准走查回执 ';
 const reviewedCase = z.object({
   url: z
     .string()
@@ -139,7 +140,8 @@ export function summarizeAgentBaseline(
 export function readBaselineFiles(reportFile: string, resultFile: string) {
   const reportPath = realpathSync(reportFile);
   const resultPath = realpathSync(resultFile);
-  const preview = path.join(path.dirname(reportPath), 'source', '.local', 'preview');
+  const acceptanceDir = path.dirname(reportPath);
+  const preview = path.join(acceptanceDir, 'source', '.local', 'preview');
   const root = path.join(preview, 'evidence');
   const [folder, name, ...rest] = path.relative(root, resultPath).split(path.sep);
   const timestamp = /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/u.exec(folder ?? '');
@@ -153,6 +155,14 @@ export function readBaselineFiles(reportFile: string, resultFile: string) {
   const [, hour, minute, second, fraction] = timestamp;
   const receiptPath = path.join(path.dirname(resultPath), 'receipt.json');
   const receipt = proofReceiptSchema.parse(JSON.parse(readFileSync(receiptPath, 'utf8')));
+  const recordedReceipts = readFileSync(path.join(acceptanceDir, 'walkthrough.log'), 'utf8')
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith(receiptLogPrefix));
+  if (
+    recordedReceipts.length !== 1 ||
+    recordedReceipts[0] !== `${receiptLogPrefix}${folder} ${receipt.resultSha256}`
+  )
+    throw new Error('没有找到本次虚拟机走查步骤记录的回执。');
   const rawResult = readFileSync(resultPath);
   const completedAt = statSync(resultPath).mtimeMs;
   const baseline = summarizeAgentBaseline(

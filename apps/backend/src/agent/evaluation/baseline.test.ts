@@ -100,21 +100,20 @@ test('拒绝旧提交、失败走查、缺模型计量及未齐备的工具或�
   ).toThrow();
 });
 
-test('核对验收目录、时间窗和各轮标准走查的回执摘要', () => {
+test('只接受虚拟机走查步骤记录的那轮回执', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'cert-board-baseline-'));
   try {
     const receipt = JSON.stringify(proof);
-    const writeEvidence = (name: string) => {
-      const vm = path.join(root, name);
-      const preview = path.join(vm, 'source', '.local', 'preview');
-      const dir = path.join(preview, 'evidence', '2026-11-23T11-15-00-000Z');
+    const resultSha256 = createHash('sha256').update(receipt).digest('hex');
+    const logRecord = (folder: string) => `标准走查回执 ${folder} ${resultSha256}\n`;
+    const officialFolder = '2026-11-23T11-15-00-000Z';
+    const copyRun = (preview: string, folder: string, completedAt: Date) => {
+      const dir = path.join(preview, 'evidence', folder);
       mkdirSync(dir, { recursive: true });
-      const reportPath = path.join(vm, 'report.json');
       const resultPath = path.join(dir, 'result.json');
       const receiptPath = path.join(dir, 'receipt.json');
-      writeFileSync(reportPath, JSON.stringify(report));
       writeFileSync(resultPath, receipt);
-      utimesSync(resultPath, new Date(recorded.completedAt), new Date(recorded.completedAt));
+      utimesSync(resultPath, completedAt, completedAt);
       const writeReceipt = (omitDigest = false) => {
         writeFileSync(
           receiptPath,
@@ -122,25 +121,37 @@ test('核对验收目录、时间窗和各轮标准走查的回执摘要', () =>
             status: 'passed',
             commit,
             evidence: dir,
-            ...(omitDigest ? {} : { resultSha256: createHash('sha256').update(receipt).digest('hex') }),
+            ...(omitDigest ? {} : { resultSha256 }),
           }),
         );
-        const issuedAt = new Date(recorded.completedAt + 1000);
+        const issuedAt = new Date(+completedAt + 1000);
         utimesSync(receiptPath, issuedAt, issuedAt);
       };
       writeReceipt();
-      return { reportPath, resultPath, preview, writeReceipt };
+      return { dir, resultPath, writeReceipt };
+    };
+    const writeEvidence = (name: string) => {
+      const vm = path.join(root, name);
+      const preview = path.join(vm, 'source', '.local', 'preview');
+      const run = copyRun(preview, officialFolder, new Date(recorded.completedAt));
+      const reportPath = path.join(vm, 'report.json');
+      const logPath = path.join(vm, 'walkthrough.log');
+      writeFileSync(reportPath, JSON.stringify(report));
+      writeFileSync(logPath, logRecord(officialFolder));
+      return { reportPath, logPath, preview, ...run };
     };
     const first = writeEvidence('first');
     const other = writeEvidence('other');
     expect(readBaselineFiles(first.reportPath, first.resultPath).testCommit).toBe(commit);
     expect(() => readBaselineFiles(first.reportPath, other.resultPath)).toThrow();
-    const alternative = path.join(first.preview, 'evidence', '2026-11-23T11-15-01-000Z');
-    mkdirSync(alternative, { recursive: true });
-    const alternativeResult = path.join(alternative, 'result.json');
-    writeFileSync(alternativeResult, receipt);
-    utimesSync(alternativeResult, new Date(recorded.completedAt), new Date(recorded.completedAt));
-    expect(() => readBaselineFiles(first.reportPath, alternativeResult)).toThrow();
+    const alternativeFolder = '2026-11-23T11-15-01-000Z';
+    const alternative = copyRun(first.preview, alternativeFolder, new Date(recorded.completedAt));
+    expect(() => readBaselineFiles(first.reportPath, alternative.resultPath)).toThrow(
+      '没有找到本次虚拟机走查步骤记录的回执',
+    );
+    writeFileSync(first.logPath, logRecord(officialFolder) + logRecord(alternativeFolder));
+    expect(() => readBaselineFiles(first.reportPath, first.resultPath)).toThrow();
+    writeFileSync(first.logPath, logRecord(officialFolder));
     first.writeReceipt(true);
     expect(() => readBaselineFiles(first.reportPath, first.resultPath)).toThrow();
     first.writeReceipt();
@@ -152,20 +163,15 @@ test('核对验收目录、时间窗和各轮标准走查的回执摘要', () =>
     utimesSync(first.resultPath, later, later);
     expect(() => readBaselineFiles(first.reportPath, first.resultPath)).toThrow();
     utimesSync(first.resultPath, new Date(recorded.completedAt), new Date(recorded.completedAt));
-    const laterRun = path.join(first.preview, 'evidence', '2026-11-23T11-17-00-000Z');
-    mkdirSync(laterRun, { recursive: true });
+    const laterRun = copyRun(first.preview, '2026-11-23T11-17-00-000Z', later);
     const latest = JSON.stringify({
       status: 'passed',
       commit,
-      evidence: laterRun,
-      resultSha256: createHash('sha256').update(receipt).digest('hex'),
+      evidence: laterRun.dir,
+      resultSha256,
     });
-    const laterResult = path.join(laterRun, 'result.json');
-    writeFileSync(laterResult, receipt);
-    utimesSync(laterResult, later, later);
-    writeFileSync(path.join(laterRun, 'receipt.json'), latest);
     writeFileSync(path.join(first.preview, 'walkthrough.json'), latest);
-    expect(() => readBaselineFiles(first.reportPath, laterResult)).toThrow();
+    expect(() => readBaselineFiles(first.reportPath, laterRun.resultPath)).toThrow();
     expect(readBaselineFiles(first.reportPath, first.resultPath).testCommit).toBe(commit);
   } finally {
     rmSync(root, { recursive: true, force: true });
