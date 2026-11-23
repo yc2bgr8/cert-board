@@ -54,7 +54,7 @@ const chineseUnits = definitions
 const gap = '[ \\t\\n\\u00a0\\u202f]*';
 const horizontalGap = '[ \\t\\u00a0\\u202f]*';
 const numberBoundary = '(?<![A-Za-z0-9.+−-])(?<!\\d[,， \\u00a0\\u202f])';
-const compoundTail = `(?:${gap}(?:[/⁄／∕^⋅·×÷±+]|\\b(?:per|x)\\b|(?<=\\d)x(?=\\d))|${horizontalGap}[*＊]${horizontalGap}(?=\\S)|${gap}[*＊]${gap}(?=[(\\[{\\p{N}+−-]|\\.\\d))`;
+const compoundTail = `(?:${gap}(?:[/⁄／∕^⋅·×÷±+]|\\b(?:per|x)\\b|(?<=\\d)x(?=\\d))|${horizontalGap}[*＊]${gap}(?=[(\\[{\\p{L}\\p{N}°℃+−-]|\\.\\d))`;
 const unitBoundary = `(?![A-Za-z\\p{N}⁻])(?!${compoundTail})`;
 const decimal = '[+−-]?(?:\\d{1,3}(?:[,，]\\d{3}){1,2}|\\d{1,9})(?:\\.\\d{1,6})?';
 const rangeSeparator = '(?:-|−|–|—|~|～|至|to\\b)';

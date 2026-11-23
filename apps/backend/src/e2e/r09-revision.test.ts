@@ -45,4 +45,8 @@ test('只读走查要求最终答复包含逐字原文、各自用途与 MSDS �
   expect(matches(answer.replace(missing, '缺失：实际 MSDS 附件及对应版本'))).toBe(true);
   expect(matches(answer.replace(missing, '缺失：无，第二处独立证据已齐全'))).toBe(false);
   expect(matches(answer.replace(missing, '缺失：无缺件，第二处独立证据已齐全'))).toBe(false);
+  expect(matches(answer.replace(missing, '缺失：第二处独立证据已找到，仍需归档附件'))).toBe(false);
+  expect(matches(answer.replace(missing, '缺失：MSDS 原件未找到，无法确认附件是否已齐全'))).toBe(
+    true,
+  );
 });
