@@ -102,8 +102,11 @@ export async function consumeAgentRuns(
           : null;
       // 升级前已入队的任务没有分组，也必须等同一运行的本机任务退出。
       const prior = data ? activeRuns.get(data.runId) : undefined;
-      const slot = Promise.withResolvers<void>();
-      if (data) activeRuns.set(data.runId, slot.promise);
+      let release!: () => void;
+      const slot = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      if (data) activeRuns.set(data.runId, slot);
       try {
         if (!data) throw new Error('INVALID_AGENT_JOB');
         await prior;
@@ -119,8 +122,8 @@ export async function consumeAgentRuns(
         delete error.stack;
         throw error;
       } finally {
-        if (data && activeRuns.get(data.runId) === slot.promise) activeRuns.delete(data.runId);
-        slot.resolve();
+        if (data && activeRuns.get(data.runId) === slot) activeRuns.delete(data.runId);
+        release();
       }
       // 队列只存运行和续跑票据编号，回执正文保存在私有对话中。
     }

@@ -100,13 +100,16 @@ test('继续投递用票据编号去重，原运行初始投递仍可保留', as
   const run = await queued();
   const ticketId = randomUUID();
   const calls: Array<{ runId: string; ticketId?: string }> = [];
-  const hold = Promise.withResolvers<void>();
+  let releaseInitial!: () => void;
+  const hold = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
   expect(await enqueueAgentRun(source, run.runId)).toBe(run.runId);
   await consumeAgentRuns(
     source,
     async (runId, _signal, ticket) => {
       calls.push({ runId, ...(ticket ? { ticketId: ticket } : {}) });
-      if (!ticket) await hold.promise;
+      if (!ticket) await hold;
     },
     () => false,
   );
@@ -116,7 +119,7 @@ test('继续投递用票据编号去重，原运行初始投递仍可保留', as
     expect(await enqueueAgentRun(source, run.runId, ticketId)).toBe(ticketId);
     expect(await enqueueAgentRun(source, run.runId, ticketId)).toBeNull();
   } finally {
-    hold.resolve();
+    releaseInitial();
   }
   expect((await finalJob(run.runId)).data).toEqual({ runId: run.runId });
   expect((await finalJob(ticketId)).data).toEqual({ runId: run.runId, ticketId });
