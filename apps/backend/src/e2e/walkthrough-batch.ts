@@ -334,20 +334,19 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
           requireProof(a.runId !== b.runId, '双对话使用同一运行');
           await Promise.all([runStatus(a.runId), runStatus(b.runId)]);
           await Promise.all([didRead(a.runId), didRead(b.runId)]);
-          const { rows } = await pool.query<{ run_id: string; start: Date; finish: Date }>(
-            `SELECT run_id,min(created_at) FILTER (WHERE type='run_started') AS start,
-           max(created_at) FILTER (WHERE type='run_completed') AS finish
-           FROM run_event WHERE run_id=ANY($1::uuid[]) GROUP BY run_id`,
+          const { rows } = await pool.query<{ start: Date; finish: Date }>(
+            `SELECT min(started.created_at) AS start, r.finished_at AS finish
+           FROM run r JOIN conversation_event started ON started.run_id=r.id
+           WHERE r.id=ANY($1::uuid[]) AND started.type='run_status'
+             AND started.payload_json->>'status'='running'
+             AND r.status='completed' AND r.finished_at IS NOT NULL
+           GROUP BY r.id`,
             [[a.runId, b.runId]],
           );
           const [first, second] = rows;
+          requireProof(first && second, '并发走查缺少两条运行的起止时间');
           requireProof(
-            first?.start &&
-              first.finish &&
-              second?.start &&
-              second.finish &&
-              first.start < second.finish &&
-              second.start < first.finish,
+            first.start < second.finish && second.start < first.finish,
             '两个运行没有实际重叠',
           );
         } finally {
