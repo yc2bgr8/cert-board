@@ -99,8 +99,8 @@ export function batchScenes(ctx: WalkthroughBatchContext): Scene[] {
           await ctx.send(
             page,
             skill === 'R09'
-              ? '请用 R09 核对 L08 对比器械 K 号的两种写法，读取原文引用并保留不确定性，保存报告并提交审核。'
-              : '请用 M02 核对三类合成年度注册档案，先读取实际记录，引用证据，记录待核实事项，保存并提审。',
+              ? '请用 R09 核对 L08 资料 D035 中对比器械 K 号的两种写法。请通过资料工具重新读取 D035 的原文并引用，保留不确定性，保存报告并提交审核。以前的工作区报告只供参考。'
+              : '请用 M02 核对三类合成年度注册档案 PREVIEW-M02-REG、PREVIEW-M02-FEE 和 PREVIEW-M02-AGENT，先通过资料工具读取实际记录，引用证据，记录待核实事项，保存并提审。',
           );
           let card = await ctx.waitForReview(page, pool, conversation, 1);
           const first = await ctx.inspectSubmission(pool, card, skill);

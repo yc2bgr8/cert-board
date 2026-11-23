@@ -162,7 +162,9 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
         if (kind === 'review_decision_resume') {
           if (
             !observed.latestUser.startsWith('系统续跑通知。审核卡 ') ||
-            !observed.latestUser.includes('已由人通过')
+            !observed.latestUser.includes('已由人通过，批准版本已冻结') ||
+            !observed.latestUser.includes('只根据原对话确认决定') ||
+            !observed.latestUser.includes('等待新的人工任务')
           )
             throw new Error('BROWSER_REVIEW_DECISION_NOTICE_MISSING');
           return response({ role: 'assistant', content: '已收到审核通过通知。' });
