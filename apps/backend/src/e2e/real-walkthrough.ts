@@ -17,6 +17,7 @@ import { createDependencies } from '../dependencies.js';
 import { BlobStore } from '../documents/blob-store.js';
 import { requiredRevisionSections, revisionSections } from './walkthrough-report.js';
 import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthrough-batch.js';
+import { checkOfficialBrowserRun } from './official-walkthrough.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
@@ -359,6 +360,24 @@ async function main() {
     await page.getByLabel('密码', { exact: true }).fill(password);
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
+    if (process.env.CERT_WALKTHROUGH_OFFICIAL_ONLY === '1') {
+      stage = '官方编号和 V2 的真实浏览器专项';
+      const conversation = await freshConversation(page, developmentProjectId, 'L08 官方编号核对', 'full');
+      const { runId } = await send(
+        page,
+        '请在 L08 项目按 R09 做一项编号核对。先读取 D035 中 K170285 的原文，再用 official_lookup 核对公开的 K170825，读取其官方存档中的 identifier 字段，调用 identifier_check（V2）比较。请保存简短说明并送审。审核卡结论首句用格式「编号核对：材料 [材料编号]，官方 [官方编号]，差异 [差异]，状态 [状态]。」，差异填写一致、疑似笔误或其他差异，状态填写待确认或已核实。按实际证据填值，引用两个来源的原文，保留源材料原样。',
+      );
+      const cardId = await waitForReview(page, pool, conversation, 1);
+      const proof = await checkOfficialBrowserRun(page, pool, runId, cardId, evidenceFolder);
+      assert.equal(blocked, 0);
+      await writeFile(
+        path.join(evidenceFolder, 'official-result.json'),
+        JSON.stringify({ ...proof, status: 'passed', instance, commit: testedCommit }, null, 2),
+        'utf8',
+      );
+      console.log('官方编号与 V2 真实浏览器验收通过。');
+      return;
+    }
     if (process.env.CERT_WALKTHROUGH_BATCH === '1') {
       stage = '多场真实对话走查';
       await exerciseBatch({

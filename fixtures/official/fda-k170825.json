@@ -1,0 +1,19 @@
+{
+  "meta": {
+    "results": {
+      "total": 1
+    }
+  },
+  "results": [
+    {
+      "k_number": "K170825",
+      "decision_date": "2017-08-18",
+      "product_code": "LRK",
+      "device_name": "SnoreRx",
+      "openfda": {
+        "regulation_number": "872.5570",
+        "device_class": "2"
+      }
+    }
+  ]
+}

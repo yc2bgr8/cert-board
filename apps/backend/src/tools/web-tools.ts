@@ -21,6 +21,7 @@ import {
 } from '../documents/public-web.js';
 import { redactExternalMessages } from '../external-model/policy.js';
 import { ExternalModels } from '../external-model/service.js';
+import { officialLookupTool } from './official-lookup.js';
 import type { ToolDefinition, ToolExecutionContext } from './registry.js';
 
 const maxCalls = 8;
@@ -93,7 +94,7 @@ export function buildWebTools(
       );
     const calls = await ctx.tx.query<{ count: number }>(
       `SELECT count(*)::int AS count FROM tool_invocation
-       WHERE run_id=$1 AND tool_name IN ('web_search','web_fetch')`,
+       WHERE run_id=$1 AND tool_name IN ('web_search','web_fetch','official_lookup')`,
       [ctx.runId],
     );
     if ((calls.rows[0]?.count ?? 0) > maxCalls)
@@ -253,5 +254,5 @@ export function buildWebTools(
       }),
   };
 
-  return [search, fetchPage];
+  return [search, fetchPage, officialLookupTool(pool, store, fetcher, (ctx, url) => protect(ctx, url, true))];
 }

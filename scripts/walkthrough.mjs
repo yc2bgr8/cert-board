@@ -16,9 +16,12 @@ const clean = () =>
 const diagnostic = process.argv.includes('--diagnostic');
 const verificationOnly = process.argv.includes('--verification-only');
 const batch = process.argv.includes('--batch');
+const officialOnly = process.argv.includes('--official-only');
 
 async function main() {
   if (verificationOnly && (!diagnostic || batch)) throw new Error('正式走查需要完整执行全部场景。');
+  if (officialOnly && (batch || diagnostic))
+    throw new Error('正式走查不能同时运行官方专项与其他专项。');
   const initial = clean();
   if (!diagnostic && (initial.status !== 0 || initial.stdout.trim()))
     throw new Error('正式走查须使用已提交的代码。');
@@ -31,8 +34,8 @@ async function main() {
     new Date().toISOString().replace(/[:.]/gu, '-'),
   );
   await mkdir(folder, { recursive: true });
-  const { runtime } = await previewEnvironment('walkthrough');
-  const live = diagnostic ? null : await startPreview('walkthrough');
+  const { runtime } = await previewEnvironment('walkthrough', officialOnly);
+  const live = diagnostic ? null : await startPreview('walkthrough', undefined, officialOnly);
   try {
     const child = spawn(
       process.execPath,
@@ -51,6 +54,7 @@ async function main() {
           CERT_WALKTHROUGH_DIAGNOSTIC: diagnostic ? '1' : '0',
           CERT_WALKTHROUGH_VERIFICATION_ONLY: verificationOnly ? '1' : '0',
           CERT_WALKTHROUGH_BATCH: batch ? '1' : '0',
+          CERT_WALKTHROUGH_OFFICIAL_ONLY: officialOnly ? '1' : '0',
         },
       },
     );
@@ -66,7 +70,8 @@ async function main() {
       throw new Error('预览进程在正式走查结束前退出。');
     }
     if (process.exitCode === 0 && !diagnostic) {
-      const rawResult = await readFile(path.join(folder, batch ? 'q2-result.json' : 'result.json'));
+      const resultFile = batch ? 'q2-result.json' : officialOnly ? 'official-result.json' : 'result.json';
+      const rawResult = await readFile(path.join(folder, resultFile));
       const result = JSON.parse(rawResult.toString('utf8'));
       const current = clean();
       if (
@@ -78,7 +83,7 @@ async function main() {
         previewGitHead() !== commit
       )
         throw new Error('走查期间提交发生变化，请在同一提交下复跑。');
-      if (!batch) {
+      if (!batch && !officialOnly) {
         const resultSha256 = createHash('sha256').update(rawResult).digest('hex');
         const receipt = JSON.stringify(
           {

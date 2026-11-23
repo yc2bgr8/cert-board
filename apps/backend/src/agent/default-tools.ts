@@ -1,4 +1,5 @@
 import { checkRunTool } from '../tools/check-run.js';
+import { identifierCheckTool } from '../tools/identifier-check.js';
 import { submitForReviewTool } from '../tools/submit-for-review.js';
 import { proposeExternalTool } from '../tools/propose-external.js';
 import { queueInternalMessageTool } from '../tools/queue-internal-message.js';
@@ -34,6 +35,7 @@ export async function buildAgentTools(
     waitRegisterTool(),
     ...(pool && containerRuntime === 'host' ? [consultExternalModelTool(pool)] : []),
     checkRunTool(),
+    identifierCheckTool(),
     deadlineCalcTool(),
     reminderSetTool(),
     submitForReviewTool(skill.reviewPolicy),

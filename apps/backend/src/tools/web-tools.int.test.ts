@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
   fetcherSnapshotSchema,
+  identifierCheckResultSchema,
+  officialLookupResultSchema,
   webFetchResultSchema,
   webSearchResultSchema,
   type PermissionMode,
@@ -11,8 +13,11 @@ import { createApp } from '../app.js';
 import { AppError } from '../api/errors.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { FetcherRedirect } from '../documents/fetcher-client.js';
+import { importVerifiedLicenceLedger } from '../documents/licence-ledger-import.js';
+import { ingestParsedDocument } from '../documents/service.js';
 import { createIntegrationContext } from '../test-support/context.js';
 import { docReadTool } from './doc-read.js';
+import { identifierCheckTool } from './identifier-check.js';
 import { ToolRegistry } from './registry.js';
 import { buildWebTools } from './web-tools.js';
 
@@ -62,7 +67,7 @@ async function scenario(mode: PermissionMode = 'full') {
   const store = new MemoryStore();
   const run = await context.run('MEMBER_A', mode);
   const client = {
-    fetchPage: vi.fn(async () => snapshot()),
+    fetchPage: vi.fn(async (_url: string) => snapshot()),
     search: vi.fn(async () => ({
       items: [
         { url, title: '官方样例', snippet: '合成检索结果' },
@@ -74,11 +79,175 @@ async function scenario(mode: PermissionMode = 'full') {
   const registry = new ToolRegistry(context.pool, [
     ...buildWebTools(context.pool, store, client, ['reference-source.org']),
     docReadTool(),
+    identifierCheckTool(),
   ]);
   const invoke = (name: string, input: object, callId = randomUUID()) =>
     registry.execute({ runId: run.runId, userId: run.userId, callId }, name, input);
   return { store, client, invoke, run, registry };
 }
+
+function officialSnapshot(officialUrl: string, payload: unknown) {
+  const bytes = Buffer.from(JSON.stringify(payload));
+  return {
+    ...snapshot(new Date().toISOString(), bytes),
+    url: officialUrl,
+    mediaType: 'application/json' as const,
+  };
+}
+
+const officialInput = { dataset: 'fda_510k', kNumber: 'K170825' };
+const officialClearance = {
+  k_number: 'K170825',
+  decision_date: '2017-08-18',
+  product_code: 'LRK',
+  openfda: { device_class: '2', regulation_number: '872.5570' },
+};
+
+test('官方回查通过工具注册执行，存档原始响应并复用同项目缓存', async () => {
+  const { store, client, invoke } = await scenario();
+  const payload = { meta: { results: { total: 1 } }, results: [officialClearance] };
+  client.fetchPage.mockImplementation(async (address) => officialSnapshot(address, payload));
+  const initial = officialLookupResultSchema.parse((await invoke('official_lookup', officialInput)).data);
+  if (initial.status !== 'ok' || !initial.evidence) throw new Error('缺少公开资料存档');
+  expect(initial).toMatchObject({
+    cached: false,
+    records: [{ identifier: 'K170825', productCode: 'LRK', regulationNumber: '872.5570', deviceClass: '2' }],
+    evidence: { page: 1, archive: { mediaType: 'application/json', sourceType: 'official' } },
+  });
+  expect(await store.get(initial.evidence.archive.sha256)).toEqual(Buffer.from(JSON.stringify(payload)));
+  const repeated = officialLookupResultSchema.parse((await invoke('official_lookup', officialInput)).data);
+  expect(repeated).toEqual({ ...initial, cached: true });
+  expect(client.fetchPage).toHaveBeenCalledTimes(1);
+});
+
+test('V2 用官方存档字段和材料原文发现 K 号对调，拒绝缺失的引文', async () => {
+  const { store, client, invoke } = await scenario();
+  const sourceText = '对比器械编号 K170285。';
+  const doc = await ingestParsedDocument(context.pool, store, {
+    projectId: context.projectId,
+    sourceKey: 'PR30-FIXTURE',
+    name: '合成材料',
+    sourcePath: 'pr30-fixture.txt',
+    sourceSnapshot: digest(Buffer.from(sourceText)),
+    originalSha256: null,
+    dataLevel: 'internal',
+    authorType: 'external',
+    sourceMetadata: {},
+    pages: [{
+      pageNumber: 1,
+      text: sourceText,
+      method: 'text',
+      locatorKind: 'extraction_unit',
+      isPlaceholder: false,
+    }],
+  });
+  const payload = { meta: { results: { total: 1 } }, results: [officialClearance] };
+  client.fetchPage.mockImplementation(async (address) => officialSnapshot(address, payload));
+  const lookup = officialLookupResultSchema.parse((await invoke('official_lookup', officialInput)).data);
+  if (lookup.status !== 'ok' || !lookup.evidence) throw new Error('缺少官方验证快照');
+  const { documentId, version, page } = lookup.evidence;
+  const request = {
+    field: 'k_number',
+    referenceType: 'official',
+    observed: { identifier: 'K170285', evidence: { documentId: doc.documentId, version: doc.version, page: 1, quote: sourceText } },
+    references: [{ identifier: 'K170825', evidence: { documentId, version, page, quote: '"identifier": "K170825"' } }],
+  };
+  const checked = await invoke('identifier_check', request);
+  const result = identifierCheckResultSchema.parse(checked.data);
+  expect(result).toMatchObject({
+    status: 'possible_typo',
+    candidates: [{ identifier: 'K170825', edits: 1 }],
+    observed: { identifier: 'K170285' },
+  });
+  await expect(
+    invoke('identifier_check', {
+      ...request,
+      observed: { ...request.observed, evidence: { ...request.observed.evidence, quote: '不存在的 K170285' } },
+    }),
+  ).resolves.toMatchObject({ data: { status: 'unavailable', code: 'V2_EVIDENCE_MISMATCH' } });
+  await expect(invoke('identifier_check', {
+    ...request,
+    referenceType: 'ledger',
+    references: [request.observed],
+  })).resolves.toMatchObject({ data: { status: 'unavailable', code: 'V2_LEDGER_SOURCE_REQUIRED' } });
+  const ledgerText = '证照台账 对比器械编号 K170825。';
+  const ledgerDraft = {
+    projectId: context.projectId, sourceKey: 'PR30-LEDGER', name: '合成证照台账',
+    sourcePath: 'pr30-ledger.txt', sourceSnapshot: digest(Buffer.from(ledgerText)),
+    dataLevel: 'internal', authorType: 'human',
+    pages: [{ pageNumber: 1, text: ledgerText, method: 'text', locatorKind: 'extraction_unit' }],
+  };
+  const previous = await ingestParsedDocument(context.pool, store, ledgerDraft);
+  const ledgerRequest = (ref: { documentId: string; version: number }) => ({
+    ...request,
+    referenceType: 'ledger',
+    references: [{ identifier: 'K170825', evidence: {
+      documentId: ref.documentId, version: ref.version, page: 1, quote: ledgerText,
+    } }],
+  });
+  await expect(invoke('identifier_check', ledgerRequest(previous))).resolves.toMatchObject({
+    data: { status: 'unavailable', code: 'V2_LEDGER_SOURCE_REQUIRED' },
+  });
+  await expect(
+    importVerifiedLicenceLedger(context.pool, store, { ...ledgerDraft, sourceKey: 'O-reserved' }),
+  ).rejects.toMatchObject({ code: 'LEDGER_IMPORT_INVALID' });
+  const ledger = await importVerifiedLicenceLedger(context.pool, store, {
+    ...ledgerDraft,
+    sourceMetadata: { webArchive: lookup.evidence.archive },
+  });
+  const registered = await context.pool.query(
+    "SELECT source_metadata ? 'webArchive' AS archive FROM document_version WHERE id=$1",
+    [ledger.versionId],
+  );
+  expect(registered.rows[0]?.archive).toBe(false);
+  expect(ledger).toMatchObject({ documentId: previous.documentId, version: previous.version + 1 });
+  await expect(invoke('identifier_check', ledgerRequest(ledger))).resolves.toMatchObject({
+    data: { status: 'possible_typo' },
+  });
+  await expect(importVerifiedLicenceLedger(context.pool, store, ledgerDraft)).resolves.toMatchObject({
+    version: ledger.version, created: false,
+  });
+});
+
+test('截止日回查的可下载存档不带未来记录，只读查询不写入', async () => {
+  const request = { ...officialInput, asOf: '2017-08-18' };
+  const payload = {
+    meta: { results: { total: 2 } },
+    results: [
+      officialClearance,
+      { ...officialClearance, decision_date: '2029-01-01', device_name: '未来合成版本' },
+    ],
+  };
+  const saving = await scenario();
+  saving.client.fetchPage.mockImplementation(async (address) => officialSnapshot(address, payload));
+  const out = officialLookupResultSchema.parse((await saving.invoke('official_lookup', request)).data);
+  if (out.status !== 'ok' || !out.evidence) throw new Error('缺少截止日存档');
+  expect(out.records).toHaveLength(1);
+  const stored = (await saving.store.get(out.evidence.archive.sha256)).toString('utf8');
+  expect(stored).not.toContain('未来合成版本');
+  expect(stored).not.toContain('2029-01-01');
+  const preview = await scenario('read_only');
+  const other = { ...officialInput, kNumber: 'K253845' };
+  preview.client.fetchPage.mockImplementation(async (address) =>
+    officialSnapshot(address, { ...payload, results: [{ ...officialClearance, k_number: other.kNumber }] }),
+  );
+  expect((await preview.invoke('official_lookup', other)).data).toMatchObject({
+    status: 'ok',
+    evidence: null,
+    records: [{ identifier: other.kNumber }],
+    cached: false,
+  });
+  expect(preview.store.blobs.size).toBe(0);
+});
+
+test('官方数据回查在保密对话中停止于出网之前', async () => {
+  const { store, client, invoke, run } = await scenario();
+  await context.pool.query("UPDATE run SET max_data_level='confidential' WHERE id=$1", [run.runId]);
+  const output = await invoke('official_lookup', officialInput);
+  expect(output.data).toMatchObject({ status: 'unavailable', code: 'WEB_CONFIDENTIAL_BLOCKED' });
+  expect(client.fetchPage).not.toHaveBeenCalled();
+  expect(store.blobs.size).toBe(0);
+});
 
 test('公开网页原件可用浏览器会话下载，页码原文与缓存稳定可重放', async () => {
   const { store, client, invoke } = await scenario();

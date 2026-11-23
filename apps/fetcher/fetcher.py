@@ -38,6 +38,7 @@ CREDENTIAL_PARAMETER = re.compile(
 )
 HTML_MEDIA = {"text/html", "application/xhtml+xml"}
 RESOLVERS = BoundedSemaphore(2)
+FDA_QUERY_PATHS = {"/device/510k.json", "/device/classification.json", "/device/registrationlisting.json"}
 
 
 class FetchError(Exception):
@@ -349,13 +350,26 @@ def fetch_page(value, connect=public_connection):
                     except FetchError:
                         next_url = None
                     raise FetchError("FETCH_REDIRECT", 409, next_url if next_url != url else None)
-                if with_response.status != 200:
+                fda_404 = (
+                    with_response.status == 404 and target.hostname == "api.fda.gov"
+                    and target.path in FDA_QUERY_PATHS
+                )
+                if with_response.status != 200 and not fda_404:
                     raise FetchError("FETCH_UPSTREAM_STATUS", 502)
                 content_type = with_response.getheader("Content-Type", "")
                 media_type = content_type.partition(";")[0].strip().lower()
                 if media_type not in MEDIA_TYPES or with_response.getheader("Content-Encoding", "identity").lower() != "identity":
                     raise FetchError("FETCH_MEDIA_UNSUPPORTED", 415)
                 content = bounded_read(with_response, deadline)
+                if fda_404:
+                    problem = None
+                    if media_type == "application/json":
+                        with suppress(ValueError):
+                            decoded = json.loads(content)
+                            if isinstance(decoded, dict):
+                                problem = decoded.get("error")
+                    if problem != {"code": "NOT_FOUND", "message": "No matches found!"}:
+                        raise FetchError("FETCH_UPSTREAM_STATUS", 502)
             finally:
                 with_response.close()
             if media_type == "application/pdf" and not content.startswith(b"%PDF-"):

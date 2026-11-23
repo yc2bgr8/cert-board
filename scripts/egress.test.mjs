@@ -67,6 +67,26 @@ test('代理独立网络和回环端口不改变数据库的内部网络', async
   expect(dockerfile).toMatch(/FROM ubuntu:24\.04@sha256:[a-f0-9]{64}/);
 });
 
+test('官方数据的 DNS 映射仅在公开抓取代理生效，保留私网拒绝并只用已批准域名', async () => {
+  const files = await Promise.all(
+    ['Dockerfile', 'fetch-hosts', 'isolated-allowlist', 'fetch.conf'].map((name) =>
+      readFile(new URL(`../deploy/egress/${name}`, import.meta.url), 'utf8'),
+    ),
+  );
+  const [docker, hosts, allowlist, config] = files;
+  const listed = (value) => value.split(/\r?\n/u).filter((line) => line && !line.startsWith('#'));
+  const destinations = listed(hosts).map((row) => row.split(/\s+/u)[1]);
+  expect(destinations.every((host) => listed(allowlist).includes(host))).toBe(true);
+  expect(new Set(destinations)).toEqual(new Set([
+    'openrouter.ai', 'api.fda.gov', 'health-products.canada.ca', 'accessgudid.nlm.nih.gov',
+  ]));
+  expect(docker).toMatch(/AS web-fetch\s+COPY fetch\.conf[^\n]*\s+COPY fetch-hosts \/etc\/squid\/hosts/u);
+  expect(config).toContain('198.18.0.0/15');
+  expect(config.indexOf('http_access deny private_destinations')).toBeLessThan(
+    config.indexOf('http_access allow tunnel_method'),
+  );
+});
+
 test('代理探针只连接本机、识别CONNECT响应并拒绝报文注入', async () => {
   let observed;
   const server = http.createServer();

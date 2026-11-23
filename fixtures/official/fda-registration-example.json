@@ -1,0 +1,20 @@
+{
+  "meta": {
+    "results": {
+      "total": 1
+    }
+  },
+  "results": [
+    {
+      "registration": {
+        "registration_number": "9617474",
+        "name": "CARL ZEISS VISION GMBH"
+      },
+      "products": [
+        {
+          "product_code": "HQY"
+        }
+      ]
+    }
+  ]
+}
