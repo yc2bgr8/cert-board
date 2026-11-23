@@ -19,6 +19,7 @@ import { requiredRevisionSections, revisionSections } from './walkthrough-report
 import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthrough-batch.js';
 import { checkOfficialBrowserRun } from './official-walkthrough.js';
 import { checkRulesBrowserRun } from './rules-walkthrough.js';
+import { checkR09Revision, r09RevisionPath, r09Replacements } from './r09-revision.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
@@ -361,6 +362,27 @@ async function main() {
     await page.getByLabel('密码', { exact: true }).fill(password);
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
+    if (process.env.CERT_WALKTHROUGH_R09_ONLY === '1') {
+      stage = 'R09 的原文核验和双修改浏览器专项';
+      const conversation = await freshConversation(page, developmentProjectId, 'R09 两处意见复验', 'full');
+      await send(page, `${registrationPrompt} 报告使用 ${r09RevisionPath}。请分别原样保留这两行，供下一轮修改验证：\n${r09Replacements.map(([initial]) => initial).join('\n')}`);
+      const original = await waitForReview(page, pool, conversation, 1);
+      await inspectSubmission(pool, original, 'R09');
+      await review(page, pool, original, path.join(evidenceFolder, 'r09-eval-initial.png'), false);
+      await send(page, `请修改原路径 ${r09RevisionPath}。只应用两条明确意见，其他行保持原样，保存并重新提交审核。\n${r09Replacements.map(([before, after], index) => `${index + 1}. 把「${before}」替换为「${after}」`).join('\n')}`);
+      const revised = await waitForReview(page, pool, conversation, 2);
+      await inspectSubmission(pool, revised, 'R09');
+      const proof = await checkR09Revision(pool, blobs, original, revised, conversation);
+      await review(page, pool, revised, path.join(evidenceFolder, 'r09-eval-approved.png'), true);
+      assert.equal(blocked, 0);
+      await writeFile(
+        path.join(evidenceFolder, 'r09-result.json'),
+        JSON.stringify({ ...proof, status: 'passed', instance, commit: testedCommit, approvedInBrowser: true }, null, 2),
+        'utf8',
+      );
+      console.log('R09 原文、两处改稿和浏览器批准专项通过。');
+      return;
+    }
     if (process.env.CERT_WALKTHROUGH_RULES_ONLY === '1') {
       stage = '一致性规则库的真实浏览器专项';
       const conversation = await freshConversation(page, developmentProjectId, 'L08 一致性规则核对', 'full');

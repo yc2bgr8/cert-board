@@ -538,6 +538,30 @@ test('数值或非空单位明确unsupported_quantity，V7保持未运行', asyn
   }
 });
 
+test('显式 V7 复算与 V1 原文同时通过才接受数值或范围', async () => {
+  const first = await addSource({ text: '浸泡时间 1 hour。' });
+  const second = await addSource({ text: '浸泡时间 60 分钟。' });
+  const data = submission(first);
+  data.claims[0] = {
+    ...data.claims[0]!,
+    field: '浸泡时间', value: 60, unit: 'min', quantityCheck: true,
+    sources: [first, second],
+  };
+  const verified = await checkSubmission(context.pool, caller, data);
+  expect(verified.passed).toBe(true);
+  expect(verified.notRun).not.toContain('V7');
+  expect(verified.checks.find(({ code }) => code === 'V7')?.status).toBe('passed');
+  data.claims[0]!.value = 30;
+  const mismatched = await checkSubmission(context.pool, caller, data);
+  expect(mismatched.passed).toBe(false);
+  expect(mismatched.checks.find(({ code }) => code === 'V7')).toMatchObject({
+    status: 'failed', issues: [{ code: 'quantity_mismatch', path: 'claims[0].value' }],
+  });
+  data.claims[0]!.value = 60;
+  data.claims[0]!.sources[1]!.quote = '另行写入但资料里没有的浸泡时间 60 分钟。';
+  expect((await checkSubmission(context.pool, caller, data)).passed).toBe(false);
+});
+
 test('没有来源或evidence不能让空检查冒充通过', async () => {
   const data = submission(await addSource());
   data.claims[0]!.sources = [];

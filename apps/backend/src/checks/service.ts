@@ -11,6 +11,7 @@ import {
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
 import { checkDeadlineClaims } from './deadline-claims.js';
+import { checkQuantityClaim } from './quantities.js';
 import { quoteAppears } from './quotes.js';
 
 type Database = Pick<Pool, 'query'>;
@@ -149,7 +150,9 @@ export async function checkSubmission(
     });
   const submission = parsed.data;
   const v1: Issue[] = [],
-    v3: Issue[] = [];
+    v3: Issue[] = [],
+    v7: Issue[] = [];
+  let checkedQuantity = false;
   let dataLevel = context.dataLevel;
   const workspace = await db.query<{ data_level: DataLevel }>(
     `SELECT v.data_level FROM workspace_version v JOIN workspace w ON w.id=v.workspace_id
@@ -203,7 +206,11 @@ export async function checkSubmission(
     if (!quoteAppears(found.text, ref.quote)) v1.push({ code: 'quote_mismatch', path });
   };
   for (const [index, claim] of submission.claims.entries()) {
-    if (typeof claim.value === 'number' || claim.unit !== null)
+    if (claim.quantityCheck) {
+      checkedQuantity = true;
+      const code = checkQuantityClaim(claim);
+      if (code) v7.push({ code, path: `claims[${index}].value` });
+    } else if (typeof claim.value === 'number' || claim.unit !== null)
       v3.push({ code: 'unsupported_quantity', path: `claims[${index}]` });
     if (claim.sources.length === 0)
       v1.push({ code: 'missing_evidence', path: `claims[${index}].sources` });
@@ -218,7 +225,7 @@ export async function checkSubmission(
     await checkCitation(citation, `evidence[${index}]`);
   const v6 = checkDeadlineClaims(submission);
   return checkReportSchema.parse({
-    passed: v1.length === 0 && v3.length === 0 && v6.issues.length === 0,
+    passed: v1.length === 0 && v3.length === 0 && v6.issues.length === 0 && v7.length === 0,
     dataLevel,
     checks: [
       { code: 'V1', status: v1.length ? 'failed' : 'passed', issues: v1 },
@@ -226,8 +233,11 @@ export async function checkSubmission(
       ...(v6.ran
         ? [{ code: 'V6', status: v6.issues.length ? 'failed' : 'passed', issues: v6.issues }]
         : []),
+      ...(checkedQuantity
+        ? [{ code: 'V7', status: v7.length ? 'failed' : 'passed', issues: v7 }]
+        : []),
     ],
-    notRun: v6.ran ? ['V2', 'V4', 'V5', 'V7', 'V8'] : notRun,
+    notRun: notRun.filter((code) => !(code === 'V6' && v6.ran) && !(code === 'V7' && checkedQuantity)),
     citations: [...citations.values()],
   });
 }

@@ -38,7 +38,7 @@ export const structuredClaimSchema = z
       .min(1)
       .max(80)
       .nullable()
-      .describe('K号等字符串标识符使用null；非空单位及数值陈述在当前切片不受支持。'),
+      .describe('K号等标识符使用null。数值陈述须用 quantityCheck 指定 V7 复算。'),
     sources: z.array(documentCitationSchema).max(8),
     status: z.enum(['checked', 'inferred', 'unverified']),
   })
@@ -91,6 +91,7 @@ export const structuredSubmissionSchema = legacyStructuredSubmissionSchema
       .array(
         structuredClaimSchema.safeExtend({
           deadlineCalculation: deadlineCalculationSchema.optional(),
+          quantityCheck: z.literal(true).optional(),
         }),
       )
       .min(1)
@@ -131,6 +132,8 @@ export const checkIssueSchema = z
       'deadline_mismatch',
       'deadline_invalid',
       'deadline_unstructured',
+      'quantity_format',
+      'quantity_mismatch',
     ]),
     path: z
       .string()
@@ -143,7 +146,7 @@ export const checkIssueSchema = z
   .strict();
 const itemSchema = z
   .object({
-    code: z.enum(['V1', 'V3', 'V6']),
+    code: z.enum(['V1', 'V3', 'V6', 'V7']),
     status: z.enum(['passed', 'failed', 'not_run']),
     issues: z.array(checkIssueSchema).max(80),
   })
@@ -167,7 +170,7 @@ export const checkReportSchema = z
   .object({
     passed: z.boolean(),
     dataLevel: workspaceDataLevelSchema,
-    checks: z.array(itemSchema).min(2).max(3),
+    checks: z.array(itemSchema).min(2).max(4),
     notRun: z.union([
       z.tuple([
         z.literal('V2'),
@@ -177,6 +180,8 @@ export const checkReportSchema = z
         z.literal('V7'),
         z.literal('V8'),
       ]),
+      z.tuple([z.literal('V2'), z.literal('V4'), z.literal('V5'), z.literal('V6'), z.literal('V8')]),
+      z.tuple([z.literal('V2'), z.literal('V4'), z.literal('V5'), z.literal('V8')]),
       z.tuple([
         z.literal('V2'),
         z.literal('V4'),
@@ -194,11 +199,12 @@ export const checkReportSchema = z
       codes.size !== report.checks.length ||
       !codes.has('V1') ||
       !codes.has('V3') ||
-      codes.has('V6') === (report.notRun as readonly string[]).includes('V6')
+      codes.has('V6') === (report.notRun as readonly string[]).includes('V6') ||
+      codes.has('V7') === (report.notRun as readonly string[]).includes('V7')
     )
       context.addIssue({
         code: 'custom',
-        message: 'V1 和 V3 必须报告，期限 V6 不得重复出现或同时列入未执行。',
+        message: 'V1 和 V3 必须报告，V6 或 V7 不得重复出现或同时列入未执行。',
       });
     if (report.passed !== report.checks.every((check) => check.status === 'passed'))
       context.addIssue({ code: 'custom', message: '整体结果不能与分项检查状态矛盾。' });

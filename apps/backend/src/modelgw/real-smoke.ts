@@ -10,6 +10,7 @@ import {
 import { AppError } from '../api/errors.js';
 import { developmentProjectId, developmentGoalId } from '../projects/seed.js';
 import { getBudgetSummary } from '../budget/service.js';
+import { runRealCx } from '../agent/evaluation/r09-cx-real.js';
 import { nanoToUsd, usdToNano } from '../budget/meter.js';
 import { loadModelGatewayConfig, parseAllowedModelHosts, ModelConfigError } from './config.js';
 import { ModelGateway, type GatewayTransport } from './service.js';
@@ -27,6 +28,9 @@ async function main() {
   const model = selectGatewayModel(config, 'evaluation');
   if (!model || model.transport === 'local' || !process.env[model.apiKeyEnv])
     throw new AppError(403, 'REAL_TEST_CONFIG', '未配置可用测试模型或模型凭据。');
+  const cx = process.argv.includes('--cx');
+  if (cx && model.upstreamModel !== 'openai/gpt-6.2-astra-pro')
+    throw new AppError(403, 'REAL_TEST_CONFIG', 'CX 真实评测须使用已选定的开发旗舰模型。');
   const hosts = parseAllowedModelHosts(
     await readFile(new URL('../../../../deploy/egress/allowlist', import.meta.url), 'utf8'),
   );
@@ -80,8 +84,8 @@ async function main() {
       if (!target.rows[0])
         throw new AppError(409, 'REAL_TEST_GOAL_INACTIVE', '开发目标尚未处于可测试状态。');
       const conversation = await tx.query<{ id: string }>(
-        "INSERT INTO conversation(project_id,user_id,goal_id,title,permission_mode) VALUES($1,$2,$3,'模型网关连通性验证（合成文本）','read_only') RETURNING id",
-        [developmentProjectId, userId, developmentGoalId],
+        "INSERT INTO conversation(project_id,user_id,goal_id,title,permission_mode) VALUES($1,$2,$3,$4,'read_only') RETURNING id",
+        [developmentProjectId, userId, developmentGoalId, cx ? 'R09 CX 字段抽取评测（合成）' : '模型网关连通性验证（合成文本）'],
       );
       conversationId = conversation.rows[0]!.id;
       const run = await tx.query<{ id: string }>(
@@ -148,6 +152,13 @@ async function main() {
     const gateway = new ModelGateway(pool, config, checkedTransport, {
       environment: 'development',
     });
+    if (cx) {
+      await runRealCx(gateway, model.id, Math.min(4096, model.maxOutputTokens), {
+        runId, conversationId, userId, purpose: 'evaluation',
+      });
+      passed = true;
+      return;
+    }
     const result = await gateway.complete(
       {
         model: model.id,
