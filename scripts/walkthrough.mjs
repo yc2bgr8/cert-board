@@ -79,21 +79,19 @@ async function main() {
       )
         throw new Error('走查期间提交发生变化，请在同一提交下复跑。');
       if (!batch) {
-        const staged = `${previewEvidence}.tmp`;
-        await writeFile(
-          staged,
-          JSON.stringify(
-            {
-              status: 'passed',
-              commit,
-              evidence: folder,
-              resultSha256: createHash('sha256').update(rawResult).digest('hex'),
-            },
-            null,
-            2,
-          ),
-          'utf8',
+        const receipt = JSON.stringify(
+          {
+            status: 'passed',
+            commit,
+            evidence: folder,
+            resultSha256: createHash('sha256').update(rawResult).digest('hex'),
+          },
+          null,
+          2,
         );
+        await writeFile(path.join(folder, 'receipt.json'), receipt, { encoding: 'utf8', flag: 'wx' });
+        const staged = `${previewEvidence}.tmp`;
+        await writeFile(staged, receipt, 'utf8');
         await rename(staged, previewEvidence);
       }
     }

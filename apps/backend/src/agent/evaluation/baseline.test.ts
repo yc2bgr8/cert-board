@@ -100,7 +100,7 @@ test('拒绝旧提交、失败走查、缺模型计量及未齐备的工具或�
   ).toThrow();
 });
 
-test('核对验收目录、时间窗、标准走查的唯一索引和回执摘要', () => {
+test('核对验收目录、时间窗和各轮标准走查的回执摘要', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'cert-board-baseline-'));
   try {
     const receipt = JSON.stringify(proof);
@@ -111,25 +111,25 @@ test('核对验收目录、时间窗、标准走查的唯一索引和回执摘�
       mkdirSync(dir, { recursive: true });
       const reportPath = path.join(vm, 'report.json');
       const resultPath = path.join(dir, 'result.json');
-      const pointerPath = path.join(preview, 'walkthrough.json');
+      const receiptPath = path.join(dir, 'receipt.json');
       writeFileSync(reportPath, JSON.stringify(report));
       writeFileSync(resultPath, receipt);
       utimesSync(resultPath, new Date(recorded.completedAt), new Date(recorded.completedAt));
-      const writePointer = (legacy = false) => {
+      const writeReceipt = (omitDigest = false) => {
         writeFileSync(
-          pointerPath,
+          receiptPath,
           JSON.stringify({
             status: 'passed',
             commit,
             evidence: dir,
-            ...(legacy ? {} : { resultSha256: createHash('sha256').update(receipt).digest('hex') }),
+            ...(omitDigest ? {} : { resultSha256: createHash('sha256').update(receipt).digest('hex') }),
           }),
         );
         const issuedAt = new Date(recorded.completedAt + 1000);
-        utimesSync(pointerPath, issuedAt, issuedAt);
+        utimesSync(receiptPath, issuedAt, issuedAt);
       };
-      writePointer();
-      return { reportPath, resultPath, preview, writePointer };
+      writeReceipt();
+      return { reportPath, resultPath, preview, writeReceipt };
     };
     const first = writeEvidence('first');
     const other = writeEvidence('other');
@@ -141,9 +141,9 @@ test('核对验收目录、时间窗、标准走查的唯一索引和回执摘�
     writeFileSync(alternativeResult, receipt);
     utimesSync(alternativeResult, new Date(recorded.completedAt), new Date(recorded.completedAt));
     expect(() => readBaselineFiles(first.reportPath, alternativeResult)).toThrow();
-    first.writePointer(true);
+    first.writeReceipt(true);
     expect(() => readBaselineFiles(first.reportPath, first.resultPath)).toThrow();
-    first.writePointer();
+    first.writeReceipt();
     writeFileSync(first.resultPath, receipt + '\n');
     utimesSync(first.resultPath, new Date(recorded.completedAt), new Date(recorded.completedAt));
     expect(() => readBaselineFiles(first.reportPath, first.resultPath)).toThrow();
@@ -151,6 +151,22 @@ test('核对验收目录、时间窗、标准走查的唯一索引和回执摘�
     const later = new Date('2026-11-23T11:17:00.000Z');
     utimesSync(first.resultPath, later, later);
     expect(() => readBaselineFiles(first.reportPath, first.resultPath)).toThrow();
+    utimesSync(first.resultPath, new Date(recorded.completedAt), new Date(recorded.completedAt));
+    const laterRun = path.join(first.preview, 'evidence', '2026-11-23T11-17-00-000Z');
+    mkdirSync(laterRun, { recursive: true });
+    const latest = JSON.stringify({
+      status: 'passed',
+      commit,
+      evidence: laterRun,
+      resultSha256: createHash('sha256').update(receipt).digest('hex'),
+    });
+    const laterResult = path.join(laterRun, 'result.json');
+    writeFileSync(laterResult, receipt);
+    utimesSync(laterResult, later, later);
+    writeFileSync(path.join(laterRun, 'receipt.json'), latest);
+    writeFileSync(path.join(first.preview, 'walkthrough.json'), latest);
+    expect(() => readBaselineFiles(first.reportPath, laterResult)).toThrow();
+    expect(readBaselineFiles(first.reportPath, first.resultPath).testCommit).toBe(commit);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -78,7 +78,7 @@ const resultSchema = z.object({
     )
     .length(2),
 });
-const proofPointerSchema = z.object({
+const proofReceiptSchema = z.object({
   status: z.literal('passed'),
   commit: sha,
   evidence: z.string().min(1),
@@ -151,8 +151,8 @@ export function readBaselineFiles(reportFile: string, resultFile: string) {
   )
     throw new Error('请使用同一次虚拟机验收保留的原目录。');
   const [, hour, minute, second, fraction] = timestamp;
-  const pointerPath = path.join(preview, 'walkthrough.json');
-  const pointer = proofPointerSchema.parse(JSON.parse(readFileSync(pointerPath, 'utf8')));
+  const receiptPath = path.join(path.dirname(resultPath), 'receipt.json');
+  const receipt = proofReceiptSchema.parse(JSON.parse(readFileSync(receiptPath, 'utf8')));
   const rawResult = readFileSync(resultPath);
   const completedAt = statSync(resultPath).mtimeMs;
   const baseline = summarizeAgentBaseline(
@@ -160,15 +160,15 @@ export function readBaselineFiles(reportFile: string, resultFile: string) {
     JSON.parse(rawResult.toString('utf8')) as unknown,
     { startedAt: Date.parse(`${hour}:${minute}:${second}.${fraction}Z`), completedAt },
   );
-  const indexedAt = statSync(pointerPath).mtimeMs;
+  const issuedAt = statSync(receiptPath).mtimeMs;
   if (
-    pointer.commit !== baseline.testCommit ||
-    realpathSync(pointer.evidence) !== path.dirname(resultPath) ||
-    indexedAt < completedAt ||
-    indexedAt > Date.parse(baseline.completedAt) ||
-    createHash('sha256').update(rawResult).digest('hex') !== pointer.resultSha256
+    receipt.commit !== baseline.testCommit ||
+    realpathSync(receipt.evidence) !== path.dirname(resultPath) ||
+    issuedAt < completedAt ||
+    issuedAt > Date.parse(baseline.completedAt) ||
+    createHash('sha256').update(rawResult).digest('hex') !== receipt.resultSha256
   )
-    throw new Error('标准走查索引与回执不匹配。');
+    throw new Error('标准走查回执与结果不匹配。');
   return baseline;
 }
 
