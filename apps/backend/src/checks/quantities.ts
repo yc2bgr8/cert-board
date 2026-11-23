@@ -51,10 +51,10 @@ const chineseUnits = definitions
   .filter((label) => /^\p{Script=Han}/u.test(label))
   .sort((a, b) => b.length - a.length)
   .join('|');
-const gap = '[ \\t\\u00a0\\u202f]*';
+const gap = '[ \\t\\n\\u00a0\\u202f]*';
 const numberBoundary = '(?<![A-Za-z0-9.+−-])(?<!\\d[,， \\u00a0\\u202f])';
 const operator = '(?:[/⁄／∕^⋅·×÷±+*＊]|\\b(?:per|x)\\b|(?<=\\d)x(?=\\d))';
-const compoundTail = `${gap}${operator}${gap}(?=[(\\p{L}\\p{N}%+−-]|\\.\\d)`;
+const compoundTail = `${gap}${operator}${gap}(?=[(\\[{\\p{L}\\p{N}%+−-]|\\.\\d)`;
 const unitBoundary = `(?![A-Za-z\\p{N}⁻])(?!${compoundTail})`;
 const decimal = '[+−-]?(?:\\d{1,3}(?:[,，]\\d{3}){1,2}|\\d{1,9})(?:\\.\\d{1,6})?';
 const rangeSeparator = '(?:-|−|–|—|~|～|至|to\\b)';
@@ -139,9 +139,12 @@ function sourceSupportsClaim(pageText: string, quote: string, expected: bigint[]
   const excerpt = normalizeWhitespace(quote);
   const first = text.indexOf(excerpt);
   if (!excerpt || first < 0) return false;
-  const amounts = text.replace(/(?<!\d)\d{4}\/\d{1,2}\/\d{1,2}(?!\d)/gu, (date) =>
-    ' '.repeat(date.length),
-  );
+  const amounts = pageText
+    .trim()
+    .replace(/\s+/gu, (spaces) => (/[\r\n]/u.test(spaces) ? '\n' : ' '))
+    .replace(/(?<!\d)(?:\d{4}\/\d{1,2}\/\d{1,2}|\d{1,2}\/\d{1,2}\/\d{4})(?!\d)/gu, (date) =>
+      ' '.repeat(date.length),
+    );
   const matches = matchingAmounts(amounts, expected, unit);
   for (let offset = first; offset >= 0; offset = text.indexOf(excerpt, offset + 1)) {
     if (

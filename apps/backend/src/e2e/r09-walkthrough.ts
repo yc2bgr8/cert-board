@@ -171,10 +171,11 @@ export function r09ReadOnlyAnswerMatches(
     const note = /^(?:[-*]\s+)?MSDS[：:]\s*已定位\s*([^;；。]+)[;；](.+)$/iu.exec(line);
     if (!note) return false;
     const location = note[1]!.replace(/\s+/gu, '');
-    const missing = note[2]!;
+    const missing = note[2]!.trim().replace(/^(?:缺失|缺少|缺|待补)[：:]?\s*/u, '');
     return (
       location.startsWith(`${msds.sourceKey}第${msds.page}页`) &&
-      /(?:缺|待补|未见|未找到|没有)/u.test(missing) &&
+      /(?:缺|待补|未见|未找到|没有)/u.test(note[2]!) &&
+      !/^(?:无(?=[，,。.;；\s]|$)|无需|不缺|已齐全)/u.test(missing) &&
       /(?:第二处|另一处|独立|对照|附件|原件|文件|安全数据|报告)/u.test(missing)
     );
   });
