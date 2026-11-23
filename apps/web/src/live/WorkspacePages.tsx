@@ -180,8 +180,8 @@ export function Inbox({
                     >
                       <span>
                         <strong>
-                          {item.kind === 'skill'
-                            ? '技能版本'
+                          {item.skillRollback
+                            ? `${item.skillRollback.skillId} ${item.skillRollback.activeVersion}`
                             : (projects.find((project) => project.id === item.projectId)?.name ??
                               '项目对话')}
                         </strong>
@@ -201,7 +201,7 @@ export function Inbox({
               </section>
             ))}
           {snapshot?.truncated && (
-            <p className="live-page-message live-muted">当前列出前 50 项，处理后继续更新。</p>
+            <p className="live-page-message live-muted">还有待处理事项，处理后会继续更新。</p>
           )}
         </section>
         <aside className="live-page-side" aria-label="到期和完成记录">

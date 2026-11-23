@@ -20,20 +20,17 @@ CREATE TABLE "skill_rollback_proposal" (
 	"decided_by" uuid,
 	"session_id" uuid,
 	"request_key" uuid,
-	"dismissed_count" integer,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"decided_at" timestamp with time zone,
 	CONSTRAINT "skill_rollback_request_key" UNIQUE("request_key"),
 	CONSTRAINT "skill_rollback_status" CHECK ("skill_rollback_proposal"."status" IN ('pending','notice','approved','dismissed','expired')),
 	CONSTRAINT "skill_rollback_revision" CHECK ("skill_rollback_proposal"."release_revision">0),
-	CONSTRAINT "skill_rollback_target" CHECK (("skill_rollback_proposal"."status"<>'pending' OR "skill_rollback_proposal"."target_version_id" IS NOT NULL)
+	CONSTRAINT "skill_rollback_target" CHECK (("skill_rollback_proposal"."status" NOT IN ('pending','approved') OR "skill_rollback_proposal"."target_version_id" IS NOT NULL)
     AND ("skill_rollback_proposal"."status"<>'notice' OR "skill_rollback_proposal"."target_version_id" IS NULL)),
 	CONSTRAINT "skill_rollback_audit_fields" CHECK ((("skill_rollback_proposal"."status" IN ('approved','dismissed'))
     AND "skill_rollback_proposal"."decided_at" IS NOT NULL AND "skill_rollback_proposal"."session_id" IS NOT NULL AND "skill_rollback_proposal"."decided_by" IS NOT NULL AND "skill_rollback_proposal"."request_key" IS NOT NULL)
     OR (("skill_rollback_proposal"."status" NOT IN ('approved','dismissed'))
-    AND "skill_rollback_proposal"."decided_at" IS NULL AND "skill_rollback_proposal"."session_id" IS NULL AND "skill_rollback_proposal"."decided_by" IS NULL AND "skill_rollback_proposal"."request_key" IS NULL)),
-	CONSTRAINT "skill_rollback_dismissed_count" CHECK (CASE WHEN "skill_rollback_proposal"."status"='dismissed'
-    THEN "skill_rollback_proposal"."dismissed_count" IS NOT NULL AND "skill_rollback_proposal"."dismissed_count">=0 ELSE "skill_rollback_proposal"."dismissed_count" IS NULL END)
+    AND "skill_rollback_proposal"."decided_at" IS NULL AND "skill_rollback_proposal"."session_id" IS NULL AND "skill_rollback_proposal"."decided_by" IS NULL AND "skill_rollback_proposal"."request_key" IS NULL))
 );
 --> statement-breakpoint
 ALTER TABLE "skill_rollback_proposal" ADD CONSTRAINT "skill_rollback_proposal_skill_id_skill_id_fk" FOREIGN KEY ("skill_id") REFERENCES "public"."skill"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint

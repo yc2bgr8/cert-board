@@ -811,7 +811,6 @@ export const skillRollbackProposal = pgTable(
     decidedBy: uuid('decided_by'),
     sessionId: uuid('session_id'),
     requestKey: uuid('request_key'),
-    dismissedCount: integer('dismissed_count'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     decidedAt: timestamp('decided_at', { withTimezone: true }),
   },
@@ -847,7 +846,7 @@ export const skillRollbackProposal = pgTable(
     check('skill_rollback_revision', sql`${table.releaseRevision}>0`),
     check(
       'skill_rollback_target',
-      sql`(${table.status}<>'pending' OR ${table.targetVersionId} IS NOT NULL)
+      sql`(${table.status} NOT IN ('pending','approved') OR ${table.targetVersionId} IS NOT NULL)
     AND (${table.status}<>'notice' OR ${table.targetVersionId} IS NULL)`,
     ),
     check(
@@ -856,11 +855,6 @@ export const skillRollbackProposal = pgTable(
     AND ${table.decidedAt} IS NOT NULL AND ${table.sessionId} IS NOT NULL AND ${table.decidedBy} IS NOT NULL AND ${table.requestKey} IS NOT NULL)
     OR ((${table.status} NOT IN ('approved','dismissed'))
     AND ${table.decidedAt} IS NULL AND ${table.sessionId} IS NULL AND ${table.decidedBy} IS NULL AND ${table.requestKey} IS NULL)`,
-    ),
-    check(
-      'skill_rollback_dismissed_count',
-      sql`CASE WHEN ${table.status}='dismissed'
-    THEN ${table.dismissedCount} IS NOT NULL AND ${table.dismissedCount}>=0 ELSE ${table.dismissedCount} IS NULL END`,
     ),
   ],
 );

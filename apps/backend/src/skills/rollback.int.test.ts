@@ -5,6 +5,7 @@ import {
   skillRollbackListSchema,
   type SkillVersionMetadata,
 } from '@cert-board/shared';
+import { readMemberNotifications } from '../conversations/read.js';
 import { createReviewTestContext } from '../reviews/test-support.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { submitForReviewTool } from '../tools/submit-for-review.js';
@@ -59,8 +60,8 @@ async function finishReview(
   version: string,
   action: 'approved' | 'rejected',
 ) {
-  const caller = await ctx.run('MEMBER_A', 'full');
-  await ctx.read(caller);
+  const { runId, userId } = await ctx.run('MEMBER_A', 'full');
+  await ctx.read({ runId, userId, callId: randomUUID() });
   const skill = { id: 'R09', version };
   const registry = new ToolRegistry(ctx.pool, [
     ...ctx.definitions.filter((definition) => definition.metadata.name !== 'submit_for_review'),
@@ -68,7 +69,7 @@ async function finishReview(
   ]);
   const result = reviewSubmitResultSchema.parse(
     (
-      await registry.execute({ ...caller, callId: randomUUID() }, 'submit_for_review', {
+      await registry.execute({ runId, userId, callId: randomUUID() }, 'submit_for_review', {
         ...ctx.submission,
         skill,
       })
@@ -119,11 +120,15 @@ test('按生效版本与阈值统计、并发去重、驳回后等待新增十�
   const oldVersion = await publish(ctx, alice.headers, '1.0.0', 0);
   await finishReview(ctx, bob.headers, '1.0.0', 'rejected');
   const activeVersion = await publish(ctx, alice.headers, '2.0.0', 1);
-  await finishReview(ctx, bob.headers, '2.0.0', 'rejected');
+  await finishReview(ctx, bob.headers, '2.0.0', 'approved');
   await scanSkillRollbackProposals(ctx.pool);
   expect(await proposals(ctx, alice.headers)).toEqual([]);
 
   await finishReview(ctx, bob.headers, '2.0.0', 'approved');
+  await scanSkillRollbackProposals(ctx.pool);
+  expect(await proposals(ctx, alice.headers)).toEqual([]);
+  await finishReview(ctx, bob.headers, '2.0.0', 'rejected');
+  await finishReview(ctx, bob.headers, '2.0.0', 'rejected');
   await Promise.all([scanSkillRollbackProposals(ctx.pool), scanSkillRollbackProposals(ctx.pool)]);
   const [initial] = await proposals(ctx, alice.headers);
   expect(await proposals(ctx, bob.headers)).toHaveLength(1);
@@ -134,12 +139,12 @@ test('按生效版本与阈值统计、并发去重、驳回后等待新增十�
     status: 'pending',
     releaseRevision: 2,
     evidence: {
-      total: 2,
-      rejected: 1,
+      total: 4,
+      rejected: 2,
       from: expect.any(String),
       to: expect.any(String),
       previous: { total: 1, rejected: 1 },
-      reasons: ['请核对合成原件。'],
+      reasons: ['请核对合成原件。', '请核对合成原件。'],
     },
   });
   expect(await readActiveSkill(ctx.pool, 'registration', { id: 'R09' })).toMatchObject({
@@ -202,7 +207,7 @@ test('按生效版本与阈值统计、并发去重、驳回后等待新增十�
   ]);
 });
 
-test('没有可回退版本时只显示提醒，浏览器也无法批准回退', async () => {
+test('没有上一版时显示独立配额的提醒，浏览器无法批准回退', async () => {
   context = await createReviewTestContext();
   const ctx = context;
   const { headers } = await ctx.login();
@@ -218,9 +223,39 @@ test('没有可回退版本时只显示提醒，浏览器也无法批准回退',
     ).statusCode,
   ).toBe(200);
   await finishReview(ctx, headers, '1.0.0', 'rejected');
+  const blocked = await Promise.all(Array.from({ length: 51 }, () => ctx.run()));
+  const blockedIds = blocked.map(({ runId }) => runId);
+  await ctx.pool.query("UPDATE run SET status='failed' WHERE id=ANY($1::uuid[])", [blockedIds]);
+  await ctx.pool.query(
+    `UPDATE conversation c SET current_run_id=r.id FROM run r
+     WHERE c.id=r.conversation_id AND r.id=ANY($1::uuid[])`,
+    [blockedIds],
+  );
   await scanSkillRollbackProposals(ctx.pool);
   const [notice] = await proposals(ctx, headers);
   expect(notice).toMatchObject({ status: 'notice', activeVersion: '1.0.0', previousVersion: null });
+  const userId = ctx.userId('MEMBER_A');
+  const session = await ctx.pool.query<{ id: string }>(
+    'SELECT id FROM web_session WHERE user_id=$1',
+    [userId],
+  );
+  const inbox = await readMemberNotifications(ctx.pool, {
+    kind: 'browser',
+    userId,
+    sessionId: session.rows[0]!.id,
+    username: 'zhangsan',
+    displayName: '张三',
+    isDevelopment: true,
+    isManagement: false,
+  });
+  expect(inbox.items.filter(({ kind }) => kind === 'blocked')).toHaveLength(50);
+  expect(inbox.items.filter(({ kind }) => kind === 'skill')).toEqual([
+    expect.objectContaining({
+      id: notice!.id,
+      skillRollback: { skillId: 'R09', activeVersion: '1.0.0' },
+    }),
+  ]);
+  expect(inbox.truncated).toBe(true);
   expect(
     (
       await ctx.app.inject({

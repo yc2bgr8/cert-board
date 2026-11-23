@@ -366,6 +366,17 @@
   display: grid;
   gap: 5px;
 }
+.live-skill-rollback-policy {
+  align-items: end;
+}
+.live-skill-rollback-policy button {
+  justify-self: start;
+}
+.live-skill-rollback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .live-skill-review-card {
   display: grid;
   justify-items: start;

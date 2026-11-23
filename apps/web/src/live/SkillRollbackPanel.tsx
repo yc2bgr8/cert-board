@@ -31,7 +31,7 @@ function PolicyForm({ userId, policy }: { userId: string; policy: SkillRollbackP
   });
   return (
     <form
-      className="live-skill-selectors"
+      className="live-skill-selectors live-skill-rollback-policy"
       onSubmit={(event) => {
         event.preventDefault();
         mutation.mutate();
@@ -114,7 +114,7 @@ export function SkillRollbackPanel({
   useEffect(() => {
     if (!focusId || !proposals.data?.items.some(({ id }) => id === focusId)) return;
     const item = document.getElementById(`skill-rollback-${focusId}`);
-    item?.scrollIntoView({ block: 'nearest' });
+    item?.scrollIntoView({ block: 'center' });
     item?.focus({ preventScroll: true });
   }, [focusId, proposals.data]);
   return (
@@ -171,24 +171,26 @@ export function SkillRollbackPanel({
             </>
           )}
           {item.status === 'notice' && <p>当前技能没有可回退的上一版。</p>}
-          {item.status === 'pending' && (
+          <div className="live-skill-rollback-actions">
+            {item.status === 'pending' && (
+              <button
+                type="button"
+                className="live-primary"
+                disabled={mutation.isPending}
+                onClick={() => mutation.mutate({ item, action: 'approve' })}
+              >
+                批准退回上一版
+              </button>
+            )}
             <button
               type="button"
-              className="live-primary"
+              className="live-secondary"
               disabled={mutation.isPending}
-              onClick={() => mutation.mutate({ item, action: 'approve' })}
+              onClick={() => mutation.mutate({ item, action: 'dismiss' })}
             >
-              批准退回上一版
+              {item.status === 'notice' ? '知道了' : '驳回回退提案'}
             </button>
-          )}
-          <button
-            type="button"
-            className="live-secondary"
-            disabled={mutation.isPending}
-            onClick={() => mutation.mutate({ item, action: 'dismiss' })}
-          >
-            {item.status === 'notice' ? '知道了' : '驳回回退提案'}
-          </button>
+          </div>
         </article>
       ))}
       {mutation.isError && (

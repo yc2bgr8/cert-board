@@ -83,31 +83,38 @@ async function reviewStats(
   skillId: string,
   version: string,
   sampleSize: number,
-  before?: Date,
+  { before, dismissalId }: { before?: Date; dismissalId?: string | null } = {},
 ) {
   const result = await db.query<{
     total: number;
     rejected: number;
-    lifetime: number;
     from: Date | null;
     to: Date | null;
     reasons: string[];
+    cooldown_complete: boolean;
   }>(
-    `WITH decided AS (
-      SELECT d.id,d.action,d.created_at,d.reason,r.data_level
-      FROM review_card r JOIN review_decision d ON d.card_id=r.id
-      WHERE r.skill_id=$1 AND r.skill_version=$2 AND r.status::text=d.action::text
-        AND ($4::timestamptz IS NULL OR d.created_at<$4)
+    `WITH decided AS NOT MATERIALIZED (
+      SELECT r.id,r.status,r.decided_at,r.data_level
+      FROM review_card r
+      WHERE r.skill_id=$1 AND r.skill_version=$2 AND r.status IN ('approved','rejected')
+        AND r.decided_at IS NOT NULL
+        AND EXISTS (SELECT 1 FROM review_decision d WHERE d.card_id=r.id AND d.action::text=r.status::text)
     ), recent AS (
-      SELECT * FROM decided ORDER BY created_at DESC,id DESC LIMIT $3
+      SELECT * FROM decided WHERE $4::timestamptz IS NULL OR decided_at<$4
+      ORDER BY decided_at DESC,id DESC LIMIT $3
+    ), since_dismissal AS (
+      SELECT id FROM decided WHERE $5::uuid IS NOT NULL
+        AND decided_at>(SELECT decided_at FROM skill_rollback_proposal WHERE id=$5)
+      ORDER BY decided_at DESC LIMIT 10
     )
-    SELECT count(*)::int AS total,count(*) FILTER(WHERE action='rejected')::int AS rejected,
-      (SELECT count(*)::int FROM decided) AS lifetime,
-      min(created_at) AS "from",max(created_at) AS "to",
-      ARRAY(SELECT reason FROM recent WHERE action='rejected' AND reason IS NOT NULL
-        AND data_level='internal' ORDER BY created_at DESC,id DESC LIMIT 3) AS reasons
+    SELECT count(*)::int AS total,count(*) FILTER(WHERE status='rejected')::int AS rejected,
+      min(decided_at) AS "from",max(decided_at) AS "to",
+      ($5::uuid IS NULL OR (SELECT count(*) FROM since_dismissal)=10) AS cooldown_complete,
+      ARRAY(SELECT d.reason FROM recent r JOIN review_decision d ON d.card_id=r.id AND d.action='rejected'
+        WHERE r.status='rejected' AND d.reason IS NOT NULL AND r.data_level='internal'
+        ORDER BY r.decided_at DESC,r.id DESC LIMIT 3) AS reasons
     FROM recent`,
-    [skillId, version, sampleSize, before ?? null],
+    [skillId, version, sampleSize, before ?? null, dismissalId ?? null],
   );
   return result.rows[0]!;
 }
@@ -119,8 +126,6 @@ async function versionName(db: Db, id: string) {
 }
 
 export async function scanSkillRollbackProposals(pool: Pool) {
-  const policy = await getSkillRollbackPolicy(pool);
-  const sampleSize = Math.max(20, policy.minimumCards);
   const candidates = (
     await pool.query<{ id: string }>('SELECT id FROM skill WHERE revision>0 ORDER BY id LIMIT 60')
   ).rows;
@@ -143,30 +148,37 @@ export async function scanSkillRollbackProposals(pool: Pool) {
         ).rowCount
       )
         return;
+      await db.query('SELECT pg_advisory_xact_lock_shared(hashtextextended($1,0))', [
+        'skill-rollback-policy',
+      ]);
+      const policy = await getSkillRollbackPolicy(db);
+      const sampleSize = Math.max(20, policy.minimumCards);
       const activeName = await versionName(db, state.activeVersionId);
       if (!activeName) return;
-      const stats = await reviewStats(db, id, activeName, sampleSize);
-      if (
-        !stats.from ||
-        !stats.to ||
-        stats.total < policy.minimumCards ||
-        stats.rejected * 100 < stats.total * policy.rejectionPercent
-      )
-        return;
       const dismissed = (
-        await db.query<{ dismissed_count: number }>(
-          `SELECT dismissed_count FROM skill_rollback_proposal
+        await db.query<{ id: string }>(
+          `SELECT id FROM skill_rollback_proposal
          WHERE skill_id=$1 AND active_version_id=$2 AND status='dismissed'
          ORDER BY decided_at DESC,id DESC LIMIT 1`,
           [id, state.activeVersionId],
         )
       ).rows[0];
-      if (dismissed && stats.lifetime < dismissed.dismissed_count + 10) return;
+      const stats = await reviewStats(db, id, activeName, sampleSize, {
+        dismissalId: dismissed?.id ?? null,
+      });
+      if (
+        !stats.from ||
+        !stats.to ||
+        !stats.cooldown_complete ||
+        stats.total < policy.minimumCards ||
+        stats.rejected * 100 < stats.total * policy.rejectionPercent
+      )
+        return;
       const previousName = state.previousVersionId
         ? await versionName(db, state.previousVersionId)
         : undefined;
       const previous = previousName
-        ? await reviewStats(db, id, previousName, sampleSize, state.publishedAt)
+        ? await reviewStats(db, id, previousName, sampleSize, { before: state.publishedAt })
         : null;
       const evidence = skillRollbackEvidenceSchema.parse({
         total: stats.total,
@@ -271,7 +283,6 @@ export async function decideSkillRollbackProposal(
       input.requestKey,
     ]);
     if (used.rowCount) throw unavailable();
-    let dismissedCount: number | null = null;
     if (input.action === 'approve') {
       if (!proposal.target_version_id || proposal.target_version_id !== state.previousVersionId)
         throw unavailable();
@@ -283,15 +294,11 @@ export async function decideSkillRollbackProposal(
         contentSha256: target.contentSha256,
         requestKey: input.requestKey,
       });
-    } else {
-      const version = await versionName(db, proposal.active_version_id);
-      if (!version) throw unavailable();
-      dismissedCount = (await reviewStats(db, proposal.skill_id, version, 1)).lifetime;
     }
     await db.query(
       `UPDATE skill_rollback_proposal SET status=$2,request_key=$3,decided_by=$4,session_id=$5,
-        dismissed_count=$6,decided_at=clock_timestamp() WHERE id=$1`,
-      [proposalId, status, input.requestKey, actor.userId, actor.sessionId, dismissedCount],
+        decided_at=clock_timestamp() WHERE id=$1`,
+      [proposalId, status, input.requestKey, actor.userId, actor.sessionId],
     );
     await db.query(
       "INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id) VALUES($1,'browser',$2,'skill_rollback_proposal',$3)",

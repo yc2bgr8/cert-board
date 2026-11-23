@@ -8136,12 +8136,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "dismissed_count": {
-          "name": "dismissed_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -8283,15 +8277,11 @@
         },
         "skill_rollback_target": {
           "name": "skill_rollback_target",
-          "value": "(\"skill_rollback_proposal\".\"status\"<>'pending' OR \"skill_rollback_proposal\".\"target_version_id\" IS NOT NULL)\n    AND (\"skill_rollback_proposal\".\"status\"<>'notice' OR \"skill_rollback_proposal\".\"target_version_id\" IS NULL)"
+          "value": "(\"skill_rollback_proposal\".\"status\" NOT IN ('pending','approved') OR \"skill_rollback_proposal\".\"target_version_id\" IS NOT NULL)\n    AND (\"skill_rollback_proposal\".\"status\"<>'notice' OR \"skill_rollback_proposal\".\"target_version_id\" IS NULL)"
         },
         "skill_rollback_audit_fields": {
           "name": "skill_rollback_audit_fields",
           "value": "((\"skill_rollback_proposal\".\"status\" IN ('approved','dismissed'))\n    AND \"skill_rollback_proposal\".\"decided_at\" IS NOT NULL AND \"skill_rollback_proposal\".\"session_id\" IS NOT NULL AND \"skill_rollback_proposal\".\"decided_by\" IS NOT NULL AND \"skill_rollback_proposal\".\"request_key\" IS NOT NULL)\n    OR ((\"skill_rollback_proposal\".\"status\" NOT IN ('approved','dismissed'))\n    AND \"skill_rollback_proposal\".\"decided_at\" IS NULL AND \"skill_rollback_proposal\".\"session_id\" IS NULL AND \"skill_rollback_proposal\".\"decided_by\" IS NULL AND \"skill_rollback_proposal\".\"request_key\" IS NULL)"
-        },
-        "skill_rollback_dismissed_count": {
-          "name": "skill_rollback_dismissed_count",
-          "value": "CASE WHEN \"skill_rollback_proposal\".\"status\"='dismissed'\n    THEN \"skill_rollback_proposal\".\"dismissed_count\" IS NOT NULL AND \"skill_rollback_proposal\".\"dismissed_count\">=0 ELSE \"skill_rollback_proposal\".\"dismissed_count\" IS NULL END"
         }
       },
       "isRLSEnabled": false

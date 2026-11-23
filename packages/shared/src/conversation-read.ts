@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { deadlineNoticeSchema } from './deadlines.js';
+import { skillRollbackProposalSchema } from './skill-rollback.js';
 
 const id = z.string().uuid();
 const count = z.number().int().nonnegative().safe();
@@ -207,16 +208,20 @@ export const memberNotificationSnapshotSchema = z
               .object({ roomId: id, kind: z.enum(['blocked', 'late']) })
               .strict()
               .optional(),
+            skillRollback: skillRollbackProposalSchema
+              .pick({ skillId: true, activeVersion: true })
+              .optional(),
           })
           .strict()
           .refine(
-            ({ kind, deadline, verification, conversationId }) =>
+            ({ kind, deadline, verification, skillRollback, conversationId }) =>
               (kind === 'deadline') === Boolean(deadline) &&
               (kind === 'verification') === Boolean(verification) &&
+              (kind === 'skill') === Boolean(skillRollback) &&
               (kind === 'skill') === (conversationId === null),
           ),
       )
-      .max(50),
+      .max(60),
     truncated: z.boolean(),
   })
   .strict();
