@@ -83,3 +83,21 @@ test('同单位换算后相等的参数归为同一值，差异给出原资料�
     },
   ]);
 });
+
+test('R1 按完整 K 号归并写法，带点分后缀的文本不计入正常编号', () => {
+  const result = runConsistencyRules(
+    [
+      { key: 'A', name: 'A.pdf', pages: [{ page: 1, text: '1.k170825\nK170825.1' }] },
+      { key: 'B', name: 'B.pdf', pages: [{ page: 1, text: 'K170285' }] },
+    ],
+    new Set(['R1']),
+  );
+  expect(result).toMatchObject([
+    {
+      values: [
+        { value: 'K170285', count: 1 },
+        { value: 'K170825', count: 1 },
+      ],
+    },
+  ]);
+});

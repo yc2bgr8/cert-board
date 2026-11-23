@@ -82,7 +82,7 @@ test('按选定版本识别编号变体，返回原始定位并在重放时复�
     [a.documentId],
   );
   await expect(invoke({ documents, rules: ['R1'] }, callId)).rejects.toMatchObject({
-    code: 'TOOL_DATA_REJECTED',
+    code: 'TOOL_TARGET_UNAVAILABLE',
   });
   expect(
     (await invoke({ documents: [{ documentId: randomUUID(), version: 1 }], rules: ['R1'] })).data,

@@ -166,8 +166,8 @@ function sameNames(documents: RuleDocument[]) {
 function identifierVariants(pages: Occurrence[]) {
   const seen: ValueMap = new Map();
   for (const page of pages)
-    for (const match of page.text.matchAll(/\bK\d{6}\b/gu))
-      add(seen, match[0], { key: page.key, page: page.page });
+    for (const match of page.text.matchAll(/(?<![A-Z0-9])K\d{6}(?![A-Z0-9]|\.[A-Z0-9])/giu))
+      add(seen, match[0].toUpperCase(), { key: page.key, page: page.page });
   const keys = [...seen.keys()].sort();
   if (keys.length > ruleDefinitions.R1.maxDistinct)
     throw new AppError(
