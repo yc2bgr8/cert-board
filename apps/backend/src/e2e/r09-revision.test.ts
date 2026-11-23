@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { expectedR09Revision, r09Replacements } from './r09-revision.js';
+import { expectedR09Revision, r09Replacements } from './r09-walkthrough.js';
 
 test('两条修改期望保留其余原文，拒绝没有唯一匹配的初稿', () => {
   const original = [

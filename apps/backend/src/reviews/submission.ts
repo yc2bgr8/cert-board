@@ -207,9 +207,16 @@ export async function submitReview(
       `本技能要求${policy.publication === 'published' ? '每条陈述与汇总依据均至少有' : '至少有'} ${policy.minimumEvidence} 条不同的完整资料引语。请补充已实际读取的依据。`,
     );
   const evidenceRefs = await verifyReadReceipts(ctx, references);
-  const previous = await ctx.tx.query<{ workspace_version_id: string }>(
-    "SELECT workspace_version_id FROM review_card WHERE project_id=$1 AND status='approved' ORDER BY decided_at DESC,id DESC LIMIT 1",
-    [ctx.projectId],
+  const previous = await ctx.tx.query<{ workspace_version_id: string | null }>(
+    `SELECT COALESCE(
+       (SELECT workspace_version_id FROM review_card
+         WHERE project_id=$1 AND conversation_id=$2 AND goal_id=$3 AND skill_id=$4
+           AND card_type=$5 AND status IN ('pending','approved','rejected')
+         ORDER BY created_at DESC,id DESC LIMIT 1),
+       (SELECT workspace_version_id FROM review_card
+         WHERE project_id=$1 AND status='approved' ORDER BY decided_at DESC,id DESC LIMIT 1)
+     ) AS workspace_version_id`,
+    [ctx.projectId, ctx.conversationId, ctx.goalId, policy.skill.id, policy.cardType],
   );
   const baseVersionId = previous.rows[0]?.workspace_version_id ?? null;
   const changes = compareFileManifests(

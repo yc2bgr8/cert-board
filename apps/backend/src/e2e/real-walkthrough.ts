@@ -19,7 +19,7 @@ import { requiredRevisionSections, revisionSections } from './walkthrough-report
 import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthrough-batch.js';
 import { checkOfficialBrowserRun } from './official-walkthrough.js';
 import { checkRulesBrowserRun } from './rules-walkthrough.js';
-import { checkR09Revision, r09RevisionPath, r09Replacements } from './r09-revision.js';
+import { checkR09PackageReadOnly, checkR09Revision, r09Replacements } from './r09-walkthrough.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
@@ -364,20 +364,27 @@ async function main() {
     await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
     if (process.env.CERT_WALKTHROUGH_R09_ONLY === '1') {
       stage = 'R09 的原文核验和双修改浏览器专项';
+      const reportPath = `交付/R09-双修改走查-${randomUUID().slice(0, 8)}.md`;
       const conversation = await freshConversation(page, developmentProjectId, 'R09 两处意见复验', 'full');
-      await send(page, `${registrationPrompt} 报告使用 ${r09RevisionPath}。请分别原样保留这两行，供下一轮修改验证：\n${r09Replacements.map(([initial]) => initial).join('\n')}`);
+      await send(page, `${registrationPrompt} 报告使用 ${reportPath}。请分别原样保留这两行，供下一轮修改验证：\n${r09Replacements.map(([initial]) => initial).join('\n')}`);
       const original = await waitForReview(page, pool, conversation, 1);
       await inspectSubmission(pool, original, 'R09');
       await review(page, pool, original, path.join(evidenceFolder, 'r09-eval-initial.png'), false);
-      await send(page, `请修改原路径 ${r09RevisionPath}。只应用两条明确意见，其他行保持原样，保存并重新提交审核。\n${r09Replacements.map(([before, after], index) => `${index + 1}. 把「${before}」替换为「${after}」`).join('\n')}`);
+      await send(page, `请修改原路径 ${reportPath}。只应用两条明确意见，其他行保持原样，保存并重新提交审核。\n${r09Replacements.map(([before, after], index) => `${index + 1}. 把「${before}」替换为「${after}」`).join('\n')}`);
       const revised = await waitForReview(page, pool, conversation, 2);
       await inspectSubmission(pool, revised, 'R09');
-      const proof = await checkR09Revision(pool, blobs, original, revised, conversation);
+      const proof = await checkR09Revision(pool, blobs, original, revised, conversation, reportPath);
       await review(page, pool, revised, path.join(evidenceFolder, 'r09-eval-approved.png'), true);
+      stage = 'R09 整包候选复判的只读浏览器专项';
+      const readOnly = await freshConversation(page, developmentProjectId, 'R09 整包候选复判', 'read_only');
+      const { runId } = await send(page,
+        '请按 R09 对 L08 整包做只读核查，先运行 rules_run 的 R3、R5，再复判候选。实际读取 D021 第29页和 D023 第17页原文，判断两处水温对应的试验用途。核对 MSDS 的 R5 证据完整性，说明仅一处定位时如何归类。不要保存或提交。最后一行用「核对摘要：水温 [同一用途|不同用途|待核]，MSDS [已证实差异|待核证据]。」的格式，按证据填实际状态。',
+      );
+      const packageProof = await checkR09PackageReadOnly(page, pool, runId, readOnly);
       assert.equal(blocked, 0);
       await writeFile(
         path.join(evidenceFolder, 'r09-result.json'),
-        JSON.stringify({ ...proof, status: 'passed', instance, commit: testedCommit, approvedInBrowser: true }, null, 2),
+        JSON.stringify({ ...proof, packageProof, status: 'passed', instance, commit: testedCommit, approvedInBrowser: true }, null, 2),
         'utf8',
       );
       console.log('R09 原文、两处改稿和浏览器批准专项通过。');

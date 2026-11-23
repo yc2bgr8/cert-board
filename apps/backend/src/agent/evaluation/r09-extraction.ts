@@ -46,7 +46,7 @@ export function scoreWaterUse(raw: unknown) {
       (quote) =>
         text.includes(quote) &&
         quote.includes(index === 0 ? '冷却' : '冲洗') &&
-        quote.includes(index === 0 ? '20–30' : '20–25'),
+        quote.includes(index === 0 ? '20–30℃' : '20–25℃'),
     ),
   );
 }
