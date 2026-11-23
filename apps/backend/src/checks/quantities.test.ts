@@ -35,7 +35,9 @@ test('V7 识别两端带单位的完整区间，拒绝端点、数值尾段和�
   expect(checkQuantityClaim(claim(5, 'g', 'Dose: 5 g * 100 mL.'))).toBe('quantity_mismatch');
   expect(checkQuantityClaim(claim(5, 'g', 'Dose: 5 g * (100 mL).'))).toBe('quantity_mismatch');
   expect(checkQuantityClaim(claim(100, 'mL', 'Dose: 5 g * (100 mL).'))).toBe('quantity_mismatch');
-  expect(checkQuantityClaim(claim(5, 'g', 'Dose: 5 g *\n* Follow label.'))).toBeNull();
+  expect(checkQuantityClaim(claim(5, 'g', 'Dose: 5 g *\n* Follow label.'))).toBe(
+    'quantity_mismatch',
+  );
   expect(checkQuantityClaim(claim(5, 'cm', '气道压力为 5 cm H₂O。'))).toBe('quantity_mismatch');
 });
 
@@ -88,16 +90,23 @@ test('V7 回查完整来源页，拒绝原文截取的端点、算式因子及�
   expect(checkWithSource(claim(10, 'V', '10 V'), () => '功率为 10 V *\nA。')).toBe(
     'quantity_mismatch',
   );
-  expect(checkWithSource(claim(10, 'V', '10 V'), () => '输出电压为 10 V*。')).toBeNull();
+  expect(checkWithSource(claim(10, 'V', '10 V'), () => '输出电压为 10 V*。')).toBe(
+    'quantity_mismatch',
+  );
   expect(checkWithSource(claim(10, 'V', '10 V'), () => '换算值 = 10 V\n* 2。')).toBe(
     'quantity_mismatch',
   );
   expect(checkWithSource(claim(10, 'V', '10 V'), () => '输出电压 10 V\n* 测量应在室温进行。')).toBe(
     'quantity_mismatch',
   );
-  expect(
-    checkWithSource(claim(10, 'V', '10 V'), () => '额定电压：10 V\n\n* [ ] 检查接地'),
-  ).toBeNull();
+  expect(checkWithSource(claim(10, 'V', '10 V'), () => '额定电压：10 V\n\n* [ ] 检查接地')).toBe(
+    'quantity_mismatch',
+  );
+  for (const continuation of ['x 2 后作为最终电压', '除以 2 后作为最终电压']) {
+    expect(
+      checkWithSource(claim(10, 'V', '10 V'), () => `换算值 = 10 V\n\n* [ ] ${continuation}`),
+    ).toBe('quantity_mismatch');
+  }
   expect(checkWithSource(claim(10, 'V', '10 V'), () => '换算值 = 10 V\n\n* [x] / 2。')).toBe(
     'quantity_mismatch',
   );

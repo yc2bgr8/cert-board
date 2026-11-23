@@ -53,7 +53,7 @@ const chineseUnits = definitions
   .join('|');
 const gap = '[ \\t\\n\\u00a0\\u202f]*';
 const numberBoundary = '(?<![A-Za-z0-9.+−-])(?<!\\d[,， \\u00a0\\u202f])';
-const compoundTail = `(?:${gap}(?:[/⁄／∕^⋅·×÷±+]|\\b(?:per|x)\\b|(?<=\\d)x(?=\\d))|${gap}[*＊]${gap}(?=[(\\[{\\p{L}\\p{N}°℃+−-]|\\.\\d))`;
+const compoundTail = `${gap}(?:[/⁄／∕^⋅·×÷±+*＊]|\\b(?:per|x)\\b|(?<=\\d)x(?=\\d))`;
 const unitBoundary = `(?![A-Za-z\\p{N}⁻])(?!${compoundTail})`;
 const decimal = '[+−-]?(?:\\d{1,3}(?:[,，]\\d{3}){1,2}|\\d{1,9})(?:\\.\\d{1,6})?';
 const rangeSeparator = '(?:-|−|–|—|~|～|至|to\\b)';
@@ -141,14 +141,7 @@ function sourceSupportsClaim(pageText: string, quote: string, expected: bigint[]
   // 每段空白仍占一位，与归一化后的引文位置对齐。
   const amounts = pageText
     .trim()
-    .replace(/\s+/gu, (spaces: string, offset: number, page: string) => {
-      if (
-        /\r?\n[ \t]*\r?\n/u.test(spaces) &&
-        /^[*＊][ \t]+\[ \][ \t]+\p{L}/u.test(page.slice(offset + spaces.length))
-      )
-        return '\f';
-      return /[\r\n]/u.test(spaces) ? '\n' : ' ';
-    })
+    .replace(/\s+/gu, (spaces) => (/[\r\n]/u.test(spaces) ? '\n' : ' '))
     .replace(/(?<!\d)(?:\d{4}\/\d{1,2}\/\d{1,2}|\d{1,2}\/\d{1,2}\/\d{4})(?!\d)/gu, (date) =>
       ' '.repeat(date.length),
     );
