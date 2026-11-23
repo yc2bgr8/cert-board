@@ -26,21 +26,23 @@ test('只读走查要求最终答复包含逐字原文、各自用途与 MSDS �
   ];
   const msds = { sourceKey: 'D099', page: 2 };
   const summary = '核对摘要：水温 不同用途，MSDS 待核证据。';
+  const missing = '缺失：第二处独立证据。';
   const answer = [
     '冲洗 D021 第29页：「Rinse at 20-25 °C.」',
     '冷却 D023 第17页：「Cool in water at 20-30 °C.」',
-    'MSDS：已定位 D099 第2页的附件引用；缺第二处独立证据。',
+    `MSDS：已定位 D099 第2页的附件引用；${missing}`,
     summary,
   ].join('\n');
   const matches = (text: string) => r09ReadOnlyAnswerMatches(text, pages, msds);
   expect(matches(answer)).toBe(true);
   expect(matches(summary)).toBe(false);
   expect(matches(answer.replace('Cool in water', 'Cool in solution'))).toBe(false);
-  expect(matches(answer.replace('缺第二处独立证据', '可以结论'))).toBe(false);
+  expect(matches(answer.replace(missing, '可以结论'))).toBe(false);
   expect(matches(answer.replace('冲洗 D021', '非冲洗 D021'))).toBe(false);
   expect(matches(answer.replace(' °C.」', '」'))).toBe(false);
   expect(matches(answer.replace('已定位 D099 第2页的附件引用；', ''))).toBe(false);
   expect(matches(answer.replace('D099 第2页', 'D098 第2页'))).toBe(false);
-  expect(matches(answer.replace('缺第二处独立证据', '缺失：实际 MSDS 附件及对应版本'))).toBe(true);
-  expect(matches(answer.replace('缺第二处独立证据', '缺失：无，第二处独立证据已齐全'))).toBe(false);
+  expect(matches(answer.replace(missing, '缺失：实际 MSDS 附件及对应版本'))).toBe(true);
+  expect(matches(answer.replace(missing, '缺失：无，第二处独立证据已齐全'))).toBe(false);
+  expect(matches(answer.replace(missing, '缺失：无缺件，第二处独立证据已齐全'))).toBe(false);
 });
