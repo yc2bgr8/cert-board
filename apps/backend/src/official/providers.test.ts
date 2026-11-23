@@ -38,11 +38,18 @@ test('录制的 MDALL 支持公司 21 张许可、单器械对象和型号标识
   const company = input({ dataset: 'mdall_company_licences', companyId: '184937' });
   const raw = recorded('mdall-184937');
   expect(normalizeOfficialResponse(company, raw).records).toHaveLength(21);
-  const cut = '2025-07-03';
-  const replay = normalizeOfficialResponse({ ...company, asOf: cut }, raw).records;
-  expect(replay.length).toBeGreaterThan(0);
-  expect(replay.length).toBeLessThan(21);
-  expect(replay.every((record) => record.effectiveDate! <= cut)).toBe(true);
+  expect(() => officialRequestUrl({ ...company, asOf: '2025-07-03' })).toThrow('历史版本');
+  const replay = normalizeOfficialResponse(
+    input({ dataset: 'mdall_licence', licenceNumber: '113514', asOf: '2025-07-03' }),
+    raw[0],
+  ).records;
+  expect(replay).toEqual([
+    {
+      identifier: '113514',
+      licenceNumber: '113514',
+      effectiveDate: '2025-06-13',
+    },
+  ]);
   expect(
     normalizeOfficialResponse(
       input({ dataset: 'mdall_device', deviceId: '189995' }),
@@ -55,6 +62,50 @@ test('录制的 MDALL 支持公司 21 张许可、单器械对象和型号标识
       recorded('mdall-identifier-example'),
     ).records.length,
   ).toBeGreaterThan(0);
+});
+
+test('区分 FDA 确认无匹配、网络失败和列名截断', () => {
+  const missing = { error: { code: 'NOT_FOUND', message: 'No matches found!' } };
+  const approval = input({ dataset: 'fda_510k', kNumber: 'K170825' });
+  expect(normalizeOfficialResponse(approval, missing)).toEqual({ records: [], nextOffset: null });
+  expect(() =>
+    normalizeOfficialResponse(approval, {
+      error: { code: 'NOT_FOUND', message: 'endpoint removed' },
+    }),
+  ).toThrow();
+  const products = Array.from({ length: 33 }, (_, index) => ({
+    product_code: `A${index < 26 ? 'A' : 'B'}${String.fromCharCode(65 + (index % 26))}`,
+  }));
+  const query = input({ dataset: 'fda_registration', registrationNumber: '9617474' });
+  const payload = {
+    meta: { results: { total: 1 } },
+    results: [{ registration: { registration_number: '9617474' }, products }],
+  };
+  const { records } = normalizeOfficialResponse(query, payload);
+  expect(records[0]?.listedProductCodes).toHaveLength(30);
+  expect(records[0]?.listedProductCodesTruncated).toBe(true);
+  const code = products[32]!.product_code;
+  const focused = input({ ...query, listedProductCode: code });
+  expect(new URL(officialRequestUrl(focused)).searchParams.get('search')).toContain(
+    `products.product_code:"${code}"`,
+  );
+  expect(normalizeOfficialResponse(focused, payload).records[0]?.listedProductCodes).toEqual([
+    code,
+  ]);
+});
+
+test('MDALL 型号保留允许的内部空格和斜线', () => {
+  const identifier = 'SPACE-FILL / 6380407';
+  const query = input({ dataset: 'mdall_identifier', deviceIdentifier: identifier });
+  expect(new URL(officialRequestUrl(query)).searchParams.get('device_identifier')).toBe(identifier);
+  expect(
+    normalizeOfficialResponse(query, {
+      original_licence_no: 12345,
+      device_id: 99999,
+      device_identifier: identifier,
+      first_licence_dt: '2020-01-02',
+    }).records,
+  ).toMatchObject([{ identifier }]);
 });
 
 test('录制的 AccessGUDID 结果保留可证实的版本日期', () => {

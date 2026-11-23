@@ -1,42 +1,40 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { setTimeout as wait } from 'node:timers/promises';
 import type pg from 'pg';
 import type { Page } from 'playwright-core';
-import { identifierCheckResultSchema, officialLookupResultSchema } from '@cert-board/shared';
+import {
+  documentPageReadSchema,
+  identifierCheckResultSchema,
+  officialLookupResultSchema,
+  reviewEvidenceRefSchema,
+} from '@cert-board/shared';
 import { nanoToUsd } from '../budget/meter.js';
 
 export async function checkOfficialBrowserRun(
   page: Page,
   pool: pg.Pool,
   runId: string,
+  cardId: string,
   evidenceFolder: string,
 ) {
-  const deadline = Date.now() + 300_000;
-  let finished = false;
-  while (Date.now() < deadline) {
-    const run = (
-      await pool.query<{ status: string }>('SELECT status FROM run WHERE id=$1', [runId])
-    ).rows[0];
-    assert.ok(run);
-    if (run.status === 'completed') {
-      finished = true;
-      break;
-    }
-    assert.ok(['queued', 'running'].includes(run.status), '官方回查没有完成对话');
-    await wait(1000);
-  }
-  assert.ok(finished, '官方回查对话超时');
+  const submitted = (
+    await pool.query<{ evidence_refs: unknown }>(
+      "SELECT evidence_refs FROM review_card WHERE id=$1 AND run_id=$2 AND status='pending'",
+      [cardId, runId],
+    )
+  ).rows[0];
+  assert.ok(submitted, '官方编号核对未形成同一次运行的待审核卡');
   const { rows } = await pool.query<{ tool_name: string; data: unknown }>(
     `SELECT i.tool_name,r.content_json->'result'->'data' AS data
      FROM tool_invocation i JOIN conversation_tool_result r ON r.invocation_id=i.id
      WHERE i.run_id=$1 AND i.status='completed' ORDER BY i.created_at,i.id`,
     [runId],
   );
-  assert.ok(
-    rows.some(({ tool_name }) => tool_name === 'doc_read'),
-    '对话缺少实际原文读取',
-  );
+  const readings = rows
+    .filter(({ tool_name }) => tool_name === 'doc_read')
+    .map(({ data }) => documentPageReadSchema.parse(data))
+    .filter(({ sourceKey, text }) => sourceKey === 'D035' && text.includes('K170285'));
+  assert.ok(readings.length, '对话未实际读取 D035 待核编号');
   const result = rows
     .filter(({ tool_name }) => tool_name === 'official_lookup')
     .map(({ data }) => officialLookupResultSchema.parse(data))
@@ -61,14 +59,27 @@ export async function checkOfficialBrowserRun(
       (data) =>
         data.status === 'possible_typo' &&
         data.observed.identifier === 'K170285' &&
+        readings.some(
+          ({ documentId, version, page, contentSha256 }) =>
+            data.observed.documentId === documentId &&
+            data.observed.version === version &&
+            data.observed.page === page &&
+            data.observed.contentSha256 === contentSha256,
+        ) &&
         data.references.some(({ documentId }) => documentId === officialDocument) &&
         data.candidates.some(({ identifier, edits }) => identifier === 'K170825' && edits === 1),
     );
-  assert.ok(verified, '未使用实际官方存档发现编号对调');
-  await page
-    .getByText(/K170285.*(?:疑似|对调|笔误)|(?:疑似|对调|笔误).*K170285/u)
-    .last()
-    .waitFor({ timeout: 15_000 });
+  assert.ok(verified?.status === 'possible_typo', '未使用实际官方存档发现编号对调');
+  const citations = reviewEvidenceRefSchema.array().parse(submitted.evidence_refs);
+  const mustCite = [
+    { documentId: verified.observed.documentId, identifier: 'K170285' },
+    { documentId: officialDocument, identifier: 'K170825' },
+  ];
+  assert.ok(
+    mustCite.every(({ documentId, identifier }) =>
+      citations.some((cite) => cite.documentId === documentId && cite.quote.includes(identifier)),
+    ),
+  );
   await page
     .getByText(/^工具过程/u)
     .first()
@@ -82,6 +93,20 @@ export async function checkOfficialBrowserRun(
     .last()
     .waitFor();
   await page.screenshot({ path: path.join(evidenceFolder, 'official-verification.png') });
+  await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
+  const card = page.getByRole('article', { name: '审核结果', exact: true });
+  await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
+  const conclusion = await card.innerText();
+  assert.match(conclusion, /K170285/u);
+  assert.match(conclusion, /K170825/u);
+  assert.match(conclusion, /疑似|对调|笔误/u);
+  await card.getByRole('button', { name: '通过', exact: true }).click();
+  await card.getByText('已通过，工作区版本已冻结。', { exact: true }).waitFor();
+  assert.equal(
+    (await pool.query('SELECT status FROM review_card WHERE id=$1', [cardId])).rows[0]?.status,
+    'approved',
+  );
+  await page.screenshot({ path: path.join(evidenceFolder, 'official-approved.png') });
   const cost = (
     await pool.query<{ model: string; paid: string; unknown: number; calls: number }>(
       `SELECT model_id AS model,COALESCE(sum(actual_nano) FILTER(WHERE status='settled'),0)::text AS paid,
@@ -92,7 +117,8 @@ export async function checkOfficialBrowserRun(
   ).rows;
   assert.ok(cost.some(({ model }) => model === 'openai/gpt-6.2-astra-pro'));
   return {
-    steps: ['doc_read', 'official_lookup', 'identifier_check'],
+    steps: ['doc_read', 'official_lookup', 'identifier_check', 'submit_for_review'],
+    approvedInBrowser: true,
     verified: 'K170825',
     possibleTypo: 'K170285',
     cost: cost.map(({ paid, ...row }) => ({ ...row, usd: nanoToUsd(BigInt(paid)) })),

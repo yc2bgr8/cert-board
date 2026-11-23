@@ -25,25 +25,35 @@ const resultPage = z.strictObject({
   nextOffset: z.number().int().positive().max(1000).nullable(),
 });
 
-function createOfficialRateLimit() {
+export function createOfficialRateLimit() {
   const buckets = new Map<string, { day: number; used: number; next: number }>();
-  return async (host: string, signal?: AbortSignal) => {
-    const now = Date.now();
-    const day = Math.floor(now / (24 * 60 * 60 * 1000));
-    const previous = buckets.get(host);
-    const slot = Math.max(now, previous?.next ?? 0);
-    const used = previous?.day === day ? previous.used : 0;
-    if (slot - now > 3000 || (host === 'api.fda.gov' && used >= 900))
-      throw new AppError(
-        429,
-        'OFFICIAL_RATE_LIMIT',
-        '该官方数据源近期查询较多，请稍后重试或使用已存档资料。',
-      );
-    if (signal?.aborted) throw new AppError(409, 'WEB_STOPPED', '运行已停止，官方请求未发出。');
-    buckets.set(host, { day, used: used + 1, next: slot + 1000 });
-    if (slot > now) {
+  return async <T>(
+    host: string,
+    signal: AbortSignal | undefined,
+    authorizeRequest: () => Promise<unknown>,
+    send: () => Promise<T>,
+  ) => {
+    const expires = Date.now() + 3000;
+    for (;;) {
+      await authorizeRequest();
+      const now = Date.now();
+      const day = Math.floor(now / (24 * 60 * 60 * 1000));
+      const previous = buckets.get(host);
+      const available = previous?.next ?? now;
+      const used = previous?.day === day ? previous.used : 0;
+      if (signal?.aborted) throw new AppError(409, 'WEB_STOPPED', '运行已停止，官方请求未发出。');
+      if (available > expires || (host === 'api.fda.gov' && used >= 900))
+        throw new AppError(
+          429,
+          'OFFICIAL_RATE_LIMIT',
+          '该官方数据源近期查询较多，请稍后重试或使用已存档资料。',
+        );
+      if (available <= now) {
+        buckets.set(host, { day, used: used + 1, next: now + 1000 });
+        return send();
+      }
       try {
-        await wait(slot - now, undefined, { signal });
+        await wait(available - now, undefined, { signal });
       } catch {
         throw new AppError(409, 'WEB_STOPPED', '运行已停止，官方请求未发出。');
       }
@@ -77,7 +87,7 @@ export function officialLookupTool(
         avoid:
           '不要传保密或内部编号、患者信息、完整 UDI 中的生产批次或序列号。网页正文使用 web_fetch。',
         parameters:
-          'dataset 选择 fda_510k/kNumber、fda_classification/productCode、fda_regulation/regulationNumber、fda_registration/registrationNumber、gudid_device/deviceIdentifier、mdall_company_licences/companyId、mdall_licence/licenceNumber、mdall_device/deviceId、mdall_identifier/deviceIdentifier。可选 asOf 形如 2025-12-31；分页时传回 nextOffset。空列表表示未匹配，查询不可用时公开结果不能代替证据。只读会话可以读取记录，不新建存档。',
+          'dataset 选择 fda_510k/kNumber、fda_classification/productCode、fda_regulation/regulationNumber、fda_registration/registrationNumber、gudid_device/deviceIdentifier、mdall_company_licences/companyId、mdall_licence/licenceNumber、mdall_device/deviceId、mdall_identifier/deviceIdentifier。可选 asOf 形如 2025-12-31；分页时传回 nextOffset。注册列名标有截断时，可传 listedProductCode 核对同编号的单个代码；有存档时可下载原件。空列表表示未匹配。只读会话可以读取记录，不新建存档。',
         example: { dataset: 'fda_510k', kNumber: 'K170825' },
       },
     },
@@ -126,9 +136,12 @@ export function officialLookupTool(
               dataLevel: 'public',
             };
         }
-        await reserve(new URL(url).hostname, ctx.signal);
-        await checkRequest(ctx, url);
-        const downloaded = await downloadPublicWebSnapshot(fetcher, url, ctx.signal);
+        const downloaded = await reserve(
+          new URL(url).hostname,
+          ctx.signal,
+          () => checkRequest(ctx, url),
+          () => downloadPublicWebSnapshot(fetcher, url, ctx.signal),
+        );
         if (downloaded.snapshot.mediaType !== 'application/json')
           throw new AppError(
             502,

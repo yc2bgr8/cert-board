@@ -8,22 +8,30 @@ const format: Record<CheckField, RegExp> = {
   product_code: /^[A-Z]{3}$/u,
   regulation_number: /^\d{3}\.\d{4}$/u,
   licence_number: /^\d{1,12}$/u,
-  device_identifier: /^[A-Z0-9][A-Z0-9._+/-]{0,49}$/u,
+  device_identifier: /^[A-Z0-9][A-Z0-9._+ /-]{0,63}$/u,
 };
 
 export function normalizeIdentifier(field: CheckField, value: string) {
   const identifier = value.normalize('NFC').trim().toUpperCase();
   // 待核稿里的缺字或多字也应进入相似度检查，精确格式由比对对象决定。
-  if (!format[field].test(identifier) && !/^[A-Z0-9][A-Z0-9._+/-]{0,49}$/u.test(identifier))
+  if (!format[field].test(identifier) && !format.device_identifier.test(identifier))
     throw new AppError(400, 'V2_IDENTIFIER_INVALID', '请输入材料中原样出现的一项编号或代码。');
   return identifier;
 }
 
 export function identifierInQuote(field: CheckField, identifier: string, quote: string) {
-  const token =
-    field === 'device_identifier' ? /[A-Z0-9][A-Z0-9._+/-]*/gu : /[A-Z0-9]+(?:\.[A-Z0-9]+)*/gu;
-  const identifiers: string[] = quote.toUpperCase().match(token) ?? [];
-  return identifiers.includes(identifier);
+  const text = quote.toUpperCase();
+  const adjacent = field === 'device_identifier' ? /^[A-Z0-9._+/-]$/u : /^[A-Z0-9]$/u;
+  let cursor = text.indexOf(identifier);
+  while (cursor >= 0) {
+    if (
+      !adjacent.test(text[cursor - 1] ?? '') &&
+      !adjacent.test(text[cursor + identifier.length] ?? '')
+    )
+      return true;
+    cursor = text.indexOf(identifier, cursor + 1);
+  }
+  return false;
 }
 
 function editDistance(a: string, b: string): number {

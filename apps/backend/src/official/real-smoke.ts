@@ -23,7 +23,20 @@ async function main() {
     );
     await wait(1000);
   }
-  console.log('官方回查通过，两个 K 号均为 LRK、21 CFR 872.5570、Class II。');
+  const historical = officialLookupInputSchema.parse({
+    dataset: 'fda_510k',
+    kNumber: 'K170825',
+    asOf: '2017-08-17',
+  });
+  const empty = await downloadPublicWebSnapshot(fetcher, officialRequestUrl(historical));
+  assert.deepEqual(
+    normalizeOfficialResponse(historical, JSON.parse(empty.bytes.toString('utf8'))),
+    {
+      records: [],
+      nextOffset: null,
+    },
+  );
+  console.log('官方回查通过，两个 K 号均为 LRK、21 CFR 872.5570、Class II，截止日前确认无匹配。');
 }
 
 main().catch((error) => {

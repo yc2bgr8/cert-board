@@ -20,7 +20,8 @@ export function officialRequestUrl(input: OfficialLookupInput) {
     input.asOf &&
     (input.dataset === 'fda_classification' ||
       input.dataset === 'fda_regulation' ||
-      input.dataset === 'fda_registration')
+      input.dataset === 'fda_registration' ||
+      input.dataset === 'mdall_company_licences')
   )
     throw new AppError(
       409,
@@ -29,7 +30,11 @@ export function officialRequestUrl(input: OfficialLookupInput) {
     );
   const fda = (key: keyof typeof exactOpenFdaFields, endpoint: string, value: string) => {
     const url = new URL(`https://api.fda.gov/device/${endpoint}.json`);
-    const exact = `${exactOpenFdaFields[key]}:"${value}"`;
+    const listing =
+      input.dataset === 'fda_registration' && input.listedProductCode
+        ? ` AND products.product_code:"${input.listedProductCode}"`
+        : '';
+    const exact = `${exactOpenFdaFields[key]}:"${value}"${listing}`;
     url.searchParams.set(
       'search',
       key === 'fda_510k' && input.asOf
@@ -75,6 +80,9 @@ export function officialRequestUrl(input: OfficialLookupInput) {
 }
 
 const date = z.iso.date();
+const openFdaEmpty = z.object({
+  error: z.object({ code: z.literal('NOT_FOUND'), message: z.literal('No matches found!') }),
+});
 const id = z
   .union([z.number().int().nonnegative().safe(), z.string()])
   .transform(String)
@@ -170,6 +178,7 @@ function matchesDate(record: OfficialRecord, asOf?: string) {
 function rowsForDataset(dataset: Dataset, raw: unknown) {
   if (dataset.startsWith('mdall_')) return { records: mdallRows.parse(raw) };
   if (dataset === 'gudid_device') return { records: [raw] };
+  if (openFdaEmpty.safeParse(raw).success) return { records: [], total: 0 };
   const envelope = fdaEnvelope.parse(raw);
   return { records: envelope.results, total: envelope.meta.results.total };
 }
@@ -182,8 +191,8 @@ function normalizeRecord(input: OfficialLookupInput, raw: unknown): OfficialReco
       return {
         identifier: row.k_number,
         effectiveDate: row.decision_date,
-        name: label(row.device_name),
-        company: label(row.applicant),
+        name: input.asOf ? undefined : label(row.device_name),
+        company: input.asOf ? undefined : label(row.applicant),
         productCode: row.product_code,
         regulationNumber: input.asOf ? undefined : cfr(row.openfda?.regulation_number),
         deviceClass: input.asOf ? undefined : row.openfda?.device_class || undefined,
@@ -209,17 +218,23 @@ function normalizeRecord(input: OfficialLookupInput, raw: unknown): OfficialReco
       const row = registration.parse(raw);
       const { registration_number, name } = row.registration;
       if (registration_number !== input.registrationNumber) return null;
-      const listedProductCodes = [
+      const available = [
         ...new Set(
           row.products
             ?.map(({ product_code }) => product_code)
             .filter((code): code is string => typeof code === 'string' && /^[A-Z]{3}$/u.test(code)),
         ),
-      ].slice(0, 30);
+      ];
+      if (input.listedProductCode && !available.includes(input.listedProductCode)) return null;
+      const listedProductCodes = input.listedProductCode
+        ? [input.listedProductCode]
+        : available.slice(0, 30);
       return {
         identifier: registration_number,
         company: label(name),
         listedProductCodes: listedProductCodes.length ? listedProductCodes : undefined,
+        listedProductCodesTruncated:
+          !input.listedProductCode && available.length > 30 ? true : undefined,
       };
     }
     case 'gudid_device': {
@@ -252,12 +267,12 @@ function normalizeRecord(input: OfficialLookupInput, raw: unknown): OfficialReco
       return {
         identifier: row.original_licence_no,
         licenceNumber: row.original_licence_no,
-        companyId: row.company_id,
-        name: label(row.licence_name),
+        companyId: input.asOf ? undefined : row.company_id,
+        name: input.asOf ? undefined : label(row.licence_name),
         effectiveDate: row.first_licence_status_dt || undefined,
         endDate: row.end_date || undefined,
-        licenceType: row.licence_type_cd || undefined,
-        deviceClass: row.appl_risk_class,
+        licenceType: input.asOf ? undefined : row.licence_type_cd || undefined,
+        deviceClass: input.asOf ? undefined : row.appl_risk_class,
       };
     }
     case 'mdall_device': {
@@ -267,7 +282,7 @@ function normalizeRecord(input: OfficialLookupInput, raw: unknown): OfficialReco
         identifier: row.device_id,
         deviceId: row.device_id,
         licenceNumber: row.original_licence_no,
-        name: label(row.trade_name),
+        name: input.asOf ? undefined : label(row.trade_name),
         effectiveDate: row.first_licence_dt || undefined,
         endDate: row.end_date || undefined,
       };

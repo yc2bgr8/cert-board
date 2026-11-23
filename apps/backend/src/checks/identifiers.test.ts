@@ -9,6 +9,13 @@ test('K170285 与官方 K170825 的相邻数字对调列为疑似笔误', () => 
   });
   expect(identifierInQuote('k_number', observed, '写法 K170285/K170825')).toBe(true);
   expect(identifierInQuote('k_number', observed, '写法 BK1702850')).toBe(false);
+  expect(identifierInQuote('k_number', 'K170-825', '待核原文 K170-825')).toBe(true);
+  expect(
+    identifierInQuote('device_identifier', 'SPACE-FILL / 6380407', '型号 SPACE-FILL / 6380407。'),
+  ).toBe(true);
+  expect(compareIdentifiers('k_number', 'K170-825', ['K170825']).candidates).toEqual([
+    { identifier: 'K170825', edits: 1 },
+  ]);
 });
 
 test('精确匹配优先，两个字符的缺漏或替换仍保留候选', () => {

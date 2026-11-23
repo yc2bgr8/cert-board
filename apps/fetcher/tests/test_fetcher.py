@@ -83,6 +83,22 @@ def test_url_preserves_node_serialization_of_square_brackets_and_query():
     assert proxy.calls[1][1] == "/guides/[public]?item=%27known%27"
 
 
+def test_only_confirmed_official_query_empty_is_a_downloadable_snapshot():
+    body = b'{"error":{"code":"NOT_FOUND","message":"No matches found!"}}'
+    fda_url = "https://api.fda.gov/device/510k.json?search=fixture"
+    supported = Connection(Reply(404, body, {"Content-Type": "application/json"}))
+    assert base64.b64decode(fetch_page(fda_url, lambda: supported)["bodyBase64"]) == body
+
+    for url, raw in [
+        (fda_url, b'{"error":{"code":"NOT_FOUND","message":"endpoint removed"}}'),
+        ("https://www.fda.gov/device/510k.json", body),
+        ("https://api.fda.gov/other.json", body),
+    ]:
+        denied = Connection(Reply(404, raw, {"Content-Type": "application/json"}))
+        with pytest.raises(FetchError, match="FETCH_UPSTREAM_STATUS"):
+            fetch_page(url, lambda: denied)
+
+
 @pytest.mark.parametrize("count,valid", [(63, True), (64, False)])
 def test_query_field_limit_counts_empty_separators(count, valid):
     address = "https://www.fda.gov/guide?" + "&" * count + "item=1"

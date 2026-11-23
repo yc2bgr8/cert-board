@@ -26,18 +26,31 @@ const deviceIdentifier = z
   .string()
   .trim()
   .regex(/^[A-Za-z0-9][A-Za-z0-9._+/-]{0,49}$/u);
+const mdallIdentifier = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._+ /-]{0,63}$/u);
 const page = { asOf: cutoff, offset };
 
 export const officialLookupInputSchema = z.discriminatedUnion('dataset', [
   z.strictObject({ dataset: z.literal('fda_510k'), kNumber, ...page }),
   z.strictObject({ dataset: z.literal('fda_classification'), productCode, ...page }),
   z.strictObject({ dataset: z.literal('fda_regulation'), regulationNumber, ...page }),
-  z.strictObject({ dataset: z.literal('fda_registration'), registrationNumber: digits, ...page }),
+  z.strictObject({
+    dataset: z.literal('fda_registration'),
+    registrationNumber: digits,
+    listedProductCode: productCode.optional(),
+    ...page,
+  }),
   z.strictObject({ dataset: z.literal('gudid_device'), deviceIdentifier, ...page }),
   z.strictObject({ dataset: z.literal('mdall_company_licences'), companyId: digits, ...page }),
   z.strictObject({ dataset: z.literal('mdall_licence'), licenceNumber: digits, ...page }),
   z.strictObject({ dataset: z.literal('mdall_device'), deviceId: digits, ...page }),
-  z.strictObject({ dataset: z.literal('mdall_identifier'), deviceIdentifier, ...page }),
+  z.strictObject({
+    dataset: z.literal('mdall_identifier'),
+    deviceIdentifier: mdallIdentifier,
+    ...page,
+  }),
 ]);
 export type OfficialLookupInput = z.infer<typeof officialLookupInputSchema>;
 
@@ -48,6 +61,7 @@ export const officialRecordSchema = z.strictObject({
   companyId: digits.optional(),
   productCode: productCode.optional(),
   listedProductCodes: z.array(productCode).max(30).optional(),
+  listedProductCodesTruncated: z.literal(true).optional(),
   regulationNumber: regulationNumber.optional(),
   deviceClass: z.string().max(12).optional(),
   licenceNumber: digits.optional(),
@@ -86,7 +100,7 @@ const identifierEvidence = documentCitationSchema.extend({
   offset: z.number().int().min(0).max(4_000_000).default(0),
 });
 const citedIdentifier = z.strictObject({
-  identifier: deviceIdentifier,
+  identifier: mdallIdentifier,
   evidence: identifierEvidence,
 });
 export const identifierCheckInputSchema = z.strictObject({

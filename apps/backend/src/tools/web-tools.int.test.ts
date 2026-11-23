@@ -164,6 +164,25 @@ test('V2 用官方存档字段和材料原文发现 K 号对调，拒绝缺失�
       observed: { ...request.observed, evidence: { ...request.observed.evidence, quote: '不存在的 K170285' } },
     }),
   ).resolves.toMatchObject({ data: { status: 'unavailable', code: 'V2_EVIDENCE_MISMATCH' } });
+  await expect(invoke('identifier_check', {
+    ...request,
+    referenceType: 'ledger',
+    references: [request.observed],
+  })).resolves.toMatchObject({ data: { status: 'unavailable', code: 'V2_LEDGER_SOURCE_REQUIRED' } });
+  const ledgerText = '证照台账 对比器械编号 K170825。';
+  const ledger = await ingestParsedDocument(context.pool, store, {
+    projectId: context.projectId, sourceKey: 'PR30-LEDGER', name: '合成证照台账',
+    sourcePath: 'pr30-ledger.txt', sourceSnapshot: digest(Buffer.from(ledgerText)),
+    dataLevel: 'internal', authorType: 'human', sourceMetadata: { sourceRole: 'licence_ledger' },
+    pages: [{ pageNumber: 1, text: ledgerText, method: 'text', locatorKind: 'extraction_unit' }],
+  });
+  await expect(invoke('identifier_check', {
+    ...request,
+    referenceType: 'ledger',
+    references: [{ identifier: 'K170825', evidence: {
+      documentId: ledger.documentId, version: ledger.version, page: 1, quote: ledgerText,
+    } }],
+  })).resolves.toMatchObject({ data: { status: 'possible_typo' } });
 });
 
 test('截止日回查的可下载存档不带未来记录，只读查询不写入', async () => {

@@ -118,6 +118,19 @@ export function identifierCheckTool(): ToolDefinition {
                 '请引用 official_lookup 存档中与所选类型一致的编号字段。',
               );
           }
+          if (index > 0 && input.referenceType === 'ledger') {
+            const trusted = await ctx.tx.query(
+              `SELECT 1 FROM document_version WHERE document_id=$1 AND version_no=$2
+               AND source_metadata->>'sourceRole'='licence_ledger'`,
+              [documentId, version],
+            );
+            if (trusted.rowCount !== 1 || documentId === input.observed.evidence.documentId)
+              throw new AppError(
+                422,
+                'V2_LEDGER_SOURCE_REQUIRED',
+                '请引用另一份经过证照台账导入流程标记的资料。',
+              );
+          }
           checked.push({
             location: {
               identifier,
