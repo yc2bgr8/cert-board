@@ -62,6 +62,7 @@
     "preview:lan": "node --import tsx scripts/preview.mjs lan",
     "preview:walkthrough": "node --import tsx scripts/preview.mjs walkthrough",
     "walkthrough:real": "node --import tsx scripts/walkthrough.mjs",
+    "walkthrough:batch": "node --import tsx scripts/walkthrough.mjs --batch",
     "format": "prettier --write apps packages scripts *.json *.mjs *.yaml",
     "security:scan": "node scripts/secret-scan.mjs"
   },

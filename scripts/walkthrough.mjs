@@ -14,9 +14,10 @@ const clean = () =>
   });
 const diagnostic = process.argv.includes('--diagnostic');
 const verificationOnly = process.argv.includes('--verification-only');
+const batch = process.argv.includes('--batch');
 
 async function main() {
-  if (verificationOnly && !diagnostic) throw new Error('正式走查需要完整执行全部场景。');
+  if (verificationOnly && (!diagnostic || batch)) throw new Error('正式走查需要完整执行全部场景。');
   const initial = clean();
   if (!diagnostic && (initial.status !== 0 || initial.stdout.trim()))
     throw new Error('正式走查须使用已提交的代码。');
@@ -48,6 +49,7 @@ async function main() {
           ...(live ? { CERT_WALKTHROUGH_INSTANCE: live.instance } : {}),
           CERT_WALKTHROUGH_DIAGNOSTIC: diagnostic ? '1' : '0',
           CERT_WALKTHROUGH_VERIFICATION_ONLY: verificationOnly ? '1' : '0',
+          CERT_WALKTHROUGH_BATCH: batch ? '1' : '0',
         },
       },
     );
@@ -63,23 +65,28 @@ async function main() {
       throw new Error('预览进程在正式走查结束前退出。');
     }
     if (process.exitCode === 0 && !diagnostic) {
-      const result = JSON.parse(await readFile(path.join(folder, 'result.json'), 'utf8'));
+      const result = JSON.parse(
+        await readFile(path.join(folder, batch ? 'q2-result.json' : 'result.json'), 'utf8'),
+      );
       const current = clean();
       if (
         result.status !== 'passed' ||
         result.commit !== commit ||
+        result.instance !== live?.instance ||
         current.status !== 0 ||
         current.stdout.trim() ||
         previewGitHead() !== commit
       )
         throw new Error('走查期间提交发生变化，请在同一提交下复跑。');
-      const staged = `${previewEvidence}.tmp`;
-      await writeFile(
-        staged,
-        JSON.stringify({ status: 'passed', commit, evidence: folder }, null, 2),
-        'utf8',
-      );
-      await rename(staged, previewEvidence);
+      if (!batch) {
+        const staged = `${previewEvidence}.tmp`;
+        await writeFile(
+          staged,
+          JSON.stringify({ status: 'passed', commit, evidence: folder }, null, 2),
+          'utf8',
+        );
+        await rename(staged, previewEvidence);
+      }
     }
   } finally {
     if (live) await live.stop();

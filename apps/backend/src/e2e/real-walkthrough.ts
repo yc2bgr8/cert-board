@@ -4,13 +4,19 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import pg from 'pg';
-import { chromium, type Page } from 'playwright-core';
-import { parseBackendConfig, reviewDiffSchema, reviewEvidenceRefSchema } from '@cert-board/shared';
+import { chromium, type BrowserContext, type Page } from 'playwright-core';
+import {
+  parseBackendConfig,
+  reviewDiffSchema,
+  reviewEvidenceRefSchema,
+  type PermissionMode,
+} from '@cert-board/shared';
 import { developmentProjectId } from '../projects/seed.js';
 import { nanoToUsd } from '../budget/meter.js';
 import { createDependencies } from '../dependencies.js';
 import { BlobStore } from '../documents/blob-store.js';
 import { requiredRevisionSections, revisionSections } from './walkthrough-report.js';
+import { exerciseBatch } from './walkthrough-batch.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
@@ -40,7 +46,7 @@ async function freshConversation(
   page: Page,
   projectId: string,
   title: string,
-  permissionMode: 'ask' | 'full',
+  permissionMode: PermissionMode,
 ) {
   await page.getByRole('button', { name: '新对话', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '新对话', exact: true });
@@ -68,7 +74,9 @@ async function send(page: Page, text: string, button = '发送') {
       /\/api\/conversations\/[^/]+\/(?:messages|answers)$/u.test(new URL(response.url()).pathname),
   );
   await page.getByRole('button', { name: button, exact: true }).click();
-  assert.equal((await saved).status(), 200);
+  const response = await saved;
+  assert.equal(response.status(), 200);
+  return (await response.json()) as { runId: string; kind?: string };
 }
 
 async function waitForReview(
@@ -219,7 +227,12 @@ async function verifyTools(pool: pg.Pool, conversationId: string) {
   return list;
 }
 
-async function exerciseVerification(page: Page, pool: pg.Pool, evidenceFolder: string) {
+async function exerciseVerification(
+  page: Page,
+  pool: pg.Pool,
+  evidenceFolder: string,
+  onOpened?: (id: string) => void,
+) {
   await page.getByRole('button', { name: '外部模型', exact: true }).click();
   const group = page.getByRole('region', { name: '外部核实群聊', exact: true });
   const created = page.waitForResponse(
@@ -239,6 +252,7 @@ async function exerciseVerification(page: Page, pool: pg.Pool, evidenceFolder: s
   const opened = await created;
   assert.equal(opened.status(), 200);
   const { id } = (await opened.json()) as { id: string };
+  onOpened?.(id);
   let tested: { channel: string; model: string; status: string }[] = [];
   const until = Date.now() + 7 * 60_000;
   while (Date.now() < until) {
@@ -273,6 +287,25 @@ async function exerciseVerification(page: Page, pool: pg.Pool, evidenceFolder: s
   await page.screenshot({ path: path.join(evidenceFolder, 'verification-v7.png') });
   return { id, channels: tested };
 }
+
+export type WalkthroughBatchContext = {
+  page: Page;
+  browserContext: BrowserContext;
+  pool: pg.Pool;
+  blobs: BlobStore;
+  evidenceFolder: string;
+  origin: string;
+  registrationProject: string;
+  maintenanceProject: string;
+  openConversation: typeof freshConversation;
+  send: typeof send;
+  waitForReview: typeof waitForReview;
+  review: typeof review;
+  inspectSubmission: typeof inspectSubmission;
+  verifyRevision: typeof verifyRevision;
+  verifyTools: typeof verifyTools;
+  exerciseVerification: typeof exerciseVerification;
+};
 
 async function main() {
   const config = parseBackendConfig(process.env);
@@ -312,6 +345,29 @@ async function main() {
     await page.getByLabel('密码', { exact: true }).fill(password);
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
+    if (process.env.CERT_WALKTHROUGH_BATCH === '1') {
+      stage = '多场真实对话走查';
+      await exerciseBatch({
+        page,
+        browserContext,
+        pool,
+        blobs,
+        evidenceFolder,
+        origin: config.WEB_ORIGIN,
+        registrationProject: developmentProjectId,
+        maintenanceProject: maintenanceProjectId,
+        openConversation: freshConversation,
+        send,
+        waitForReview,
+        review,
+        inspectSubmission,
+        verifyRevision,
+        verifyTools,
+        exerciseVerification,
+      });
+      assert.equal(blocked, 0);
+      return;
+    }
     if (
       process.env.CERT_WALKTHROUGH_DIAGNOSTIC === '1' &&
       process.env.CERT_WALKTHROUGH_VERIFICATION_ONLY === '1'
