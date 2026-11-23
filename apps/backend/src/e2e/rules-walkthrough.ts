@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import type pg from 'pg';
 import type { Page } from 'playwright-core';
-import { reviewEvidenceRefSchema, rulesRunResultSchema } from '@cert-board/shared';
+import {
+  documentPageReadSchema,
+  reviewEvidenceRefSchema,
+  rulesRunResultSchema,
+} from '@cert-board/shared';
 import { nanoToUsd } from '../budget/meter.js';
 
 export async function checkRulesBrowserRun(
@@ -10,14 +14,16 @@ export async function checkRulesBrowserRun(
   runId: string,
   cardId: string,
 ) {
-  const { rows } = await pool.query<{ data: unknown }>(
-    `SELECT r.content_json->'result'->'data' AS data
+  const { rows } = await pool.query<{ tool: string; data: unknown }>(
+    `SELECT i.tool_name AS tool,r.content_json->'result'->'data' AS data
        FROM tool_invocation i JOIN conversation_tool_result r ON r.invocation_id=i.id
-       WHERE i.run_id=$1 AND i.tool_name='rules_run' AND i.status='completed'`,
+       WHERE i.run_id=$1 AND i.tool_name IN ('rules_run','doc_read') AND i.status='completed'`,
     [runId],
   );
-  const responses = rows.map(({ data }) => rulesRunResultSchema.parse(data));
-  const verified = responses.find(
+  const responses = rows
+    .filter(({ tool }) => tool === 'rules_run')
+    .map(({ data }) => rulesRunResultSchema.parse(data));
+  const r1 = responses.find(
     (output) =>
       output.status === 'ok' &&
       output.findings.some(
@@ -26,7 +32,11 @@ export async function checkRulesBrowserRun(
           item.values.some(({ value }) => value === 'K170285') &&
           item.values.some(({ value }) => value === 'K170825') &&
           item.references.some(({ sourceKey }) => sourceKey === 'D035'),
-      ) &&
+      ),
+  );
+  const r5 = responses.find(
+    (output) =>
+      output.status === 'ok' &&
       output.findings.some(
         (item) =>
           item.ruleId === 'R5' &&
@@ -36,8 +46,14 @@ export async function checkRulesBrowserRun(
           ),
       ),
   );
-  assert.ok(verified?.status === 'ok', '规则运行未在 L08 实际版本发现编号候选及 eSTAR 附件候选。');
-  const doc = verified.scanned.find(({ sourceKey }) => sourceKey === 'D035');
+  assert.ok(
+    r1?.status === 'ok' && r5?.status === 'ok',
+    '规则运行未在 L08 实际版本发现编号候选及 eSTAR 附件候选。',
+  );
+  const doc = r1.scanned.find(({ sourceKey }) => sourceKey === 'D035');
+  const pages = rows
+    .filter(({ tool }) => tool === 'doc_read')
+    .map(({ data }) => documentPageReadSchema.parse(data));
   const card = (
     await pool.query<{ evidence_refs: unknown }>(
       "SELECT evidence_refs FROM review_card WHERE id=$1 AND run_id=$2 AND status='pending'",
@@ -51,7 +67,13 @@ export async function checkRulesBrowserRun(
       (cite) =>
         cite.documentId === doc.documentId &&
         cite.version === doc.version &&
-        /K170(?:285|825)/u.test(cite.quote),
+        /K170(?:285|825)/u.test(cite.quote) &&
+        pages.some(
+          (read) =>
+            read.documentId === doc.documentId &&
+            read.version === doc.version &&
+            read.page === cite.page,
+        ),
     ),
   );
   await page
@@ -76,7 +98,9 @@ export async function checkRulesBrowserRun(
   assert.ok(usage.some(({ model }) => model === 'openai/gpt-6.2-astra-pro'));
   return {
     rules: ['R1', 'R5'],
-    sourceVersions: verified.scanned.length,
+    sourceVersions: new Set(
+      [...r1.scanned, ...r5.scanned].map(({ documentId, version }) => `${documentId}:${version}`),
+    ).size,
     cost: usage.map(({ paid, ...row }) => ({ ...row, usd: nanoToUsd(BigInt(paid)) })),
   };
 }

@@ -101,3 +101,121 @@ test('R1 按完整 K 号归并写法，带点分后缀的文本不计入正常�
     },
   ]);
 });
+
+test('R2 只有实际跨文件的字段差异才作为候选', () => {
+  const document: RuleDocument = {
+    key: 'A',
+    name: 'A.pdf',
+    pages: [{ page: 1, text: 'Contact person: Alice Green\nSubmitter: Bob Green' }],
+  };
+  expect(runConsistencyRules([document], new Set(['R2']))).toEqual([]);
+  expect(
+    runConsistencyRules(
+      [
+        document,
+        { key: 'B', name: 'B.pdf', pages: [{ page: 1, text: 'Contact person: Bob Green' }] },
+      ],
+      new Set(['R2']),
+    ),
+  ).toHaveLength(1);
+});
+
+const document = (key: string, content: string, name = `${key}.pdf`): RuleDocument => ({
+  key,
+  name,
+  pages: [{ page: 1, text: content }],
+});
+
+test('R0 同名组的第三份也比较，并给出其在原件中的位置', () => {
+  const results = runConsistencyRules(
+    [
+      document('A', '相同内容', '封面.pdf'),
+      document('B', '相同内容', '封面.pdf'),
+      document('C', '修订内容', '封面.pdf'),
+    ],
+    new Set(['R0']),
+  );
+  expect(results).toMatchObject([
+    {
+      ruleId: 'R0',
+      references: [
+        { key: 'A', page: 1 },
+        { key: 'C', page: 1 },
+      ],
+    },
+  ]);
+});
+
+test('R2 保留多词姓名并忽略空白申请人字段', () => {
+  const results = runConsistencyRules(
+    [
+      document('A', 'Contact person: Alice Mary Chen\nApplicant:     '),
+      document('B', 'Contact person: Alice Mary Tan\nApplicant: Example Co'),
+    ],
+    new Set(['R2']),
+  );
+  expect(results).toMatchObject([
+    {
+      values: [
+        { value: 'Alice Mary Chen', count: 1 },
+        { value: 'Alice Mary Tan', count: 1 },
+      ],
+    },
+  ]);
+});
+
+test('R3 保留温度正负号并在引用限额前识别跨文档差异', () => {
+  const results = runConsistencyRules(
+    [
+      document(
+        'A',
+        'Storage: -5 to 25°C\nStorage: −10 to -5°C\nSoaking time: 1 hour\nSoaking time: 1 hour\nSoaking time: 1 hour\nSoaking time: 45 min',
+      ),
+      document('B', 'Storage: 5 to 25°C\nSoaking time: 60 min'),
+    ],
+    new Set(['R3']),
+  );
+  expect(results.find(({ title }) => title.startsWith('储存温度'))?.values).toEqual([
+    { value: '-5-25℃', count: 1 },
+    { value: '-10--5℃', count: 1 },
+    { value: '5-25℃', count: 1 },
+  ]);
+  expect(results.find(({ title }) => title.startsWith('浸泡时间'))?.references).toEqual([
+    { key: 'A', page: 1 },
+    { key: 'B', page: 1 },
+  ]);
+});
+
+test('R4 接受单型号配置表并发现下托颜色差异', () => {
+  const results = runConsistencyRules(
+    [
+      document('A', 'Model L08-TB\nupper tray White\nlower tray Blue'),
+      document('B', 'Model L08-TB\nupper tray White\nlower tray Purple'),
+    ],
+    new Set(['R4']),
+  );
+  expect(results).toMatchObject([
+    {
+      title: 'L08-TB 下托颜色说法不一致',
+      values: [
+        { value: 'blue', count: 1 },
+        { value: 'purple', count: 1 },
+      ],
+    },
+  ]);
+});
+
+test('R5 以 XFA 字段为界，不用相邻字段的附件名掩盖未匹配引用', () => {
+  const results = runConsistencyRules(
+    [
+      {
+        ...document('A', 'eSTAR 可读原件示例'),
+        isEstar: true,
+        attachmentNames: ['Instructions.pdf'],
+        referencesText: '<a>please see: <b>MSDS</b></a><b1>Instructions.pdf</b1>',
+      },
+    ],
+    new Set(['R5']),
+  );
+  expect(results).toMatchObject([{ ruleId: 'R5', values: [{ value: 'MSDS' }] }]);
+});

@@ -170,6 +170,7 @@ export function rulesRunTool(store: DocumentBlobStore, originals?: RulesOriginal
         const pages = await pagesFor(ctx, sources);
         const documents: RuleDocument[] = [];
         const notices: string[] = [];
+        const coverageNotices: string[] = [];
         const byVersion = new Map(sources.map((source) => [source.versionId, source]));
         const selected = new Set(input.rules);
         let estarCount = 0;
@@ -183,7 +184,17 @@ export function rulesRunTool(store: DocumentBlobStore, originals?: RulesOriginal
             key: source.versionId,
             name: source.name,
             isEstar,
-            duplicate: Boolean(meta.success && meta.data.duplicateOf),
+            duplicate: Boolean(
+              meta.success &&
+              meta.data.duplicateOf &&
+              source.originalSha &&
+              sources.some(
+                (other) =>
+                  other.versionId !== source.versionId &&
+                  other.sourceKey === meta.data.duplicateOf &&
+                  other.originalSha === source.originalSha,
+              ),
+            ),
             pages: pages
               .filter((page) => page.versionId === source.versionId)
               .map(({ page, text }) => ({ page, text })),
@@ -208,8 +219,8 @@ export function rulesRunTool(store: DocumentBlobStore, originals?: RulesOriginal
             } catch (error) {
               if (!(error instanceof AppError || error instanceof TypeError)) throw error;
             }
-            if (!document.referencesText && notices.length < 15)
-              notices.push(
+            if (!document.referencesText)
+              coverageNotices.push(
                 `${source.sourceKey} 的 eSTAR 数据集或完整附件清单不可用，R5 待人工核对。`,
               );
           }
@@ -220,9 +231,11 @@ export function rulesRunTool(store: DocumentBlobStore, originals?: RulesOriginal
         if (ctx.signal?.aborted)
           throw new AppError(409, 'RULES_STOPPED', '当前运行已停止，本次规则检查未完成。');
         const results = runConsistencyRules(documents, selected);
-        if (selected.has('R5') && estarCount === 0 && notices.length < 15)
-          notices.push('本批没有可核对的 eSTAR 容器，R5 未执行。');
-        if (results.length > 5000) notices.push('候选条目超过分页上限，请按资料组缩小检查范围。');
+        if (selected.has('R5') && estarCount === 0)
+          coverageNotices.push('本批没有可核对的 eSTAR 容器，R5 未执行。');
+        if (results.length > 5000)
+          coverageNotices.push('候选条目超过分页上限，请按资料组缩小检查范围。');
+        const messages = [...coverageNotices, ...notices].slice(0, 16);
         const scanned = sources.map(summary);
         const findings = [];
         for (const finding of results.slice(input.offset, input.offset + input.limit)) {
@@ -238,9 +251,15 @@ export function rulesRunTool(store: DocumentBlobStore, originals?: RulesOriginal
             ...item,
             findingKey: createHash('sha256').update(JSON.stringify(item)).digest('hex'),
           };
-          if (JSON.stringify([scanned, notices, ...findings, candidate]).length > 28_000) break;
+          if (JSON.stringify([scanned, messages, ...findings, candidate]).length > 28_000) break;
           findings.push(candidate);
         }
+        if (!findings.length && input.offset < results.length)
+          throw new AppError(
+            422,
+            'RULES_RESULT_LIMIT',
+            '当前候选与资料清单超过单页上限，请缩小资料范围后重新检查。',
+          );
         const offset = input.offset + findings.length;
         return {
           data: {
@@ -249,7 +268,7 @@ export function rulesRunTool(store: DocumentBlobStore, originals?: RulesOriginal
             pageCount: pages.length,
             total: results.length,
             findings,
-            notices,
+            notices: messages,
             nextOffset:
               findings.length > 0 && offset < results.length && offset <= 5000 ? offset : null,
           },

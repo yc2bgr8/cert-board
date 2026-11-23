@@ -111,7 +111,15 @@ function report(
 
 const counted = (values: ValueMap) =>
   [...values].map(([value, refs]) => ({ value, count: refs.length }));
-const firstRefs = (values: ValueMap) => [...values.values()].flatMap((pages) => pages.slice(0, 3));
+const firstRefs = (values: ValueMap) =>
+  [...values.values()].flatMap((pages) => {
+    const perDocument = new Map<string, Reference>();
+    for (const reference of pages)
+      if (!perDocument.has(reference.key)) perDocument.set(reference.key, reference);
+    return [...perDocument.values()].slice(0, 3);
+  });
+const crossesDocuments = (values: ValueMap) =>
+  new Set([...values.values()].flatMap((references) => references.map(({ key }) => key))).size > 1;
 
 const normalizedPage = (text: string) =>
   text
@@ -128,37 +136,51 @@ const normalizedLines = (doc: RuleDocument) =>
 function sameNames(documents: RuleDocument[]) {
   const groups = new Map<string, RuleDocument[]>();
   for (const doc of documents) {
-    if (doc.isEstar || !doc.pages.length || !/\.pdf$/iu.test(doc.name)) continue;
+    if (doc.isEstar || !doc.pages.some(({ text }) => text.trim()) || !/\.pdf$/iu.test(doc.name))
+      continue;
     const name = doc.name.match(reportCode)?.[0] ?? lower(stem(doc.name)).replace(/\s+/gu, ' ');
     add(groups, name, doc);
   }
   const findings: RuleFinding[] = [];
-  for (const [first, second] of groups.values()) {
-    if (!first || !second) continue;
+  for (const [first, ...otherVersions] of groups.values()) {
+    if (!first || !otherVersions.length) continue;
     const before = normalizedLines(first);
-    const after = normalizedLines(second);
-    if (!before || !after || before === after) continue;
-    const difference = diffLines(before, after, { maxEditLength: ruleDefinitions.R0.maxLineEdits });
-    const changed = difference?.reduce(
-      (total, part) => total + (part.added || part.removed ? (part.count ?? 0) : 0),
-      0,
-    );
-    if (changed === 0) continue;
-    const firstChange = first.pages.findIndex(
-      ({ text }, index) => normalizedPage(text) !== normalizedPage(second.pages[index]?.text ?? ''),
-    );
-    const index = firstChange === -1 ? first.pages.length : firstChange;
-    findings.push(
-      report(
-        'R0',
-        `同名文件两个版本内容不同：${first.name}`,
-        changed === undefined ? [] : [{ value: '变化行数', count: changed }],
-        [first, second].map((doc) => ({
+    if (!before) continue;
+    const changes: CountedValue[] = [];
+    const references: Reference[] = [];
+    let exceeded = false;
+    for (const [position, second] of otherVersions.entries()) {
+      const after = normalizedLines(second);
+      if (!after || before === after) continue;
+      const difference = diffLines(before, after, {
+        maxEditLength: ruleDefinitions.R0.maxLineEdits,
+      });
+      const changed = difference?.reduce(
+        (total, part) => total + (part.added || part.removed ? (part.count ?? 0) : 0),
+        0,
+      );
+      if (changed === 0) continue;
+      const firstChange = first.pages.findIndex(
+        ({ text }, index) =>
+          normalizedPage(text) !== normalizedPage(second.pages[index]?.text ?? ''),
+      );
+      const index = firstChange === -1 ? first.pages.length : firstChange;
+      if (changed === undefined) exceeded = true;
+      changes.push(
+        changed === undefined
+          ? { value: `第 ${position + 2} 份的变化行数超限，请读取返回位置。` }
+          : { value: `第 ${position + 2} 份相对首份的变化行数`, count: changed },
+      );
+      references.push(
+        ...[first, second].map((doc) => ({
           key: doc.key,
           page: (doc.pages[index] ?? doc.pages.at(-1))!.page,
         })),
-      ),
-    );
+      );
+    }
+    if (!changes.length) continue;
+    const finding = report('R0', `同名文件两个版本内容不同：${first.name}`, changes, references);
+    findings.push({ ...finding, detailsTruncated: finding.detailsTruncated || exceeded });
   }
   return findings;
 }
@@ -202,23 +224,30 @@ function contacts(pages: Occurrence[]) {
   const groups = new Map<string, ValueMap>();
   for (const page of pages) {
     for (const contact of page.text.matchAll(
-      /(?:Submitter|Official contact person|Contact person)\s*[:：]\s*(?:Mr\.|Ms\.|Mrs\.|Dr\.)?\s*([A-Z][a-z]+\s+[A-Z][a-z]+)/gu,
-    ))
-      track(groups, '申报联系人', contact[1]!.replace(/\s+/gu, ' '), page);
+      /(?:Submitter|Official contact person|Contact person)\s*[:：]\s*(?:Mr\.|Ms\.|Mrs\.|Dr\.)?\s*([^\r\n\t|]{1,120})/giu,
+    )) {
+      const name = contact[1]!
+        .split(/\s+(?:Title|Phone|Fax|Email|Address|Applicant)\s*[:：]|[;（(]/iu, 1)[0]!
+        .trim()
+        .replace(/\s+/gu, ' ');
+      if (name && /\p{L}/u.test(name)) track(groups, '申报联系人', name, page);
+    }
     for (const applicant of page.text.matchAll(
       /^[ \t]*(?:Applicant|申请人)\s*[:：][ \t]+([^\r\n]{3,120})/gimu,
-    ))
-      track(groups, '申请人', applicant[1]!.trim(), page);
+    )) {
+      const name = applicant[1]!.trim();
+      if (name) track(groups, '申请人', name, page);
+    }
   }
   return [...groups].flatMap(([label, values]) =>
-    values.size > 1
+    values.size > 1 && crossesDocuments(values)
       ? [report('R2', `${label}在不同文件中不一致`, counted(values), firstRefs(values))]
       : [],
   );
 }
 
 const temperature =
-  /(\d{1,3})\s*(?:°\s*C|℃)?\s*(?:-|—|–|~|～|to|至)\s*(\d{1,3})\s*(?:°\s*C|℃|degrees?\s+Celsius|\s*\n?\s*C\b)/giu;
+  /([-−]?\d{1,3})\s*(?:°\s*C|℃)?\s*(?:-|—|–|~|～|to|至)\s*([-−]?\d{1,3})\s*(?:°\s*C|℃|degrees?\s+Celsius|\s*\n?\s*C\b)/giu;
 const temperatureLabels = [
   ['冲洗水温', /rins|冲洗/iu],
   ['浸泡水温', /soak|cleanser|浸泡/iu],
@@ -258,13 +287,16 @@ function parameters(pages: Occurrence[]) {
         match.index,
       );
       const matched = temperatureLabels.find(([, pattern]) => pattern.test(context));
-      if (matched) track(groups, matched[0], `${match[1]}-${match[2]}℃`, page);
+      if (matched) {
+        const range = `${match[1]}-${match[2]}℃`.replace(/−/gu, '-');
+        track(groups, matched[0], range, page);
+      }
     }
     for (const [label, pattern, value] of namedParameters)
       for (const match of page.text.matchAll(pattern)) track(groups, label, value(match), page);
   }
   return [...groups].flatMap(([label, values]) =>
-    values.size > 1 && new Set(firstRefs(values).map(({ key }) => key)).size > 1
+    values.size > 1 && crossesDocuments(values)
       ? [report('R3', `${label}在不同文件中取值不同`, counted(values), firstRefs(values))]
       : [],
   );
@@ -273,7 +305,7 @@ function parameters(pages: Occurrence[]) {
 const modelToken = '[A-Z][A-Z0-9]{1,11}-[A-Z]{2}';
 const colorToken = '(?:Blue|Purple|Transparent|White|Black|Pink|Green|Clear)';
 const rowTokens = (prefix: string, token: string) =>
-  new RegExp(`${prefix}\\s+((?:${token}\\s+){1,29}${token})\\b`, 'u');
+  new RegExp(`${prefix}\\s+((?:${token}\\s+){0,29}${token})\\b`, 'u');
 const modelRow = rowTokens('Model', modelToken);
 const upperRow = rowTokens('upper tray', colorToken);
 const lowerRow = rowTokens('lower\\s*tray', colorToken);
@@ -339,6 +371,15 @@ function decodedEntities(text: string) {
   });
 }
 
+const inlineMarkup = new Set(['b', 'em', 'i', 'span', 'strong', 'sub', 'sup', 'u']);
+function xfaFieldText(raw: string) {
+  return decodedEntities(raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gu, '$1'))
+    .replace(/<!--[\s\S]*?-->/gu, '\n')
+    .replace(/<\/?([A-Za-z][\w:.-]*)\b[^<>]*>/gu, (_markup, tag: string) =>
+      inlineMarkup.has(tag.split(':').at(-1)!.toLowerCase()) ? '' : '\n',
+    );
+}
+
 function attachmentReferences(documents: RuleDocument[]) {
   const findings: RuleFinding[] = [];
   for (const source of documents) {
@@ -351,8 +392,8 @@ function attachmentReferences(documents: RuleDocument[]) {
     ).map(lower);
     const stems = attached.map(stem).filter(Boolean);
     const refs = new Set<string>();
-    for (const match of decodedEntities(source.referencesText).matchAll(
-      /please see\s*:?\s*([^\r\n]+)/giu,
+    for (const match of xfaFieldText(source.referencesText).matchAll(
+      /please[ \t]+see[ \t]*:?[ \t]*([^\r\n]+)/giu,
     )) {
       for (const part of match[1]!.split(/,|;|、|\band\b/giu)) {
         const name = part.replace(/^[ .:]+|[ .:]+$/gu, '');
