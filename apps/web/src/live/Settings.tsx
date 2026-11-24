@@ -7,6 +7,7 @@ import { ShellIcon } from './ShellIcon.js';
 import type { StreamConnection } from './useConversationStream.js';
 import { ExternalSettings, ExternalUsageSummary } from './ExternalSettings.js';
 import { SkillVersions } from './SkillVersions.js';
+import { KnowledgeReviews } from './KnowledgeReviews.js';
 import './pages.css';
 
 const managementSections = [
@@ -184,6 +185,7 @@ export function Settings({
                   openRoom={openVerification}
                 />
                 <SkillVersions userId={user.id} rollbackFocus={skillRollbackFocus} />
+                <KnowledgeReviews key={user.id} userId={user.id} management={user.isManagement} />
                 <section id="about-cert-board" className="live-page-card">
                   <header className="live-page-card-head">
                     <h2>关于</h2>

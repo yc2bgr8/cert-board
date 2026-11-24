@@ -82,6 +82,13 @@ import {
   skillRollbackListSchema,
   skillRollbackDecisionInputSchema,
   skillRollbackDecisionResultSchema,
+  knowledgeReviewCreateSchema,
+  knowledgeReviewDecisionSchema,
+  knowledgeReviewDetailSchema,
+  knowledgeReviewPageSchema,
+  knowledgeReviewSummarySchema,
+  type KnowledgeReviewCreateInput,
+  type KnowledgeReviewDecisionInput,
   type AuthResponse,
   type DataLevel,
   type IntakeCategory,
@@ -240,6 +247,28 @@ const signalOption = (signal: AbortSignal | undefined) => (signal ? { signal } :
 const externalPage = (cursor: string | null) =>
   cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
 export const api = {
+  knowledgeReviews: (afterId: string | null, signal?: AbortSignal) =>
+    request(
+      `/api/knowledge/reviews${afterId ? `?afterId=${identifier(afterId)}` : ''}`,
+      knowledgeReviewPageSchema,
+      signalOption(signal),
+    ),
+  knowledgeReview: (id: string, signal?: AbortSignal) =>
+    request(
+      `/api/knowledge/reviews/${identifier(id)}`,
+      knowledgeReviewDetailSchema,
+      signalOption(signal),
+    ),
+  stageKnowledgeReview: (input: KnowledgeReviewCreateInput) =>
+    request('/api/knowledge/reviews', knowledgeReviewSummarySchema, {
+      method: 'POST',
+      body: checked(knowledgeReviewCreateSchema, input),
+    }),
+  decideKnowledgeReview: (id: string, input: KnowledgeReviewDecisionInput) =>
+    request(`/api/knowledge/reviews/${identifier(id)}/decision`, knowledgeReviewSummarySchema, {
+      method: 'POST',
+      body: checked(knowledgeReviewDecisionSchema, input),
+    }),
   skills: (signal?: AbortSignal) => request('/api/skills', skillPageSchema, signalOption(signal)),
   skillRollbackPolicy: (signal?: AbortSignal) =>
     request('/api/skill-rollback-policy', skillRollbackPolicySchema, signalOption(signal)),

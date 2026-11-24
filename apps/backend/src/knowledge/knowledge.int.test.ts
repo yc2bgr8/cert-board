@@ -2,7 +2,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { setTimeout as wait } from 'node:timers/promises';
 import { afterEach, expect, test } from 'vitest';
-import { factProposalResultSchema, type FactDecisionInput } from '@cert-board/shared';
+import {
+  factProposalResultSchema,
+  knowledgeReviewSummarySchema,
+  type FactDecisionInput,
+  type KnowledgeReviewCreateInput,
+  type KnowledgeReviewDecisionInput,
+} from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
 import { factProposeTool, knowledgeGetTool } from '../tools/knowledge-tools.js';
 import { ToolRegistry, type ToolExecutionContext } from '../tools/registry.js';
@@ -21,6 +27,20 @@ const fresh = ({ runId, userId }: { runId: string; userId: string }) => ({
   userId,
   callId: randomUUID(),
 });
+const knowledgeReviewsUrl = '/api/knowledge/reviews';
+const stageReview = (headers: Record<string, string>, payload: KnowledgeReviewCreateInput) =>
+  context.app.inject({ method: 'POST', url: knowledgeReviewsUrl, headers, payload });
+const decideReview = (
+  headers: Record<string, string>,
+  id: string,
+  payload: KnowledgeReviewDecisionInput,
+) =>
+  context.app.inject({
+    method: 'POST',
+    url: `${knowledgeReviewsUrl}/${id}/decision`,
+    headers,
+    payload,
+  });
 
 async function fixtureSource(text = '合成证据：最初登记号 EX-01，后续更正值 EX-02。') {
   const docId = randomUUID();
@@ -420,10 +440,54 @@ test('规则版本发布后不可改，运行记录并沿用首次拿到的版�
       'production',
     );
     expect(onlyOfficial.data.pack).toBeNull();
-    const published = await context.pool.query<{ id: string }>(
-      `INSERT INTO rule_pack_version(pack_id,version,content,publication,published_by)
+    const content = {
+      ...pack,
+      version: '1.0.0',
+      rules: pack.rules.map((rule) => ({
+        ...rule,
+        status: 'confirmed',
+        units: Object.fromEntries(
+          Object.entries(rule.parameters ?? {})
+            .filter(([, v]) => typeof v === 'number')
+            .map(([key]) => [key, '合成单位']),
+        ),
+      })),
+    };
+    await expect(
+      context.pool.query(
+        `INSERT INTO rule_pack_version(pack_id,version,content,publication,published_by)
          SELECT id,'1.0.0',$2::jsonb,'published',$3 FROM rule_pack WHERE code=$1 RETURNING id`,
-      [pack.code, JSON.stringify({ ...pack, version: '1.0.0' }), context.userId('MEMBER_A')],
+        [pack.code, JSON.stringify(content), context.userId('MEMBER_A')],
+      ),
+    ).rejects.toMatchObject({ code: '23514' });
+    const admin = await context.login('ADMIN');
+    const reviewer = await context.login('MEMBER_B');
+    const staged = await stageReview(admin.headers, {
+      kind: 'rule_pack',
+      yaml: JSON.stringify(content),
+      requestKey: randomUUID(),
+    });
+    expect(staged.statusCode).toBe(200);
+    const review = knowledgeReviewSummarySchema.parse(staged.json());
+    const pendingRun = await context.run('MEMBER_A', 'read_only');
+    expect(
+      (
+        await readRulePack(
+          { tx, runId: pendingRun.runId } as Parameters<typeof readRulePack>[0],
+          pack.code,
+          'production',
+        )
+      ).data.pack,
+    ).toBeNull();
+    const confirmation = await decideReview(reviewer.headers, review.id, {
+      action: 'publish',
+      contentSha256: review.contentSha256,
+      requestKey: randomUUID(),
+    });
+    expect(confirmation.statusCode).toBe(200);
+    const published = await context.pool.query<{ id: string }>(
+      'SELECT id FROM rule_pack_version WHERE review_id=$1 AND published_by=$2',
+      [review.id, context.userId('MEMBER_B')],
     );
     const activeRun = await context.run('MEMBER_A', 'read_only');
     const inProduction = await readRulePack(
@@ -442,5 +506,194 @@ test('规则版本发布后不可改，运行记录并沿用首次拿到的版�
     ).rejects.toMatchObject({ code: '55000' });
   } finally {
     tx.release();
+  }
+});
+
+test('模板审核需浏览器，退回版本与草稿都不会进入 Agent 工具', async () => {
+  context = await createIntegrationContext();
+  const admin = await context.login('ADMIN');
+  const reviewer = await context.login('MEMBER_B');
+  const reader = await context.run('MEMBER_A', 'read_only');
+  const registry = new ToolRegistry(context.pool, [knowledgeGetTool()], { environment: 'test' });
+  const draft = {
+    code: 'synthetic_review_template',
+    title: '合成审核模板',
+    version: '1.0.0',
+    source: '合成测试场景',
+    body: '合成测试正文\n  保留正文缩进',
+    dataLevel: 'confidential',
+  };
+  const request = {
+    kind: 'template' as const,
+    yaml: JSON.stringify(draft),
+    requestKey: randomUUID(),
+  };
+  const input = { kind: 'template', code: draft.code };
+  const read = (call = fresh(reader)) => registry.execute(call, 'knowledge_get', input);
+  expect((await stageReview(reviewer.headers, request)).statusCode).toBe(403);
+  const created = await stageReview(admin.headers, request);
+  expect(created.statusCode).toBe(200);
+  const pending = knowledgeReviewSummarySchema.parse(created.json());
+  expect(pending.status).toBe('pending');
+  expect(created.json()).not.toHaveProperty('draft');
+  expect((await stageReview(admin.headers, request)).json()).toEqual(pending);
+  expect(
+    (await stageReview(admin.headers, { ...request, requestKey: randomUUID() })).statusCode,
+  ).toBe(409);
+  const detailUrl = `${knowledgeReviewsUrl}/${pending.id}`;
+  expect((await context.app.inject({ url: detailUrl })).statusCode).toBe(403);
+  expect(
+    (await context.app.inject({ url: detailUrl, headers: reviewer.headers })).json(),
+  ).toMatchObject({ draft: { kind: 'template', content: draft } });
+  expect(
+    (await context.app.inject({ url: knowledgeReviewsUrl, headers: reviewer.headers })).json(),
+  ).toMatchObject({ items: [pending], nextAfterId: null });
+  expect((await read()).data).toEqual({ kind: 'template', template: null });
+
+  const approval = {
+    action: 'publish' as const,
+    contentSha256: pending.contentSha256,
+    requestKey: randomUUID(),
+  };
+  const { 'x-csrf-token': _token, ...noToken } = reviewer.headers;
+  expect((await decideReview(noToken, pending.id, approval)).statusCode).toBe(403);
+  expect(
+    (
+      await decideReview(reviewer.headers, pending.id, {
+        ...approval,
+        contentSha256: '0'.repeat(64),
+      })
+    ).statusCode,
+  ).toBe(409);
+  const result = await decideReview(reviewer.headers, pending.id, approval);
+  expect(result.statusCode).toBe(200);
+  expect(result.json()).toMatchObject({ status: 'published' });
+  expect((await decideReview(reviewer.headers, pending.id, approval)).json()).toEqual(
+    result.json(),
+  );
+  expect((await decideReview(admin.headers, pending.id, approval)).statusCode).toBe(409);
+  const sameCall = fresh(reader);
+  for (const readResult of [await read(sameCall), await read(sameCall)]) {
+    expect(readResult).toMatchObject({ dataLevel: 'confidential', data: { template: draft } });
+  }
+  await expect(
+    context.pool.query('DELETE FROM template_version WHERE review_id=$1', [pending.id]),
+  ).rejects.toMatchObject({ code: '55000' });
+  await expect(
+    context.pool.query('UPDATE knowledge_review SET content_sha256=$2 WHERE id=$1', [
+      pending.id,
+      '1'.repeat(64),
+    ]),
+  ).rejects.toMatchObject({ code: '55000' });
+
+  const candidate = await stageReview(admin.headers, {
+    ...request,
+    yaml: JSON.stringify({ ...draft, version: '1.1.0', body: '合成的错误正文' }),
+    requestKey: randomUUID(),
+  });
+  const next = knowledgeReviewSummarySchema.parse(candidate.json());
+  const reject = {
+    action: 'reject' as const,
+    contentSha256: next.contentSha256,
+    reason: '出处未核对',
+    requestKey: randomUUID(),
+  };
+  const rejected = await decideReview(reviewer.headers, next.id, reject);
+  expect(rejected.statusCode).toBe(200);
+  expect(rejected.json()).toMatchObject({ status: 'rejected', reason: reject.reason });
+  expect((await decideReview(reviewer.headers, next.id, reject)).json()).toEqual(rejected.json());
+  expect(
+    (await decideReview(reviewer.headers, next.id, { ...reject, reason: '另一个原因' })).statusCode,
+  ).toBe(409);
+  expect((await read()).data).toMatchObject({ template: draft });
+
+  const publishBody = async (version: string, body: string) => {
+    const pending = knowledgeReviewSummarySchema.parse(
+      (
+        await stageReview(admin.headers, {
+          ...request,
+          yaml: JSON.stringify({ ...draft, version, body }),
+          requestKey: randomUUID(),
+        })
+      ).json(),
+    );
+    expect(
+      (
+        await decideReview(reviewer.headers, pending.id, {
+          action: 'publish',
+          contentSha256: pending.contentSha256,
+          requestKey: randomUUID(),
+        })
+      ).statusCode,
+    ).toBe(200);
+  };
+  await publishBody('2.0.0', '已审阅的新正文');
+  expect((await read()).data).toMatchObject({
+    template: { version: '2.0.0', body: '已审阅的新正文' },
+  });
+  await publishBody('2.0.1', draft.body);
+  expect((await read()).data).toMatchObject({ template: { version: '2.0.1', body: draft.body } });
+  expect(
+    (
+      await context.pool.query(
+        'SELECT action,actor_user_id FROM audit_log WHERE target_type=$1 AND target_id=$2 ORDER BY id',
+        ['knowledge_review', next.id],
+      )
+    ).rows,
+  ).toEqual(
+    expect.arrayContaining([
+      { action: 'knowledge.review_staged', actor_user_id: context.userId('ADMIN') },
+      { action: 'knowledge.review_rejected', actor_user_id: context.userId('MEMBER_B') },
+    ]),
+  );
+});
+
+test('规则缺确认或数值单位时维持待审，已存在的版本冲突也不改变审核决定', async () => {
+  context = await createIntegrationContext();
+  await publishDevelopmentRulePack(context.pool, pack, 'test');
+  const admin = await context.login('ADMIN');
+  const member = await context.login('MEMBER_A');
+  const drafts = [
+    { ...pack, version: '3.0.0' },
+    {
+      ...pack,
+      version: '4.0.0',
+      rules: [{ ...pack.rules[0], status: 'confirmed', parameters: { amount: 2 } }],
+    },
+    {
+      ...pack,
+      rules: pack.rules.map((rule) => ({
+        ...rule,
+        status: 'confirmed',
+        units: Object.fromEntries(
+          Object.keys(rule.parameters ?? {}).map((key) => [key, '合成单位']),
+        ),
+      })),
+    },
+  ];
+  for (const [index, draft] of drafts.entries()) {
+    const staged = await stageReview(admin.headers, {
+      kind: 'rule_pack',
+      yaml: JSON.stringify(draft),
+      requestKey: randomUUID(),
+    });
+    const review = knowledgeReviewSummarySchema.parse(staged.json());
+    const response = await decideReview(member.headers, review.id, {
+      action: 'publish',
+      contentSha256: review.contentSha256,
+      requestKey: randomUUID(),
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.body).toContain(
+      index === 2 ? 'KNOWLEDGE_REVIEW_CONFLICT' : 'KNOWLEDGE_RULES_PENDING',
+    );
+    expect(
+      (
+        await context.app.inject({
+          url: `${knowledgeReviewsUrl}/${review.id}`,
+          headers: member.headers,
+        })
+      ).json(),
+    ).toMatchObject({ status: 'pending', reviewedAt: null });
   }
 });

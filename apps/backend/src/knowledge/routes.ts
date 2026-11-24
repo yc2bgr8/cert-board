@@ -7,15 +7,31 @@ import type {
 } from 'fastify';
 import type { Pool } from 'pg';
 import { z } from 'zod';
-import { factDecisionInputSchema, type BackendConfig } from '@cert-board/shared';
+import {
+  factDecisionInputSchema,
+  knowledgeReviewCreateSchema,
+  knowledgeReviewDecisionSchema,
+  type BackendConfig,
+} from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { requireBrowserIdentity } from '../auth/session.js';
+import { requireSkillBrowserSession, withSkillTransaction } from '../skills/service.js';
 import { decideFactCandidate, listFactCandidates } from './facts.js';
+import {
+  decideKnowledgeReview,
+  getKnowledgeReview,
+  listKnowledgeReviews,
+  stageKnowledgeReview,
+} from './publication.js';
 
 const projectParams = z.strictObject({ projectId: z.uuid() });
 const candidateParams = projectParams.extend({ candidateId: z.uuid() });
+const pageOptions = z.strictObject({ afterId: z.uuid().optional() });
+const reviewParams = z.strictObject({ reviewId: z.uuid() });
 const invalid = () =>
   new AppError(400, 'FACT_REQUEST_INVALID', '项目、候选、版本或处理内容无效，请刷新后核对。');
+const invalidReview = () =>
+  new AppError(400, 'KNOWLEDGE_REVIEW_INVALID', '审核卡、版本或处理内容无效，请刷新后核对。');
 
 export function registerKnowledgeRoutes<Logger extends FastifyBaseLogger>(
   app: FastifyInstance<
@@ -30,7 +46,7 @@ export function registerKnowledgeRoutes<Logger extends FastifyBaseLogger>(
   app.get('/api/projects/:projectId/fact-candidates', async (request, reply) => {
     const actor = await requireBrowserIdentity(request, pool, config);
     const loc = projectParams.safeParse(request.params);
-    const filter = z.strictObject({ afterId: z.uuid().optional() }).safeParse(request.query);
+    const filter = pageOptions.safeParse(request.query);
     if (!loc.success || !filter.success) throw invalid();
     reply.header('cache-control', 'no-store');
     return listFactCandidates(pool, actor, loc.data.projectId, filter.data.afterId);
@@ -71,4 +87,45 @@ export function registerKnowledgeRoutes<Logger extends FastifyBaseLogger>(
       }
     },
   );
+
+  app.get('/api/knowledge/reviews', async (request, reply) => {
+    await requireBrowserIdentity(request, pool, config);
+    const filter = pageOptions.safeParse(request.query);
+    if (!filter.success) throw invalidReview();
+    reply.header('cache-control', 'no-store');
+    return listKnowledgeReviews(pool, filter.data.afterId);
+  });
+
+  app.get('/api/knowledge/reviews/:reviewId', async (request, reply) => {
+    await requireBrowserIdentity(request, pool, config);
+    const loc = reviewParams.safeParse(request.params);
+    if (!loc.success) throw invalidReview();
+    reply.header('cache-control', 'no-store');
+    return getKnowledgeReview(pool, loc.data.reviewId);
+  });
+
+  app.post('/api/knowledge/reviews', { bodyLimit: 64 * 1024 }, async (request, reply) => {
+    const input = knowledgeReviewCreateSchema.safeParse(request.body);
+    if (!input.success) throw invalidReview();
+    const result = await withSkillTransaction(pool, async (tx) => {
+      const actor = await requireBrowserIdentity(request, tx, config, { write: true });
+      await requireSkillBrowserSession(tx, actor);
+      const verified = await requireBrowserIdentity(request, tx, config, { write: true });
+      return stageKnowledgeReview(tx, verified, input.data);
+    });
+    return reply.header('cache-control', 'no-store').send(result);
+  });
+
+  app.post('/api/knowledge/reviews/:reviewId/decision', async (request, reply) => {
+    const loc = reviewParams.safeParse(request.params);
+    const input = knowledgeReviewDecisionSchema.safeParse(request.body);
+    if (!loc.success || !input.success) throw invalidReview();
+    const result = await withSkillTransaction(pool, async (tx) => {
+      const actor = await requireBrowserIdentity(request, tx, config, { write: true });
+      await requireSkillBrowserSession(tx, actor);
+      const verified = await requireBrowserIdentity(request, tx, config, { write: true });
+      return decideKnowledgeReview(tx, verified, loc.data.reviewId, input.data);
+    });
+    return reply.header('cache-control', 'no-store').send(result);
+  });
 }

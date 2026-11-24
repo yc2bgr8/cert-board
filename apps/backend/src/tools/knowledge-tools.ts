@@ -16,6 +16,7 @@ import {
   refreshConfirmedFactsLevel,
   refreshFactProposalLevel,
 } from '../knowledge/facts.js';
+import { readPublishedTemplate } from '../knowledge/publication.js';
 import { readRulePack } from '../knowledge/rule-packs.js';
 import type { ToolDefinition } from './registry.js';
 
@@ -31,12 +32,12 @@ export function knowledgeGetTool(): ToolDefinition {
       outputDataLevel: 'dynamic',
       authorizationAction: 'project.read',
       description: {
-        purpose: '读取市场规则包的固定版本，或读取当前项目内由人确认且仍有效的事实。',
-        whenToUse: '核查美国年度注册、列名或美国代理人时，先加载规则及已经确认的项目资料。',
+        purpose: '读取市场规则包的固定版本、已审阅发布的公司模板，或读取当前项目内有效的确认事实。',
+        whenToUse: '按市场规则核查事项、采用公司模板拟稿，或查找已确认的项目事实时使用。',
         avoid:
           '读取页原文用 doc_read，查现时公开记录用 official_lookup。开发规则包仍待注册人员确认。',
         parameters:
-          'kind=rule_pack 时给 code。kind=facts 可按 subject 与 field 精确过滤，分页用 afterId，单页最多 10 条。',
+          'kind=rule_pack 或 template 时给 code。kind=facts 可按 subject 与 field 精确过滤，分页用 afterId，单页最多 10 条。',
         example: { kind: 'rule_pack', code: 'us_fda_m02' },
       },
     },
@@ -44,19 +45,25 @@ export function knowledgeGetTool(): ToolDefinition {
     outputSchema: knowledgeGetResultSchema,
     async execute(ctx, input) {
       const request = knowledgeGetInputSchema.parse(input);
-      return request.kind === 'rule_pack'
-        ? readRulePack(ctx, request.code, process.env.NODE_ENV ?? 'production')
-        : readConfirmedFacts(ctx, request);
+      switch (request.kind) {
+        case 'rule_pack':
+          return readRulePack(ctx, request.code, process.env.NODE_ENV ?? 'production');
+        case 'template':
+          return readPublishedTemplate(ctx, request.code);
+        case 'facts':
+          return readConfirmedFacts(ctx, request);
+      }
     },
     async refreshDataLevel(ctx, input) {
       const cached = knowledgeGetResultSchema.parse(input);
       if (cached.kind === 'facts') return refreshConfirmedFactsLevel(ctx, cached.facts);
+      if (cached.kind === 'template') return cached.template?.dataLevel ?? 'internal';
       if (
         cached.pack?.publication === 'development' &&
         !['test', 'development'].includes(process.env.NODE_ENV ?? 'production')
       )
         throw new AppError(403, 'RULE_PACK_DEVELOPMENT_ONLY', '当前环境只可读取正式发布的规则包。');
-      return 'internal';
+      return cached.pack?.dataLevel ?? 'internal';
     },
   };
 }

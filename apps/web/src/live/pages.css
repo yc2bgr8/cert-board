@@ -398,3 +398,21 @@
   overflow-wrap: anywhere;
   font: inherit;
 }
+.live-knowledge-yaml {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0;
+}
+.live-knowledge-rules {
+  display: grid;
+  width: 100%;
+  gap: 12px;
+  padding-left: 20px;
+}
+#knowledge-reviews details {
+  width: 100%;
+  margin-top: 16px;
+}
+#knowledge-reviews details form {
+  padding-top: 10px;
+}

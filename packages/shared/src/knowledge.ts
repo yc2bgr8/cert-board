@@ -115,15 +115,21 @@ const ruleSource = z.strictObject({
 const marketRuleSchema = z.strictObject({
   id: code,
   statement: text(700),
-  status: z.enum(['draft', 'pending_confirmation']),
+  status: z.enum(['draft', 'pending_confirmation', 'confirmed']),
+  category: z
+    .enum(['classification', 'pathway', 'evidence', 'filing', 'maintenance', 'change'])
+    .optional(),
   source: ruleSource,
   parameters: z.record(code, value).optional(),
+  units: z.record(code, text(32)).optional(),
 });
+const version = z.string().regex(/^\d{1,4}\.\d{1,4}\.\d{1,4}$/u);
 export const rulePackSeedSchema = z.strictObject({
   code,
   title: text(160),
   jurisdiction: z.string().regex(/^[A-Z]{2}$/u),
-  version: z.string().regex(/^\d{1,4}\.\d{1,4}\.\d{1,4}$/u),
+  version,
+  dataLevel: dataLevel.optional(),
   rules: z
     .array(marketRuleSchema)
     .min(1)
@@ -132,8 +138,71 @@ export const rulePackSeedSchema = z.strictObject({
 });
 export type RulePackSeed = z.infer<typeof rulePackSeedSchema>;
 
+export const templateSeedSchema = z.strictObject({
+  code,
+  title: text(160),
+  version,
+  source: text(400),
+  body: z
+    .string()
+    .min(1)
+    .max(10_000)
+    .refine(
+      (body) =>
+        body.trim().length > 0 &&
+        /^[^\uD800-\uDFFF]*$/u.test(body) &&
+        !body.includes('\0') &&
+        new TextEncoder().encode(body).length <= 12_000,
+    ),
+  dataLevel,
+});
+export type TemplateSeed = z.infer<typeof templateSeedSchema>;
+
+export const knowledgeDraftSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('rule_pack'), content: rulePackSeedSchema }),
+  z.strictObject({ kind: z.literal('template'), content: templateSeedSchema }),
+]);
+export type KnowledgeDraft = z.infer<typeof knowledgeDraftSchema>;
+export const knowledgeReviewCreateSchema = z.strictObject({
+  kind: z.enum(['rule_pack', 'template']),
+  yaml: text(32_000),
+  requestKey: z.uuid(),
+});
+export type KnowledgeReviewCreateInput = z.infer<typeof knowledgeReviewCreateSchema>;
+const contentSha256 = z.string().regex(/^[0-9a-f]{64}$/u);
+const reviewDecisionFields = { contentSha256, requestKey: z.uuid() };
+export const knowledgeReviewDecisionSchema = z.discriminatedUnion('action', [
+  z.strictObject({ action: z.literal('publish'), ...reviewDecisionFields }),
+  z.strictObject({ action: z.literal('reject'), ...reviewDecisionFields, reason: text(600) }),
+]);
+export type KnowledgeReviewDecisionInput = z.infer<typeof knowledgeReviewDecisionSchema>;
+export const knowledgeReviewSummarySchema = z.strictObject({
+  id: z.uuid(),
+  kind: z.enum(['rule_pack', 'template']),
+  code,
+  title: text(160),
+  version,
+  status: z.enum(['pending', 'published', 'rejected']),
+  contentSha256,
+  createdAt: timestamp,
+  reviewedAt: timestamp.nullable(),
+  reason: text(600).nullable(),
+});
+export const knowledgeReviewPageSchema = z.strictObject({
+  items: z.array(knowledgeReviewSummarySchema).max(40),
+  nextAfterId: z.uuid().nullable(),
+});
+export const knowledgeReviewDetailSchema = knowledgeReviewSummarySchema.extend({
+  draft: knowledgeDraftSchema,
+});
+export const publishedTemplateSchema = templateSeedSchema.extend({
+  versionId: z.uuid(),
+  publication: z.literal('published'),
+});
+
 export const knowledgeGetInputSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('rule_pack'), code }),
+  z.strictObject({ kind: z.literal('template'), code }),
   z.strictObject({
     kind: z.literal('facts'),
     subject: subject.optional(),
@@ -144,6 +213,7 @@ export const knowledgeGetInputSchema = z.discriminatedUnion('kind', [
 ]);
 export type KnowledgeGetInput = z.infer<typeof knowledgeGetInputSchema>;
 export const knowledgeGetResultSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('template'), template: publishedTemplateSchema.nullable() }),
   z.strictObject({
     kind: z.literal('rule_pack'),
     pack: rulePackSeedSchema

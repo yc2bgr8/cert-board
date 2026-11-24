@@ -6,8 +6,8 @@ import { rulePackSeedSchema, type RulePackSeed } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import type { ToolExecutionContext } from '../tools/registry.js';
 
-export function parseRulePackSeed(text: string) {
-  if (Buffer.byteLength(text, 'utf8') > 32_000) throw new Error('规则包超过 32 KiB。');
+export function parseKnowledgeSeedYaml(text: string, label = '规则包') {
+  if (Buffer.byteLength(text, 'utf8') > 32_000) throw new Error(`${label}超过 32 KiB。`);
   const [draft, extra] = parseAllDocuments(text, {
     version: '1.2',
     strict: true,
@@ -19,12 +19,16 @@ export function parseRulePackSeed(text: string) {
     resolveKnownTags: false,
   });
   if (!draft || extra || draft.errors.length || draft.warnings.length)
-    throw new Error('规则包需要一份合法 YAML 对象。');
+    throw new Error(`${label}需要一份合法 YAML 对象。`);
   visit(draft, (_key, node) => {
     if (isAlias(node) || (isNode(node) && (('anchor' in node && node.anchor) || node.tag)))
-      throw new Error('规则包 YAML 不支持别名、锚点和标签。');
+      throw new Error(`${label} YAML 不支持别名、锚点和标签。`);
   });
-  const parsed = rulePackSeedSchema.safeParse(draft.toJS({ maxAliasCount: 0 }));
+  return draft.toJS({ maxAliasCount: 0 }) as unknown;
+}
+
+export function parseRulePackSeed(text: string) {
+  const parsed = rulePackSeedSchema.safeParse(parseKnowledgeSeedYaml(text));
   if (!parsed.success) throw new Error('规则包字段、版本或出处无效，请核对 YAML。');
   return parsed.data;
 }
@@ -127,17 +131,11 @@ export async function readRulePack(ctx: ToolExecutionContext, code: string, envi
        WHERE used.run_id=$1 AND p.code=$2 AND (v.publication='published' OR ($3::boolean AND v.publication='development'))`,
     [ctx.runId, code, allowDevelopment],
   );
+  const pack = row
+    ? { ...rulePackSeedSchema.parse(row.content), versionId: row.id, publication: row.publication }
+    : null;
   return {
-    data: {
-      kind: 'rule_pack' as const,
-      pack: row
-        ? {
-            ...rulePackSeedSchema.parse(row.content),
-            versionId: row.id,
-            publication: row.publication,
-          }
-        : null,
-    },
-    dataLevel: 'internal' as const,
+    data: { kind: 'rule_pack' as const, pack },
+    dataLevel: pack?.dataLevel ?? 'internal',
   };
 }

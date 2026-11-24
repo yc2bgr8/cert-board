@@ -169,6 +169,51 @@ async function main() {
     });
     page = await context.newPage();
     await mkdir(output, { recursive: true });
+    stage = '管理员在浏览器登记合成模板';
+    const authorContext = await browser.newContext({ serviceWorkers: 'block' });
+    try {
+      await authorContext.route('**/*', async (route) => {
+        if (new URL(route.request().url()).origin === harness.origin) await route.continue();
+        else {
+          externalRequests++;
+          await route.abort();
+        }
+      });
+      const author = await authorContext.newPage();
+      author.setDefaultTimeout(15000);
+      await author.goto(harness.origin);
+      try {
+        await author
+          .getByRole('textbox', { name: '账号', exact: true })
+          .fill(harness.managementCredentials.username);
+        await author
+          .getByLabel('密码', { exact: true })
+          .fill(harness.managementCredentials.password);
+        await author.getByRole('button', { name: '登录', exact: true }).click();
+        await author.getByRole('button', { name: '设置', exact: true }).waitFor();
+      } catch {
+        throw new Error('KNOWLEDGE_AUTHOR_LOGIN_FAILED');
+      }
+      await author.getByRole('button', { name: '设置', exact: true }).click();
+      const panel = author.getByRole('region', { name: '规则包与模板', exact: true });
+      await panel.getByRole('button', { name: '查看审核列表', exact: true }).click();
+      await panel.getByText('登记草稿', { exact: true }).click();
+      await panel.getByRole('combobox', { name: '类型', exact: true }).selectOption('template');
+      await panel.getByRole('textbox', { name: '草稿 YAML', exact: true }).fill(
+        JSON.stringify({
+          code: 'synthetic_record_review',
+          title: '合成资料核对模板',
+          version: '1.0.0',
+          source: '合成审阅场景',
+          body: '核对资料编号、文件版本和原文页码。\n记录差异及需要补充的材料。',
+          dataLevel: 'internal',
+        }),
+      );
+      await panel.getByRole('button', { name: '提交审阅', exact: true }).click();
+      await panel.getByText('草稿已提交审阅。', { exact: true }).waitFor();
+    } finally {
+      await authorContext.close();
+    }
     page.setDefaultTimeout(15000);
     let pageErrors = 0;
     let priorCspViolations = 0;
@@ -618,6 +663,32 @@ async function main() {
     await settings.getByText('已连接', { exact: true }).waitFor();
     assert.equal(await settings.getByRole('button', { name: '维护页', exact: true }).count(), 0);
     await captureWorkbench(page, output, 'pr-u4-15-settings.png');
+    stage = '注册人员在浏览器通过并发布模板';
+    const knowledge = settings.getByRole('region', { name: '规则包与模板', exact: true });
+    await knowledge.getByRole('button', { name: '查看审核列表', exact: true }).click();
+    const knowledgeCard = knowledge.getByRole('article', { name: '知识审核卡', exact: true });
+    await knowledgeCard
+      .getByRole('heading', { name: '合成资料核对模板 1.0.0', exact: true })
+      .waitFor();
+    await knowledgeCard.getByText('来源 · 合成审阅场景', { exact: true }).waitFor();
+    assert.equal(await knowledge.getByText('登记草稿', { exact: true }).count(), 0);
+    assert.equal((await harness.pool.query('SELECT 1 FROM template_version')).rowCount, 0);
+    await knowledgeCard.scrollIntoViewIfNeeded();
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+    });
+    await page.screenshot({ path: path.join(output, 'pr42-15-knowledge-review-1440x900.png') });
+    await knowledgeCard.getByRole('button', { name: '通过并发布', exact: true }).click();
+    await knowledgeCard.getByText('synthetic_record_review · 已发布', { exact: true }).waitFor();
+    assert.deepEqual(
+      (
+        await harness.pool.query(
+          'SELECT v.version,u.username FROM template_version v JOIN knowledge_review r ON r.id=v.review_id JOIN app_user u ON u.id=r.reviewer_id',
+        )
+      ).rows,
+      [{ version: '1.0.0', username: 'zhangsan' }],
+    );
+    await knowledge.getByRole('button', { name: '收起审核列表', exact: true }).click();
     stage = '技能版本审核、停用与回退';
     const draft = parseSkillDraftMarkdown(
       await readFile(
@@ -1467,6 +1538,7 @@ async function main() {
             'review_verification_returns_evidence_to_origin',
             'browser_review_decision_resumes_original_conversation',
             'skill_rollback_from_inbox_with_browser_approval',
+            'knowledge_template_publish_requires_browser_review',
             'agent_verification_waits_and_resumes_with_human_input',
             'stopping_conversation_stops_linked_verification',
             'cursor_unavailable_reaches_review_uncertainty',
@@ -1504,6 +1576,7 @@ async function main() {
             'pr-u4-12-inbox.png',
             'pr-15-12-deadline-inbox.png',
             'pr-u4-15-settings.png',
+            'pr42-15-knowledge-review-1440x900.png',
             'prd8-12-skill-rollback-inbox.png',
             'prd8-15-skill-rollback-settings.png',
             'pr-u4-16-management.png',

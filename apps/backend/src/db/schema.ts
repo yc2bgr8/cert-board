@@ -8,6 +8,8 @@ import type {
   FactCandidate,
   ReminderProfile,
   RulePackSeed,
+  KnowledgeDraft,
+  TemplateSeed,
   SkillVersionMetadata,
   SkillRollbackEvidence,
   VerificationClaim,
@@ -3122,6 +3124,97 @@ export const fact = pgTable(
   ],
 );
 
+export const knowledgeReview = pgTable(
+  'knowledge_review',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    kind: varchar('kind', { length: 16 }).$type<KnowledgeDraft['kind']>().notNull(),
+    code: varchar('code', { length: 80 }).notNull(),
+    version: varchar('version', { length: 14 }).notNull(),
+    content: jsonb('content').$type<KnowledgeDraft['content']>().notNull(),
+    contentSha256: varchar('content_sha256', { length: 64 }).notNull(),
+    status: varchar('status', { length: 16 })
+      .$type<'pending' | 'published' | 'rejected'>()
+      .notNull()
+      .default('pending'),
+    authorId: uuid('author_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    requestKey: uuid('request_key').notNull(),
+    reviewerId: uuid('reviewer_id').references(() => appUser.id, { onDelete: 'restrict' }),
+    reviewSessionId: uuid('review_session_id'),
+    decisionRequestKey: uuid('decision_request_key'),
+    reason: varchar('reason', { length: 600 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  },
+  (t) => [
+    unique('knowledge_review_version_unique').on(t.kind, t.code, t.version),
+    unique('knowledge_review_request_unique').on(t.authorId, t.requestKey),
+    unique('knowledge_review_decision_unique').on(t.reviewerId, t.decisionRequestKey),
+    check('knowledge_review_kind_ok', sql`${t.kind} IN ('rule_pack','template')`),
+    check(
+      'knowledge_review_content_ok',
+      sql`jsonb_typeof(${t.content})='object'
+      AND (${t.content}->>'code') IS NOT DISTINCT FROM ${t.code}
+      AND (${t.content}->>'version') IS NOT DISTINCT FROM ${t.version}
+      AND ${t.code} ~ '^[a-z][a-z0-9_]{0,79}$'
+      AND ${t.version} ~ '^([0-9]{1,4}[.]){2}[0-9]{1,4}$'
+      AND ${t.contentSha256} ~ '^[a-f0-9]{64}$'`,
+    ),
+    check(
+      'knowledge_review_status_ok',
+      sql`(
+      ${t.status}='pending' AND ${t.reviewedAt} IS NULL AND ${t.reviewerId} IS NULL
+      AND ${t.reviewSessionId} IS NULL AND ${t.decisionRequestKey} IS NULL AND ${t.reason} IS NULL
+    ) OR (
+      ${t.status} IN ('published','rejected') AND ${t.reviewedAt} IS NOT NULL AND ${t.reviewerId} IS NOT NULL
+      AND ${t.reviewSessionId} IS NOT NULL AND ${t.decisionRequestKey} IS NOT NULL
+      AND ${t.reviewedAt} >= ${t.createdAt}
+      AND ((${t.status}='published' AND ${t.reason} IS NULL) OR
+        (${t.status}='rejected' AND ${t.reason} IS NOT NULL AND length(btrim(${t.reason}))>0))
+    )`,
+    ),
+    index('knowledge_review_status_created_idx').on(t.status, t.createdAt),
+  ],
+);
+
+export const template = pgTable(
+  'template',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    code: varchar('code', { length: 80 }).notNull().unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check('template_code_ok', sql`${t.code} ~ '^[a-z][a-z0-9_]{0,79}$'`)],
+);
+
+export const templateVersion = pgTable(
+  'template_version',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    templateId: uuid('template_id')
+      .notNull()
+      .references(() => template.id, { onDelete: 'restrict' }),
+    version: varchar('version', { length: 14 }).notNull(),
+    content: jsonb('content').$type<TemplateSeed>().notNull(),
+    reviewId: uuid('review_id')
+      .notNull()
+      .unique()
+      .references(() => knowledgeReview.id, { onDelete: 'restrict' }),
+    publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('template_version_unique').on(t.templateId, t.version),
+    check(
+      'template_version_content_ok',
+      sql`jsonb_typeof(${t.content})='object'
+      AND (${t.content}->>'version') IS NOT DISTINCT FROM ${t.version}
+      AND ${t.version} ~ '^([0-9]{1,4}[.]){2}[0-9]{1,4}$'`,
+    ),
+  ],
+);
+
 export const rulePack = pgTable(
   'rule_pack',
   {
@@ -3149,6 +3242,9 @@ export const rulePackVersion = pgTable(
       .$type<'development' | 'published'>()
       .notNull(),
     publishedBy: uuid('published_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    reviewId: uuid('review_id')
+      .unique()
+      .references(() => knowledgeReview.id, { onDelete: 'restrict' }),
     publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
