@@ -34,15 +34,16 @@ export const factProposalSchema = z
   .refine(hasUnit, unitIssue);
 export type FactProposal = z.infer<typeof factProposalSchema>;
 
-export const factCandidateSchema = factProposalSchema.safeExtend({
+export const factProposalResultSchema = factProposalSchema.safeExtend({
   id: z.uuid(),
   projectId: z.uuid(),
   status: z.enum(['pending', 'confirmed', 'rewritten', 'rejected', 'cancelled']),
-  dataLevel,
   baseRevision: z.number().int().nonnegative(),
   version: z.number().int().positive(),
   createdAt: timestamp,
 });
+export type FactProposalResult = z.infer<typeof factProposalResultSchema>;
+export const factCandidateSchema = factProposalResultSchema.safeExtend({ dataLevel });
 export type FactCandidate = z.infer<typeof factCandidateSchema>;
 
 const factOptions = {
@@ -64,6 +65,7 @@ export const factDecisionInputSchema = z
       ...factOptions,
       value,
       unit: unit.default(null),
+      evidence,
       reason: text(600),
     }),
     z.strictObject({
@@ -83,7 +85,6 @@ export const confirmedFactSchema = z
     value,
     unit,
     evidence,
-    dataLevel,
     revision: z.number().int().positive(),
     replacesId: z.uuid().nullable(),
     validFrom: timestamp,

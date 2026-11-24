@@ -1,5 +1,5 @@
 {
-  "id": "718cd7d3-ebfb-45ae-8974-bdfa4a2073e8",
+  "id": "69847dcc-b5ec-49d7-98da-445a9e1485d7",
   "prevId": "1f33568e-bbd6-4710-8d92-79799c830741",
   "version": "7",
   "dialect": "postgresql",
@@ -3544,6 +3544,18 @@
           "primaryKey": false,
           "notNull": true
         },
+        "source_document_id": {
+          "name": "source_document_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "evidence": {
+          "name": "evidence",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
         "data_level": {
           "name": "data_level",
           "type": "document_data_level",
@@ -3598,6 +3610,19 @@
           "tableTo": "cert_project",
           "columnsFrom": [
             "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "fact_source_document_id_document_id_fk": {
+          "name": "fact_source_document_id_document_id_fk",
+          "tableFrom": "fact",
+          "tableTo": "document",
+          "columnsFrom": [
+            "source_document_id"
           ],
           "columnsTo": [
             "id"
@@ -3700,6 +3725,14 @@
         "fact_level_ok": {
           "name": "fact_level_ok",
           "value": "\"fact\".\"data_level\" IN ('internal','confidential')"
+        },
+        "fact_value_ok": {
+          "name": "fact_value_ok",
+          "value": "jsonb_typeof(\"fact\".\"value\") IN ('string','number','boolean') AND (jsonb_typeof(\"fact\".\"value\") <> 'number' OR NULLIF(btrim(\"fact\".\"unit\"),'') IS NOT NULL)"
+        },
+        "fact_evidence_ok": {
+          "name": "fact_evidence_ok",
+          "value": "jsonb_typeof(\"fact\".\"evidence\") = 'object' AND (\"fact\".\"evidence\"->>'documentId') IS NOT DISTINCT FROM \"fact\".\"source_document_id\"::text"
         }
       },
       "isRLSEnabled": false
@@ -3965,7 +3998,11 @@
         },
         "fact_candidate_evidence_ok": {
           "name": "fact_candidate_evidence_ok",
-          "value": "jsonb_typeof(\"fact_candidate\".\"evidence\") = 'object' AND \"fact_candidate\".\"evidence\"->>'documentId' = \"fact_candidate\".\"source_document_id\"::text"
+          "value": "jsonb_typeof(\"fact_candidate\".\"evidence\") = 'object' AND (\"fact_candidate\".\"evidence\"->>'documentId') IS NOT DISTINCT FROM \"fact_candidate\".\"source_document_id\"::text"
+        },
+        "fact_candidate_value_ok": {
+          "name": "fact_candidate_value_ok",
+          "value": "jsonb_typeof(\"fact_candidate\".\"value\") IN ('string','number','boolean') AND (jsonb_typeof(\"fact_candidate\".\"value\") <> 'number' OR NULLIF(btrim(\"fact_candidate\".\"unit\"),'') IS NOT NULL)"
         },
         "fact_candidate_decision_ok": {
           "name": "fact_candidate_decision_ok",

@@ -8,6 +8,7 @@ import {
   type DocumentCitation,
   type FactDecisionInput,
   type FactProposal,
+  type FactProposalResult,
   type KnowledgeGetInput,
   type ToolApprovalPreview,
 } from '@cert-board/shared';
@@ -29,25 +30,27 @@ type CandidateRow = Omit<FactProposal, 'dueAt'> & {
   createdAt: Date;
 };
 type FactRow = Omit<ConfirmedFact, 'validFrom' | 'validUntil'> & {
+  dataLevel: 'internal' | 'confidential';
   validFrom: Date;
   validUntil: Date | null;
 };
-type CurrentRevision = Pick<ConfirmedFact, 'id' | 'revision' | 'locked' | 'dataLevel'>;
+type CurrentRevision = Pick<FactRow, 'id' | 'revision' | 'locked' | 'dataLevel'>;
 const unavailable = () =>
   new AppError(404, 'FACT_SCOPE_NOT_FOUND', '未找到当前项目或候选，请重新打开项目。');
 const changed = () =>
   new AppError(409, 'FACT_CANDIDATE_CHANGED', '候选或同字段事实已更新，请刷新后重新核对。');
 const candidateCols = `c.id,c.project_id AS "projectId",c.subject,c.field,c.value,c.unit,c.evidence,
-  c.base_revision AS "baseRevision",c.version,c.status,c.data_level AS "dataLevel",c.due_at AS "dueAt",c.created_at AS "createdAt"`;
-const factCols = `f.id,f.subject,f.field,f.value,f.unit,c.evidence,f.revision,f.locked,f.replaces_id AS "replacesId",
+  c.base_revision AS "baseRevision",c.version,c.status,c.due_at AS "dueAt",c.created_at AS "createdAt"`;
+const factCols = `f.id,f.subject,f.field,f.value,f.unit,f.evidence,f.revision,f.locked,f.replaces_id AS "replacesId",
   f.valid_from AS "validFrom",f.valid_until AS "validUntil",f.confirmed_by AS "confirmedBy"`;
 const classification = `(SELECT v.data_level FROM document_version v
   WHERE v.document_id=d.id ORDER BY v.data_level DESC LIMIT 1)`;
 const factClassification = `CASE WHEN EXISTS (
-  SELECT 1 FROM fact prior JOIN fact_candidate source ON source.id=prior.candidate_id
+  SELECT 1 FROM fact prior JOIN fact_candidate origin ON origin.id=prior.candidate_id
   WHERE prior.project_id=f.project_id AND prior.subject=f.subject AND prior.field=f.field
     AND prior.revision<=f.revision AND (prior.data_level='confidential' OR EXISTS (
-      SELECT 1 FROM document_version sv WHERE sv.document_id=source.source_document_id AND sv.data_level='confidential'
+      SELECT 1 FROM document_version sv
+      WHERE sv.document_id IN (prior.source_document_id,origin.source_document_id) AND sv.data_level='confidential'
     ))
 ) THEN 'confidential'::document_data_level ELSE 'internal'::document_data_level END`;
 const highest = (...levels: ReadonlyArray<string | null | undefined>) =>
@@ -97,7 +100,7 @@ const toCandidate = (row: CandidateRow) =>
     dueAt: row.dueAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   });
-const toFact = (row: FactRow) =>
+const toFact = (row: Omit<FactRow, 'dataLevel'>) =>
   confirmedFactSchema.parse({
     ...row,
     validFrom: row.validFrom.toISOString(),
@@ -152,7 +155,7 @@ export async function proposeFact(ctx: ToolExecutionContext, input: FactProposal
     rows: [row],
   } = await ctx.tx.query<CandidateRow>(
     `INSERT INTO fact_candidate AS c (id,project_id,proposal_run_id,proposed_by,subject,field,value,unit,source_document_id,evidence,data_level,base_revision,due_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10::jsonb,$11,$12,$13) RETURNING ${candidateCols}`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10::jsonb,$11,$12,$13) RETURNING ${candidateCols}, c.data_level AS "dataLevel"`,
     [
       id,
       projectId,
@@ -169,8 +172,8 @@ export async function proposeFact(ctx: ToolExecutionContext, input: FactProposal
       input.dueAt,
     ],
   );
-  const candidate = toCandidate(row!);
-  return { data: candidate, dataLevel: level, afterVersion: candidate.version };
+  const { dataLevel, ...candidate } = toCandidate(row!);
+  return { data: candidate, dataLevel, afterVersion: candidate.version };
 }
 
 export function captureFactProposal() {
@@ -202,9 +205,17 @@ export async function cancelFactProposal(ctx: ToolExecutionContext, record: Tool
 
 export async function refreshFactProposalLevel(
   ctx: ToolExecutionContext,
-  facts: { evidence: DocumentCitation; dataLevel: string },
+  candidate: Pick<FactProposalResult, 'id' | 'evidence'>,
 ) {
-  return highest(facts.dataLevel, await readSource(ctx.tx, projectForTool(ctx), facts.evidence));
+  const projectId = projectForTool(ctx);
+  const {
+    rows: [stored],
+  } = await ctx.tx.query<{ data_level: string }>(
+    'SELECT data_level FROM fact_candidate WHERE id=$1 AND project_id=$2 AND proposed_by=$3',
+    [candidate.id, projectId, ctx.actor.userId],
+  );
+  if (!stored) throw unavailable();
+  return highest(stored.data_level, await readSource(ctx.tx, projectId, candidate.evidence));
 }
 
 export async function readConfirmedFacts(
@@ -213,10 +224,11 @@ export async function readConfirmedFacts(
 ) {
   const { rows } = await ctx.tx.query<FactRow>(
     `SELECT ${factCols}, ${factClassification} AS "dataLevel"
-       FROM fact f JOIN fact_candidate c ON c.id=f.candidate_id JOIN document d ON d.id=c.source_document_id
+       FROM fact f JOIN document d ON d.id=f.source_document_id
        WHERE f.project_id=$1 AND d.project_id=$1 AND NOT d.voided
          AND ($2::text IS NULL OR f.subject=$2) AND ($3::text IS NULL OR f.field=$3)
-         AND ($4::uuid IS NULL OR f.id>$4) AND f.valid_from<=now() AND (f.valid_until IS NULL OR f.valid_until>now())
+         AND ($4::uuid IS NULL OR f.id>$4) AND f.valid_from<=statement_timestamp()
+         AND (f.valid_until IS NULL OR f.valid_until>statement_timestamp())
          AND NOT EXISTS (SELECT 1 FROM fact newer WHERE newer.project_id=f.project_id AND newer.subject=f.subject
            AND newer.field=f.field AND newer.revision>f.revision)
        ORDER BY f.id LIMIT $5`,
@@ -228,14 +240,15 @@ export async function readConfirmedFacts(
       input.limit + 1,
     ],
   );
-  const facts = rows.slice(0, input.limit).map(toFact);
+  const selected = rows.slice(0, input.limit);
+  const facts = selected.map(({ dataLevel: _level, ...item }) => toFact(item));
   return {
     data: {
       kind: 'facts' as const,
       facts,
       nextAfterId: rows.length > input.limit ? facts.at(-1)!.id : null,
     },
-    dataLevel: highest(...facts.map(({ dataLevel }) => dataLevel)),
+    dataLevel: highest(...selected.map(({ dataLevel }) => dataLevel)),
   };
 }
 
@@ -246,9 +259,9 @@ export async function refreshConfirmedFactsLevel(
   if (facts.length === 0) return 'internal' as const;
   const { rows } = await ctx.tx.query<{ data_level: string }>(
     `SELECT ${factClassification} AS data_level FROM fact f
-       JOIN fact_candidate c ON c.id=f.candidate_id JOIN document d ON d.id=c.source_document_id
+       JOIN document d ON d.id=f.source_document_id
        WHERE f.project_id=$1 AND d.project_id=$1 AND NOT d.voided AND f.id=ANY($2::uuid[])
-         AND f.valid_from<=now() AND (f.valid_until IS NULL OR f.valid_until>now())
+         AND f.valid_from<=statement_timestamp() AND (f.valid_until IS NULL OR f.valid_until>statement_timestamp())
          AND NOT EXISTS (SELECT 1 FROM fact newer WHERE newer.project_id=f.project_id AND newer.subject=f.subject
            AND newer.field=f.field AND newer.revision>f.revision)`,
     [projectForTool(ctx), facts.map(({ id }) => id)],
@@ -293,7 +306,9 @@ export async function listFactCandidates(
 ) {
   await browserProject(db, actor, projectId, false);
   const { rows } = await db.query<CandidateRow>(
-    `SELECT ${candidateCols} FROM fact_candidate c WHERE c.project_id=$1 AND c.status='pending'
+    `SELECT ${candidateCols},GREATEST(c.data_level,${classification}) AS "dataLevel"
+       FROM fact_candidate c JOIN document d ON d.id=c.source_document_id AND d.project_id=c.project_id
+       WHERE c.project_id=$1 AND c.status='pending'
        AND ($2::uuid IS NULL OR c.id>$2) ORDER BY c.id LIMIT 21`,
     [projectId, afterId ?? null],
   );
@@ -314,7 +329,7 @@ export async function decideFactCandidate(
   const {
     rows: [row],
   } = await db.query<CandidateRow>(
-    `SELECT ${candidateCols} FROM fact_candidate c WHERE c.id=$1 AND c.project_id=$2 FOR UPDATE`,
+    `SELECT ${candidateCols},c.data_level AS "dataLevel" FROM fact_candidate c WHERE c.id=$1 AND c.project_id=$2 FOR UPDATE`,
     [candidateId, project.id],
   );
   if (!row) throw unavailable();
@@ -349,10 +364,11 @@ export async function decideFactCandidate(
         ? 'rewritten'
         : 'rejected';
   let factId: string | null = null;
+  const approvedEvidence = input.decision === 'rewrite' ? input.evidence : candidate.evidence;
   const level =
     input.decision === 'reject'
       ? candidate.dataLevel
-      : highest(candidate.dataLevel, await readSource(db, projectId, candidate.evidence));
+      : highest(candidate.dataLevel, await readSource(db, projectId, approvedEvidence));
   const previous =
     input.decision === 'reject' ? undefined : await currentRevision(db, projectId, candidate);
   if (input.decision !== 'reject' && (previous?.revision ?? 0) !== candidate.baseRevision)
@@ -382,8 +398,8 @@ export async function decideFactCandidate(
   );
   if (input.decision !== 'reject') {
     const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO fact (project_id,subject,field,value,unit,candidate_id,data_level,revision,replaces_id,valid_until,locked,confirmed_by,valid_from)
-         VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+      `INSERT INTO fact (project_id,subject,field,value,unit,candidate_id,data_level,revision,replaces_id,valid_until,locked,confirmed_by,valid_from,source_document_id,evidence)
+         VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb) RETURNING id`,
       [
         projectId,
         candidate.subject,
@@ -398,6 +414,8 @@ export async function decideFactCandidate(
         input.locked ?? previous?.locked ?? false,
         actor.userId,
         decisionTime.at,
+        approvedEvidence.documentId,
+        JSON.stringify(approvedEvidence),
       ],
     );
     factId = rows[0]!.id;

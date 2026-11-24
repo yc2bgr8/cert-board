@@ -6,6 +6,8 @@ CREATE TABLE "fact" (
 	"value" jsonb NOT NULL,
 	"unit" varchar(32),
 	"candidate_id" uuid NOT NULL,
+	"source_document_id" uuid NOT NULL,
+	"evidence" jsonb NOT NULL,
 	"data_level" "document_data_level" NOT NULL,
 	"revision" integer NOT NULL,
 	"replaces_id" uuid,
@@ -18,7 +20,9 @@ CREATE TABLE "fact" (
 	CONSTRAINT "fact_scope_unique" UNIQUE("id","project_id","subject","field"),
 	CONSTRAINT "fact_revision_ok" CHECK (("fact"."revision" = 1 AND "fact"."replaces_id" IS NULL) OR ("fact"."revision" > 1 AND "fact"."replaces_id" IS NOT NULL AND "fact"."replaces_id" <> "fact"."id")),
 	CONSTRAINT "fact_validity_ok" CHECK ("fact"."valid_until" IS NULL OR "fact"."valid_until" > "fact"."valid_from"),
-	CONSTRAINT "fact_level_ok" CHECK ("fact"."data_level" IN ('internal','confidential'))
+	CONSTRAINT "fact_level_ok" CHECK ("fact"."data_level" IN ('internal','confidential')),
+	CONSTRAINT "fact_value_ok" CHECK (jsonb_typeof("fact"."value") IN ('string','number','boolean') AND (jsonb_typeof("fact"."value") <> 'number' OR NULLIF(btrim("fact"."unit"),'') IS NOT NULL)),
+	CONSTRAINT "fact_evidence_ok" CHECK (jsonb_typeof("fact"."evidence") = 'object' AND ("fact"."evidence"->>'documentId') IS NOT DISTINCT FROM "fact"."source_document_id"::text)
 );
 --> statement-breakpoint
 CREATE TABLE "fact_candidate" (
@@ -47,7 +51,8 @@ CREATE TABLE "fact_candidate" (
 	CONSTRAINT "fact_candidate_revision_ok" CHECK ("fact_candidate"."base_revision" >= 0 AND "fact_candidate"."version" > 0),
 	CONSTRAINT "fact_candidate_level_ok" CHECK ("fact_candidate"."data_level" IN ('internal','confidential')),
 	CONSTRAINT "fact_candidate_key_ok" CHECK (length(btrim("fact_candidate"."subject")) > 0 AND "fact_candidate"."field" ~ '^[a-z][a-z0-9_]{0,79}$'),
-	CONSTRAINT "fact_candidate_evidence_ok" CHECK (jsonb_typeof("fact_candidate"."evidence") = 'object' AND "fact_candidate"."evidence"->>'documentId' = "fact_candidate"."source_document_id"::text),
+	CONSTRAINT "fact_candidate_evidence_ok" CHECK (jsonb_typeof("fact_candidate"."evidence") = 'object' AND ("fact_candidate"."evidence"->>'documentId') IS NOT DISTINCT FROM "fact_candidate"."source_document_id"::text),
+	CONSTRAINT "fact_candidate_value_ok" CHECK (jsonb_typeof("fact_candidate"."value") IN ('string','number','boolean') AND (jsonb_typeof("fact_candidate"."value") <> 'number' OR NULLIF(btrim("fact_candidate"."unit"),'') IS NOT NULL)),
 	CONSTRAINT "fact_candidate_decision_ok" CHECK (("fact_candidate"."status" IN ('pending','cancelled') AND "fact_candidate"."decided_by" IS NULL AND "fact_candidate"."decided_at" IS NULL) OR ("fact_candidate"."status" IN ('confirmed','rewritten','rejected') AND "fact_candidate"."decided_by" IS NOT NULL AND "fact_candidate"."decided_at" IS NOT NULL))
 );
 --> statement-breakpoint
@@ -85,6 +90,7 @@ CREATE TABLE "run_rule_pack" (
 );
 --> statement-breakpoint
 ALTER TABLE "fact" ADD CONSTRAINT "fact_project_id_cert_project_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."cert_project"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "fact" ADD CONSTRAINT "fact_source_document_id_document_id_fk" FOREIGN KEY ("source_document_id") REFERENCES "public"."document"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "fact" ADD CONSTRAINT "fact_confirmed_by_app_user_id_fk" FOREIGN KEY ("confirmed_by") REFERENCES "public"."app_user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "fact" ADD CONSTRAINT "fact_candidate_scope_fk" FOREIGN KEY ("candidate_id","project_id","subject","field") REFERENCES "public"."fact_candidate"("id","project_id","subject","field") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "fact" ADD CONSTRAINT "fact_replaces_scope_fk" FOREIGN KEY ("replaces_id","project_id","subject","field") REFERENCES "public"."fact"("id","project_id","subject","field") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -98,6 +104,7 @@ ALTER TABLE "rule_pack_version" ADD CONSTRAINT "rule_pack_version_published_by_a
 ALTER TABLE "run_rule_pack" ADD CONSTRAINT "run_rule_pack_run_id_run_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."run"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "run_rule_pack" ADD CONSTRAINT "run_rule_pack_version_scope_fk" FOREIGN KEY ("version_id","pack_id") REFERENCES "public"."rule_pack_version"("id","pack_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "fact_candidate_pending_idx" ON "fact_candidate" USING btree ("project_id","created_at","id") WHERE "fact_candidate"."status" = 'pending';
+--> statement-breakpoint
 -- 版本与运行凭据保留原记录。待处理期间可设期限，决定或撤销仅记录一次。
 --> statement-breakpoint
 CREATE FUNCTION public.reject_knowledge_history_change()
@@ -140,12 +147,16 @@ FOR EACH ROW EXECUTE FUNCTION public.guard_fact_candidate_transition();
 CREATE FUNCTION public.guard_confirmed_fact()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.document d WHERE d.id=NEW.source_document_id AND d.project_id=NEW.project_id AND NOT d.voided) THEN
+    RAISE EXCEPTION '事实的实际证据须来自本项目有效资料。' USING ERRCODE = '23514';
+  END IF;
   IF NOT EXISTS (
     SELECT 1 FROM public.fact_candidate c
     WHERE c.id=NEW.candidate_id AND c.project_id=NEW.project_id
       AND c.subject=NEW.subject AND c.field=NEW.field
       AND c.status IN ('confirmed','rewritten') AND c.decided_by=NEW.confirmed_by
       AND c.base_revision=NEW.revision-1
+      AND (c.status='rewritten' OR (c.evidence=NEW.evidence AND c.value=NEW.value AND c.unit IS NOT DISTINCT FROM NEW.unit))
   ) THEN
     RAISE EXCEPTION '事实必须来自人工确认的对应候选。' USING ERRCODE = '23514';
   END IF;

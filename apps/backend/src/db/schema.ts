@@ -3045,7 +3045,11 @@ export const factCandidate = pgTable(
     ),
     check(
       'fact_candidate_evidence_ok',
-      sql`jsonb_typeof(${t.evidence}) = 'object' AND ${t.evidence}->>'documentId' = ${t.sourceDocumentId}::text`,
+      sql`jsonb_typeof(${t.evidence}) = 'object' AND (${t.evidence}->>'documentId') IS NOT DISTINCT FROM ${t.sourceDocumentId}::text`,
+    ),
+    check(
+      'fact_candidate_value_ok',
+      sql`jsonb_typeof(${t.value}) IN ('string','number','boolean') AND (jsonb_typeof(${t.value}) <> 'number' OR NULLIF(btrim(${t.unit}),'') IS NOT NULL)`,
     ),
     check(
       'fact_candidate_decision_ok',
@@ -3069,6 +3073,10 @@ export const fact = pgTable(
     value: jsonb('value').$type<ConfirmedFact['value']>().notNull(),
     unit: varchar('unit', { length: 32 }),
     candidateId: uuid('candidate_id').notNull().unique(),
+    sourceDocumentId: uuid('source_document_id')
+      .notNull()
+      .references(() => document.id, { onDelete: 'restrict' }),
+    evidence: jsonb('evidence').$type<DocumentCitation>().notNull(),
     dataLevel: documentDataLevel('data_level').notNull(),
     revision: integer('revision').notNull(),
     replacesId: uuid('replaces_id'),
@@ -3103,6 +3111,14 @@ export const fact = pgTable(
     ),
     check('fact_validity_ok', sql`${t.validUntil} IS NULL OR ${t.validUntil} > ${t.validFrom}`),
     check('fact_level_ok', sql`${t.dataLevel} IN ('internal','confidential')`),
+    check(
+      'fact_value_ok',
+      sql`jsonb_typeof(${t.value}) IN ('string','number','boolean') AND (jsonb_typeof(${t.value}) <> 'number' OR NULLIF(btrim(${t.unit}),'') IS NOT NULL)`,
+    ),
+    check(
+      'fact_evidence_ok',
+      sql`jsonb_typeof(${t.evidence}) = 'object' AND (${t.evidence}->>'documentId') IS NOT DISTINCT FROM ${t.sourceDocumentId}::text`,
+    ),
   ],
 );
 

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  factCandidateSchema,
+  factProposalResultSchema,
   factProposalSchema,
   knowledgeGetInputSchema,
   knowledgeGetResultSchema,
@@ -93,7 +93,7 @@ export function factProposeTool(): ToolDefinition {
       },
     },
     inputSchema: factProposalSchema,
-    outputSchema: factCandidateSchema,
+    outputSchema: factProposalResultSchema,
     async prepareApproval(ctx, input) {
       return previewFactProposal(ctx, factProposalSchema.parse(input));
     },
@@ -107,7 +107,7 @@ export function factProposeTool(): ToolDefinition {
       return proposeFact(ctx, factProposalSchema.parse(input), before.targetId);
     },
     async refreshDataLevel(ctx, input) {
-      return refreshFactProposalLevel(ctx, factCandidateSchema.parse(input));
+      return refreshFactProposalLevel(ctx, factProposalResultSchema.parse(input));
     },
     undo: {
       beforeSchema: z.strictObject({ existed: z.literal(false) }),

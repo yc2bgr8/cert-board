@@ -16,8 +16,8 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 @media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
 </style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#验收">验收</a><a class="level-2" href="#没做什么">没做什么</a></nav><main><h1 id="pr-33-事实与规则包">PR-33 事实与规则包</h1>
-<p><code>fact_propose</code> 在当前项目生成待核实候选，逐字校验资料版本和页码。请求批准模式先经过浏览器，撤销把候选标为取消。注册人员在浏览器设置处理期限、确认、改写或拒绝。数值须带单位，锁定事实只由负责人修订。旧事实保留版本、来源与确认人。</p>
-<p><code>knowledge_get</code> 读取当前项目已确认、未替换且仍有效的事实。来源作废、截止时间过去或已替换时停止返回对应事实。读取和重放按修订链各来源的当前最高数据级别处理。规则包按运行固定首次读取的已登记版本。</p>
+<p><code>fact_propose</code> 在当前项目生成待核实候选，逐字校验资料版本和页码。请求批准模式先经过浏览器，撤销把候选标为取消。注册人员在浏览器设置处理期限、确认、改写或拒绝。人工改写保存实际核对的新证据。数值须带单位，锁定事实只由负责人修订。旧事实保留版本、来源与确认人。</p>
+<p><code>knowledge_get</code> 读取当前项目已确认、未替换且仍有效的事实。每次查询按查询时刻判定是否到期。来源作废、截止时间过去或已替换时停止返回对应事实。工具回执外层的数据级别按修订链来源的当前最高级别确定，重放也复核。规则包按运行固定首次读取的已登记版本。</p>
 <p>开发库用 <code>pnpm knowledge:seed</code> 发布带「待注册人员确认」标识的 YAML 种子。相同内容可重跑，修改需提升版本。<code>pnpm db:setup</code> 同时准备开发种子。正式环境读取注册人员已发布的版本。历史版本与运行引用受数据库变更保护。</p>
 <p>FDA 草稿核对了年度注册、列名复核、2027 财年企业年度注册费、美国代理人和代理人变更。适用性和具体履行由注册人员确认。每条规则在种子中记录条款、核查日及官方档案。<a href="https://www.ecfr.gov/current/title-21/chapter-I/subchapter-H/part-807/subpart-B/section-807.22" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">年度注册与列名（外部链接）</a> · <a href="https://www.ecfr.gov/current/title-21/chapter-I/subchapter-H/part-807/subpart-C/section-807.40" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">美国代理人（外部链接）</a> · <a href="https://www.govinfo.gov/content/pkg/FR-2026-07-30/html/2026-15335.htm" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">2027 财年费用公告（外部链接）</a></p>
 <h2 id="验收">验收</h2>
