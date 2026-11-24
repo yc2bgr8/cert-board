@@ -52,6 +52,7 @@ export async function startWorker() {
   let dispatch: Promise<void> | undefined;
   let maintenance: Promise<void> | undefined;
   let opsScan: Promise<void> | undefined;
+  const opsAbort = new AbortController();
   let registration: Promise<string> | undefined;
   let stopPromise: Promise<void> | undefined;
   let stopDocumentWorker: (() => Promise<void>) | undefined;
@@ -62,6 +63,7 @@ export async function startWorker() {
   const stop = () =>
     (stopPromise ??= (async () => {
       closing = true;
+      opsAbort.abort();
       if (interval) clearInterval(interval);
       if (dispatchInterval) clearInterval(dispatchInterval);
       process.off('SIGINT', onSignal);
@@ -326,16 +328,29 @@ export async function startWorker() {
       await stop();
       throw new Error('WORKER_START_CANCELLED');
     }
+    let databaseAvailable: boolean | undefined;
+    const observeOpsDatabase = (available: boolean) => {
+      if (!available && databaseAvailable !== false) {
+        logger.warn({ event: 'ops_database_unavailable' }, '本机数据库探测失败。');
+      } else if (available && databaseAvailable === false) {
+        logger.info({ event: 'ops_database_recovered' }, '本机数据库探测已恢复。');
+      }
+      databaseAvailable = available;
+    };
     const refreshOps = () => {
       if (closing || opsScan) return;
-      opsScan = scanOpsAlerts(resources.database, config, resources, webTools.length > 0)
+      opsScan = scanOpsAlerts(resources.database, config, resources, webTools.length > 0, {
+        signal: opsAbort.signal,
+        onDatabase: observeOpsDatabase,
+      })
         .then((opened) => {
           for (const { key, level } of opened) {
             logger.warn({ event: 'ops_alert_opened', key, level }, '已记录本机运维告警。');
           }
         })
         .catch(() => {
-          logger.warn({ event: 'ops_scan_deferred' }, '本机运维检查暂未完成，后台会重试。');
+          if (!closing)
+            logger.warn({ event: 'ops_scan_deferred' }, '本机运维检查暂未完成，后台会重试。');
         })
         .finally(() => {
           opsScan = undefined;

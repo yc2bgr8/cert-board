@@ -213,6 +213,29 @@ test('shutdown等待正在清理的维护事务，不与关库竞争', async () 
   expect(state.closeDatabase).toHaveBeenCalledTimes(1);
 });
 
+test('数据库不可用时先记本机故障，恢复后独立记录状态', async () => {
+  vi.useFakeTimers();
+  type Probe = { onDatabase(available: boolean): void };
+  state.scanOps
+    .mockImplementationOnce(async (_pool, _config, _health, _fetcher, options: Probe) => {
+      options.onDatabase(false);
+      throw new Error('synthetic-database-unavailable');
+    })
+    .mockImplementationOnce(async (_pool, _config, _health, _fetcher, options: Probe) => {
+      options.onDatabase(true);
+      return [];
+    });
+  worker = await startWorker();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(state.consume).toHaveBeenCalledOnce();
+  expect(state.warn).toHaveBeenCalledWith(
+    { event: 'ops_database_unavailable' },
+    expect.any(String),
+  );
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(state.info).toHaveBeenCalledWith({ event: 'ops_database_recovered' }, expect.any(String));
+});
+
 test('启动阶段停止会等consumer注册结束，不让晚注册任务落入已关闭依赖', async () => {
   let finish!: () => void;
   const registering = new Promise<string>((resolve) => {

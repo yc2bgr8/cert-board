@@ -31,7 +31,7 @@ export type OpsFinding = {
 };
 const gib = 1024n ** 3n;
 const rateReached = (failed: number, total: number, percent: number) =>
-  total >= 5 && failed * 100 >= total * percent;
+  total >= 5 ? failed * 100 >= total * percent : null;
 
 export function evaluateOps(input: OpsMeasurements, now: Date): OpsFinding[] {
   const { monthly, disk } = input;

@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { opsAlertResponseSchema } from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
 import { saveOpsFindings, scanOpsAlerts } from './service.js';
@@ -25,7 +25,7 @@ test('本机检查汇总服务、心跳、唤醒和备份，恢复时更新且�
       close: async () => undefined,
     };
     const asOf = new Date(Date.now() + 1000);
-    const first = await scanOpsAlerts(c.pool, config, health, false, asOf);
+    const first = await scanOpsAlerts(c.pool, config, health, false, { now: asOf });
     expect(first.map(({ key }) => key)).toEqual(
       expect.arrayContaining([
         'service_storage',
@@ -34,7 +34,7 @@ test('本机检查汇总服务、心跳、唤醒和备份，恢复时更新且�
         'backup_failed',
       ]),
     );
-    expect(await scanOpsAlerts(c.pool, config, health, false, asOf)).toEqual([]);
+    expect(await scanOpsAlerts(c.pool, config, health, false, { now: asOf })).toEqual([]);
 
     const admin = await c.login('ADMIN');
     const member = await c.login('MEMBER_A');
@@ -88,6 +88,50 @@ test('本机检查汇总服务、心跳、唤醒和备份，恢复时更新且�
         .alerts.some(({ key }) => key === 'service_storage'),
     ).toBe(false);
   } finally {
+    await c.close();
+  }
+});
+
+test('取消等待数据库锁的检查后，连接释放，未提交的心跳与告警回滚', async () => {
+  const c = await createIntegrationContext();
+  const locked = await c.pool.connect();
+  try {
+    await locked.query('BEGIN');
+    await locked.query('LOCK TABLE ops_alert IN ACCESS EXCLUSIVE MODE');
+    const stop = new AbortController();
+    const work = saveOpsFindings(
+      c.pool,
+      [
+        {
+          key: 'backup_failed',
+          level: 'critical',
+          detail: '合成备份失败。',
+          active: true,
+        },
+      ],
+      new Date(),
+      stop.signal,
+    );
+    const rejected = expect(work).rejects.toThrow('synthetic-scan-cancelled');
+    await vi.waitFor(
+      async () => {
+        const waiting = await c.pool.query(
+          "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT key FROM ops_alert%'",
+        );
+        expect(waiting.rowCount).toBe(1);
+      },
+      { timeout: 1500 },
+    );
+    stop.abort(new Error('synthetic-scan-cancelled'));
+    await rejected;
+    await locked.query('ROLLBACK');
+    expect(
+      (await c.pool.query("SELECT 1 FROM heartbeat WHERE service='ops-monitor'")).rowCount,
+    ).toBe(0);
+    expect((await c.pool.query('SELECT 1 FROM ops_alert')).rowCount).toBe(0);
+  } finally {
+    await locked.query('ROLLBACK').catch(() => undefined);
+    locked.release();
     await c.close();
   }
 });

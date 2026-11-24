@@ -242,13 +242,13 @@ test.each([
     expect(Number(ledger.rows[0]?.input_tokens)).toBeGreaterThan(0);
     expect(Number(ledger.rows[0]?.output_tokens)).toBeGreaterThan(0);
     expect((await getBudgetSummary(context.pool)).counts.unknown).toBe(0);
-    if (scenario === '超时') {
+    await vi.waitFor(async () => {
       const ops = await context.pool.query(
         'SELECT kind FROM model_gateway_failure WHERE request_key=$1',
         [caller.requestKey],
       );
-      expect(ops.rows).toEqual([{ kind: 'timeout' }]);
-    }
+      expect(ops.rows).toEqual([{ kind: scenario === '超时' ? 'timeout' : 'error' }]);
+    });
   } finally {
     await fixture.close();
   }
@@ -269,12 +269,14 @@ test('额度失败只给本机告警登记分类，保留原模型错误和待�
   await expect(gateway.complete(request, caller)).rejects.toMatchObject({
     code: 'MODEL_UPSTREAM_FAILED',
   });
-  const event = await context.pool.query(
-    `SELECT f.kind,l.status FROM model_gateway_failure f JOIN usage_ledger l ON l.request_key=f.request_key
-      WHERE l.request_key=$1`,
-    [caller.requestKey],
-  );
-  expect(event.rows).toEqual([{ kind: 'credits', status: 'unknown' }]);
+  await vi.waitFor(async () => {
+    const event = await context.pool.query(
+      `SELECT f.kind,l.status FROM model_gateway_failure f JOIN usage_ledger l ON l.request_key=f.request_key
+        WHERE l.request_key=$1`,
+      [caller.requestKey],
+    );
+    expect(event.rows).toEqual([{ kind: 'credits', status: 'unknown' }]);
+  });
 });
 
 test('配置模型和限价透传，工具调用保留，用量先结算且只新预占派发一次', async () => {

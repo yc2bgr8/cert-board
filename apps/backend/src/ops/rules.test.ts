@@ -88,6 +88,9 @@ test('样本不足、来源缺失与用户取消使用不同处理', () => {
   expect(findings.filter(({ active }) => active === true)).toEqual([]);
   expect(findings.filter(({ active }) => active === null).map(({ key }) => key)).toEqual([
     'service_docsvc',
+    'queue_failures',
+    'gateway_errors',
+    'gateway_timeout',
     'monthly_budget',
     'disk_low',
     'backup_failed',

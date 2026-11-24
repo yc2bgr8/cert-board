@@ -18,6 +18,7 @@ import {
   type BudgetIncomplete,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
+import { recordGatewayFailure } from '../ops/failure.js';
 import { enforceCostLimits } from '../budget/cost-policy.js';
 import {
   reserveUsage,
@@ -436,24 +437,29 @@ export class ModelGateway {
       prompt_tokens: estimatedInputTokens,
       completion_tokens: maxOutputTokens,
     };
+    const observeFailure = (code: unknown, httpStatus?: unknown) => {
+      if (signal?.aborted) return;
+      void recordGatewayFailure(
+        this.pool,
+        context.requestKey,
+        code,
+        httpStatus,
+        model.baseUrl ? new URL(model.baseUrl).hostname : '',
+      ).catch(() => undefined);
+    };
     try {
       raw = await this.transport.send(model, body, signal);
     } catch (error) {
       const fault = object(error);
-      if (!signal?.aborted) {
-        await recordGatewayFailure(
-          this.pool,
-          context.requestKey,
-          fault?.code,
-          fault?.httpStatus,
-          model.baseUrl ? new URL(model.baseUrl).hostname : '',
-        ).catch(() => undefined);
-      }
       const rawUsage = fault?.usage,
         usage = this.usage(rawUsage);
-      if (usage || local)
-        await this.account(context, usage ?? estimatedLocalUsage, rawUsage, local);
-      else await this.incomplete(context, signal?.aborted ? 'aborted' : 'request_uncertain');
+      try {
+        if (usage || local)
+          await this.account(context, usage ?? estimatedLocalUsage, rawUsage, local);
+        else await this.incomplete(context, signal?.aborted ? 'aborted' : 'request_uncertain');
+      } finally {
+        observeFailure(fault?.code, fault?.httpStatus);
+      }
       throw rejected(
         signal?.aborted ? 'MODEL_ABORTED' : 'MODEL_UPSTREAM_FAILED',
         local
@@ -471,7 +477,8 @@ export class ModelGateway {
     if (!usage) {
       if (local) await this.account(context, estimatedLocalUsage, undefined, true);
       else await this.incomplete(context, 'missing_usage');
-      if (limited)
+      if (limited) {
+        observeFailure('MODEL_USAGE_INCOMPLETE');
         throw rejected(
           'MODEL_USAGE_INCOMPLETE',
           local
@@ -479,6 +486,7 @@ export class ModelGateway {
             : '上游未返回完整用量，已保留全部预占并冻结追加调用，请负责人核对。',
           502,
         );
+      }
     }
     const costNano = usage ? await this.account(context, usage, rawUsage, local) : null;
     // 已发生的费用到此已入账。停机、取消和坏消息都不能进入后续工具执行。
@@ -488,19 +496,23 @@ export class ModelGateway {
     const response = upstreamAssistantResponseSchema.safeParse(
       local ? normalizeLocalToolArguments(raw) : raw,
     );
-    if (!response.success)
+    if (!response.success) {
+      observeFailure('MODEL_RESPONSE_INVALID');
       throw rejected(
         'MODEL_RESPONSE_INVALID',
         '模型消息或工具调用结构无效，费用已登记，本次输出不能执行。',
         502,
       );
+    }
     const choice = response.data.choices[0]!;
-    if (choice.finish_reason === 'length' || choice.finish_reason === 'content_filter')
+    if (choice.finish_reason === 'length' || choice.finish_reason === 'content_filter') {
+      observeFailure('MODEL_RESPONSE_INCOMPLETE');
       throw rejected(
         'MODEL_RESPONSE_INCOMPLETE',
         '模型输出未完整结束或被上游拦截，费用已登记，请缩小任务后重新运行。',
         502,
       );
+    }
     return gatewayResponseSchema.parse({
       requestKey: context.requestKey,
       model: model.id,
@@ -520,4 +532,3 @@ export class ModelGateway {
     });
   }
 }
-import { recordGatewayFailure } from '../ops/failure.js';
