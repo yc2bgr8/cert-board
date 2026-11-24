@@ -18,7 +18,7 @@ sources:
 paragraphs:
   - id: submission
     sources: [fda_letter_fields, fda_estar_attachment]
-    text: 'Proposed {{submission_type}} 510(k) for {{device_name}}. Draft preparation date {{draft_date}}.'
+    text: 'Proposed {{submission_type}} 510(k) for {{device_name}}. Draft date {{draft_date}}.'
   - id: applicant
     sources: [fda_letter_fields]
     text: 'Applicant of record {{applicant_name}}, {{applicant_address}}. Review correspondence contact {{contact_name}}, {{contact_email}}.'

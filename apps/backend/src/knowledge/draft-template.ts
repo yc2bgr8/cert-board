@@ -104,18 +104,24 @@ export async function renderK05Draft(template: string, input: unknown, readPage:
   }
   const missing = new Set<string>();
   const lines = [`# ${escaped(manifest.title)} — draft`, 'For internal review.'];
+  const documentParagraphs: string[] = [];
   const paragraphs = manifest.paragraphs.map((item, index) => {
     const evidence = new Map<string, Reference>();
+    const values = new Map<string, string>();
     const text = item.text.replace(slot, (_match, field: string) => {
       const entry = Object.hasOwn(fields, field) ? fields[field] : undefined;
       if (!entry) {
         missing.add(field);
-        return `[TO VERIFY: ${field}]`;
+        const placeholder = `[TO VERIFY: ${field}]`;
+        values.set(field, placeholder);
+        return placeholder;
       }
       evidence.set(field, entry.source);
+      values.set(field, entry.value);
       return escaped(entry.value);
     });
     lines.push(text);
+    documentParagraphs.push(item.text.replace(slot, (_match, field: string) => values.get(field)!));
     return {
       id: item.id,
       number: index + 1,
@@ -126,6 +132,10 @@ export async function renderK05Draft(template: string, input: unknown, readPage:
   const markdown = lines.join('\n\n') + '\n';
   return {
     markdown,
+    document: {
+      title: `${manifest.title.replace(/[^\p{L}\p{N} ]/gu, '').trim()} draft`,
+      paragraphs: documentParagraphs,
+    },
     sourceMap: {
       templateCode: manifest.code,
       templateVersion: manifest.version,
