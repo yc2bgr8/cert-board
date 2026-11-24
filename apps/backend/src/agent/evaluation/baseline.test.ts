@@ -124,8 +124,8 @@ test('Cursor 真实回执只接受相符的通道、两种模型并如实保留�
       ],
     },
     cost: [
-      { model: 'cursor/gpt-5.6-sol', calls: 4, unknown: 4, usd: '0' },
-      { model: 'cursor/claude-opus-5.5', calls: 1, unknown: 1, usd: '0' },
+      { model: 'cursor/gpt-5.6-sol', calls: 4, unknown: 4, notSent: 0, usd: '0' },
+      { model: 'cursor/claude-opus-5.5', calls: 1, unknown: 1, notSent: 0, usd: '0' },
     ],
   };
   expect(summarize(report, cursor)).toMatchObject({
@@ -153,6 +153,12 @@ test('Cursor 真实回执只接受相符的通道、两种模型并如实保留�
   ).toThrow();
   expect(() =>
     summarize(report, { ...cursor, cost: [{ ...cursor.cost[0], unknown: 2 }, cursor.cost[1]] }),
+  ).toThrow();
+  expect(() =>
+    summarize(report, {
+      ...cursor,
+      cost: [{ ...cursor.cost[0], notSent: undefined }, cursor.cost[1]],
+    }),
   ).toThrow();
   expect(
     summarize(report, {

@@ -18,7 +18,13 @@ const reportSchema = z.object({
 export function validateCursorAcceptanceScope(
   requested: unknown,
   rawReport: unknown,
-  git: { testCommit: string; parents: string; tree: string; headSubject: string },
+  git: {
+    testCommit: string;
+    parents: string;
+    tree: string;
+    headSubject: string;
+    worktreeStatus: string;
+  },
 ) {
   const { pr, head } = approval.parse(requested);
   const report = reportSchema.parse(rawReport);
@@ -27,6 +33,7 @@ export function validateCursorAcceptanceScope(
     report.testCommit !== git.testCommit ||
     git.parents !== `${report.base} ${head}` ||
     report.mergeTree !== git.tree ||
+    git.worktreeStatus !== '' ||
     !git.headSubject.startsWith(`${pr} `)
   )
     throw new Error('CURSOR_ACCEPTANCE_SCOPE_REQUIRED');
@@ -54,6 +61,7 @@ export async function confirmCursorAcceptanceScope(source: string, pr: unknown, 
       parents: parents ?? '',
       tree: tree ?? '',
       headSubject: git('show', '-s', '--format=%s', requested.head),
+      worktreeStatus: git('status', '--porcelain=v1', '--untracked-files=normal'),
     });
   } catch {
     throw new Error('CURSOR_ACCEPTANCE_SCOPE_REQUIRED');

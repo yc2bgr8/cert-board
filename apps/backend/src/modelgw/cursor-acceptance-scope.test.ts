@@ -6,7 +6,13 @@ const base = 'b'.repeat(40);
 const testCommit = 'c'.repeat(40);
 const tree = 'd'.repeat(40);
 const run = { scope: 'business', status: 'running', testCommit, head, base, mergeTree: tree };
-const current = { testCommit, parents: `${base} ${head}`, tree, headSubject: 'PR-34 合成验收提交' };
+const current = {
+  testCommit,
+  parents: `${base} ${head}`,
+  tree,
+  headSubject: 'PR-34 合成验收提交',
+  worktreeStatus: '',
+};
 
 test('独立验收只允许标明的 PR 及当前验收提交和合并树', () => {
   expect(validateCursorAcceptanceScope({ pr: 'PR-34', head }, run, current)).toEqual({
@@ -42,4 +48,9 @@ test('独立验收只允许标明的 PR 及当前验收提交和合并树', () =
   expect(() =>
     validateCursorAcceptanceScope({ pr: 'PR-34', head }, { ...run, status: 'passed' }, current),
   ).toThrow();
+  for (const worktreeStatus of [' M apps/backend/src/worker.ts', '?? untracked-source.ts']) {
+    expect(() =>
+      validateCursorAcceptanceScope({ pr: 'PR-34', head }, run, { ...current, worktreeStatus }),
+    ).toThrow();
+  }
 });

@@ -84,10 +84,10 @@ const resultSchema = z.object({
           model: costModel,
           calls: count.positive(),
           unknown: count,
-          notSent: count.default(0),
+          notSent: count.optional(),
           usd: decimalUsdSchema,
         })
-        .refine(({ calls, unknown, notSent }) => unknown + notSent <= calls),
+        .refine(({ calls, unknown, notSent }) => unknown + (notSent ?? 0) <= calls),
     )
     .length(2),
 });
@@ -139,7 +139,7 @@ export function summarizeAgentBaseline(
         !result.cost.some(({ model, unknown }) => model === profile.peer && unknown > 0) ||
         result.cost.some(
           ({ usd, calls, unknown, notSent }) =>
-            usdToNano(usd) !== 0n || unknown + notSent !== calls,
+            notSent === undefined || usdToNano(usd) !== 0n || unknown + notSent !== calls,
         )))
   )
     throw new Error('真实模型走查的身份、专项或计量记录不匹配。');
