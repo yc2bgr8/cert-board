@@ -3,9 +3,10 @@ import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import {
   humanFeedbackInputSchema,
-  humanFeedbackListSchema,
+  humanFeedbackSelectionSchema,
   humanFeedbackResultSchema,
   type BrowserIdentity,
+  type HumanFeedbackTarget,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { readConversation } from './read.js';
@@ -27,7 +28,6 @@ type FeedbackRow = {
 type Target = {
   run_id: string;
   data_level: 'internal' | 'confidential';
-  created_at: Date;
   skill_id: string | null;
   skill_version: string | null;
 };
@@ -51,21 +51,22 @@ function result(row: FeedbackRow) {
   });
 }
 
-export async function listHumanFeedback(
+export async function getHumanFeedback(
   tx: PoolClient,
   actor: BrowserIdentity,
   conversationId: string,
+  target: HumanFeedbackTarget,
 ) {
   await readConversation(tx, actor, conversationId);
-  const { rows } = await tx.query<FeedbackRow>(
-    `SELECT ${fields} FROM (
-      SELECT DISTINCT ON (message_id,review_id) ${fields}
-      FROM human_feedback WHERE conversation_id=$1 AND user_id=$2
-      ORDER BY message_id,review_id,created_at DESC,id DESC
-    ) latest ORDER BY created_at DESC,id DESC LIMIT 100`,
-    [conversationId, actor.userId],
+  const column = target.kind === 'review' ? 'review_id' : 'message_id';
+  const {
+    rows: [row],
+  } = await tx.query<FeedbackRow>(
+    `SELECT ${fields} FROM human_feedback WHERE conversation_id=$1 AND user_id=$2
+      AND ${column}=$3 ORDER BY created_at DESC,id DESC LIMIT 1`,
+    [conversationId, actor.userId, target.targetId],
   );
-  return humanFeedbackListSchema.parse({ items: rows.map(result) });
+  return humanFeedbackSelectionSchema.parse({ item: row ? result(row) : null });
 }
 
 export async function saveHumanFeedback(
@@ -82,8 +83,8 @@ export async function saveHumanFeedback(
   const conversation = await readConversation(tx, actor, conversationId);
   const source =
     kind === 'review'
-      ? 'SELECT run_id,data_level,created_at,skill_id,skill_version FROM review_card WHERE id=$1 AND conversation_id=$2'
-      : `SELECT run_id,data_level,created_at,NULL AS skill_id,NULL AS skill_version
+      ? 'SELECT run_id,data_level,skill_id,skill_version FROM review_card WHERE id=$1 AND conversation_id=$2'
+      : `SELECT run_id,data_level,NULL AS skill_id,NULL AS skill_version
         FROM conversation_message WHERE id=$1 AND conversation_id=$2
           AND message_json->>'role'='assistant' AND jsonb_typeof(message_json->'content')='string'`;
   const {
@@ -102,9 +103,12 @@ export async function saveHumanFeedback(
           p.content_json#>>'{result,data,skill,version}' AS version
         FROM tool_invocation i JOIN conversation_tool_result p ON p.invocation_id=i.id
         WHERE i.run_id=$1 AND i.conversation_id=$2 AND i.tool_name='skill_load'
-          AND i.status='completed' AND p.created_at <= $3
+          AND i.status='completed' AND p.created_at <= (
+            SELECT m.created_at FROM conversation_message m
+            WHERE m.id=$3 AND m.run_id=i.run_id AND m.conversation_id=i.conversation_id
+          )
         ORDER BY id,version LIMIT 16`,
-      [target.run_id, conversation.id, target.created_at],
+      [target.run_id, conversation.id, targetId],
     );
     skills = rows.flatMap((row) => {
       const parsed = skill.safeParse(row);

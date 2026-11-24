@@ -117,7 +117,13 @@ export function registerWorkspaceRoutes<Logger extends FastifyBaseLogger>(
     const query = humanRevisionQuerySchema.safeParse(request.query);
     if (!query.success) throw bad();
     reply.header('cache-control', 'no-store');
-    return listHumanRevisions(pool, identity, identifier(request.params), query.data.reviewId);
+    return listHumanRevisions(
+      pool,
+      identity,
+      identifier(request.params),
+      query.data.reviewId,
+      query.data.cursor,
+    );
   });
   app.post(
     '/api/workspaces/:id/human-revisions',

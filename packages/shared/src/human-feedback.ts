@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const target = z.strictObject({
+export const humanFeedbackTargetSchema = z.strictObject({
   kind: z.enum(['message', 'review']),
   targetId: z.uuid(),
 });
@@ -12,7 +12,7 @@ const reason = z
   .max(600)
   .refine((text) => !text.includes('\0') && /^[^\uD800-\uDFFF]*$/u.test(text));
 
-export const humanFeedbackInputSchema = target
+export const humanFeedbackInputSchema = humanFeedbackTargetSchema
   .extend({
     requestKey: z.uuid(),
     rating,
@@ -20,13 +20,14 @@ export const humanFeedbackInputSchema = target
   })
   .refine(({ rating, reason }) => rating === 'unhelpful' || reason === null);
 
-export const humanFeedbackResultSchema = target.extend({
+export const humanFeedbackResultSchema = humanFeedbackTargetSchema.extend({
   id: z.uuid(),
   rating,
   reason: reason.nullable(),
   createdAt: z.iso.datetime(),
 });
-export const humanFeedbackListSchema = z.strictObject({
-  items: humanFeedbackResultSchema.array().max(100),
+export const humanFeedbackSelectionSchema = z.strictObject({
+  item: humanFeedbackResultSchema.nullable(),
 });
 export type HumanFeedbackInput = z.infer<typeof humanFeedbackInputSchema>;
+export type HumanFeedbackTarget = z.infer<typeof humanFeedbackTargetSchema>;

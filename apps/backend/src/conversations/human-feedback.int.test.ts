@@ -77,10 +77,13 @@ test('共享注册成员可对 Agent 消息和审核卡作浏览器反馈，保�
     });
     const corrected = humanFeedbackResultSchema.parse(change.json());
     expect(corrected.rating).toBe('unhelpful');
-    expect((await c.app.inject({ url, headers: peer.headers })).json()).toEqual({
-      items: [corrected],
+    const selected = `${url}?kind=message&targetId=${assistant.id}`;
+    expect((await c.app.inject({ url: selected, headers: peer.headers })).json()).toEqual({
+      item: corrected,
     });
-    expect((await c.app.inject({ url, headers: owner.headers })).json()).toEqual({ items: [] });
+    expect((await c.app.inject({ url: selected, headers: owner.headers })).json()).toEqual({
+      item: null,
+    });
     expect(
       (await c.pool.query('SELECT data_level FROM human_feedback WHERE id=$1', [corrected.id]))
         .rows,

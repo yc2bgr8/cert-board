@@ -1376,6 +1376,12 @@ async function main() {
     await cardFeedback.getByLabel('反馈原因（选填）', { exact: true }).fill('合成反馈，请补范围。');
     await cardFeedback.getByRole('button', { name: '提交反馈', exact: true }).click();
     await cardFeedback.getByText('已记录反馈', { exact: true }).waitFor();
+    await cardFeedback.getByRole('button', { name: '没用', exact: true }).click();
+    assert.equal(
+      await cardFeedback.getByLabel('反馈原因（选填）', { exact: true }).inputValue(),
+      '合成反馈，请补范围。',
+    );
+    await cardFeedback.getByRole('button', { name: '取消', exact: true }).click();
     stage = '从审核卡上传人工修改稿并核对段落';
     await humanReview.getByText('人工修改稿', { exact: true }).click();
     await humanReview.getByLabel('修改稿（Markdown 或纯文本）', { exact: true }).setInputFiles({

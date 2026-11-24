@@ -11,6 +11,7 @@ import {
   conversationEventQuerySchema,
   conversationListQuerySchema,
   conversationPublicHistoryQuerySchema,
+  humanFeedbackTargetSchema,
   type BackendConfig,
 } from '@cert-board/shared';
 import { AppError } from './errors.js';
@@ -21,7 +22,7 @@ import {
   withConversationReadSession,
 } from '../conversations/read.js';
 import { createConversationStreams } from '../conversations/stream.js';
-import { listHumanFeedback } from '../conversations/human-feedback.js';
+import { getHumanFeedback } from '../conversations/human-feedback.js';
 
 export function registerConversationReadRoutes<Logger extends FastifyBaseLogger>(
   app: FastifyInstance<
@@ -81,8 +82,11 @@ export function registerConversationReadRoutes<Logger extends FastifyBaseLogger>
   });
   app.get('/api/conversations/:id/feedback', async (request, reply) => {
     reply.header('cache-control', 'no-store');
+    const target = humanFeedbackTargetSchema.safeParse(request.query);
+    if (!target.success)
+      throw new AppError(400, 'FEEDBACK_INVALID', '反馈目标无效，请从原对话重新打开。');
     return withConversationReadSession(pool, config, request, (tx, actor) =>
-      listHumanFeedback(tx, actor, id(request.params)),
+      getHumanFeedback(tx, actor, id(request.params), target.data),
     );
   });
   app.get('/api/conversations/:id/events', async (request, reply) => {

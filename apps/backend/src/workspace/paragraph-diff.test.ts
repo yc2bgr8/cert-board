@@ -19,3 +19,11 @@ test('大量细节有显示上限但总数保持准确', () => {
   expect(result).toMatchObject({ added: 90, removed: 1, truncated: true });
   expect(result.paragraphs).toHaveLength(80);
 });
+
+test('保留会改变 Markdown 呈现的段首缩进和行尾空白', () => {
+  const result = compareHumanRevision('    合成文本  ', '合成文本');
+  expect(result.paragraphs).toEqual([
+    { kind: 'removed', number: 1, text: '    合成文本  ', truncated: false },
+    { kind: 'added', number: 1, text: '合成文本', truncated: false },
+  ]);
+});

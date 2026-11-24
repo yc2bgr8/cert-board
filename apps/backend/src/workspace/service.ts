@@ -1046,16 +1046,33 @@ export async function listHumanRevisions(
   identity: BrowserIdentity,
   workspaceId: string,
   reviewId: string,
+  cursor?: string,
 ) {
   const workspace = await workspaceAccess(pool, identity, workspaceId);
   await revisionReview(pool, workspace, reviewId);
+  if (
+    cursor &&
+    !(
+      await pool.query(
+        'SELECT 1 FROM human_revision WHERE id=$1 AND workspace_id=$2 AND review_id=$3',
+        [cursor, workspace.id, reviewId],
+      )
+    ).rowCount
+  )
+    throw absent();
   const { rows } = await pool.query(
     `SELECT ${humanRevisionFields} FROM human_revision h
       JOIN workspace_version v ON v.id=h.new_version_id AND v.workspace_id=h.workspace_id
-      WHERE h.workspace_id=$1 AND h.review_id=$2 ORDER BY h.created_at DESC,h.id DESC LIMIT 5`,
-    [workspace.id, reviewId],
+      WHERE h.workspace_id=$1 AND h.review_id=$2
+        AND ($3::uuid IS NULL OR (h.created_at,h.id) < (SELECT created_at,id FROM human_revision WHERE id=$3))
+      ORDER BY h.created_at DESC,h.id DESC LIMIT 6`,
+    [workspace.id, reviewId, cursor ?? null],
   );
-  return humanRevisionListSchema.parse({ items: rows.map(revisionView) });
+  const items = rows.slice(0, 5).map(revisionView);
+  return humanRevisionListSchema.parse({
+    items,
+    nextCursor: rows.length > 5 ? items.at(-1)?.id : null,
+  });
 }
 
 export async function saveHumanRevision(
@@ -1142,7 +1159,14 @@ export async function saveHumanRevision(
     createHash('sha256').update(rawBefore).digest('hex') !== original.sha256
   )
     throw new AppError(500, 'WORKSPACE_CONTENT_MISMATCH', '原稿与登记的版本不一致，请刷新后重试。');
-  const difference = compareHumanRevision(decodeUtf8Text(rawBefore), input.text);
+  const originalText = decodeUtf8Text(rawBefore);
+  if (originalText.includes('\0'))
+    throw new AppError(
+      415,
+      'HUMAN_REVISION_FORMAT',
+      '原稿含二进制字符，请保存为 UTF-8 文本后核对。',
+    );
+  const difference = compareHumanRevision(originalText, input.text);
   const blob = await store.put(encoded);
   if (blob.sha256 !== sha256)
     throw new AppError(500, 'WORKSPACE_CONTENT_MISMATCH', '修改稿写入后无法核对，请重试。');
@@ -1151,6 +1175,7 @@ export async function saveHumanRevision(
     original.dataLevel,
     review.data_level,
     input.dataLevel,
+    ...[...before.values()].map(({ dataLevel }) => dataLevel),
   );
   const files = new Map(before);
   files.set(input.path, { ...currentFile, sha256, byteSize: encoded.length, dataLevel: level });

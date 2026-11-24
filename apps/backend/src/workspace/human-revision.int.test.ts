@@ -18,6 +18,10 @@ test('浏览器把人工修改稿保存在新版本并保留原稿、审阅状�
   try {
     const path = '交付/核查报告.md';
     const appendix = '交付/合成附录.txt';
+    const extraPaths = Array.from(
+      { length: 4 },
+      (_unused, index) => `交付/合成附件${index + 1}.txt`,
+    );
     const original = await storage.store.put(Buffer.from('范围\n\n合成旧结论\n\n依据'));
     const secondary = await storage.store.put(Buffer.from('合成附录旧稿'));
     const {
@@ -40,6 +44,11 @@ test('浏览器把人工修改稿保存在新版本并保留原稿、审阅状�
         secondary.sha256,
         secondary.byteSize,
       ],
+    );
+    await c.pool.query(
+      `INSERT INTO workspace_file(version_id,path,sha256,byte_size,data_level,media_type)
+        SELECT $1,paths.path,$3,$4,'internal','text/plain' FROM unnest($2::text[]) AS paths(path)`,
+      [sourceId, extraPaths, secondary.sha256, secondary.byteSize],
     );
     await c.pool.query('UPDATE workspace SET current_version_id=$2,version=version+1 WHERE id=$1', [
       c.workspaceId,
@@ -96,7 +105,7 @@ test('浏览器把人工修改稿保存在新版本并保留原稿、审阅状�
       (
         await app.inject({ url: `${url}?reviewId=${card.reviewId}`, headers: reviewer.headers })
       ).json(),
-    ).toEqual({ items: [revision] });
+    ).toEqual({ items: [revision], nextCursor: null });
     expect(
       (await c.pool.query('SELECT status FROM review_card WHERE id=$1', [card.reviewId])).rows,
     ).toEqual([{ status: 'pending' }]);
@@ -131,6 +140,27 @@ test('浏览器把人工修改稿保存在新版本并保留原稿、审阅状�
     );
     expect(preservedFile.rows).toHaveLength(2);
     expect(preservedFile.rows[0]).toEqual(preservedFile.rows[1]);
+    let latest = secondVersion;
+    for (const nextPath of extraPaths) {
+      const saved = await send({
+        ...payload,
+        expectedCurrentVersionId: latest.id,
+        requestKey: randomUUID(),
+        path: nextPath,
+        text: '合成附件新版',
+      });
+      expect(saved.statusCode).toBe(200);
+      latest = humanRevisionViewSchema.parse(saved.json()).version;
+    }
+    const historyUrl = `${url}?reviewId=${card.reviewId}`;
+    const firstPage = (await app.inject({ url: historyUrl, headers: reviewer.headers })).json();
+    expect(firstPage.items).toHaveLength(5);
+    expect(firstPage.nextCursor).toBe(firstPage.items[4].id);
+    const earlier = await app.inject({
+      url: `${historyUrl}&cursor=${firstPage.nextCursor}`,
+      headers: reviewer.headers,
+    });
+    expect(earlier.json()).toEqual({ items: [revision], nextCursor: null });
     await expect(
       c.pool.query('DELETE FROM human_revision WHERE id=$1', [revision.id]),
     ).rejects.toMatchObject({ code: '55000' });

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { HumanFeedbackInput } from '@cert-board/shared';
 import { useBrowserCommand } from './ApprovalCard.js';
-import { api } from './api.js';
+import { api, errorMessage } from './api.js';
 
 export function HumanFeedback({
   conversationId,
@@ -16,21 +16,26 @@ export function HumanFeedback({
   const [interacted, setInteracted] = useState(false);
   const [editing, setEditing] = useState(false);
   const [reason, setReason] = useState('');
-  const [saved, setSaved] = useState<HumanFeedbackInput['rating']>();
+  const [saved, setSaved] = useState(false);
   const cmd = useBrowserCommand();
   const client = useQueryClient();
-  const queryKey = ['live', 'human-feedback', conversationId];
+  const queryKey = ['live', 'human-feedback', conversationId, kind, targetId];
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => api.humanFeedback(conversationId, signal),
+    queryFn: ({ signal }) => api.humanFeedback(conversationId, { kind, targetId }, signal),
     enabled: interacted,
     staleTime: 20_000,
     retry: false,
   });
-  const previous = query.data?.items.find(
-    (item) => item.kind === kind && item.targetId === targetId,
-  );
-  const value = saved ?? previous?.rating;
+  const value = query.data?.item?.rating;
+
+  async function editReason() {
+    if (editing) return;
+    const latest = await query.refetch({ cancelRefetch: false });
+    if (latest.isError || !latest.data) return;
+    setReason(latest.data.item?.reason ?? '');
+    setEditing(true);
+  }
 
   async function submit(rating: HumanFeedbackInput['rating']) {
     const note = rating === 'unhelpful' ? reason.trim() || null : null;
@@ -38,7 +43,9 @@ export function HumanFeedback({
       api.saveHumanFeedback(conversationId, { kind, targetId, requestKey, rating, reason: note }),
     );
     if (!receipt) return;
-    setSaved(receipt.rating);
+    await client.cancelQueries({ queryKey });
+    client.setQueryData(queryKey, { item: receipt });
+    setSaved(true);
     setEditing(false);
     setReason('');
     await client.invalidateQueries({ queryKey });
@@ -66,10 +73,7 @@ export function HumanFeedback({
           aria-pressed={value === 'unhelpful'}
           aria-expanded={editing}
           disabled={cmd.busy}
-          onClick={() => {
-            setReason(previous?.reason ?? '');
-            setEditing(true);
-          }}
+          onClick={() => void editReason()}
         >
           没用
         </button>
@@ -103,6 +107,11 @@ export function HumanFeedback({
       {cmd.error && (
         <small role="alert" className="live-error">
           {cmd.error}
+        </small>
+      )}
+      {query.isError && (
+        <small role="alert" className="live-error">
+          {errorMessage(query.error)}
         </small>
       )}
     </div>

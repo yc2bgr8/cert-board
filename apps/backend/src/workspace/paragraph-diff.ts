@@ -10,8 +10,7 @@ function paragraphs(text: string) {
   return text
     .replace(/\r\n?/gu, '\n')
     .split(/\n(?:[ \t]*\n)+/u)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
+    .filter((paragraph) => paragraph.trim().length > 0);
 }
 
 export function compareHumanRevision(before: string, after: string) {

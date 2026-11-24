@@ -36,7 +36,7 @@ export const humanRevisionInputSchema = z.strictObject({
   text: revisionText,
   dataLevel: workspaceDataLevelSchema,
 });
-export const humanRevisionQuerySchema = z.strictObject({ reviewId });
+export const humanRevisionQuerySchema = z.strictObject({ reviewId, cursor: z.uuid().optional() });
 export const humanRevisionViewSchema = z.strictObject({
   id: z.uuid(),
   reviewId,
@@ -49,6 +49,7 @@ export const humanRevisionViewSchema = z.strictObject({
 });
 export const humanRevisionListSchema = z.strictObject({
   items: humanRevisionViewSchema.array().max(5),
+  nextCursor: z.uuid().nullable(),
 });
 export type HumanRevisionInput = z.infer<typeof humanRevisionInputSchema>;
 export type HumanRevisionDifference = z.infer<typeof humanRevisionDifferenceSchema>;

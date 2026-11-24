@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { humanRevisionMaxBytes, type HumanRevisionInput } from '@cert-board/shared';
 import { useBrowserCommand } from './ApprovalCard.js';
-import { api } from './api.js';
+import { api, isStaleError } from './api.js';
 
 export function HumanRevision({
   workspaceId,
@@ -27,16 +27,26 @@ export function HumanRevision({
   const [level, setLevel] = useState<HumanRevisionInput['dataLevel']>('internal');
   const [fileError, setFileError] = useState('');
   const [reading, setReading] = useState(false);
+  const [pages, setPages] = useState<(string | null)[]>([null]);
   const command = useBrowserCommand();
   const client = useQueryClient();
   const key = ['live', 'human-revisions', workspaceId, reviewId];
+  const cursor = pages.at(-1) ?? null;
   const history = useQuery({
-    queryKey: key,
-    queryFn: ({ signal }) => api.humanRevisions(workspaceId, reviewId, signal),
+    queryKey: [...key, cursor],
+    queryFn: ({ signal }) => api.humanRevisions(workspaceId, reviewId, cursor, signal),
     enabled: expanded,
     retry: false,
   });
+  const nextPage = history.data?.nextCursor;
   const path = paths.includes(selection) ? selection : paths[0];
+  const refreshWorkspace = () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey: ['live', 'workspace', projectId] }),
+      client.invalidateQueries({ queryKey: ['live', 'workspace-versions', workspaceId] }),
+      client.invalidateQueries({ queryKey: ['live', 'review-workspace', projectId] }),
+      client.invalidateQueries({ queryKey: ['live', 'review-workspace-versions', workspaceId] }),
+    ]);
   async function upload() {
     if (!file || !path || command.busy || reading || !current) return;
     if (file.size === 0 || file.size > humanRevisionMaxBytes) {
@@ -63,20 +73,20 @@ export function HumanRevision({
       text,
       dataLevel: level,
     };
+    let conflict = false;
     const receipt = await command.run(
       [workspaceId, reviewId, sourceVersionId, expectedCurrentVersionId, path, text, level],
       (requestKey) => api.saveHumanRevision(workspaceId, { ...input, requestKey }),
+      (error) => {
+        conflict = isStaleError(error);
+      },
     );
+    if (conflict) await refreshWorkspace();
     setReading(false);
     if (!receipt) return;
     setFile(undefined);
-    await Promise.all([
-      client.invalidateQueries({ queryKey: key }),
-      client.invalidateQueries({ queryKey: ['live', 'workspace', projectId] }),
-      client.invalidateQueries({ queryKey: ['live', 'workspace-versions', workspaceId] }),
-      client.invalidateQueries({ queryKey: ['live', 'review-workspace', projectId] }),
-      client.invalidateQueries({ queryKey: ['live', 'review-workspace-versions', workspaceId] }),
-    ]);
+    setPages([null]);
+    await Promise.all([client.invalidateQueries({ queryKey: key }), refreshWorkspace()]);
   }
 
   return (
@@ -172,6 +182,28 @@ export function HumanRevision({
             {item.difference.truncated && <p>部分改动未在摘要展开，请对照工作区版本。</p>}
           </details>
         ))}
+      {expanded && (pages.length > 1 || nextPage) && (
+        <div className="live-human-feedback-actions">
+          {pages.length > 1 && (
+            <button
+              type="button"
+              className="live-review-link"
+              onClick={() => setPages(pages.slice(0, -1))}
+            >
+              上一页
+            </button>
+          )}
+          {nextPage && (
+            <button
+              type="button"
+              className="live-review-link"
+              onClick={() => setPages([...pages, nextPage])}
+            >
+              下一页
+            </button>
+          )}
+        </div>
+      )}
     </details>
   );
 }

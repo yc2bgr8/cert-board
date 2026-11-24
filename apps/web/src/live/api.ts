@@ -74,9 +74,10 @@ import {
   verificationLinkPageSchema,
   verificationReviewInputSchema,
   humanFeedbackInputSchema,
-  humanFeedbackListSchema,
+  humanFeedbackSelectionSchema,
   humanFeedbackResultSchema,
   type HumanFeedbackInput,
+  type HumanFeedbackTarget,
   humanRevisionInputSchema,
   humanRevisionListSchema,
   humanRevisionViewSchema,
@@ -575,10 +576,10 @@ export const api = {
       conversationPublicRecordSchema,
       signalOption(signal),
     ),
-  humanFeedback: (id: string, signal?: AbortSignal) =>
+  humanFeedback: (id: string, target: HumanFeedbackTarget, signal?: AbortSignal) =>
     request(
-      `/api/conversations/${identifier(id)}/feedback`,
-      humanFeedbackListSchema,
+      `/api/conversations/${identifier(id)}/feedback?kind=${target.kind}&targetId=${identifier(target.targetId)}`,
+      humanFeedbackSelectionSchema,
       signalOption(signal),
     ),
   saveHumanFeedback: (id: string, input: HumanFeedbackInput) =>
@@ -586,9 +587,14 @@ export const api = {
       method: 'POST',
       body: checked(humanFeedbackInputSchema, input),
     }),
-  humanRevisions: (workspaceId: string, reviewId: string, signal?: AbortSignal) =>
+  humanRevisions: (
+    workspaceId: string,
+    reviewId: string,
+    cursor: string | null,
+    signal?: AbortSignal,
+  ) =>
     request(
-      `/api/workspaces/${identifier(workspaceId)}/human-revisions?reviewId=${identifier(reviewId)}`,
+      `/api/workspaces/${identifier(workspaceId)}/human-revisions?reviewId=${identifier(reviewId)}${cursor ? `&cursor=${identifier(cursor)}` : ''}`,
       humanRevisionListSchema,
       signalOption(signal),
     ),
