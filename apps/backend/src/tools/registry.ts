@@ -227,6 +227,10 @@ function versionToken(value: unknown): string | null {
 }
 const safeInputHints = new Map<string, string>([
   [
+    'RULE_PACK_REVIEW_REQUIRED',
+    '本轮固定的历史规则版本缺少审阅，不能使用。请告知用户开启一次新运行以读取已审阅版本。',
+  ],
+  [
     'FACT_EVIDENCE_INVALID',
     '证据须逐字出现在本项目的有效资料页中，请用 doc_read 重读并附上对应引语。',
   ],

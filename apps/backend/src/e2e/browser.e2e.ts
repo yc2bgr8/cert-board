@@ -198,17 +198,18 @@ async function main() {
       const panel = author.getByRole('region', { name: '规则包与模板', exact: true });
       await panel.getByRole('button', { name: '查看审核列表', exact: true }).click();
       await panel.getByText('登记草稿', { exact: true }).click();
-      await panel.getByRole('combobox', { name: '类型', exact: true }).selectOption('template');
-      await panel.getByRole('textbox', { name: '草稿 YAML', exact: true }).fill(
-        JSON.stringify({
-          code: 'synthetic_record_review',
-          title: '合成资料核对模板',
-          version: '1.0.0',
-          source: '合成审阅场景',
-          body: '核对资料编号、文件版本和原文页码。\n记录差异及需要补充的材料。',
-          dataLevel: 'internal',
-        }),
-      );
+      const type = panel.getByRole('combobox', { name: '类型', exact: true });
+      const yaml = panel.getByRole('textbox', { name: '草稿 YAML', exact: true });
+      const template = JSON.stringify({
+        code: 'synthetic_record_review',
+        title: '合成资料核对模板',
+        version: '1.0.0',
+        source: '合成审阅场景',
+        body: '核对资料编号、文件版本和原文页码。\n记录差异及需要补充的材料。',
+        dataLevel: 'internal',
+      });
+      await type.selectOption('template');
+      await yaml.fill(template);
       const requestKeys: string[] = [];
       await authorContext.route(`${harness.origin}/api/knowledge/reviews`, async (route) => {
         if (route.request().method() !== 'POST') {
@@ -227,9 +228,44 @@ async function main() {
       await submit.click();
       await panel.getByRole('alert').waitFor();
       assert.equal((await harness.pool.query('SELECT 1 FROM knowledge_review')).rowCount, 1);
+
+      await type.selectOption('rule_pack');
+      await yaml.fill(
+        JSON.stringify({
+          code: 'synthetic_register_review',
+          title: '合成核查规则包',
+          jurisdiction: 'US',
+          version: '1.0.0',
+          dataLevel: 'internal',
+          rules: [
+            {
+              id: 'reference_review',
+              statement: '这是界面验收用的合成规则。',
+              status: 'confirmed',
+              category: 'maintenance',
+              source: {
+                url: 'https://www.ecfr.gov/current/title-21/chapter-I/subchapter-H/part-807/subpart-B/section-807.22',
+                archiveUrl:
+                  'https://www.govinfo.gov/content/pkg/CFR-2025-title21-vol8/pdf/CFR-2025-title21-vol8-sec807-22.pdf',
+                section: '合成场景标识',
+                checkedOn: '2026-11-24',
+              },
+            },
+          ],
+        }),
+      );
       await submit.click();
-      await panel.getByText('草稿已提交审阅。', { exact: true }).waitFor();
-      assert.deepEqual(requestKeys, [requestKeys[0], requestKeys[0]]);
+      const saved = panel.getByText('草稿已提交审阅。', { exact: true });
+      await saved.waitFor();
+      await panel.getByText('登记草稿', { exact: true }).click();
+      await type.selectOption('template');
+      await yaml.fill(template);
+      await submit.click();
+      await saved.waitFor();
+      assert.equal(requestKeys.length, 3);
+      assert.notEqual(requestKeys[0], requestKeys[1]);
+      assert.equal(requestKeys[0], requestKeys[2]);
+      assert.equal((await harness.pool.query('SELECT 1 FROM knowledge_review')).rowCount, 2);
     } finally {
       await authorContext.close();
     }
@@ -686,6 +722,11 @@ async function main() {
     const knowledge = settings.getByRole('region', { name: '规则包与模板', exact: true });
     await knowledge.getByRole('button', { name: '查看审核列表', exact: true }).click();
     const knowledgeCard = knowledge.getByRole('article', { name: '知识审核卡', exact: true });
+    const knowledgeCards = knowledge.getByRole('combobox', { name: '审核卡', exact: true });
+    await knowledgeCards.selectOption({ label: '规则包 · 合成核查规则包 1.0.0 · 待审阅' });
+    await knowledgeCard.getByText('法域 · US', { exact: true }).waitFor();
+    await knowledgeCard.getByText('类别 · 维护', { exact: true }).waitFor();
+    await knowledgeCards.selectOption({ label: '模板 · 合成资料核对模板 1.0.0 · 待审阅' });
     await knowledgeCard
       .getByRole('heading', { name: '合成资料核对模板 1.0.0', exact: true })
       .waitFor();

@@ -700,6 +700,15 @@ test('迁移前没有审核卡的已发布标记无法用于正式读取或旧�
     const reader = await context.run('MEMBER_A', 'read_only');
     const toolContext = { tx, runId: reader.runId } as ToolExecutionContext;
     expect((await readRulePack(toolContext, legacy.code, 'production')).data.pack).toBeNull();
+    await tx.query('INSERT INTO run_rule_pack(run_id,pack_id,version_id) VALUES($1,$2,$3)', [
+      reader.runId,
+      identity!.id,
+      content!.id,
+    ]);
+    await expect(readRulePack(toolContext, legacy.code, 'production')).rejects.toMatchObject({
+      code: 'RULE_PACK_REVIEW_REQUIRED',
+      message: expect.stringContaining('开启一次新运行'),
+    });
     await expect(
       refreshRulePackLevel(
         toolContext,

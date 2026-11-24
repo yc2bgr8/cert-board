@@ -5,13 +5,23 @@ import { api, createRequestKey, errorMessage } from './api.js';
 
 const kindNames = { rule_pack: '规则包', template: '模板' };
 const statusNames = { pending: '待审阅', published: '已发布', rejected: '已退回' };
+const categories = {
+  classification: '分类',
+  pathway: '申报路径',
+  evidence: '证据',
+  filing: '申报',
+  maintenance: '维护',
+  change: '变更',
+};
 
-type RequestAttempt = { fingerprint: string; key: string };
-function retryKey(attempt: { current: RequestAttempt | null }, values: string[]) {
-  const fingerprint = JSON.stringify(values);
-  if (attempt.current?.fingerprint !== fingerprint)
-    attempt.current = { fingerprint, key: createRequestKey() };
-  return attempt.current.key;
+function retryKey(attempts: Map<string, string>, fingerprint: string) {
+  const prior = attempts.get(fingerprint);
+  if (prior) return prior;
+  const key = createRequestKey();
+  const oldest = attempts.keys().next().value;
+  if (attempts.size >= 24 && oldest !== undefined) attempts.delete(oldest);
+  attempts.set(fingerprint, key);
+  return key;
 }
 
 export function KnowledgeReviews({ userId, management }: { userId: string; management: boolean }) {
@@ -23,8 +33,8 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
   const [yaml, setYaml] = useState('');
   const [reason, setReason] = useState('');
   const [notice, setNotice] = useState('');
-  const stageAttempt = useRef<RequestAttempt | null>(null);
-  const decisionAttempt = useRef<RequestAttempt | null>(null);
+  const stageAttempts = useRef(new Map<string, string>());
+  const decisionAttempts = useRef(new Map<string, string>());
   const client = useQueryClient();
   const listKey = ['live', 'knowledge-reviews', userId];
   const after = page.at(-1) ?? null;
@@ -43,9 +53,10 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
     retry: false,
   });
   const stage = useMutation({
-    mutationFn: api.stageKnowledgeReview,
-    onSuccess: async (created) => {
-      stageAttempt.current = null;
+    mutationFn: ({ input }: { input: KnowledgeReviewCreateInput; fingerprint: string }) =>
+      api.stageKnowledgeReview(input),
+    onSuccess: async (created, { fingerprint }) => {
+      stageAttempts.current.delete(fingerprint);
       setYaml('');
       setReason('');
       setPage([null]);
@@ -56,10 +67,16 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
     },
   });
   const decide = useMutation({
-    mutationFn: ({ id, command }: { id: string; command: KnowledgeReviewDecisionInput }) =>
-      api.decideKnowledgeReview(id, command),
-    onSuccess: () => {
-      decisionAttempt.current = null;
+    mutationFn: ({
+      id,
+      command,
+    }: {
+      id: string;
+      command: KnowledgeReviewDecisionInput;
+      fingerprint: string;
+    }) => api.decideKnowledgeReview(id, command),
+    onSuccess: (_result, { fingerprint }) => {
+      decisionAttempts.current.delete(fingerprint);
       setReason('');
     },
     onSettled: () => client.invalidateQueries({ queryKey: listKey }),
@@ -77,18 +94,20 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
   function submitDecision(action: 'publish' | 'reject') {
     if (!selected) return;
     setNotice('');
+    const fingerprint = JSON.stringify([
+      selected.id,
+      selected.contentSha256,
+      action,
+      action === 'reject' ? reason.trim() : '',
+    ]);
     const identity = {
       contentSha256: selected.contentSha256,
-      requestKey: retryKey(decisionAttempt, [
-        selected.id,
-        selected.contentSha256,
-        action,
-        action === 'reject' ? reason.trim() : '',
-      ]),
+      requestKey: retryKey(decisionAttempts.current, fingerprint),
     };
     decide.mutate({
       id: selected.id,
       command: action === 'reject' ? { action, reason, ...identity } : { action, ...identity },
+      fingerprint,
     });
   }
 
@@ -114,28 +133,30 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
             </p>
           )}
           {list.data && !selectedId && <p>暂无规则包或模板审核卡。</p>}
-          {selectedId && (
+          {(selectedId || page.length > 1 || next) && (
             <div className="live-skill-selectors">
-              <label>
-                审核卡{' '}
-                <select
-                  value={selectedId}
-                  disabled={busy}
-                  onChange={(event) => {
-                    setSelection(event.currentTarget.value);
-                    setReason('');
-                    setNotice('');
-                    decide.reset();
-                  }}
-                >
-                  {list.data?.items.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {kindNames[item.kind]} · {item.title} {item.version} ·{' '}
-                      {statusNames[item.status]}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {selectedId && (
+                <label>
+                  审核卡{' '}
+                  <select
+                    value={selectedId}
+                    disabled={busy}
+                    onChange={(event) => {
+                      setSelection(event.currentTarget.value);
+                      setReason('');
+                      setNotice('');
+                      decide.reset();
+                    }}
+                  >
+                    {list.data?.items.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {kindNames[item.kind]} · {item.title} {item.version} ·{' '}
+                        {statusNames[item.status]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {page.length > 1 && (
                 <button
                   className="live-text-button"
@@ -184,6 +205,7 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
                       <p>
                         {rule.id} · {rule.status === 'confirmed' ? '已核对' : '待核对'}
                       </p>
+                      <p>类别 · {rule.category ? categories[rule.category] : '未分类'}</p>
                       <pre className="live-skill-review-text">
                         {JSON.stringify(
                           { source: rule.source, parameters: rule.parameters, units: rule.units },
@@ -258,7 +280,11 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
                 onSubmit={(event) => {
                   event.preventDefault();
                   setNotice('');
-                  stage.mutate({ kind, yaml, requestKey: retryKey(stageAttempt, [kind, yaml]) });
+                  const fingerprint = JSON.stringify([kind, yaml]);
+                  stage.mutate({
+                    input: { kind, yaml, requestKey: retryKey(stageAttempts.current, fingerprint) },
+                    fingerprint,
+                  });
                 }}
               >
                 <div className="live-skill-selectors">

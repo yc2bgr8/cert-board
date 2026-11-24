@@ -125,14 +125,16 @@ export async function readRulePack(ctx: ToolExecutionContext, code: string, envi
   } = await ctx.tx.query<{
     id: string;
     publication: 'development' | 'published';
+    review_id: string | null;
     content: unknown;
   }>(
-    `SELECT v.id,v.publication,v.content FROM run_rule_pack used JOIN rule_pack p ON p.id=used.pack_id
+    `SELECT v.id,v.publication,v.review_id,v.content FROM run_rule_pack used JOIN rule_pack p ON p.id=used.pack_id
        JOIN rule_pack_version v ON v.id=used.version_id AND v.pack_id=p.id
-       WHERE used.run_id=$1 AND p.code=$2 AND ((v.publication='published' AND v.review_id IS NOT NULL)
+       WHERE used.run_id=$1 AND p.code=$2 AND (v.publication='published'
          OR ($3::boolean AND v.publication='development'))`,
     [ctx.runId, code, allowDevelopment],
   );
+  if (row?.publication === 'published' && !row.review_id) throw reviewRequired();
   const pack = row
     ? { ...rulePackSeedSchema.parse(row.content), versionId: row.id, publication: row.publication }
     : null;
@@ -141,6 +143,13 @@ export async function readRulePack(ctx: ToolExecutionContext, code: string, envi
     dataLevel: pack?.dataLevel ?? 'internal',
   };
 }
+
+const reviewRequired = () =>
+  new AppError(
+    422,
+    'RULE_PACK_REVIEW_REQUIRED',
+    '本次运行固定的历史规则版本缺少审阅。请开启一次新运行，读取已审阅版本。',
+  );
 
 export async function refreshRulePackLevel(
   ctx: ToolExecutionContext,
@@ -156,12 +165,7 @@ export async function refreshRulePackLevel(
       "SELECT 1 FROM rule_pack_version WHERE id=$1 AND publication='published' AND review_id IS NOT NULL",
       [pack.versionId],
     );
-    if (!approved.rowCount)
-      throw new AppError(
-        403,
-        'RULE_PACK_REVIEW_REQUIRED',
-        '此规则版本缺少审阅，请重新读取已发布版本。',
-      );
+    if (!approved.rowCount) throw reviewRequired();
   }
   return pack.dataLevel ?? 'internal';
 }
