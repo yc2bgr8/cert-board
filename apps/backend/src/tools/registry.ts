@@ -271,6 +271,8 @@ async function callback<T>(operation: () => Promise<T>): Promise<T> {
         'TOOL_DATA_REJECTED',
         '已有程序正在沙箱运行，请在本轮执行其他事项，稍后再试。',
       );
+    if (error instanceof AppError && error.code === 'CERT_QUERY_TIMEOUT' && error.statusCode === 503)
+      throw fail(503, 'TOOL_QUERY_TIMEOUT', '只读台账查询超时。请缩小到当前项目后重试。');
     if (error instanceof AppError && error.statusCode === 409)
       throw fail(
         409,

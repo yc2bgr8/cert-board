@@ -1757,6 +1757,75 @@ test('同一真实Pi内核领取租约、调用登记工具、持久化连续过
   expect(calls).toBe(2);
 });
 
+test('Agent 通过已登记台账工具查到节点，执行事件只保留语义回执', async () => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const target = await queued(context, 'read_only');
+  const syntheticTitle = '合成逾期节点回执用标题';
+  await context.pool.query(
+    `INSERT INTO cert_milestone(project_id,owner_user_id,milestone_type,title,planned_date)
+     SELECT id,$2,'合成节点',$3,(clock_timestamp() AT TIME ZONE jurisdiction_tz)::date-2
+     FROM cert_project WHERE id=$1`,
+    [context.projectId, target.userId, syntheticTitle],
+  );
+  await context.pool.query(
+    `INSERT INTO cert_query_coverage(project_id,dataset,source,verified_at)
+     VALUES($1,'cert_milestone','合成核验',clock_timestamp())`,
+    [context.projectId],
+  );
+  let calls = 0;
+  const gateway = new ModelGateway(
+    context.pool,
+    config,
+    {
+      kind: 'fixture',
+      async send(_model, request) {
+        if (++calls === 1) return call('cert_query', { template: 'overdue_milestones' });
+        expect(
+          request.messages.some(
+            ({ role, content }) => role === 'tool' && content.includes(syntheticTitle),
+          ),
+        ).toBe(true);
+        return result({ role: 'assistant', content: '合成节点核对完成。' });
+      },
+    },
+    { environment: 'test' },
+  );
+  const done = await executeAgentRun(
+    {
+      pool: context.pool,
+      store,
+      gateway,
+      models: config,
+      definitions: (code) => buildAgentTools(store, code),
+    },
+    target.runId,
+  );
+  expect(done.status).toBe('completed');
+  expect(calls).toBe(2);
+  const { rows } = await context.pool.query<{ cert_query: unknown }>(
+    "SELECT cert_query FROM run_event WHERE run_id=$1 AND type='tool_completed' AND cert_query IS NOT NULL",
+    [target.runId],
+  );
+  expect(rows).toMatchObject([
+    {
+      cert_query: {
+        template: 'overdue_milestones',
+        status: 'complete',
+        catalogVersion: '1.0.0',
+        scope: 'project',
+        gaps: [],
+        truncated: false,
+      },
+    },
+  ]);
+  expect(JSON.stringify(rows)).not.toContain(syntheticTitle);
+  expect(rows[0]?.cert_query).not.toHaveProperty('rows');
+});
+
 test('模型文字声称已提交不能伪造审核成功', async () => {
   const context = await createIntegrationContext();
   close = () => context.close();

@@ -125,7 +125,15 @@ export function certQueryTool(environment = process.env.NODE_ENV ?? 'production'
     },
     async refreshDataLevel(ctx, cached) {
       const result = certQueryResultSchema.parse(cached);
-      if (result.catalogVersion !== catalog.version || !catalog.available(environment))
+      const emptyFailure =
+        result.status === 'unanswerable' &&
+        result.rows.length === 0 &&
+        !result.truncated &&
+        (result.gaps.includes('template_unavailable') || result.gaps.includes('project_required'));
+      if (
+        result.catalogVersion !== catalog.version ||
+        (!catalog.available(environment) && !emptyFailure)
+      )
         throw new AppError(
           409,
           'CERT_QUERY_CATALOG_CHANGED',
@@ -138,8 +146,7 @@ export function certQueryTool(environment = process.env.NODE_ENV ?? 'production'
           'CERT_QUERY_SCOPE_CHANGED',
           '台账查询范围已变更，请在当前项目重新查询。',
         );
-      if (result.template === 'unsupported' || result.gaps.includes('project_required'))
-        return 'internal';
+      if (emptyFailure || result.template === 'unsupported') return 'internal';
       return readReplayLevel(ctx, result.template, projectId, result.rows);
     },
   };

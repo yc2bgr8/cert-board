@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-41 业务语义层与只读台账查询</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#验收">验收</a><a class="level-2" href="#后续">后续</a></nav><main><h1 id="pr-41-业务语义层与只读台账查询">PR-41 业务语义层与只读台账查询</h1>
+<p>注册和维护 Agent 均使用 <code>cert_query</code>。工具按 <a href="../数据与评测方案/K11_概念目录_1.0.0.html">K11 草稿</a> 执行五个固定模板。每条回执包含口径、查询时刻、范围、目录版本、数据缺口和截断状态。记录来源包括表、记录编号和版本。市场授权的可售判断同时列明支持它的证照版本。</p>
+<p>默认只查当前项目。部门范围使用现有注册人员的读取权限。台账数据在受控流程写入核验范围后才能确认空结果，已有但覆盖不全的记录可以作为部分答案。待审核卡以现有待处理系统为准。日期按项目法域计算。只读查询通过现有 PostgreSQL 无登录角色执行，语句时限为 1.5 秒，单次返回上限为 100 行。</p>
+<h2 id="验收">验收</h2>
+<ul><li>证照查询验证法域日期、到期日首尾边界、长期有效和缺字段。</li><li>型号状态与可售名单验证有效证照、市场和覆盖范围。逾期节点验证完成日期、今天的边界和截断。</li><li>待审核查询使用实际提示卡测试部门成员读取与截断，未经审阅的生产目录返回无法回答。</li><li>只读角色的写入及账号读取应被拒绝。真实工具循环的剧本回归核对执行事件，详细台账行保留在受保护工具结果，事件只留结构化回执。</li></ul>
+<h2 id="后续">后续</h2>
+<p>K11 目录为草稿，待注册人员确认。真实台账导入、记录范围核验和品牌映射由后续台账 PR 接入。正式真实走查随可用模型网关恢复后执行。<a href="../开发进度.html">开发进度</a></p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

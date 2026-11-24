@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import { certQueryResultSchema } from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
+import { createReviewTestContext } from '../reviews/test-support.js';
 import { certQueryTool } from './cert-query.js';
 import { ToolRegistry } from './registry.js';
 
@@ -50,12 +52,13 @@ afterAll(async () => {
   await ctx?.close();
 });
 
+async function caller() {
+  const { runId, userId, callId } = await ctx.run('MEMBER_A', 'read_only');
+  return { runId, userId, callId };
+}
+
 async function query(input: unknown, registry = reader) {
-  const result = await registry.execute(
-    await ctx.run('MEMBER_A', 'read_only'),
-    'cert_query',
-    input,
-  );
+  const result = await registry.execute(await caller(), 'cert_query', input);
   return certQueryResultSchema.parse(result.data);
 }
 
@@ -201,6 +204,40 @@ test('待审核系统表可确认空结果，未发布目录对所有模板拒�
   });
 });
 
+test('部门其他成员也可查询待审核卡，超过百张时返回部分结果', async () => {
+  const fixture = await createReviewTestContext();
+  try {
+    await fixture.submit();
+    const registry = new ToolRegistry(fixture.pool, [certQueryTool('test')]);
+    const lookup = async () => {
+      const { runId, userId, callId } = await fixture.run('MEMBER_B', 'read_only');
+      const result = await registry.execute({ runId, userId, callId }, 'cert_query', {
+        template: 'pending_my_reviews',
+      });
+      return certQueryResultSchema.parse(result.data);
+    };
+    const initial = await lookup();
+    expect(initial).toMatchObject({
+      status: 'complete',
+      rows: [{ source: { table: 'review_card', version: 1 }, fields: { status: 'pending' } }],
+    });
+    for (let i = 0; i < 100; i++) {
+      const { runId, userId, callId } = await fixture.run();
+      await fixture.read({ runId, userId, callId });
+      await fixture.submit(fixture.submission, { runId, userId, callId: randomUUID() });
+    }
+    const truncated = await lookup();
+    expect(truncated).toMatchObject({
+      status: 'partial',
+      truncated: true,
+      gaps: ['results_truncated'],
+    });
+    expect(truncated.rows).toHaveLength(100);
+  } finally {
+    await fixture.close();
+  }
+}, 30_000);
+
 test('只读角色拒绝写台账和读取账号，查询恢复登记层角色并升级旧回执级别', async () => {
   const tx = await ctx.pool.connect();
   try {
@@ -213,7 +250,7 @@ test('只读角色拒绝写台账和读取账号，查询恢复登记层角色�
     await tx.query('RESET ROLE');
     tx.release();
   }
-  const actor = await ctx.run('MEMBER_A', 'read_only');
+  const actor = await caller();
   const input = { template: 'credentials_expiring', days: 0 };
   await ctx.pool.query(
     `INSERT INTO credential(project_id,holder_entity_id,owner_user_id,credential_type,credential_number,
@@ -224,9 +261,37 @@ test('只读角色拒绝写台账和读取账号，查询恢复登记层角色�
   );
   const first = await reader.execute(actor, 'cert_query', input);
   expect(first.dataLevel).toBe('internal');
+  const production = new ToolRegistry(ctx.pool, [certQueryTool('production')]);
+  await expect(production.execute(actor, 'cert_query', input)).rejects.toMatchObject({
+    code: 'TOOL_TARGET_CONFLICT',
+  });
   await ctx.pool.query(
     "UPDATE credential SET data_level='confidential' WHERE credential_number='SYN-CLASSIFY'",
   );
   const repeated = await reader.execute(actor, 'cert_query', input);
   expect(repeated).toMatchObject({ dataLevel: 'confidential', replayed: true, data: first.data });
+});
+
+test('台账查询的语句超时会退出保存点，释放锁后可继续查询', async () => {
+  const reference = await caller();
+  const lock = await ctx.pool.connect();
+  await lock.query('BEGIN');
+  await lock.query('LOCK TABLE cert_milestone IN ACCESS EXCLUSIVE MODE');
+  const release = setTimeout(() => void lock.query('ROLLBACK').catch(() => undefined), 3000);
+  try {
+    await expect(
+      reader.execute(reference, 'cert_query', { template: 'overdue_milestones' }),
+    ).rejects.toMatchObject({ code: 'TOOL_QUERY_TIMEOUT' });
+  } finally {
+    clearTimeout(release);
+    await lock.query('ROLLBACK');
+    lock.release();
+  }
+  await expect(
+    reader.execute({ ...reference, callId: randomUUID() }, 'cert_query', {
+      template: 'overdue_milestones',
+    }),
+  ).resolves.toMatchObject({
+    status: 'completed',
+  });
 });
