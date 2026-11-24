@@ -31,6 +31,10 @@ import { authorize } from '../auth/authorization.js';
 import { reviewContentHash } from '../reviews/content.js';
 import { AppError } from './errors.js';
 import { CONVERSATION_EVENT_CHANNEL } from '../conversations/storage.js';
+import {
+  captureReviewEvaluation,
+  readReviewEvaluation,
+} from '../agent/evaluation/review-evaluation.js';
 
 type Card = {
   id: string;
@@ -38,6 +42,7 @@ type Card = {
   goal_id: string;
   conversation_id: string;
   run_id: string;
+  invocation_id: string;
   created_by: string;
   workspace_version_id: string;
   skill_id: string;
@@ -322,6 +327,14 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
       const ownJudgment = await judgment(tx, actor, card);
       const payload = content(card);
       await sources(tx, actor, card, payload);
+      await tx.query('SAVEPOINT read_review_evaluation');
+      let evaluation: Awaited<ReturnType<typeof readReviewEvaluation>> = null;
+      try {
+        evaluation = await readReviewEvaluation(tx, card.run_id, card.id);
+      } catch {
+        await tx.query('ROLLBACK TO SAVEPOINT read_review_evaluation');
+      }
+      await tx.query('RELEASE SAVEPOINT read_review_evaluation');
       const previous = (
         await tx.query<{
           id: string;
@@ -342,6 +355,7 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
         sections: reviewSections,
         submission: payload.submission,
         checks: payload.checks,
+        evaluation,
         diff: payload.diff,
         evidenceRefs: payload.evidenceRefs,
         judgment: ownJudgment,
@@ -357,6 +371,36 @@ export function registerReviewRoutes<Logger extends FastifyBaseLogger>(
           : null,
       });
     });
+  });
+
+  app.post('/api/reviews/:id/evaluation/retry', { bodyLimit: 1024 }, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const score = await browserTransaction(request, true, async (tx, actor) => {
+      const { card } = await load(tx, actor, id(request), true);
+      const existing = await readReviewEvaluation(tx, card.run_id, card.id);
+      if (existing) return existing;
+      const payload = content(card);
+      if (payload.legacySubmission)
+        throw new AppError(
+          409,
+          'EVALUATION_LEGACY_REVIEW',
+          '这张历史卡缺少当前评测所用的结构，请按原卡审核。',
+        );
+      await sources(tx, actor, card, payload);
+      await captureReviewEvaluation(tx, {
+        runId: card.run_id,
+        reviewId: card.id,
+        invocationId: card.invocation_id,
+        contentHash: card.content_hash,
+        submission: payload.submission,
+        checks: payload.checks,
+        evidenceRefs: payload.evidenceRefs,
+      });
+      return readReviewEvaluation(tx, card.run_id, card.id);
+    });
+    if (!score)
+      throw new AppError(503, 'EVALUATION_RETRY_FAILED', '本次评测存档未完成，请稍后重试。');
+    return score;
   });
   app.post('/api/reviews/:id/decision', async (request, reply) => {
     reply.header('cache-control', 'no-store');

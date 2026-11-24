@@ -709,8 +709,8 @@ export class ToolRegistry {
     operation: 'execute' | 'undo',
   ) {
     const result = await ctx.tx.query<{ id: string }>(
-      `INSERT INTO tool_invocation(run_id,conversation_id,user_id,call_id,tool_name,tool_version,arguments_hash,effect,operation)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      `INSERT INTO tool_invocation(run_id,conversation_id,user_id,call_id,tool_name,tool_version,arguments_hash,effect,operation,evaluated_mode,requires_process_approval)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
       [
         ctx.runId,
         ctx.conversationId,
@@ -721,6 +721,8 @@ export class ToolRegistry {
         argumentsHash,
         definition.metadata.effect,
         operation,
+        ctx.permissionMode,
+        ctx.permissionMode === 'ask' && definition.metadata.approvalInAsk,
       ],
     );
     return result.rows[0]!.id;

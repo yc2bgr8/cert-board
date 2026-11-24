@@ -138,6 +138,10 @@ async function review(page: Page, pool: pg.Pool, cardId: string, output: string,
   await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
   const card = page.getByRole('article', { name: '审核结果', exact: true });
   await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
+  const evaluation = card.locator('details').filter({ hasText: /运行评测/u });
+  await evaluation.locator('summary').click();
+  await evaluation.getByText(/^答案质量 · /u).waitFor();
+  await evaluation.getByText(/^策略遵守 · /u).waitFor();
   if (pendingReport) {
     const complete = card.locator('details').filter({ hasText: '完整待批改动' });
     await complete.locator('summary').click();

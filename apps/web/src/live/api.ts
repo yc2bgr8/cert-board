@@ -23,6 +23,7 @@ import {
   toolApprovalDecisionInputSchema,
   toolApprovalDecisionResultSchema,
   reviewCardViewSchema,
+  evaluationStatusViewSchema,
   reviewDecisionInputSchema,
   reviewDecisionResultSchema,
   proposalRecordSchema,
@@ -363,6 +364,11 @@ export const api = {
     ),
   review: (id: string, signal?: AbortSignal) =>
     request(`/api/reviews/${identifier(id)}`, reviewCardViewSchema, signalOption(signal)),
+  retryReviewEvaluation: (id: string) =>
+    request(`/api/reviews/${identifier(id)}/evaluation/retry`, evaluationStatusViewSchema, {
+      method: 'POST',
+      body: {},
+    }),
   decideReview: (id: string, input: ReviewDecisionInput) =>
     request(`/api/reviews/${identifier(id)}/decision`, reviewDecisionResultSchema, {
       method: 'POST',

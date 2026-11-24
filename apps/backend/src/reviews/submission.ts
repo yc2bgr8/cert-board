@@ -17,6 +17,7 @@ import { compareFileManifests } from '../workspace/diff.js';
 import type { ToolExecutionContext, ToolUndoRecord } from '../tools/registry.js';
 import { requireReviewPolicy } from './policy.js';
 import { reviewContentHash } from './content.js';
+import { captureReviewEvaluation } from '../agent/evaluation/review-evaluation.js';
 
 const error = (code: string, message: string, status = 422) => new AppError(status, code, message);
 const key = (ref: DocumentCitation) =>
@@ -276,6 +277,15 @@ export async function submitReview(
     "INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id,after_hash) VALUES($1,'agent','review.submitted','review_card',$2,$3)",
     [ctx.actor.userId, reviewId, contentHash],
   );
+  await captureReviewEvaluation(ctx.tx, {
+    runId: ctx.runId,
+    reviewId,
+    invocationId: invocation.rows[0]!.id,
+    contentHash,
+    submission,
+    checks,
+    evidenceRefs,
+  });
   return {
     data: reviewSubmitResultSchema.parse({
       reviewId,

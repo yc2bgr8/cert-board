@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-35 运行评测与隔离回放</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#验收">验收</a><a class="level-2" href="#没做什么">没做什么</a></nav><main><h1 id="pr-35-运行评测与隔离回放">PR-35 运行评测与隔离回放</h1>
+<p>结构化提交产生任务完成、答案质量、依据充分、工具可靠、策略遵守、效率和协作质量七项结果。无审核卡的运行也记录可观察维度。确定性评测使用已有 V1/V3、适用的 V6/V7、工具调用与授权快照、批准记录及运行事件。没有独立依据的陈述进入「需复核」。审核卡的「自检」可以展开评测结果。评测存档故障保留原审核卡并记录故障类型，注册人员可从卡片重试存档。<a href="../决定记录.html#d-067-运行评测与隔离回放">决定 D-067</a></p>
+<p>V5 使用已配置且与任务模型不同家族的本地端点。模型只返回有限的维度结论，结果只能降低确定性评测。回放以录制的资料库页和官方回执为输入，经同一 Pi 内核运行。提交给模型前遮挡目标身份、K 号和加拿大许可号。网页能力不进入回放工具目录。官方记录按生效日期截断，未来的文件页无法读取，越过回放边界的依据作废。</p>
+<h2 id="验收">验收</h2>
+<ul><li><code>pnpm eval:agent</code> 验证七维评测回放一致、独立模型家族、无回执时降级、回放遮挡、截至日期、网页工具关闭和依据作废。</li><li><code>pnpm test:int apps/backend/src/reviews/submission.int.test.ts apps/backend/src/api/review-routes.int.test.ts</code> 检查提交后存档、并发重放、旧数据兼容和评测故障时保留业务提交。</li><li><code>pnpm docs:html</code> 生成离线文档。业务走查和全套测试在独立 Linux 虚拟机执行。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>本地复核服务尚待配置。语义复核输出由剧本验证，现有真实走查验证端点不可用时保留审核成果和需复核状态。已结束运行的 V5 独立重试入口待接入。浏览器可对失败的确定性存档独立重试。</li><li>已录制的回放夹具供框架验收。完整评测集、模型训练截止分集和人工抽核进入后续评测 PR。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
