@@ -19,6 +19,7 @@ import { requiredRevisionSections, revisionSections } from './walkthrough-report
 import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthrough-batch.js';
 import { checkOfficialBrowserRun } from './official-walkthrough.js';
 import { checkRulesBrowserRun } from './rules-walkthrough.js';
+import { checkR09PackageReadOnly, checkR09Revision, r09Replacements, readOnlyWorkspaceSnapshot } from './r09-walkthrough.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
@@ -132,10 +133,16 @@ async function waitForReview(
   throw new Error('WALKTHROUGH_REVIEW_TIMEOUT');
 }
 
-async function review(page: Page, pool: pg.Pool, cardId: string, output: string, approve: boolean) {
+async function review(page: Page, pool: pg.Pool, cardId: string, output: string, approve: boolean, pendingReport?: string) {
   await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
   const card = page.getByRole('article', { name: '审核结果', exact: true });
   await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
+  if (pendingReport) {
+    const complete = card.locator('details').filter({ hasText: '完整待批改动' });
+    await complete.locator('summary').click();
+    await complete.getByText(pendingReport, { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(path.dirname(output), 'r09-complete-diff.png') });
+  }
   if (approve) {
     await card.getByRole('button', { name: '通过', exact: true }).click();
     await card.getByText('已通过，工作区版本已冻结。', { exact: true }).waitFor();
@@ -361,6 +368,46 @@ async function main() {
     await page.getByLabel('密码', { exact: true }).fill(password);
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
+    if (process.env.CERT_WALKTHROUGH_R09_ONLY === '1') {
+      stage = 'R09 的原文核验和双修改浏览器专项';
+      const reportPath = `交付/R09-双修改走查-${randomUUID().slice(0, 8)}.md`;
+      const conversation = await freshConversation(page, developmentProjectId, 'R09 两处意见复验', 'full');
+      await send(page, `${registrationPrompt} 报告使用 ${reportPath}。请分别原样保留这两行，供下一轮修改验证：\n${r09Replacements.map(([initial]) => initial).join('\n')}`);
+      const original = await waitForReview(page, pool, conversation, 1);
+      await inspectSubmission(pool, original, 'R09');
+      await review(page, pool, original, path.join(evidenceFolder, 'r09-eval-initial.png'), false);
+      await send(page, `请修改原路径 ${reportPath}。只应用两条明确意见，其他行保持原样，保存并重新提交审核。\n${r09Replacements.map(([before, after], index) => `${index + 1}. 把「${before}」替换为「${after}」`).join('\n')}`);
+      const revised = await waitForReview(page, pool, conversation, 2);
+      await inspectSubmission(pool, revised, 'R09');
+      const proof = await checkR09Revision(pool, blobs, original, revised, conversation, reportPath);
+      await review(page, pool, revised, path.join(evidenceFolder, 'r09-eval-approved.png'), true, reportPath);
+      const { rows: [approval] } = await pool.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM review_card WHERE conversation_id=$1 AND status='approved'",
+        [conversation],
+      );
+      const approvedCards = approval?.count;
+      assert.equal(approvedCards, 1, '改稿对话应只通过重提后的审核卡。');
+      stage = 'R09 整包候选复判的只读浏览器专项';
+      const readOnly = await freshConversation(page, developmentProjectId, 'R09 整包候选复判', 'read_only');
+      const workspaceBefore = await readOnlyWorkspaceSnapshot(pool, developmentProjectId, readOnly);
+      const { runId } = await send(page,
+        '按 R09 只读检查 L08。先运行 rules_run 的 R3、R5，再读取 D021 第29页与 D023 第17页判断各自用水动作。最终回复只返回一个 JSON 对象，字段格式为 {"用水证据":[{"资料编号":"","页码":1,"用途":"","原文":""}],"MSDS":{"资料编号":"","页码":1,"状态":"","缺失":""}}。用水证据填两项，“用途”各从“冲洗”“冷却”“待核”选择，“原文”逐字摘录英文，包含该动作和含单位的温度范围。MSDS 的资料编号及页码用 R5 回执里的实际定位。“状态”从“待核证据”“已证实差异”“无缺件”选择。“缺失”从“实际附件”“第二处独立证据”“无缺件”“待核信息”选择。所有字段填入证据支持的值。不要保存或提交。',
+      );
+      const packageProof = await checkR09PackageReadOnly(page, pool, runId, readOnly);
+      assert.deepEqual(
+        await readOnlyWorkspaceSnapshot(pool, developmentProjectId, readOnly),
+        workspaceBefore,
+        '只读整包核查应保留工作区版本及工作副本。',
+      );
+      assert.equal(blocked, 0);
+      await writeFile(
+        path.join(evidenceFolder, 'r09-result.json'),
+        JSON.stringify({ ...proof, packageProof: { ...packageProof, workspaceUnchanged: true }, status: 'passed', instance, commit: testedCommit, approvedInBrowser: true, approvedCards }, null, 2),
+        'utf8',
+      );
+      console.log('R09 原文、两处改稿和浏览器批准专项通过。');
+      return;
+    }
     if (process.env.CERT_WALKTHROUGH_RULES_ONLY === '1') {
       stage = '一致性规则库的真实浏览器专项';
       const conversation = await freshConversation(page, developmentProjectId, 'L08 一致性规则核对', 'full');

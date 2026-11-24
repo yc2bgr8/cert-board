@@ -6,11 +6,17 @@ import { localProcessEnvironment } from './dev.mjs';
 
 try {
   const official = process.argv.includes('--official');
+  const cx = process.argv.includes('--cx');
   const local = official
     ? {}
     : parseEnv(await readFile(new URL('../.env.local', import.meta.url), 'utf8'));
   if (!official && !local.OPENROUTER_API_KEY) {
-    console.log('跳过真实模型测试：.env.local 未配置 OPENROUTER_API_KEY。');
+    if (cx) {
+      console.error('CX 真实评测未通过。请在独立客体核对旗舰模型配置。');
+      process.exitCode = 1;
+    } else {
+      console.log('跳过真实模型测试：.env.local 未配置 OPENROUTER_API_KEY。');
+    }
   } else {
     const child = spawn(
       process.execPath,
@@ -23,6 +29,7 @@ try {
             ? 'apps/backend/src/agent/real-smoke.ts'
             : 'apps/backend/src/modelgw/real-smoke.ts',
         ...(process.argv.includes('--l08') ? ['--l08'] : []),
+        ...(cx ? ['--cx'] : []),
       ],
       {
         cwd: new URL('..', import.meta.url),

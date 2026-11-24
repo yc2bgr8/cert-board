@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-32 R09 申报一致性检查</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#验收">验收</a><a class="level-2" href="#没做什么">没做什么</a></nav><main><h1 id="pr-32-r09-申报一致性检查">PR-32 R09 申报一致性检查</h1>
+<p>R09 开发草稿可按用户选择做单项或整包核查。整包通过 R0–R7、五组资料取证和候选复判汇总差异。每项送审差异保留两处实际原文证据，未解析、缺件和接触时长等事项单列。写入交付文件后从浏览器审核，正式发布仍待注册人员审阅。</p>
+<p>技能来源包括 SY-QP-15 A3 第 5.3、5.5–5.7 节、《设计开发输出清单》《设计验证记录》《设计开发转换清单》，以及需求 R09 和技术方案 8.2。公开编号用已有 V2 工具，数字或范围可通过显式 <code>quantityCheck: true</code> 做 V7 复算。已识别单位分类型换算，引用须实际含值和单位。<a href="../决定记录.html#d-064-r09-取证与可重放评测">D-064</a></p>
+<h2 id="验收">验收</h2>
+<ul><li><code>pnpm eval:r09</code> 回放已授权的 T1 资料、RV-05 的原候选和人工标注，并在隔离文本副本注入三个变更。原资料保持原样。规则层按原标注统计误报 1/13，候选仍交复判。</li><li><code>pnpm test:real --cx</code> 经现有模型网关运行组长的 20 个合成 cx 用例，记录各用例的字段和原文正确情况。另用合成数值句验证塑形冷却与清洁冲洗用途区分。送入模型的是用例文本，答案在本地判分。</li><li><code>pnpm walkthrough:real --r09-only</code> 用真实浏览器创建 L08 对话、取证、送审并发出两条修改意见。重提时核对前后版本、实际变更和 V1，打开「完整待批改动」确认冻结范围，再从浏览器批准。1440×900 的界面证据留在验收虚拟机的专项证据目录，其中 <code>r09-complete-diff.png</code> 展示展开状态。</li><li>同一专项另建只读整包对话。根据 R3、R5 实际回执和 D021、D023 原文区分两种水温用途，MSDS 候选只有一处证据时归入待核证据。检查最终回复中的实际逐字引语、定位、用途及缺口，核对工作区版本、工作副本和审核状态。</li><li>虚拟机正式专项 <code>pnpm test:r09</code> 将本地回放、真实 cx 和双修改浏览器验收纳入同一候选。标准 R09、M02 和双通道真实走查单独执行。</li></ul>
+<p>第一次真实 CX 诊断的 20 条字段和原文检查通过，另一次用途区分通过，结算 0.645328 美元。第一次浏览器诊断核对到报告只变两行，但审核卡仍以已批准的版本比较，显示整份新增，结算 1.9911788 美元。第二次浏览器诊断通过两行改稿、批准和只读候选复判，结算 2.8685368 美元。重提的「改动」优先比较同对话、同目标和同技能的上一张可用卡片。与项目上次批准版本相比还有其他待批改动时，可展开查看完整范围。</p>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>第二个产品的实际申报资料仍待注册人员提供及确认。合成 cx 覆盖该组测试设计中的字段抽取。</li><li>虚拟机本 PR 用 T1 派生夹具回放。<code>pnpm test:l08</code> 的原始文件解析对照仍依赖宿主授权位置的原件。</li><li>R09 整包真实只读复判验证 R3、R5 和对应原文。全五组的逐项真实核查留待注册人员试用；规则库离线回放覆盖 R0–R7。</li><li>V7 复算限于独立量和简单同量纲范围。原文核验回查来源页，数值或范围必须完整出现在当前引语内。复合算式和紧跟数值的星号都转人工，页下注、勾选项和未勾选项沿用同一判定。只读专项用 JSON 字段核对缺件状态、实际定位和逐字原文。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

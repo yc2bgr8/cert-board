@@ -207,23 +207,38 @@ export async function submitReview(
       `本技能要求${policy.publication === 'published' ? '每条陈述与汇总依据均至少有' : '至少有'} ${policy.minimumEvidence} 条不同的完整资料引语。请补充已实际读取的依据。`,
     );
   const evidenceRefs = await verifyReadReceipts(ctx, references);
-  const previous = await ctx.tx.query<{ workspace_version_id: string }>(
-    "SELECT workspace_version_id FROM review_card WHERE project_id=$1 AND status='approved' ORDER BY decided_at DESC,id DESC LIMIT 1",
-    [ctx.projectId],
+  const previous = await ctx.tx.query<{ prior: string | null; approved: string | null }>(
+    `SELECT
+       (SELECT workspace_version_id FROM review_card
+         WHERE project_id=$1 AND conversation_id=$2 AND goal_id=$3 AND skill_id=$4
+           AND card_type=$5 AND status IN ('pending','approved','rejected')
+         ORDER BY created_at DESC,id DESC LIMIT 1) AS prior,
+       (SELECT workspace_version_id FROM review_card
+         WHERE project_id=$1 AND status='approved' ORDER BY decided_at DESC,id DESC LIMIT 1) AS approved`,
+    [ctx.projectId, ctx.conversationId, ctx.goalId, policy.skill.id, policy.cardType],
   );
-  const baseVersionId = previous.rows[0]?.workspace_version_id ?? null;
-  const changes = compareFileManifests(
-    await manifest(ctx, baseVersionId),
-    await manifest(ctx, submission.workspaceVersion),
-  ).map((change) => ({
-    path: change.path,
-    change: change.change,
-    beforeSha256: change.before?.sha256 ?? null,
-    afterSha256: change.after?.sha256 ?? null,
-  }));
-  if (changes.length > 1000)
+  const approvedVersionId = previous.rows[0]?.approved ?? null;
+  const baseVersionId = previous.rows[0]?.prior ?? approvedVersionId;
+  const currentManifest = await manifest(ctx, submission.workspaceVersion);
+  const compareFrom = async (versionId: string | null) =>
+    compareFileManifests(await manifest(ctx, versionId), currentManifest).map((change) => ({
+      path: change.path,
+      change: change.change,
+      beforeSha256: change.before?.sha256 ?? null,
+      afterSha256: change.after?.sha256 ?? null,
+    }));
+  const changes = await compareFrom(baseVersionId);
+  const approvalChanges =
+    baseVersionId === approvedVersionId ? changes : await compareFrom(approvedVersionId);
+  if (changes.length > 1000 || approvalChanges.length > 1000)
     throw error('REVIEW_DIFF_LIMIT', '本次改动超过1000个文件，请缩小交付范围后再提交审核。', 413);
-  const diff = { baseVersionId, changes };
+  const diff = {
+    baseVersionId,
+    changes,
+    ...(JSON.stringify(changes) === JSON.stringify(approvalChanges)
+      ? {}
+      : { approvalBase: { baseVersionId: approvedVersionId, changes: approvalChanges } }),
+  };
   const contentHash = reviewContentHash({
     submission,
     checks,

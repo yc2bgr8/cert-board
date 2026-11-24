@@ -194,6 +194,12 @@
 .live-review-file-list > li > .live-review-meta {
   padding-inline-start: 6px;
 }
+.live-review-complete-diff {
+  margin-top: 12px;
+}
+.live-review-complete-diff > summary {
+  cursor: pointer;
+}
 .live-review-check-list li {
   display: flex;
   gap: 8px;
