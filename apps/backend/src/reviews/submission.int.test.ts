@@ -52,6 +52,12 @@ test('提交审核自动存档七维评测，重放不重复并且语义回执�
   ).rejects.toMatchObject({ code: '42501' });
   await expect(
     pool.query(
+      `UPDATE eval_report SET semantic='{"status":"completed","dimensions":{"evidence":"needs_review"},"model":"fixture"}'::jsonb WHERE review_id=$1`,
+      [reviewId],
+    ),
+  ).rejects.toMatchObject({ code: '42501' });
+  await expect(
+    pool.query(
       `UPDATE eval_report SET semantic='{"status":"completed","dimensions":{"answer_quality":"passed"}}'::jsonb,
       result=jsonb_set(result,'{dimensions,answer_quality,status}','"passed"'::jsonb) WHERE review_id=$1`,
       [reviewId],
@@ -132,6 +138,22 @@ test('评测持久化失败保留审核卡，无卡运行仍能存档可观察�
       SELECT conversation_id,user_id,project_id,goal_id,'completed',clock_timestamp() FROM run WHERE id=$1 RETURNING id`,
     [caller.runId],
   );
+  await pool.query(
+    'CREATE TRIGGER reject_eval_fixture BEFORE INSERT ON eval_report FOR EACH ROW EXECUTE FUNCTION reject_eval_fixture()',
+  );
+  await captureRunEvaluation(pool, run!.id, 'completed');
+  expect(
+    (
+      await pool.query(
+        "SELECT 1 FROM audit_log WHERE target_type='run' AND target_id=$1 AND action='evaluation.unavailable'",
+        [run!.id],
+      )
+    ).rowCount,
+  ).toBe(1);
+  expect((await pool.query('SELECT status FROM run WHERE id=$1', [run!.id])).rows[0]?.status).toBe(
+    'completed',
+  );
+  await pool.query('DROP TRIGGER reject_eval_fixture ON eval_report');
   await captureRunEvaluation(pool, run!.id, 'completed');
   await captureRunEvaluation(pool, run!.id, 'completed');
   const final = await pool.query('SELECT review_id, result FROM eval_report WHERE run_id=$1', [

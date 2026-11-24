@@ -3,6 +3,7 @@ import { documentCitationSchema, officialLookupInputSchema } from '@cert-board/s
 import { runAgentKernel, type AgentKernelOptions } from '../pi/index.js';
 import {
   archivedOfficialReplay,
+  isHiddenReplayNumber,
   redactReplayInput,
   replayEvidenceValidity,
   replayScopeSchema,
@@ -31,6 +32,7 @@ function redactResult(
   scope: ReplayScope,
 ): z.infer<ReturnType<typeof z.json>> {
   if (typeof value === 'string') return redactReplayInput(value, scope);
+  if (typeof value === 'number' && isHiddenReplayNumber(value, scope)) return '[已遮挡]';
   if (Array.isArray(value)) return value.map((item) => redactResult(item, scope));
   if (value && typeof value === 'object')
     return Object.fromEntries(
@@ -44,6 +46,7 @@ function includesHiddenIdentity(
   scope: ReplayScope,
 ): boolean {
   if (typeof value === 'string') return redactReplayInput(value, scope) !== value;
+  if (typeof value === 'number') return isHiddenReplayNumber(value, scope);
   if (Array.isArray(value)) return value.some((item) => includesHiddenIdentity(item, scope));
   return (
     !!value &&

@@ -66,12 +66,22 @@ BEGIN
     IF review_status IS NULL OR review_status NOT IN ('not_evaluated','unavailable','completed') THEN
         RAISE EXCEPTION '语义复核状态无效。' USING ERRCODE = '42501';
     END IF;
+    IF (review_status = 'not_evaluated' AND (NEW.semantic - 'status') <> '{}'::jsonb)
+       OR (review_status = 'unavailable' AND (
+          (NEW.semantic - ARRAY['status','reason']) <> '{}'::jsonb
+          OR coalesce(NEW.semantic->>'reason','') NOT IN ('model_unavailable','same_model_family','same_upstream_model','invalid_response','provider_failure')
+       ))
+       OR (review_status = 'completed' AND (NEW.semantic - ARRAY['status','dimensions']) <> '{}'::jsonb) THEN
+        RAISE EXCEPTION '语义复核保留字段不符合读写契约。' USING ERRCODE = '42501';
+    END IF;
     IF jsonb_typeof(NEW.deterministic->'dimensions') IS DISTINCT FROM 'object'
        OR jsonb_typeof(NEW.result->'dimensions') IS DISTINCT FROM 'object' THEN
         RAISE EXCEPTION '运行评测需要七项维度。' USING ERRCODE = '42501';
     END IF;
     IF (SELECT count(*) FROM jsonb_object_keys(NEW.deterministic->'dimensions')) <> 7
-       OR (SELECT count(*) FROM jsonb_object_keys(NEW.result->'dimensions')) <> 7 THEN
+       OR (SELECT count(*) FROM jsonb_object_keys(NEW.result->'dimensions')) <> 7
+       OR (NEW.deterministic - ARRAY['dimensions','overall']) <> '{}'::jsonb
+       OR (NEW.result - ARRAY['dimensions','overall']) <> '{}'::jsonb THEN
         RAISE EXCEPTION '运行评测需要七项维度。' USING ERRCODE = '42501';
     END IF;
     IF review_status = 'completed' THEN
@@ -85,6 +95,12 @@ BEGIN
         END IF;
     END IF;
     FOREACH dimension IN ARRAY axes LOOP
+        IF jsonb_typeof(NEW.deterministic->'dimensions'->dimension) IS DISTINCT FROM 'object'
+           OR jsonb_typeof(NEW.result->'dimensions'->dimension) IS DISTINCT FROM 'object'
+           OR ((NEW.deterministic->'dimensions'->dimension) - ARRAY['status','findings']) <> '{}'::jsonb
+           OR ((NEW.result->'dimensions'->dimension) - ARRAY['status','findings']) <> '{}'::jsonb THEN
+            RAISE EXCEPTION '评测维度字段不符合读写契约。' USING ERRCODE = '42501';
+        END IF;
         base_rank := array_position(ranks, NEW.deterministic->'dimensions'->dimension->>'status');
         IF base_rank IS NULL THEN
             RAISE EXCEPTION '确定性维度状态无效。' USING ERRCODE = '42501';

@@ -1207,7 +1207,7 @@ export async function executeAgentRun(
     await releaseAuthority();
   }
   if (!reviewId && !['queued', 'running'].includes(status))
-    await captureRunEvaluation(pool, runId, status).catch(() => undefined);
+    await captureRunEvaluation(pool, runId, status);
   return {
     runId,
     status,

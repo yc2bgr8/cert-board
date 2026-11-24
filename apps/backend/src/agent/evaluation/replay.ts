@@ -28,7 +28,7 @@ const identifiers = (scope: ReplayScope) =>
 
 export function redactReplayInput(text: string, scope: ReplayScope) {
   const names = [...scope.brands, ...scope.applicants]
-    .map((name) => name.normalize('NFC'))
+    .map((name) => name.normalize('NFKC'))
     .sort((a, b) => b.length - a.length)
     .map((name) =>
       name
@@ -44,7 +44,7 @@ export function redactReplayInput(text: string, scope: ReplayScope) {
   let normalized = '';
   const ranges: { start: number; end: number }[] = [];
   for (const { segment, index } of graphemes.segment(text)) {
-    const transformed = segment.normalize('NFC');
+    const transformed = segment.normalize('NFKC');
     normalized += transformed;
     const range = { start: index, end: index + segment.length };
     for (let unit = 0; unit < transformed.length; unit++) ranges.push(range);
@@ -58,6 +58,15 @@ export function redactReplayInput(text: string, scope: ReplayScope) {
     cursor = ranges[matched.index + matched[0].length - 1]!.end;
   }
   return redacted + text.slice(cursor);
+}
+
+export function isHiddenReplayNumber(value: number, scope: ReplayScope) {
+  if (!Number.isSafeInteger(value) || value < 0) return false;
+  const targetNumbers = [
+    ...scope.licenceNumbers,
+    ...scope.kNumbers.map((number) => number.slice(1)),
+  ];
+  return targetNumbers.some((number) => Number(number) === value);
 }
 
 export function archivedOfficialReplay(
@@ -90,7 +99,7 @@ export function replayEvidenceValidity(
     'target_identifier_in_evidence' | 'future_evidence' | 'source_date_unavailable'
   >();
   for (const source of evidence) {
-    if (forbidden?.test(source.quote.normalize('NFC')))
+    if (forbidden?.test(source.quote.normalize('NFKC')))
       findings.add('target_identifier_in_evidence');
     if (!source.availableOn || !z.iso.date().safeParse(source.availableOn).success)
       findings.add('source_date_unavailable');

@@ -139,19 +139,28 @@ export async function captureReviewEvaluation(
 }
 
 export async function captureRunEvaluation(pool: Pool, runId: string, status: string) {
-  const observed = await observe(pool, runId, null, []);
-  const report = assessObservations(observed, null, []);
-  const fingerprint = createHash('sha256')
-    .update(JSON.stringify([status, observed]))
-    .digest('hex');
-  await pool.query(
-    `INSERT INTO eval_report(run_id,scheme_version,input_fingerprint,deterministic,semantic,result)
+  try {
+    const observed = await observe(pool, runId, null, []);
+    const report = assessObservations(observed, null, []);
+    const fingerprint = createHash('sha256')
+      .update(JSON.stringify([status, observed]))
+      .digest('hex');
+    await pool.query(
+      `INSERT INTO eval_report(run_id,scheme_version,input_fingerprint,deterministic,semantic,result)
      SELECT r.id,$2,$3,$4,'{"status":"not_evaluated"}'::jsonb,$4 FROM run r
      WHERE r.id=$1 AND r.status::text=$5 AND r.status NOT IN ('queued','running')
        AND NOT EXISTS(SELECT 1 FROM review_card c WHERE c.run_id=r.id)
      ON CONFLICT(run_id,scheme_version,input_fingerprint) DO NOTHING`,
-    [runId, evaluationVersion, fingerprint, report, status],
-  );
+      [runId, evaluationVersion, fingerprint, report, status],
+    );
+  } catch {
+    await pool
+      .query(
+        "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system','evaluation.unavailable','run',$1)",
+        [runId],
+      )
+      .catch(() => console.warn('EVALUATION_AUDIT_DEFERRED', runId));
+  }
 }
 
 async function latestEvaluation(db: Query, runId: string, reviewId: string) {

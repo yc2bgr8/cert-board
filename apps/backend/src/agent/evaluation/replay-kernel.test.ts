@@ -106,3 +106,17 @@ test('身份之外的组合字符可以从原页逐字引用', async () => {
     runRecordedReplay(scenario, new Map(), options(judge.complete)),
   ).resolves.toMatchObject({ valid: true, findings: [] });
 });
+
+test('完整回放回复中的数字型许可号和全角申请人同样作废', async () => {
+  for (const extra of [{ licenceNumber: 113514 }, { applicant: 'Ｅｘａｍｐｌｅ Ｌｔｄ．' }]) {
+    const judge = scripted([
+      { role: 'assistant', content: JSON.stringify({ evidence: [], ...extra }) },
+    ]);
+    await expect(
+      runRecordedReplay(input, new Map(), options(judge.complete)),
+    ).resolves.toMatchObject({
+      valid: false,
+      findings: ['target_identity_in_response'],
+    });
+  }
+});
