@@ -283,10 +283,7 @@ export async function readCursorTurn(
       prompt: [{ type: 'text', text: JSON.stringify(prompt) }],
     });
     if (error) throw error;
-    if (
-      !z.object({ stopReason: z.literal('end_turn') }).safeParse(completed).success ||
-      !answer.trim()
-    )
+    if (!z.object({ stopReason: z.literal('end_turn') }).safeParse(completed).success)
       throw new VerificationChannelError('failed');
     return answer;
   } catch (cause) {
@@ -323,6 +320,7 @@ export async function callCursorAcp(
   beforeDispatch: (processClosed: AbortSignal) => Promise<void>,
 ) {
   const answer = await readCursorTurn(config, modelId, prompt, beforeDispatch);
+  if (!answer.trim()) throw new VerificationChannelError('failed');
   const reply = answer
     .trim()
     .replace(/^\x60\x60\x60(?:json)?\s*/iu, '')

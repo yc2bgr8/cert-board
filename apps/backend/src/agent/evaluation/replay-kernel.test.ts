@@ -108,7 +108,12 @@ test('身份之外的组合字符可以从原页逐字引用', async () => {
 });
 
 test('完整回放回复中的数字型许可号和全角申请人同样作废', async () => {
-  for (const extra of [{ licenceNumber: 113514 }, { applicant: 'Ｅｘａｍｐｌｅ Ｌｔｄ．' }]) {
+  for (const extra of [
+    { licenceNumber: 113514 },
+    { licenseId: 113514 },
+    { license_ids: [113514] },
+    { applicant: 'Ｅｘａｍｐｌｅ Ｌｔｄ．' },
+  ]) {
     const judge = scripted([
       { role: 'assistant', content: JSON.stringify({ evidence: [], ...extra }) },
     ]);

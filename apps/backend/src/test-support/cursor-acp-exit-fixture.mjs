@@ -1,5 +1,6 @@
 import { createInterface } from 'node:readline';
-import { watch } from 'node:fs';
+import { existsSync, watch } from 'node:fs';
+import path from 'node:path';
 
 const input = createInterface({ input: process.stdin });
 input.on('line', (line) => {
@@ -9,6 +10,10 @@ input.on('line', (line) => {
   if (method === 'initialize') reply({ protocolVersion: 1 });
   else if (method === 'session/new') reply({ sessionId: 'synthetic-session', configOptions: [] });
   else if (method === 'session/prompt') {
+    if (existsSync(path.join(process.env.CURSOR_CONFIG_DIR, 'empty-response-fixture'))) {
+      reply({ stopReason: 'end_turn' });
+      return;
+    }
     process.stdout.write(
       JSON.stringify({
         jsonrpc: '2.0',
