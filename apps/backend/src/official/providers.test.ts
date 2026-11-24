@@ -108,6 +108,120 @@ test('MDALL 型号保留允许的内部空格和斜线', () => {
   ).toMatchObject([{ identifier }]);
 });
 
+test('M02 按同一申报号核对列名、注册年度、企业类型和公开代理机构', () => {
+  const query = input({
+    dataset: 'fda_registration',
+    registrationNumber: '1234567890',
+    listedKNumber: 'K123456',
+    listedProductCode: 'LRK',
+  });
+  const search = new URL(officialRequestUrl(query)).searchParams.get('search');
+  expect(search).toBe(
+    'registration.registration_number:"1234567890" AND products.product_code:"LRK" AND k_number:"K123456"',
+  );
+  const payload = {
+    meta: { results: { total: 1 } },
+    results: [
+      {
+        registration: {
+          registration_number: '1234567890',
+          name: 'Synthetic Company',
+          reg_expiry_date_year: '2027',
+          status_code: '1',
+          us_agent: { business_name: 'Synthetic Agent', email_address: 'fixture@example.invalid' },
+        },
+        establishment_type: ['Manufacture Medical Device'],
+        k_number: 'K123456',
+        proprietary_name: ['Example A', 'Example B', 'Example C', 'Example D'],
+        products: [{ product_code: 'LRK' }],
+      },
+    ],
+  };
+  expect(normalizeOfficialResponse(query, payload).records).toEqual([
+    {
+      identifier: '1234567890',
+      company: 'Synthetic Company',
+      listedProductCodes: ['LRK'],
+      listedKNumber: 'K123456',
+      registrationExpiryYear: 2027,
+      registrationStatusCode: '1',
+      usAgentBusiness: 'Synthetic Agent',
+      establishmentTypes: ['Manufacture Medical Device'],
+      proprietaryNames: ['Example A', 'Example B', 'Example C', 'Example D'],
+    },
+  ]);
+  expect(() =>
+    normalizeOfficialResponse(input({ ...query, listedKNumber: 'K123457' }), payload),
+  ).toThrow('精确查询条件不一致');
+});
+
+test('公开公司查询区分未找到和有记录但尚无注册号', () => {
+  const company = input({
+    dataset: 'fda_registration_company',
+    companyName: 'Synthetic Applicant',
+  });
+  expect(new URL(officialRequestUrl(company)).searchParams.get('search')).toBe(
+    'registration.name.exact:"Synthetic Applicant"',
+  );
+  expect(
+    normalizeOfficialResponse(company, {
+      error: { code: 'NOT_FOUND', message: 'No matches found!' },
+    }).records,
+  ).toEqual([]);
+  const result = normalizeOfficialResponse(company, {
+    meta: { results: { total: 1 } },
+    results: [
+      {
+        registration: {
+          name: 'Synthetic Applicant',
+          status_code: '5',
+          registration_number: '',
+          fei_number: '1234567890',
+        },
+      },
+    ],
+  });
+  expect(result.records).toEqual([
+    { identifier: '1234567890', company: 'Synthetic Applicant', registrationStatusCode: '5' },
+  ]);
+});
+
+test('openFDA 的 GUDID 查询限定公开产品代码和至少一个可复查的识别条件', () => {
+  const criteria = input({
+    dataset: 'fda_gudid_search',
+    productCode: 'LRK',
+    kNumber: 'K123456',
+    companyName: 'Synthetic Company',
+    brandNames: ['Example A'],
+  });
+  const url = new URL(officialRequestUrl(criteria));
+  expect(url.origin).toBe('https://api.fda.gov');
+  expect(url.searchParams.get('search')).toBe(
+    'product_codes.code.exact:"LRK" AND (brand_name.exact:"Example A" OR company_name.exact:"Synthetic Company" OR premarket_submissions.submission_number:"K123456")',
+  );
+  const matched = {
+    record_key: 'fixture-udi',
+    brand_name: 'Example A',
+    product_codes: [{ code: 'LRK' }],
+    identifiers: [{ type: 'Primary', id: '012345' }],
+  };
+  const rows = { meta: { results: { total: 1 } }, results: [matched] };
+  expect(normalizeOfficialResponse(criteria, rows).records).toEqual([
+    { identifier: '012345', name: 'Example A', productCode: 'LRK' },
+  ]);
+  expect(() =>
+    normalizeOfficialResponse(criteria, {
+      ...rows,
+      results: [{ ...matched, product_codes: [{ code: 'LOM' }] }],
+    }),
+  ).toThrow('精确查询条件不一致');
+  expect(
+    normalizeOfficialResponse(criteria, {
+      error: { code: 'NOT_FOUND', message: 'No matches found!' },
+    }).records,
+  ).toEqual([]);
+});
+
 test('录制的 AccessGUDID 结果保留可证实的版本日期', () => {
   const lookup = input({ dataset: 'gudid_device', deviceIdentifier: '08717648200274' });
   const raw = recorded('gudid-example');

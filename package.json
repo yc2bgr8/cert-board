@@ -20,6 +20,7 @@
     "test:py": "node scripts/test-python.mjs",
     "test:real": "node scripts/test-real.mjs",
     "test:official": "node scripts/test-official-vm.mjs",
+    "test:m02": "node scripts/test-official-vm.mjs --m02",
     "test:rules": "node --import tsx scripts/walkthrough.mjs --rules-only",
     "test:r09": "node scripts/test-r09-vm.mjs",
     "test:knowledge": "node --import tsx scripts/walkthrough.mjs --knowledge-only",

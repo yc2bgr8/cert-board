@@ -13,6 +13,7 @@ const exactOpenFdaFields = {
   fda_classification: 'product_code',
   fda_regulation: 'regulation_number',
   fda_registration: 'registration.registration_number',
+  fda_registration_company: 'registration.name.exact',
 } as const;
 
 export function officialRequestUrl(input: OfficialLookupInput) {
@@ -21,6 +22,8 @@ export function officialRequestUrl(input: OfficialLookupInput) {
     (input.dataset === 'fda_classification' ||
       input.dataset === 'fda_regulation' ||
       input.dataset === 'fda_registration' ||
+      input.dataset === 'fda_registration_company' ||
+      input.dataset === 'fda_gudid_search' ||
       input.dataset === 'mdall_company_licences')
   )
     throw new AppError(
@@ -30,11 +33,13 @@ export function officialRequestUrl(input: OfficialLookupInput) {
     );
   const fda = (key: keyof typeof exactOpenFdaFields, endpoint: string, value: string) => {
     const url = new URL(`https://api.fda.gov/device/${endpoint}.json`);
-    const listing =
-      input.dataset === 'fda_registration' && input.listedProductCode
-        ? ` AND products.product_code:"${input.listedProductCode}"`
-        : '';
-    const exact = `${exactOpenFdaFields[key]}:"${value}"${listing}`;
+    const conditions = [`${exactOpenFdaFields[key]}:"${value}"`];
+    if (input.dataset === 'fda_registration') {
+      if (input.listedProductCode)
+        conditions.push(`products.product_code:"${input.listedProductCode}"`);
+      if (input.listedKNumber) conditions.push(`k_number:"${input.listedKNumber}"`);
+    }
+    const exact = conditions.join(' AND ');
     url.searchParams.set(
       'search',
       key === 'fda_510k' && input.asOf
@@ -63,6 +68,21 @@ export function officialRequestUrl(input: OfficialLookupInput) {
       return fda(input.dataset, 'classification', input.regulationNumber);
     case 'fda_registration':
       return fda(input.dataset, 'registrationlisting', input.registrationNumber);
+    case 'fda_registration_company':
+      return fda(input.dataset, 'registrationlisting', input.companyName);
+    case 'fda_gudid_search': {
+      const url = new URL('https://api.fda.gov/device/udi.json');
+      const matches = (input.brandNames ?? []).map((brand) => `brand_name.exact:"${brand}"`);
+      if (input.companyName) matches.push(`company_name.exact:"${input.companyName}"`);
+      if (input.kNumber) matches.push(`premarket_submissions.submission_number:"${input.kNumber}"`);
+      url.searchParams.set(
+        'search',
+        `product_codes.code.exact:"${input.productCode}" AND (${matches.join(' OR ')})`,
+      );
+      url.searchParams.set('limit', String(officialPageSize));
+      if (input.offset) url.searchParams.set('skip', String(input.offset));
+      return url.href;
+    }
     case 'gudid_device': {
       const url = new URL('https://accessgudid.nlm.nih.gov/api/v2/devices/lookup.json');
       url.searchParams.set('di', input.deviceIdentifier);
@@ -110,12 +130,34 @@ const clearance = z.object({
 });
 const registration = z.object({
   registration: z.object({
-    registration_number: id,
+    registration_number: z.union([id, z.literal(''), z.null()]).optional(),
+    fei_number: z.union([id, z.literal(''), z.null()]).optional(),
     name: nullableText,
+    reg_expiry_date_year: z.union([text, z.literal(''), z.null()]).optional(),
+    status_code: nullableText,
+    us_agent: z.object({ business_name: nullableText }).nullish(),
   }),
+  k_number: nullableText,
+  establishment_type: z.array(text).max(100).optional(),
+  proprietary_name: z.array(text).max(1000).optional(),
   products: z
     .array(z.object({ product_code: nullableText }))
     .max(1000)
+    .optional(),
+});
+const fdaGUDID = z.object({
+  record_key: text,
+  brand_name: nullableText,
+  company_name: nullableText,
+  public_version_date: optionalDate,
+  product_codes: z.array(z.object({ code: text })).max(100),
+  premarket_submissions: z
+    .array(z.object({ submission_number: nullableText }))
+    .max(200)
+    .optional(),
+  identifiers: z
+    .array(z.object({ id: text, type: nullableText }))
+    .max(200)
     .optional(),
 });
 const licence = z.object({
@@ -214,10 +256,22 @@ function normalizeRecord(input: OfficialLookupInput, raw: unknown): OfficialReco
         deviceClass: row.device_class || undefined,
       };
     }
-    case 'fda_registration': {
+    case 'fda_registration':
+    case 'fda_registration_company': {
       const row = registration.parse(raw);
-      const { registration_number, name } = row.registration;
-      if (registration_number !== input.registrationNumber) return null;
+      const { registration_number, fei_number, name, reg_expiry_date_year, us_agent, status_code } =
+        row.registration;
+      if (
+        input.dataset === 'fda_registration_company' &&
+        (!name || !sameIdentifier(name, input.companyName))
+      )
+        return null;
+      if (input.dataset === 'fda_registration' && registration_number !== input.registrationNumber)
+        return null;
+      const requestedCode =
+        input.dataset === 'fda_registration' ? input.listedProductCode : undefined;
+      const requestedK = input.dataset === 'fda_registration' ? input.listedKNumber : undefined;
+      if (requestedK && row.k_number !== requestedK) return null;
       const available = [
         ...new Set(
           row.products
@@ -225,16 +279,59 @@ function normalizeRecord(input: OfficialLookupInput, raw: unknown): OfficialReco
             .filter((code): code is string => typeof code === 'string' && /^[A-Z]{3}$/u.test(code)),
         ),
       ];
-      if (input.listedProductCode && !available.includes(input.listedProductCode)) return null;
-      const listedProductCodes = input.listedProductCode
-        ? [input.listedProductCode]
-        : available.slice(0, 30);
+      if (requestedCode && !available.includes(requestedCode)) return null;
+      const listedProductCodes = requestedCode ? [requestedCode] : available.slice(0, 30);
+      const names = [
+        ...new Set(
+          (row.proprietary_name ?? []).map(label).filter((name): name is string => !!name),
+        ),
+      ];
+      const year = Number(reg_expiry_date_year);
       return {
-        identifier: registration_number,
+        identifier: registration_number || fei_number || name!.slice(0, 64),
+        ...(input.dataset === 'fda_registration_company' && registration_number
+          ? { registrationNumber: registration_number }
+          : {}),
         company: label(name),
         listedProductCodes: listedProductCodes.length ? listedProductCodes : undefined,
-        listedProductCodesTruncated:
-          !input.listedProductCode && available.length > 30 ? true : undefined,
+        listedProductCodesTruncated: !requestedCode && available.length > 30 ? true : undefined,
+        listedKNumber: row.k_number && /^K\d{6}$/u.test(row.k_number) ? row.k_number : undefined,
+        registrationExpiryYear:
+          Number.isInteger(year) && year >= 1900 && year <= 2200 ? year : undefined,
+        registrationStatusCode:
+          status_code && /^\d{1,3}$/u.test(status_code) ? status_code : undefined,
+        usAgentBusiness: label(us_agent?.business_name),
+        establishmentTypes: row.establishment_type
+          ?.slice(0, 15)
+          .map(label)
+          .filter((item): item is string => !!item),
+        proprietaryNames: names.length ? names.slice(0, 30) : undefined,
+        proprietaryNamesTruncated: names.length > 30 ? true : undefined,
+      };
+    }
+    case 'fda_gudid_search': {
+      const row = fdaGUDID.parse(raw);
+      if (!row.product_codes.some(({ code }) => code === input.productCode)) return null;
+      const matchesK =
+        input.kNumber &&
+        row.premarket_submissions?.some(
+          ({ submission_number }) => submission_number === input.kNumber,
+        );
+      const matchesCompany =
+        input.companyName &&
+        row.company_name &&
+        sameIdentifier(row.company_name, input.companyName);
+      const brand = row.brand_name;
+      const matchesBrand = brand && input.brandNames?.some((name) => sameIdentifier(brand, name));
+      if (!matchesK && !matchesCompany && !matchesBrand) return null;
+      const primary = row.identifiers?.find(({ type }) => type === 'Primary')?.id;
+      const identifier = primary && primary.length <= 64 ? primary : row.record_key.slice(0, 64);
+      return {
+        identifier,
+        name: label(row.brand_name),
+        company: label(row.company_name),
+        productCode: input.productCode,
+        effectiveDate: row.public_version_date || undefined,
       };
     }
     case 'gudid_device': {
@@ -309,6 +406,16 @@ export function normalizeOfficialResponse(input: OfficialLookupInput, raw: unkno
     if (input.asOf) delete normalized.endDate;
     return [optionalFields(normalized)];
   });
+  const strictListing =
+    input.dataset === 'fda_registration_company' ||
+    input.dataset === 'fda_gudid_search' ||
+    (input.dataset === 'fda_registration' && input.listedKNumber !== undefined);
+  if (strictListing && records.length && !filtered.length)
+    throw new AppError(
+      502,
+      'OFFICIAL_RESPONSE_UNVERIFIED',
+      '返回的公开记录与本次精确查询条件不一致，请核对查询条件或人工复核。',
+    );
   const offset = input.offset ?? 0;
   const nextOffset = offset + officialPageSize;
   const hasMore =

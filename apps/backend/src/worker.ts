@@ -39,6 +39,7 @@ import {
 } from './goals/verification-wakeups.js';
 import { scanGoalEvents, scanReviewDecisionEvents } from './goals/goal-events.js';
 import { scanSkillRollbackProposals } from './skills/rollback.js';
+import { scanM02Schedules } from './goals/m02-schedule.js';
 
 export async function startWorker() {
   const config = parseBackendConfig(process.env);
@@ -118,14 +119,12 @@ export async function startWorker() {
       environment: config.NODE_ENV,
     });
     const store = new BlobStore(resources.storage, config.MINIO_BUCKET);
-    const ruleSources = config.CERT_DOCSVC_URL ? {
-      store: new BlobStore(
-        resources.storage,
-        config.MINIO_BUCKET,
-        maximumDocumentBytes,
-      ),
-      parser: new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
-    } : undefined;
+    const ruleSources = config.CERT_DOCSVC_URL
+      ? {
+          store: new BlobStore(resources.storage, config.MINIO_BUCKET, maximumDocumentBytes),
+          parser: new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
+        }
+      : undefined;
     if (ruleSources) {
       const { store: originalStore, parser } = ruleSources;
       const packageStore = new BlobStore(
@@ -342,6 +341,7 @@ export async function startWorker() {
         await reconcile();
         await purgeExpiredModelRequests(resources.database);
         await scanSkillRollbackProposals(resources.database);
+        await scanM02Schedules(resources.database, config.NODE_ENV);
       })()
         .catch(() => logger.warn({ event: 'maintenance_deferred' }, '后台维护暂未完成，稍后重试。'))
         .finally(() => {

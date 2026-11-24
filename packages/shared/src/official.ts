@@ -30,6 +30,12 @@ const mdallIdentifier = z
   .string()
   .trim()
   .regex(/^[A-Za-z0-9][A-Za-z0-9._+ /-]{0,63}$/u);
+const publicName = z
+  .string()
+  .trim()
+  .min(2)
+  .max(120)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9 .,'&()_-]*$/u);
 const page = { asOf: cutoff, offset };
 
 export const officialLookupInputSchema = z.discriminatedUnion('dataset', [
@@ -40,8 +46,29 @@ export const officialLookupInputSchema = z.discriminatedUnion('dataset', [
     dataset: z.literal('fda_registration'),
     registrationNumber: digits,
     listedProductCode: productCode.optional(),
+    listedKNumber: kNumber.optional(),
     ...page,
   }),
+  z.strictObject({
+    dataset: z.literal('fda_registration_company'),
+    companyName: publicName,
+    ...page,
+  }),
+  z
+    .strictObject({
+      dataset: z.literal('fda_gudid_search'),
+      productCode,
+      kNumber: kNumber.optional(),
+      companyName: publicName.optional(),
+      brandNames: z.array(publicName).min(1).max(4).optional(),
+      ...page,
+    })
+    .refine(
+      (query) =>
+        query.kNumber !== undefined ||
+        query.companyName !== undefined ||
+        query.brandNames !== undefined,
+    ),
   z.strictObject({ dataset: z.literal('gudid_device'), deviceIdentifier, ...page }),
   z.strictObject({ dataset: z.literal('mdall_company_licences'), companyId: digits, ...page }),
   z.strictObject({ dataset: z.literal('mdall_licence'), licenceNumber: digits, ...page }),
@@ -62,6 +89,17 @@ export const officialRecordSchema = z.strictObject({
   productCode: productCode.optional(),
   listedProductCodes: z.array(productCode).max(30).optional(),
   listedProductCodesTruncated: z.literal(true).optional(),
+  registrationNumber: digits.optional(),
+  registrationExpiryYear: z.number().int().min(1900).max(2200).optional(),
+  registrationStatusCode: z
+    .string()
+    .regex(/^\d{1,3}$/u)
+    .optional(),
+  listedKNumber: kNumber.optional(),
+  establishmentTypes: z.array(z.string().min(1).max(240)).max(15).optional(),
+  proprietaryNames: z.array(z.string().min(1).max(240)).max(30).optional(),
+  proprietaryNamesTruncated: z.literal(true).optional(),
+  usAgentBusiness: z.string().min(1).max(240).optional(),
   regulationNumber: regulationNumber.optional(),
   deviceClass: z.string().max(12).optional(),
   licenceNumber: digits.optional(),

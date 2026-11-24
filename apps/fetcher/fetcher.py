@@ -38,7 +38,7 @@ CREDENTIAL_PARAMETER = re.compile(
 )
 HTML_MEDIA = {"text/html", "application/xhtml+xml"}
 RESOLVERS = BoundedSemaphore(2)
-FDA_QUERY_PATHS = {"/device/510k.json", "/device/classification.json", "/device/registrationlisting.json"}
+FDA_QUERY_PATHS = {"/device/510k.json", "/device/classification.json", "/device/registrationlisting.json", "/device/udi.json"}
 
 
 class FetchError(Exception):

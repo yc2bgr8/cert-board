@@ -267,6 +267,13 @@
       "when": 1795484418982,
       "tag": "0037_knowledge_facts_and_rule_packs",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1795487625347,
+      "tag": "0038_m02_schedule",
+      "breakpoints": true
     }
   ]
 }

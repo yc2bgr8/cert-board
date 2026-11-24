@@ -33,9 +33,10 @@ const specialties = [
     environment: 'CERT_WALKTHROUGH_KNOWLEDGE_ONLY',
     receipt: 'knowledge-result.json',
   },
+  { flag: '--m02-only', environment: 'CERT_WALKTHROUGH_M02_ONLY', receipt: 'm02-result.json' },
 ].filter(({ flag }) => process.argv.includes(flag));
 const specialty = specialties[0];
-const officialOnly = specialty?.flag === '--official-only';
+const useOfficialFetcher = ['--official-only', '--m02-only'].includes(specialty?.flag);
 
 async function main() {
   if (verificationOnly && (!diagnostic || batch)) throw new Error('正式走查需要完整执行全部场景。');
@@ -58,8 +59,8 @@ async function main() {
     new Date().toISOString().replace(/[:.]/gu, '-'),
   );
   await mkdir(folder, { recursive: true });
-  const { runtime } = await previewEnvironment('walkthrough', officialOnly);
-  const live = diagnostic ? null : await startPreview('walkthrough', undefined, officialOnly);
+  const { runtime } = await previewEnvironment('walkthrough', useOfficialFetcher);
+  const live = diagnostic ? null : await startPreview('walkthrough', undefined, useOfficialFetcher);
   try {
     const child = spawn(
       process.execPath,

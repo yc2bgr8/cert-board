@@ -3185,3 +3185,19 @@ export const runRulePack = pgTable(
     }).onDelete('restrict'),
   ],
 );
+
+export const m02Schedule = pgTable(
+  'm02_schedule',
+  {
+    goalId: uuid('goal_id')
+      .primaryKey()
+      .references(() => goal.id, { onDelete: 'restrict' }),
+    enabled: boolean('enabled').notNull(),
+    enabledBy: uuid('enabled_by')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    version: integer('version').notNull().default(1),
+  },
+  (t) => [check('m02_schedule_version_ok', sql`${t.version}>0`)],
+);

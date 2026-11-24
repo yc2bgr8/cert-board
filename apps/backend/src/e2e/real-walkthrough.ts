@@ -20,7 +20,17 @@ import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthro
 import { checkOfficialBrowserRun } from './official-walkthrough.js';
 import { checkRulesBrowserRun } from './rules-walkthrough.js';
 import { checkKnowledgeWalkthrough } from './knowledge-walkthrough.js';
-import { checkR09PackageReadOnly, checkR09Revision, r09Replacements, readOnlyWorkspaceSnapshot } from './r09-walkthrough.js';
+import {
+  inspectM02Walkthrough,
+  prepareM02Walkthrough,
+  waitForM02OfflineReview,
+} from './m02-walkthrough.js';
+import {
+  checkR09PackageReadOnly,
+  checkR09Revision,
+  r09Replacements,
+  readOnlyWorkspaceSnapshot,
+} from './r09-walkthrough.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
@@ -134,7 +144,14 @@ async function waitForReview(
   throw new Error('WALKTHROUGH_REVIEW_TIMEOUT');
 }
 
-async function review(page: Page, pool: pg.Pool, cardId: string, output: string, approve: boolean, pendingReport?: string) {
+async function review(
+  page: Page,
+  pool: pg.Pool,
+  cardId: string,
+  output: string,
+  approve: boolean,
+  pendingReport?: string,
+) {
   await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
   const card = page.getByRole('article', { name: '审核结果', exact: true });
   await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
@@ -365,46 +382,131 @@ async function main() {
       assert.ok(instance);
       assert.equal(home?.headers()['x-cert-preview-instance'], instance);
     }
-    await page.getByRole('textbox', { name: '账号', exact: true }).fill('zhangsan');
-    await page.getByLabel('密码', { exact: true }).fill(password);
-    await page.getByRole('button', { name: '登录', exact: true }).click();
-    await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
+    const login = async () => {
+      await page.getByRole('textbox', { name: '账号', exact: true }).fill('zhangsan');
+      await page.getByLabel('密码', { exact: true }).fill(password);
+      await page.getByRole('button', { name: '登录', exact: true }).click();
+      await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
+    };
+    await login();
+    if (process.env.CERT_WALKTHROUGH_M02_ONLY === '1') {
+      stage = '维护负责人在工作目标中启用 M02 定时核查';
+      const sample = await prepareM02Walkthrough(pool, blobs);
+      await page.reload();
+      const openProject = async () => {
+        await page.getByRole('button', { name: '维护Agent', exact: true }).click();
+        await page.getByRole('button', { name: sample.name, exact: true }).click();
+      };
+      await openProject();
+      await page.getByRole('button', { name: '启用定时核查', exact: true }).click();
+      await page.getByRole('button', { name: '停用定时核查', exact: true }).waitFor();
+      await page.screenshot({ path: path.join(evidenceFolder, 'm02-schedule.png') });
+      await page.getByRole('button', { name: '设置', exact: true }).click();
+      await page.getByRole('button', { name: '退出登录', exact: true }).click();
+      await page.getByRole('button', { name: '登录', exact: true }).waitFor();
+      await pool.query(
+        "UPDATE run SET status='completed',finished_at=clock_timestamp() WHERE id=$1",
+        [sample.blocker],
+      );
+      stage = '负责人离线时，后台按月或年度窗口启动 M02 并送审';
+      const result = await waitForM02OfflineReview(pool, sample.goal);
+      stage = '负责人返回后在工作台查看待审核查结果';
+      await login();
+      await page.goto(`${config.WEB_ORIGIN}/?conversation=${result.conversation}`);
+      const proof = await inspectM02Walkthrough(page, pool, sample.goal, result.run, result.card);
+      await page.screenshot({ path: path.join(evidenceFolder, 'm02-review.png') });
+      await page.goto(config.WEB_ORIGIN);
+      await openProject();
+      await page.getByRole('button', { name: '停用定时核查', exact: true }).click();
+      await page.getByRole('button', { name: '启用定时核查', exact: true }).waitFor();
+      assert.equal(blocked, 0);
+      await writeFile(
+        path.join(evidenceFolder, 'm02-result.json'),
+        JSON.stringify({ ...proof, status: 'passed', instance, commit: testedCommit }, null, 2),
+        'utf8',
+      );
+      console.log('M02 官方资料、负责人离线唤醒、站内提醒与浏览器送审专项通过。');
+      return;
+    }
     if (process.env.CERT_WALKTHROUGH_KNOWLEDGE_ONLY === '1') {
       stage = '维护 Agent 读取规则包并记录运行版本';
       await page.getByRole('button', { name: '维护Agent', exact: true }).click();
-      const conversation = await freshConversation(page, maintenanceProjectId, 'M02 规则包版本核查', 'read_only');
-      const { runId } = await send(page,
+      const conversation = await freshConversation(
+        page,
+        maintenanceProjectId,
+        'M02 规则包版本核查',
+        'read_only',
+      );
+      const { runId } = await send(
+        page,
         '请调用 knowledge_get 读取规则包 us_fda_m02，以回执为依据核对年度注册窗口、该财年企业年费和一间境外机构可指定的美国代理人数。最终只输出 JSON 对象 {"版本":"","状态":"","开始":"MM-DD","结束":"MM-DD","财年":0,"金额":0,"币种":"","代理人数":0,"来源":["","",""]}。状态请选择“待注册人员确认”“已确认”或“待核”。来源写这三个条目各自的 source.url。只读核查，不保存或提交。',
       );
       const proof = await checkKnowledgeWalkthrough(page, pool, runId, conversation);
       assert.equal(blocked, 0);
-      await writeFile(path.join(evidenceFolder, 'knowledge-result.json'), JSON.stringify({ ...proof, status: 'passed', instance, commit: testedCommit }, null, 2), 'utf8');
+      await writeFile(
+        path.join(evidenceFolder, 'knowledge-result.json'),
+        JSON.stringify({ ...proof, status: 'passed', instance, commit: testedCommit }, null, 2),
+        'utf8',
+      );
       console.log('事实与规则包真实浏览器验收通过。');
       return;
     }
     if (process.env.CERT_WALKTHROUGH_R09_ONLY === '1') {
       stage = 'R09 的原文核验和双修改浏览器专项';
       const reportPath = `交付/R09-双修改走查-${randomUUID().slice(0, 8)}.md`;
-      const conversation = await freshConversation(page, developmentProjectId, 'R09 两处意见复验', 'full');
-      await send(page, `${registrationPrompt} 报告使用 ${reportPath}。请分别原样保留这两行，供下一轮修改验证：\n${r09Replacements.map(([initial]) => initial).join('\n')}`);
+      const conversation = await freshConversation(
+        page,
+        developmentProjectId,
+        'R09 两处意见复验',
+        'full',
+      );
+      await send(
+        page,
+        `${registrationPrompt} 报告使用 ${reportPath}。请分别原样保留这两行，供下一轮修改验证：\n${r09Replacements.map(([initial]) => initial).join('\n')}`,
+      );
       const original = await waitForReview(page, pool, conversation, 1);
       await inspectSubmission(pool, original, 'R09');
       await review(page, pool, original, path.join(evidenceFolder, 'r09-eval-initial.png'), false);
-      await send(page, `请修改原路径 ${reportPath}。只应用两条明确意见，其他行保持原样，保存并重新提交审核。\n${r09Replacements.map(([before, after], index) => `${index + 1}. 把「${before}」替换为「${after}」`).join('\n')}`);
+      await send(
+        page,
+        `请修改原路径 ${reportPath}。只应用两条明确意见，其他行保持原样，保存并重新提交审核。\n${r09Replacements.map(([before, after], index) => `${index + 1}. 把「${before}」替换为「${after}」`).join('\n')}`,
+      );
       const revised = await waitForReview(page, pool, conversation, 2);
       await inspectSubmission(pool, revised, 'R09');
-      const proof = await checkR09Revision(pool, blobs, original, revised, conversation, reportPath);
-      await review(page, pool, revised, path.join(evidenceFolder, 'r09-eval-approved.png'), true, reportPath);
-      const { rows: [approval] } = await pool.query<{ count: number }>(
+      const proof = await checkR09Revision(
+        pool,
+        blobs,
+        original,
+        revised,
+        conversation,
+        reportPath,
+      );
+      await review(
+        page,
+        pool,
+        revised,
+        path.join(evidenceFolder, 'r09-eval-approved.png'),
+        true,
+        reportPath,
+      );
+      const {
+        rows: [approval],
+      } = await pool.query<{ count: number }>(
         "SELECT count(*)::int AS count FROM review_card WHERE conversation_id=$1 AND status='approved'",
         [conversation],
       );
       const approvedCards = approval?.count;
       assert.equal(approvedCards, 1, '改稿对话应只通过重提后的审核卡。');
       stage = 'R09 整包候选复判的只读浏览器专项';
-      const readOnly = await freshConversation(page, developmentProjectId, 'R09 整包候选复判', 'read_only');
+      const readOnly = await freshConversation(
+        page,
+        developmentProjectId,
+        'R09 整包候选复判',
+        'read_only',
+      );
       const workspaceBefore = await readOnlyWorkspaceSnapshot(pool, developmentProjectId, readOnly);
-      const { runId } = await send(page,
+      const { runId } = await send(
+        page,
         '按 R09 只读检查 L08。先运行 rules_run 的 R3、R5，再读取 D021 第29页与 D023 第17页判断各自用水动作。最终回复只返回一个 JSON 对象，字段格式为 {"用水证据":[{"资料编号":"","页码":1,"用途":"","原文":""}],"MSDS":{"资料编号":"","页码":1,"状态":"","缺失":""}}。用水证据填两项，“用途”各从“冲洗”“冷却”“待核”选择，“原文”逐字摘录英文，包含该动作和含单位的温度范围。MSDS 的资料编号及页码用 R5 回执里的实际定位。“状态”从“待核证据”“已证实差异”“无缺件”选择。“缺失”从“实际附件”“第二处独立证据”“无缺件”“待核信息”选择。所有字段填入证据支持的值。不要保存或提交。',
       );
       const packageProof = await checkR09PackageReadOnly(page, pool, runId, readOnly);
@@ -416,7 +518,19 @@ async function main() {
       assert.equal(blocked, 0);
       await writeFile(
         path.join(evidenceFolder, 'r09-result.json'),
-        JSON.stringify({ ...proof, packageProof: { ...packageProof, workspaceUnchanged: true }, status: 'passed', instance, commit: testedCommit, approvedInBrowser: true, approvedCards }, null, 2),
+        JSON.stringify(
+          {
+            ...proof,
+            packageProof: { ...packageProof, workspaceUnchanged: true },
+            status: 'passed',
+            instance,
+            commit: testedCommit,
+            approvedInBrowser: true,
+            approvedCards,
+          },
+          null,
+          2,
+        ),
         'utf8',
       );
       console.log('R09 原文、两处改稿和浏览器批准专项通过。');
@@ -424,7 +538,12 @@ async function main() {
     }
     if (process.env.CERT_WALKTHROUGH_RULES_ONLY === '1') {
       stage = '一致性规则库的真实浏览器专项';
-      const conversation = await freshConversation(page, developmentProjectId, 'L08 一致性规则核对', 'full');
+      const conversation = await freshConversation(
+        page,
+        developmentProjectId,
+        'L08 一致性规则核对',
+        'full',
+      );
       const { runId } = await send(
         page,
         '请按 R09 对 L08 资料运行 rules_run 的 R1 和 R5，报告候选编号差异和 eSTAR 附件引用疑点。核实 D035 的编号原文并按规则回执引用实际资料，附件疑点待我核实。保存简短说明，按正常流程提交审核并保留原件原样。',
@@ -435,7 +554,11 @@ async function main() {
       assert.equal(blocked, 0);
       await writeFile(
         path.join(evidenceFolder, 'rules-result.json'),
-        JSON.stringify({ ...proof, status: 'passed', instance, commit: testedCommit, approvedInBrowser: true }, null, 2),
+        JSON.stringify(
+          { ...proof, status: 'passed', instance, commit: testedCommit, approvedInBrowser: true },
+          null,
+          2,
+        ),
         'utf8',
       );
       console.log('一致性规则库真实浏览器验收通过。');
@@ -443,7 +566,12 @@ async function main() {
     }
     if (process.env.CERT_WALKTHROUGH_OFFICIAL_ONLY === '1') {
       stage = '官方编号和 V2 的真实浏览器专项';
-      const conversation = await freshConversation(page, developmentProjectId, 'L08 官方编号核对', 'full');
+      const conversation = await freshConversation(
+        page,
+        developmentProjectId,
+        'L08 官方编号核对',
+        'full',
+      );
       const { runId } = await send(
         page,
         '请在 L08 项目按 R09 做一项编号核对。先读取 D035 中 K170285 的原文，再用 official_lookup 核对公开的 K170825，读取其官方存档中的 identifier 字段，调用 identifier_check（V2）比较。请保存简短说明并送审。审核卡结论首句用格式「编号核对：材料 [材料编号]，官方 [官方编号]，差异 [差异]，状态 [状态]。」，差异填写一致、疑似笔误或其他差异，状态填写待确认或已核实。按实际证据填值，引用两个来源的原文，保留源材料原样。',

@@ -5,6 +5,8 @@ import {
   projectListSchema,
   projectRecordSchema,
   goalListSchema,
+  m02ScheduleInputSchema,
+  m02ScheduleViewSchema,
   projectListOptionsSchema,
   projectIdSchema,
   conversationListQuerySchema,
@@ -240,6 +242,17 @@ const signalOption = (signal: AbortSignal | undefined) => (signal ? { signal } :
 const externalPage = (cursor: string | null) =>
   cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
 export const api = {
+  m02Schedule: (goalId: string, signal?: AbortSignal) =>
+    request(
+      `/api/goals/${identifier(goalId)}/m02-schedule`,
+      m02ScheduleViewSchema,
+      signalOption(signal),
+    ),
+  saveM02Schedule: (goalId: string, input: { enabled: boolean; expectedVersion: number }) =>
+    request(`/api/goals/${identifier(goalId)}/m02-schedule`, m02ScheduleViewSchema, {
+      method: 'POST',
+      body: checked(m02ScheduleInputSchema, input),
+    }),
   skills: (signal?: AbortSignal) => request('/api/skills', skillPageSchema, signalOption(signal)),
   skillRollbackPolicy: (signal?: AbortSignal) =>
     request('/api/skill-rollback-policy', skillRollbackPolicySchema, signalOption(signal)),

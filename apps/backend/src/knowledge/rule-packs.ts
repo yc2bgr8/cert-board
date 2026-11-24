@@ -104,15 +104,35 @@ export async function publishDevelopmentRulePack(
   }
 }
 
+const latestVersionOrder = `ORDER BY (v.publication='published') DESC, split_part(v.version,'.',1)::int DESC,
+  split_part(v.version,'.',2)::int DESC, split_part(v.version,'.',3)::int DESC,v.id LIMIT 1`;
+
+export async function latestRulePack(db: Pick<Pool, 'query'>, code: string, environment: string) {
+  const allowDevelopment = environment === 'development' || environment === 'test';
+  const {
+    rows: [row],
+  } = await db.query<{ pack_id: string; version_id: string; content: unknown }>(
+    `SELECT p.id AS pack_id,v.id AS version_id,v.content FROM rule_pack p JOIN rule_pack_version v ON v.pack_id=p.id
+       WHERE p.code=$1 AND (v.publication='published' OR ($2::boolean AND v.publication='development'))
+       ${latestVersionOrder}`,
+    [code, allowDevelopment],
+  );
+  return row
+    ? {
+        packId: row.pack_id,
+        versionId: row.version_id,
+        seed: rulePackSeedSchema.parse(row.content),
+      }
+    : null;
+}
+
 export async function readRulePack(ctx: ToolExecutionContext, code: string, environment: string) {
   const allowDevelopment = environment === 'development' || environment === 'test';
   await ctx.tx.query(
     `INSERT INTO run_rule_pack(run_id,pack_id,version_id)
        SELECT $1, p.id, v.id FROM rule_pack p JOIN rule_pack_version v ON v.pack_id=p.id
         WHERE p.code=$2 AND (v.publication='published' OR ($3::boolean AND v.publication='development'))
-        ORDER BY (v.publication='published') DESC, split_part(v.version,'.',1)::int DESC,
-          split_part(v.version,'.',2)::int DESC, split_part(v.version,'.',3)::int DESC,v.id
-        LIMIT 1 ON CONFLICT(run_id,pack_id) DO NOTHING`,
+        ${latestVersionOrder} ON CONFLICT(run_id,pack_id) DO NOTHING`,
     [ctx.runId, code, allowDevelopment],
   );
   const {
