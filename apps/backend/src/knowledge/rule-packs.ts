@@ -113,7 +113,8 @@ export async function readRulePack(ctx: ToolExecutionContext, code: string, envi
   await ctx.tx.query(
     `INSERT INTO run_rule_pack(run_id,pack_id,version_id)
        SELECT $1, p.id, v.id FROM rule_pack p JOIN rule_pack_version v ON v.pack_id=p.id
-        WHERE p.code=$2 AND (v.publication='published' OR ($3::boolean AND v.publication='development'))
+        WHERE p.code=$2 AND ((v.publication='published' AND v.review_id IS NOT NULL)
+          OR ($3::boolean AND v.publication='development'))
         ORDER BY (v.publication='published') DESC, split_part(v.version,'.',1)::int DESC,
           split_part(v.version,'.',2)::int DESC, split_part(v.version,'.',3)::int DESC,v.id
         LIMIT 1 ON CONFLICT(run_id,pack_id) DO NOTHING`,
@@ -128,7 +129,8 @@ export async function readRulePack(ctx: ToolExecutionContext, code: string, envi
   }>(
     `SELECT v.id,v.publication,v.content FROM run_rule_pack used JOIN rule_pack p ON p.id=used.pack_id
        JOIN rule_pack_version v ON v.id=used.version_id AND v.pack_id=p.id
-       WHERE used.run_id=$1 AND p.code=$2 AND (v.publication='published' OR ($3::boolean AND v.publication='development'))`,
+       WHERE used.run_id=$1 AND p.code=$2 AND ((v.publication='published' AND v.review_id IS NOT NULL)
+         OR ($3::boolean AND v.publication='development'))`,
     [ctx.runId, code, allowDevelopment],
   );
   const pack = row
@@ -138,4 +140,28 @@ export async function readRulePack(ctx: ToolExecutionContext, code: string, envi
     data: { kind: 'rule_pack' as const, pack },
     dataLevel: pack?.dataLevel ?? 'internal',
   };
+}
+
+export async function refreshRulePackLevel(
+  ctx: ToolExecutionContext,
+  pack: (RulePackSeed & { versionId: string; publication: 'development' | 'published' }) | null,
+  environment: string,
+) {
+  if (!pack) return 'internal';
+  if (pack.publication === 'development') {
+    if (!['test', 'development'].includes(environment))
+      throw new AppError(403, 'RULE_PACK_DEVELOPMENT_ONLY', '当前环境只可读取正式发布的规则包。');
+  } else {
+    const approved = await ctx.tx.query(
+      "SELECT 1 FROM rule_pack_version WHERE id=$1 AND publication='published' AND review_id IS NOT NULL",
+      [pack.versionId],
+    );
+    if (!approved.rowCount)
+      throw new AppError(
+        403,
+        'RULE_PACK_REVIEW_REQUIRED',
+        '此规则版本缺少审阅，请重新读取已发布版本。',
+      );
+  }
+  return pack.dataLevel ?? 'internal';
 }

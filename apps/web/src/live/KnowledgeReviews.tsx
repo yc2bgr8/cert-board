@@ -1,10 +1,18 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { KnowledgeReviewCreateInput, KnowledgeReviewDecisionInput } from '@cert-board/shared';
 import { api, createRequestKey, errorMessage } from './api.js';
 
 const kindNames = { rule_pack: '规则包', template: '模板' };
 const statusNames = { pending: '待审阅', published: '已发布', rejected: '已退回' };
+
+type RequestAttempt = { fingerprint: string; key: string };
+function retryKey(attempt: { current: RequestAttempt | null }, values: string[]) {
+  const fingerprint = JSON.stringify(values);
+  if (attempt.current?.fingerprint !== fingerprint)
+    attempt.current = { fingerprint, key: createRequestKey() };
+  return attempt.current.key;
+}
 
 export function KnowledgeReviews({ userId, management }: { userId: string; management: boolean }) {
   const [open, setOpen] = useState(false);
@@ -15,6 +23,8 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
   const [yaml, setYaml] = useState('');
   const [reason, setReason] = useState('');
   const [notice, setNotice] = useState('');
+  const stageAttempt = useRef<RequestAttempt | null>(null);
+  const decisionAttempt = useRef<RequestAttempt | null>(null);
   const client = useQueryClient();
   const listKey = ['live', 'knowledge-reviews', userId];
   const after = page.at(-1) ?? null;
@@ -35,6 +45,7 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
   const stage = useMutation({
     mutationFn: api.stageKnowledgeReview,
     onSuccess: async (created) => {
+      stageAttempt.current = null;
       setYaml('');
       setReason('');
       setPage([null]);
@@ -47,7 +58,10 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
   const decide = useMutation({
     mutationFn: ({ id, command }: { id: string; command: KnowledgeReviewDecisionInput }) =>
       api.decideKnowledgeReview(id, command),
-    onSuccess: () => setReason(''),
+    onSuccess: () => {
+      decisionAttempt.current = null;
+      setReason('');
+    },
     onSettled: () => client.invalidateQueries({ queryKey: listKey }),
   });
   const selected = detail.data;
@@ -63,7 +77,15 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
   function submitDecision(action: 'publish' | 'reject') {
     if (!selected) return;
     setNotice('');
-    const identity = { contentSha256: selected.contentSha256, requestKey: createRequestKey() };
+    const identity = {
+      contentSha256: selected.contentSha256,
+      requestKey: retryKey(decisionAttempt, [
+        selected.id,
+        selected.contentSha256,
+        action,
+        action === 'reject' ? reason.trim() : '',
+      ]),
+    };
     decide.mutate({
       id: selected.id,
       command: action === 'reject' ? { action, reason, ...identity } : { action, ...identity },
@@ -146,6 +168,9 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
                 {selected.code} · {statusNames[selected.status]}
               </p>
               <p>密级 · {selected.draft.content.dataLevel === 'confidential' ? '保密' : '内部'}</p>
+              {selected.draft.kind === 'rule_pack' && (
+                <p>法域 · {selected.draft.content.jurisdiction}</p>
+              )}
               {selected.draft.kind === 'template' ? (
                 <>
                   <pre className="live-skill-review-text">{selected.draft.content.body}</pre>
@@ -233,7 +258,7 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
                 onSubmit={(event) => {
                   event.preventDefault();
                   setNotice('');
-                  stage.mutate({ kind, yaml, requestKey: createRequestKey() });
+                  stage.mutate({ kind, yaml, requestKey: retryKey(stageAttempt, [kind, yaml]) });
                 }}
               >
                 <div className="live-skill-selectors">

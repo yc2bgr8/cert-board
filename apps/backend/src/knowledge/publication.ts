@@ -41,6 +41,12 @@ const conflict = () =>
   new AppError(409, 'KNOWLEDGE_REVIEW_CONFLICT', '审核状态或版本已改变，请刷新并核对。');
 const invalidDraft = () =>
   new AppError(400, 'KNOWLEDGE_DRAFT_INVALID', '草稿格式无效，请核对 YAML、版本和来源字段。');
+const versionNotNewer = () =>
+  new AppError(
+    409,
+    'KNOWLEDGE_VERSION_NOT_NEWER',
+    '正式版本号须高于当前发布版本，请另登记一个新版本。',
+  );
 
 function summarize(row: ReviewRow) {
   return knowledgeReviewSummarySchema.parse({
@@ -201,9 +207,16 @@ async function publishDraft(db: PoolClient, draft: KnowledgeDraft, id: string, r
     await db.query('INSERT INTO template(code) VALUES($1) ON CONFLICT(code) DO NOTHING', [
       draft.content.code,
     ]);
+    await db.query('SELECT id FROM template WHERE code=$1 FOR UPDATE', [draft.content.code]);
+    const existing = await db.query(
+      `SELECT 1 FROM template_version v JOIN template t ON t.id=v.template_id
+        WHERE t.code=$1 AND string_to_array(v.version,'.')::int[] >= string_to_array($2,'.')::int[] LIMIT 1`,
+      [draft.content.code, draft.content.version],
+    );
+    if (existing.rowCount) throw versionNotNewer();
     await db.query(
-      `INSERT INTO template_version(template_id,version,content,review_id)
-        SELECT t.id,r.version,r.content,r.id FROM knowledge_review r
+      `INSERT INTO template_version(template_id,version,content,review_id,published_at)
+        SELECT t.id,r.version,r.content,r.id,r.reviewed_at FROM knowledge_review r
         JOIN template t ON t.code=r.code WHERE r.id=$1`,
       [id],
     );
@@ -224,9 +237,16 @@ async function publishDraft(db: PoolClient, draft: KnowledgeDraft, id: string, r
       'RULE_PACK_SCOPE_CHANGED',
       '这个规则包已登记在不同市场，请核对包编号。',
     );
+  const existing = await db.query(
+    `SELECT 1 FROM rule_pack_version v JOIN rule_pack p ON p.id=v.pack_id
+      WHERE p.code=$1 AND v.publication='published' AND v.review_id IS NOT NULL
+        AND string_to_array(v.version,'.')::int[] >= string_to_array($2,'.')::int[] LIMIT 1`,
+    [code, draft.content.version],
+  );
+  if (existing.rowCount) throw versionNotNewer();
   await db.query(
-    `INSERT INTO rule_pack_version(pack_id,version,content,publication,published_by,review_id)
-      SELECT p.id,r.version,r.content,'published',$2,r.id FROM knowledge_review r
+    `INSERT INTO rule_pack_version(pack_id,version,content,publication,published_by,review_id,published_at)
+      SELECT p.id,r.version,r.content,'published',$2,r.id,r.reviewed_at FROM knowledge_review r
       JOIN rule_pack p ON p.code=r.code WHERE r.id=$1`,
     [id, reviewer],
   );

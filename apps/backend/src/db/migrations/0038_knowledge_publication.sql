@@ -81,6 +81,10 @@ BEGIN
     ) THEN
       RAISE EXCEPTION '只有系统维护人员可以登记知识草稿。' USING ERRCODE = '23514';
     END IF;
+    IF COALESCE(NEW.content->>'dataLevel', '') NOT IN ('internal','confidential')
+      OR NEW.version !~ '^(0|[1-9][0-9]{0,3})([.](0|[1-9][0-9]{0,3})){2}$' THEN
+      RAISE EXCEPTION '知识草稿须明确密级和规范的版本号。' USING ERRCODE = '23514';
+    END IF;
     RETURN NEW;
   END IF;
 
@@ -116,6 +120,7 @@ BEGIN
         AND p.jurisdiction = r.content->>'jurisdiction'
       WHERE r.id = NEW.review_id AND r.status = 'published' AND r.kind = 'rule_pack'
         AND r.version = NEW.version AND r.content = NEW.content AND r.reviewer_id = NEW.published_by
+        AND r.reviewed_at <= NEW.published_at
     ) THEN
       RETURN NEW;
     END IF;
@@ -123,7 +128,7 @@ BEGIN
     SELECT 1 FROM public.knowledge_review r
     JOIN public.template t ON t.id = NEW.template_id AND t.code = r.code
     WHERE r.id = NEW.review_id AND r.status = 'published' AND r.kind = 'template'
-      AND r.version = NEW.version AND r.content = NEW.content
+      AND r.version = NEW.version AND r.content = NEW.content AND r.reviewed_at <= NEW.published_at
   ) THEN
     RETURN NEW;
   END IF;

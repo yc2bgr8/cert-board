@@ -17,7 +17,7 @@ import {
   refreshFactProposalLevel,
 } from '../knowledge/facts.js';
 import { readPublishedTemplate } from '../knowledge/publication.js';
-import { readRulePack } from '../knowledge/rule-packs.js';
+import { readRulePack, refreshRulePackLevel } from '../knowledge/rule-packs.js';
 import type { ToolDefinition } from './registry.js';
 
 export function knowledgeGetTool(): ToolDefinition {
@@ -58,12 +58,7 @@ export function knowledgeGetTool(): ToolDefinition {
       const cached = knowledgeGetResultSchema.parse(input);
       if (cached.kind === 'facts') return refreshConfirmedFactsLevel(ctx, cached.facts);
       if (cached.kind === 'template') return cached.template?.dataLevel ?? 'internal';
-      if (
-        cached.pack?.publication === 'development' &&
-        !['test', 'development'].includes(process.env.NODE_ENV ?? 'production')
-      )
-        throw new AppError(403, 'RULE_PACK_DEVELOPMENT_ONLY', '当前环境只可读取正式发布的规则包。');
-      return cached.pack?.dataLevel ?? 'internal';
+      return refreshRulePackLevel(ctx, cached.pack, process.env.NODE_ENV ?? 'production');
     },
   };
 }

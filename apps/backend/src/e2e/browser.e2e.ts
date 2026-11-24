@@ -209,8 +209,27 @@ async function main() {
           dataLevel: 'internal',
         }),
       );
-      await panel.getByRole('button', { name: '提交审阅', exact: true }).click();
+      const requestKeys: string[] = [];
+      await authorContext.route(`${harness.origin}/api/knowledge/reviews`, async (route) => {
+        if (route.request().method() !== 'POST') {
+          await route.fallback();
+          return;
+        }
+        requestKeys.push((route.request().postDataJSON() as { requestKey: string }).requestKey);
+        if (requestKeys.length === 1) {
+          assert.equal((await route.fetch()).status(), 200);
+          await route.abort();
+        } else {
+          await route.continue();
+        }
+      });
+      const submit = panel.getByRole('button', { name: '提交审阅', exact: true });
+      await submit.click();
+      await panel.getByRole('alert').waitFor();
+      assert.equal((await harness.pool.query('SELECT 1 FROM knowledge_review')).rowCount, 1);
+      await submit.click();
       await panel.getByText('草稿已提交审阅。', { exact: true }).waitFor();
+      assert.deepEqual(requestKeys, [requestKeys[0], requestKeys[0]]);
     } finally {
       await authorContext.close();
     }

@@ -124,6 +124,7 @@ const marketRuleSchema = z.strictObject({
   units: z.record(code, text(32)).optional(),
 });
 const version = z.string().regex(/^\d{1,4}\.\d{1,4}\.\d{1,4}$/u);
+const releaseVersion = z.string().regex(/^(?:0|[1-9]\d{0,3})(?:\.(?:0|[1-9]\d{0,3})){2}$/u);
 export const rulePackSeedSchema = z.strictObject({
   code,
   title: text(160),
@@ -141,7 +142,7 @@ export type RulePackSeed = z.infer<typeof rulePackSeedSchema>;
 export const templateSeedSchema = z.strictObject({
   code,
   title: text(160),
-  version,
+  version: releaseVersion,
   source: text(400),
   body: z
     .string()
@@ -159,7 +160,10 @@ export const templateSeedSchema = z.strictObject({
 export type TemplateSeed = z.infer<typeof templateSeedSchema>;
 
 export const knowledgeDraftSchema = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('rule_pack'), content: rulePackSeedSchema }),
+  z.strictObject({
+    kind: z.literal('rule_pack'),
+    content: rulePackSeedSchema.extend({ version: releaseVersion, dataLevel }),
+  }),
   z.strictObject({ kind: z.literal('template'), content: templateSeedSchema }),
 ]);
 export type KnowledgeDraft = z.infer<typeof knowledgeDraftSchema>;
@@ -170,7 +174,10 @@ export const knowledgeReviewCreateSchema = z.strictObject({
 });
 export type KnowledgeReviewCreateInput = z.infer<typeof knowledgeReviewCreateSchema>;
 const contentSha256 = z.string().regex(/^[0-9a-f]{64}$/u);
-const reviewDecisionFields = { contentSha256, requestKey: z.uuid() };
+const reviewDecisionFields = {
+  contentSha256,
+  requestKey: z.uuid().transform((id) => id.toLowerCase()),
+};
 export const knowledgeReviewDecisionSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('publish'), ...reviewDecisionFields }),
   z.strictObject({ action: z.literal('reject'), ...reviewDecisionFields, reason: text(600) }),

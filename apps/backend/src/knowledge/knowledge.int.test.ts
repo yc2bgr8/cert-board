@@ -13,7 +13,12 @@ import { createIntegrationContext } from '../test-support/context.js';
 import { factProposeTool, knowledgeGetTool } from '../tools/knowledge-tools.js';
 import { ToolRegistry, type ToolExecutionContext } from '../tools/registry.js';
 import { readConfirmedFacts, refreshConfirmedFactsLevel } from './facts.js';
-import { parseRulePackSeed, publishDevelopmentRulePack, readRulePack } from './rule-packs.js';
+import {
+  parseRulePackSeed,
+  publishDevelopmentRulePack,
+  readRulePack,
+  refreshRulePackLevel,
+} from './rule-packs.js';
 
 let context: Awaited<ReturnType<typeof createIntegrationContext>>;
 afterEach(async () => context?.close());
@@ -443,6 +448,7 @@ test('规则版本发布后不可改，运行记录并沿用首次拿到的版�
     const content = {
       ...pack,
       version: '1.0.0',
+      dataLevel: 'internal',
       rules: pack.rules.map((rule) => ({
         ...rule,
         status: 'confirmed',
@@ -526,7 +532,7 @@ test('模板审核需浏览器，退回版本与草稿都不会进入 Agent 工�
   const request = {
     kind: 'template' as const,
     yaml: JSON.stringify(draft),
-    requestKey: randomUUID(),
+    requestKey: randomUUID().toUpperCase(),
   };
   const input = { kind: 'template', code: draft.code };
   const read = (call = fresh(reader)) => registry.execute(call, 'knowledge_get', input);
@@ -553,7 +559,7 @@ test('模板审核需浏览器，退回版本与草稿都不会进入 Agent 工�
   const approval = {
     action: 'publish' as const,
     contentSha256: pending.contentSha256,
-    requestKey: randomUUID(),
+    requestKey: randomUUID().toUpperCase(),
   };
   const { 'x-csrf-token': _token, ...noToken } = reviewer.headers;
   expect((await decideReview(noToken, pending.id, approval)).statusCode).toBe(403);
@@ -568,6 +574,15 @@ test('模板审核需浏览器，退回版本与草稿都不会进入 Agent 工�
   const result = await decideReview(reviewer.headers, pending.id, approval);
   expect(result.statusCode).toBe(200);
   expect(result.json()).toMatchObject({ status: 'published' });
+  expect(
+    (
+      await context.pool.query(
+        `SELECT v.published_at = r.reviewed_at AS recorded FROM template_version v
+      JOIN knowledge_review r ON r.id=v.review_id WHERE r.id=$1`,
+        [pending.id],
+      )
+    ).rows,
+  ).toEqual([{ recorded: true }]);
   expect((await decideReview(reviewer.headers, pending.id, approval)).json()).toEqual(
     result.json(),
   );
@@ -607,7 +622,7 @@ test('模板审核需浏览器，退回版本与草稿都不会进入 Agent 工�
   ).toBe(409);
   expect((await read()).data).toMatchObject({ template: draft });
 
-  const publishBody = async (version: string, body: string) => {
+  const publishBody = async (version: string, body: string, expectedStatus = 200) => {
     const pending = knowledgeReviewSummarySchema.parse(
       (
         await stageReview(admin.headers, {
@@ -625,12 +640,23 @@ test('模板审核需浏览器，退回版本与草稿都不会进入 Agent 工�
           requestKey: randomUUID(),
         })
       ).statusCode,
-    ).toBe(200);
+    ).toBe(expectedStatus);
   };
   await publishBody('2.0.0', '已审阅的新正文');
   expect((await read()).data).toMatchObject({
     template: { version: '2.0.0', body: '已审阅的新正文' },
   });
+  await publishBody('1.9.9', draft.body, 409);
+  expect((await read()).data).toMatchObject({ template: { version: '2.0.0' } });
+  expect(
+    (
+      await stageReview(admin.headers, {
+        ...request,
+        yaml: JSON.stringify({ ...draft, version: '02.0.0' }),
+        requestKey: randomUUID(),
+      })
+    ).statusCode,
+  ).toBe(400);
   await publishBody('2.0.1', draft.body);
   expect((await read()).data).toMatchObject({ template: { version: '2.0.1', body: draft.body } });
   expect(
@@ -648,20 +674,69 @@ test('模板审核需浏览器，退回版本与草稿都不会进入 Agent 工�
   );
 });
 
+test('迁移前没有审核卡的已发布标记无法用于正式读取或旧缓存重放', async () => {
+  context = await createIntegrationContext();
+  const tx = await context.pool.connect();
+  const legacy = { ...pack, version: '8.0.0' };
+  try {
+    await tx.query('BEGIN');
+    // 模拟迁移前留下的发布标记，限制在本测试的一次数据库事务内。
+    await tx.query('ALTER TABLE rule_pack_version DISABLE TRIGGER rule_pack_review_required');
+    const {
+      rows: [identity],
+    } = await tx.query<{ id: string }>(
+      'INSERT INTO rule_pack(code,jurisdiction) VALUES($1,$2) RETURNING id',
+      [legacy.code, legacy.jurisdiction],
+    );
+    const {
+      rows: [content],
+    } = await tx.query<{ id: string }>(
+      `INSERT INTO rule_pack_version(pack_id,version,content,publication,published_by)
+        VALUES($1,$2,$3::jsonb,'published',$4) RETURNING id`,
+      [identity!.id, legacy.version, JSON.stringify(legacy), context.userId('MEMBER_A')],
+    );
+    await tx.query('ALTER TABLE rule_pack_version ENABLE TRIGGER rule_pack_review_required');
+    await tx.query('COMMIT');
+    const reader = await context.run('MEMBER_A', 'read_only');
+    const toolContext = { tx, runId: reader.runId } as ToolExecutionContext;
+    expect((await readRulePack(toolContext, legacy.code, 'production')).data.pack).toBeNull();
+    await expect(
+      refreshRulePackLevel(
+        toolContext,
+        { ...legacy, versionId: content!.id, publication: 'published' },
+        'production',
+      ),
+    ).rejects.toMatchObject({ code: 'RULE_PACK_REVIEW_REQUIRED' });
+  } finally {
+    await tx.query('ROLLBACK');
+    tx.release();
+  }
+});
+
 test('规则缺确认或数值单位时维持待审，已存在的版本冲突也不改变审核决定', async () => {
   context = await createIntegrationContext();
   await publishDevelopmentRulePack(context.pool, pack, 'test');
   const admin = await context.login('ADMIN');
   const member = await context.login('MEMBER_A');
+  const request = { kind: 'rule_pack' as const, requestKey: randomUUID() };
+  expect(
+    (
+      await stageReview(admin.headers, {
+        ...request,
+        yaml: JSON.stringify({ ...pack, version: '3.0.0' }),
+      })
+    ).statusCode,
+  ).toBe(400);
+  const internalPack = { ...pack, dataLevel: 'internal' };
   const drafts = [
-    { ...pack, version: '3.0.0' },
+    { ...internalPack, version: '3.0.0' },
     {
-      ...pack,
+      ...internalPack,
       version: '4.0.0',
       rules: [{ ...pack.rules[0], status: 'confirmed', parameters: { amount: 2 } }],
     },
     {
-      ...pack,
+      ...internalPack,
       rules: pack.rules.map((rule) => ({
         ...rule,
         status: 'confirmed',
