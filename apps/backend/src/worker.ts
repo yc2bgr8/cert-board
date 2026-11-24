@@ -119,12 +119,14 @@ export async function startWorker() {
       environment: config.NODE_ENV,
     });
     const store = new BlobStore(resources.storage, config.MINIO_BUCKET);
-    const ruleSources = config.CERT_DOCSVC_URL
-      ? {
-          store: new BlobStore(resources.storage, config.MINIO_BUCKET, maximumDocumentBytes),
-          parser: new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
-        }
-      : undefined;
+    const ruleSources = config.CERT_DOCSVC_URL ? {
+      store: new BlobStore(
+        resources.storage,
+        config.MINIO_BUCKET,
+        maximumDocumentBytes,
+      ),
+      parser: new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
+    } : undefined;
     if (ruleSources) {
       const { store: originalStore, parser } = ruleSources;
       const packageStore = new BlobStore(

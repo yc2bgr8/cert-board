@@ -116,7 +116,7 @@ export async function prepareM02Walkthrough(pool: pg.Pool, blobs: BlobStore) {
   return { project, goal, name, blocker };
 }
 
-export async function waitForM02OfflineReview(pool: pg.Pool, goalId: string) {
+export async function waitForM02OfflineReview(pool: pg.Pool, goalId: string, startedAt: Date) {
   const until = Date.now() + 15 * 60_000;
   while (Date.now() < until) {
     const {
@@ -127,16 +127,18 @@ export async function waitForM02OfflineReview(pool: pg.Pool, goalId: string) {
       run_status: string;
       card_id: string | null;
       browser_online: boolean;
+      browser_signed_out: boolean;
     }>(
       `SELECT r.id AS run_id,r.conversation_id,r.status AS run_status,c.id AS card_id,
-        EXISTS(SELECT 1 FROM web_session s WHERE s.user_id=r.user_id AND s.revoked_at IS NULL AND s.expires_at>now()) AS browser_online
+        EXISTS(SELECT 1 FROM web_session s WHERE s.user_id=r.user_id AND s.created_at>=$2 AND s.revoked_at IS NULL AND s.expires_at>now()) AS browser_online,
+        EXISTS(SELECT 1 FROM web_session s WHERE s.user_id=r.user_id AND s.created_at>=$2 AND s.revoked_at<=r.created_at) AS browser_signed_out
        FROM goal_event e JOIN run r ON r.id=e.wake_run_id
        LEFT JOIN review_card c ON c.run_id=r.id AND c.status='pending' AND c.skill_id='M02'
        WHERE e.goal_id=$1 AND e.source='timer' AND r.trigger_type='wakeup' LIMIT 1`,
-      [goalId],
+      [goalId, startedAt],
     );
     if (row) {
-      assert.ok(!row.browser_online, '待审核产生前负责人有可用会话');
+      assert.ok(row.browser_signed_out && !row.browser_online, '应在本次走查会话退出后启动核查');
       if (row.card_id)
         return { run: row.run_id, conversation: row.conversation_id, card: row.card_id };
       assert.ok(
