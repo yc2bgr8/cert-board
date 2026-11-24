@@ -134,7 +134,9 @@ export function summarizeAgentBaseline(
       channels.some(({ status }) => status !== 'settled')) ||
     (result.modelTransport === 'cursor-acp' &&
       (gatewayStatus !== 'unknown' ||
-        !result.cost.some(({ model, unknown }) => model === profile.peer && unknown > 0)))
+        !result.cost.some(({ model, unknown }) => model === profile.primary && unknown >= 2) ||
+        !result.cost.some(({ model, unknown }) => model === profile.peer && unknown > 0) ||
+        result.cost.some(({ usd }) => usdToNano(usd) !== 0n)))
   )
     throw new Error('真实模型走查的身份、专项或计量记录不匹配。');
 

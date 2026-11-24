@@ -74,7 +74,7 @@ async function verifiedProfile(directory: string) {
     )
       throw new Error('profile');
   } catch {
-    throw new VerificationChannelError('privacy_unverified');
+    throw new VerificationChannelError('privacy_unverified', true);
   }
 }
 
@@ -129,23 +129,33 @@ export async function readCursorTurn(
   signal?: AbortSignal,
 ) {
   const model = cursorModels[modelId as keyof typeof cursorModels];
-  if (typeof model !== 'string') throw new VerificationChannelError('failed');
+  if (typeof model !== 'string') throw new VerificationChannelError('failed', true);
   if (
     !path.isAbsolute(config.executable) ||
     !path.isAbsolute(config.entrypoint) ||
     !path.isAbsolute(config.profileDirectory)
   )
-    throw new VerificationChannelError('not_installed');
+    throw new VerificationChannelError('not_installed', true);
   await verifiedProfile(config.profileDirectory);
   if (signal?.aborted) throw new VerificationChannelError('failed', true);
-  const workspace = await mkdtemp(path.join(tmpdir(), 'cert-board-cursor-'));
-  const child = spawn(config.executable, [config.entrypoint, '--sandbox', 'enabled', 'acp'], {
-    cwd: workspace,
-    env: cursorEnvironment(config.profileDirectory),
-    shell: false,
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'ignore'],
+  const workspace = await mkdtemp(path.join(tmpdir(), 'cert-board-cursor-')).catch(() => {
+    throw new VerificationChannelError('failed', true);
   });
+  const launch = () =>
+    spawn(config.executable, [config.entrypoint, '--sandbox', 'enabled', 'acp'], {
+      cwd: workspace,
+      env: cursorEnvironment(config.profileDirectory),
+      shell: false,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+  let child: ReturnType<typeof launch>;
+  try {
+    child = launch();
+  } catch {
+    await rmdir(workspace).catch(() => undefined);
+    throw new VerificationChannelError('failed', true);
+  }
   const lines = createInterface({ input: child.stdout });
   const processClosed = new AbortController();
   const closed = new Promise<void>((resolve) =>
@@ -278,7 +288,8 @@ export async function readCursorTurn(
     child.kill();
     lines.close();
     await closed;
-    if (!(await readdir(workspace)).length) await rmdir(workspace).catch(() => undefined);
+    const entries = await readdir(workspace).catch(() => undefined);
+    if (entries?.length === 0) await rmdir(workspace).catch(() => undefined);
   }
 }
 

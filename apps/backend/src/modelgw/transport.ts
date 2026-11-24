@@ -7,6 +7,7 @@ import {
   type OpenRouterGatewayModel,
 } from '@cert-board/shared';
 import type { CursorAcpConfig } from '../external-model/cursor-acp.js';
+import { VerificationChannelError } from '../external-model/verification-runtime.js';
 import { sendCursorAcceptance } from './cursor-acceptance.js';
 
 type RemoteTarget = Pick<OpenRouterGatewayModel, 'baseUrl' | 'apiKeyEnv' | 'transport'>;
@@ -112,8 +113,7 @@ export class RealGatewayTransport {
     beforeCursorDispatch?: () => Promise<void>,
   ): Promise<unknown> {
     if (model.transport === 'cursor-acp') {
-      if (!this.#cursorAcceptance)
-        throw new GatewayTransportError('MODEL_CURSOR_ACCEPTANCE_REQUIRED');
+      if (!this.#cursorAcceptance) throw new VerificationChannelError('not_installed', true);
       return sendCursorAcceptance(
         this.#cursorAcceptance,
         model,

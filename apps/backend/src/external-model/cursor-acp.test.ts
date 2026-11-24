@@ -5,6 +5,34 @@ import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { callCursorAcp, cursorPermissions } from './cursor-acp.js';
 
+test('ACP 临时目录创建失败时确认尚未发送', async () => {
+  const profile = await mkdtemp(path.join(tmpdir(), 'cert-board-acp-temp-test-'));
+  const config = path.join(profile, 'cli-config.json');
+  const mcp = path.join(profile, 'mcp.json');
+  try {
+    await Promise.all([
+      writeFile(config, JSON.stringify(cursorPermissions)),
+      writeFile(mcp, JSON.stringify({ mcpServers: {} })),
+    ]);
+    const missing = path.join(profile, 'missing-temp-directory');
+    for (const key of ['TMPDIR', 'TEMP', 'TMP']) vi.stubEnv(key, missing);
+    const beforeDispatch = vi.fn();
+    await expect(
+      callCursorAcp(
+        { executable: process.execPath, entrypoint: config, profileDirectory: profile },
+        'gpt-flagship',
+        { instructions: '合成验收', transcript: [] },
+        beforeDispatch,
+      ),
+    ).rejects.toMatchObject({ code: 'failed', confirmedNotSent: true });
+    expect(beforeDispatch).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+    await Promise.allSettled([unlink(config), unlink(mcp)]);
+    await rmdir(profile);
+  }
+});
+
 test('ACP 在数据库复核期间退出时确认未发送', async () => {
   const profile = await mkdtemp(path.join(tmpdir(), 'cert-board-acp-test-'));
   const config = path.join(profile, 'cli-config.json');

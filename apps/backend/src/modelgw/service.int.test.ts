@@ -14,6 +14,7 @@ import {
 import { ModelGateway, type GatewayTransport, type UpstreamChatRequest } from './service.js';
 import { createWorkerModelTransport } from './transport.js';
 import { cursorAcceptanceModels } from './cursor-acceptance.js';
+import { VerificationChannelError } from '../external-model/verification-runtime.js';
 
 let context: Awaited<ReturnType<typeof createIntegrationContext>>;
 let caller: GatewayContext;
@@ -167,13 +168,43 @@ test('Cursor 验收模型与其他外部模型一样禁止发送保密请求', a
     caller.conversationId,
   ]);
   const fixture = transport(response());
-  const gateway = new ModelGateway(context.pool, {
-    version: 1, models: cursorAcceptanceModels,
-  }, fixture.handler, { environment: 'test' });
+  const gateway = new ModelGateway(
+    context.pool,
+    {
+      version: 1,
+      models: cursorAcceptanceModels,
+    },
+    fixture.handler,
+    { environment: 'test' },
+  );
   await expect(gateway.complete(request, caller)).rejects.toMatchObject({
     code: 'MODEL_LOCAL_REQUIRED',
   });
   expect(fixture.calls()).toBe(0);
+});
+
+test.each([
+  { confirmedNotSent: true, state: 'not_sent', code: 'MODEL_DISPATCH_BLOCKED' },
+  { confirmedNotSent: false, state: 'unknown', code: 'MODEL_UPSTREAM_FAILED' },
+])('Cursor 失败时按实际发送状态标记网关账本 $state', async ({ confirmedNotSent, state, code }) => {
+  const remote: GatewayTransport = {
+    kind: 'fixture',
+    async send() {
+      throw new VerificationChannelError('failed', confirmedNotSent);
+    },
+  };
+  const gateway = new ModelGateway(
+    context.pool,
+    { version: 1, models: cursorAcceptanceModels },
+    remote,
+    { environment: 'test' },
+  );
+  await expect(gateway.complete(request, caller)).rejects.toMatchObject({ code });
+  const ledger = await context.pool.query<{ status: string }>(
+    'SELECT status FROM usage_ledger WHERE request_key=$1',
+    [caller.requestKey],
+  );
+  expect(ledger.rows).toEqual([{ status: state }]);
 });
 
 test('本地 OpenAI 兼容端点接收保密请求，保留工具参数并按实际令牌零费结算', async () => {
