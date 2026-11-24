@@ -7,7 +7,11 @@ import {
   upstreamAssistantResponseSchema,
   type CursorGatewayModel,
 } from '@cert-board/shared';
-import { readCursorTurn, type CursorAcpConfig } from '../external-model/cursor-acp.js';
+import {
+  CursorAcpStartupError,
+  readCursorTurn,
+  type CursorAcpConfig,
+} from '../external-model/cursor-acp.js';
 import { VerificationChannelError } from '../external-model/verification-runtime.js';
 import { confirmCursorAcceptanceScope } from './cursor-acceptance-scope.js';
 
@@ -168,19 +172,24 @@ export async function sendCursorAcceptance(
   } catch {
     throw new VerificationChannelError('failed', true);
   }
-  const answer = await readCursorTurn(
-    config,
-    model.cursorModel,
-    {
-      contract: turnContract,
-      maximumResponseBytes: request.max_tokens,
-      request,
-    },
-    async () => {
-      await beforeDispatch?.();
-    },
-    signal,
-  );
+  const readTurn = () =>
+    readCursorTurn(
+      config,
+      model.cursorModel,
+      {
+        contract: turnContract,
+        maximumResponseBytes: request.max_tokens,
+        request,
+      },
+      async () => {
+        await beforeDispatch?.();
+      },
+      signal,
+    );
+  const answer = await readTurn().catch((error: unknown) => {
+    if (error instanceof CursorAcpStartupError && !signal?.aborted) return readTurn();
+    throw error;
+  });
   // ACP does not give this worker an invoiced model cost. The ModelGateway retains an unknown ledger entry.
   try {
     return parseCursorModelTurn(answer, request);

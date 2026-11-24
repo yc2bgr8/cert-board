@@ -54,6 +54,12 @@ export type CursorAcpConfig = {
   timeoutMs?: number;
 };
 
+export class CursorAcpStartupError extends VerificationChannelError {
+  constructor() {
+    super('failed', true);
+  }
+}
+
 async function verifiedProfile(directory: string) {
   try {
     const [config, mcp, entries] = await Promise.all([
@@ -171,6 +177,7 @@ export async function readCursorTurn(
   let error: VerificationChannelError | null = null;
   let sessionId: string | null = null;
   let promptAttempted = false;
+  let dispatchGuardStarted = false;
   function abort(reason: VerificationChannelError) {
     error ??= reason;
     for (const waiter of waits.values()) waiter.reject(error);
@@ -260,6 +267,7 @@ export async function readCursorTurn(
       value: model,
     });
     if (!allowedOption(configured, 'model', model)) throw new VerificationChannelError('failed');
+    dispatchGuardStarted = true;
     await beforeDispatch(processClosed.signal);
     if (error || child.exitCode !== null || child.killed || !child.stdin.writable)
       throw new VerificationChannelError('failed', true);
@@ -276,6 +284,13 @@ export async function readCursorTurn(
       throw new VerificationChannelError('failed');
     return answer;
   } catch (cause) {
+    if (
+      !dispatchGuardStarted &&
+      !signal?.aborted &&
+      cause instanceof VerificationChannelError &&
+      cause.code === 'failed'
+    )
+      throw new CursorAcpStartupError();
     if (cause instanceof VerificationChannelError)
       throw new VerificationChannelError(cause.code, cause.confirmedNotSent || !promptAttempted);
     throw new VerificationChannelError('failed', !promptAttempted);

@@ -94,9 +94,11 @@ async function waitForReview(
   pool: pg.Pool,
   conversationId: string,
   expectedCount: number,
+  onUnsubmitted?: () => Promise<void>,
 ) {
   const until = Date.now() + budgetOfWaiting;
   let lastAnswered: string | null = null;
+  let continued = false;
   while (Date.now() < until) {
     const cards = (
       await pool.query<{ id: string; status: string }>(
@@ -116,6 +118,18 @@ async function waitForReview(
       )
     ).rows[0];
     if (run && ['failed', 'stopped', 'budget_exhausted'].includes(run.status)) {
+      if (run.status === 'stopped' && onUnsubmitted && !continued) {
+        const { rows: [last] } = await pool.query<{ reason: string | null }>(
+          `SELECT payload_json->>'reasonCode' AS reason FROM conversation_event
+           WHERE run_id=$1 AND type='run_status' ORDER BY seq DESC LIMIT 1`,
+          [run.id],
+        );
+        if (last?.reason === 'REVIEW_NOT_SUBMITTED') {
+          continued = true;
+          await onUnsubmitted();
+          continue;
+        }
+      }
       console.error(`${stage}出现运行错误。错误编号 ${run.id}`);
       throw new Error('WALKTHROUGH_RUN_STOPPED');
     }
@@ -398,7 +412,11 @@ async function main() {
         '实际调用工具，先加载技能、列计划并检索资料，再逐页读取。两页分别引用原句，保留待核实结论。',
         '请用工具将报告保存到「交付/合成编号核查.md」，保存工作区版本，运行 check_run，再调用 submit_for_review 生成审核卡。以审核卡为交付。',
       ].join('\n'));
-      const cardId = await waitForReview(page, pool, conversation, 1);
+      let continuedAfterText = false;
+      const cardId = await waitForReview(page, pool, conversation, 1, async () => {
+        continuedAfterText = true;
+        await send(page, `刚才还没有审核卡。请继续合成任务，重新逐页读取 ${cursorProbeDoc} 的两页，使用工具保存报告、运行 check_run 并实际调用 submit_for_review。`);
+      });
       const evidence = await pool.query<{ pages: number }>(
         `SELECT count(DISTINCT entry->>'page')::int AS pages
          FROM review_card r CROSS JOIN LATERAL jsonb_array_elements(r.evidence_refs) entry
@@ -416,7 +434,7 @@ async function main() {
       await review(page, pool, cardId, path.join(evidenceFolder, 'cursor-synthetic-review.png'), true);
       assert.equal(blocked, 0);
       await writeFile(path.join(evidenceFolder, 'cursor-probe.json'), JSON.stringify({
-        status:'passed', instance, commit: testedCommit, synthetic:true, routesBlocked:blocked,
+        status:'passed', instance, commit: testedCommit, synthetic:true, continuedAfterText, routesBlocked:blocked,
         modelTransport:'cursor-acp', mainModel:'cursor/gpt-5.6-sol', tools, evidencePages:2,
       }, null, 2), 'utf8');
       console.log('Cursor 合成项目的实际工具调用、引用与浏览器审核通过。');

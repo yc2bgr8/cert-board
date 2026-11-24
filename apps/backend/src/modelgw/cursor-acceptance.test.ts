@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { chatRequestSchema } from '@cert-board/shared';
-import { readCursorTurn } from '../external-model/cursor-acp.js';
+import { CursorAcpStartupError, readCursorTurn } from '../external-model/cursor-acp.js';
+import { VerificationChannelError } from '../external-model/verification-runtime.js';
 import {
   cursorAcceptanceModels,
   parseCursorModelTurn,
@@ -8,7 +9,10 @@ import {
   sendCursorAcceptance,
 } from './cursor-acceptance.js';
 
-vi.mock('../external-model/cursor-acp.js', () => ({ readCursorTurn: vi.fn() }));
+vi.mock('../external-model/cursor-acp.js', async (original) => ({
+  ...(await original<typeof import('../external-model/cursor-acp.js')>()),
+  readCursorTurn: vi.fn(),
+}));
 
 const request = chatRequestSchema.parse({
   messages: [{ role: 'user', content: '读合成资料第三页' }],
@@ -116,4 +120,27 @@ test('未指定单次上限时，将同一个模型默认值用于提示与接�
     expect.any(Function),
     undefined,
   );
+});
+
+test('只重建明确未派发的 ACP 启动握手，普通派发拒绝或发送失败不重试', async () => {
+  const cursor = { executable: 'fixture', entrypoint: 'fixture', profileDirectory: 'fixture' };
+  const model = cursorAcceptanceModels[0]!;
+  const turn = vi.mocked(readCursorTurn);
+  turn
+    .mockClear()
+    .mockRejectedValueOnce(new CursorAcpStartupError())
+    .mockResolvedValueOnce(JSON.stringify({ content: '完成', actions: [] }));
+  await expect(sendCursorAcceptance(cursor, model, request)).resolves.toMatchObject({
+    choices: [{ finish_reason: 'stop' }],
+  });
+  expect(turn).toHaveBeenCalledTimes(2);
+  for (const confirmedNotSent of [true, false]) {
+    turn
+      .mockClear()
+      .mockRejectedValueOnce(new VerificationChannelError('failed', confirmedNotSent));
+    await expect(sendCursorAcceptance(cursor, model, request)).rejects.toMatchObject({
+      confirmedNotSent,
+    });
+    expect(turn).toHaveBeenCalledOnce();
+  }
 });
