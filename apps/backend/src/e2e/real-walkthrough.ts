@@ -393,7 +393,11 @@ async function main() {
       const project = await prepareCursorProbe(pool, blobs);
       await page.reload();
       const conversation = await freshConversation(page, project, '合成对比编号核查', 'full');
-      await send(page, `只使用本项目合成资料 ${cursorProbeDoc} 的两页，用 R09 核对对比器械 K 号的写法。逐页阅读并引用，保留待核实结论，保存一份简短报告并提交审核。不做外部检索。`);
+      await send(page, [
+        `只使用本项目合成资料 ${cursorProbeDoc} 的两页，用 R09 核对对比器械 K 号的写法。不要查外网。`,
+        '实际调用工具，先加载技能、列计划并检索资料，再逐页读取。两页分别引用原句，保留待核实结论。',
+        '请用工具将报告保存到「交付/合成编号核查.md」，保存工作区版本，运行 check_run，再调用 submit_for_review 生成审核卡。以审核卡为交付。',
+      ].join('\n'));
       const cardId = await waitForReview(page, pool, conversation, 1);
       const evidence = await pool.query<{ pages: number }>(
         `SELECT count(DISTINCT entry->>'page')::int AS pages

@@ -100,7 +100,8 @@ const turnContract = [
   'Respond with only one JSON object: {"content":"assistant progress or final reply, or null","actions":[{"name":"tool_name","arguments":{}}]}.',
   'If the requested answer itself is a JSON object, put that object as a JSON-encoded string in the content field, and still return the outer envelope.',
   'Keep the entire response, including the JSON envelope and all tool arguments, within maximumResponseBytes UTF-8 bytes.',
-  'Use exact tool names and their parameter schemas. Return an empty actions array for a final text reply. Within a turn, ask for specific independent actions only; wait for client results before dependent actions.',
+  'Use exact tool names and their parameter schemas. When the user requests a workflow and the next required action is available, put that action in actions now. Progress text alone does not execute an action.',
+  'Return an empty actions array only when the requested work is complete, no available tool can advance it, or the user requests only a text answer. In a single turn, request independent actions and wait for client results before dependent actions.',
 ].join('\n');
 
 export class CursorOutputLimitError extends Error {
