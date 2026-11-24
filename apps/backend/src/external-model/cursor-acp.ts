@@ -54,6 +54,18 @@ export type CursorAcpConfig = {
   timeoutMs?: number;
 };
 
+export class CursorAcpStartupError extends VerificationChannelError {
+  constructor() {
+    super('failed', true);
+  }
+}
+
+export class CursorAcpNativeToolError extends VerificationChannelError {
+  constructor(confirmedNotSent = false) {
+    super('failed', confirmedNotSent);
+  }
+}
+
 async function verifiedProfile(directory: string) {
   try {
     const [config, mcp, entries] = await Promise.all([
@@ -74,7 +86,7 @@ async function verifiedProfile(directory: string) {
     )
       throw new Error('profile');
   } catch {
-    throw new VerificationChannelError('privacy_unverified');
+    throw new VerificationChannelError('privacy_unverified', true);
   }
 }
 
@@ -121,29 +133,41 @@ export async function checkCursorAccount(config: CursorAcpConfig) {
   }
 }
 
-export async function callCursorAcp(
+export async function readCursorTurn(
   config: CursorAcpConfig,
   modelId: string,
-  prompt: VerificationPrompt,
+  prompt: unknown,
   beforeDispatch: (processClosed: AbortSignal) => Promise<void>,
+  signal?: AbortSignal,
 ) {
   const model = cursorModels[modelId as keyof typeof cursorModels];
-  if (typeof model !== 'string') throw new VerificationChannelError('failed');
+  if (typeof model !== 'string') throw new VerificationChannelError('failed', true);
   if (
     !path.isAbsolute(config.executable) ||
     !path.isAbsolute(config.entrypoint) ||
     !path.isAbsolute(config.profileDirectory)
   )
-    throw new VerificationChannelError('not_installed');
+    throw new VerificationChannelError('not_installed', true);
   await verifiedProfile(config.profileDirectory);
-  const workspace = await mkdtemp(path.join(tmpdir(), 'cert-board-cursor-'));
-  const child = spawn(config.executable, [config.entrypoint, '--sandbox', 'enabled', 'acp'], {
-    cwd: workspace,
-    env: cursorEnvironment(config.profileDirectory),
-    shell: false,
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'ignore'],
+  if (signal?.aborted) throw new VerificationChannelError('failed', true);
+  const workspace = await mkdtemp(path.join(tmpdir(), 'cert-board-cursor-')).catch(() => {
+    throw new VerificationChannelError('failed', true);
   });
+  const launch = () =>
+    spawn(config.executable, [config.entrypoint, '--sandbox', 'enabled', 'acp'], {
+      cwd: workspace,
+      env: cursorEnvironment(config.profileDirectory),
+      shell: false,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+  let child: ReturnType<typeof launch>;
+  try {
+    child = launch();
+  } catch {
+    await rmdir(workspace).catch(() => undefined);
+    throw new VerificationChannelError('failed', true);
+  }
   const lines = createInterface({ input: child.stdout });
   const processClosed = new AbortController();
   const closed = new Promise<void>((resolve) =>
@@ -159,11 +183,15 @@ export async function callCursorAcp(
   let error: VerificationChannelError | null = null;
   let sessionId: string | null = null;
   let promptAttempted = false;
+  let dispatchGuardStarted = false;
   function abort(reason: VerificationChannelError) {
     error ??= reason;
     for (const waiter of waits.values()) waiter.reject(error);
     waits.clear();
   }
+  const onAbort = () => abort(new VerificationChannelError('failed'));
+  signal?.addEventListener('abort', onAbort, { once: true });
+  if (signal?.aborted) onAbort();
   const timer = setTimeout(
     () => abort(new VerificationChannelError('timeout')),
     config.timeoutMs ?? 300000,
@@ -201,7 +229,7 @@ export async function callCursorAcp(
         if (packet.method === 'session/request_permission')
           write({ id: packet.id, result: { outcome: { outcome: 'cancelled' } } });
         else write({ id: packet.id, error: { code: -32601, message: 'Unavailable' } });
-        abort(new VerificationChannelError('failed'));
+        abort(new CursorAcpNativeToolError());
       } else if (packet.method === 'session/update' && packet.params?.sessionId === sessionId) {
         const update = object.parse(packet.params.update);
         if (update.sessionUpdate === 'agent_message_chunk') {
@@ -212,7 +240,7 @@ export async function callCursorAcp(
           update.sessionUpdate === 'tool_call' ||
           update.sessionUpdate === 'tool_call_update'
         ) {
-          abort(new VerificationChannelError('failed'));
+          abort(new CursorAcpNativeToolError());
         }
       }
     } catch {
@@ -245,6 +273,7 @@ export async function callCursorAcp(
       value: model,
     });
     if (!allowedOption(configured, 'model', model)) throw new VerificationChannelError('failed');
+    dispatchGuardStarted = true;
     await beforeDispatch(processClosed.signal);
     if (error || child.exitCode !== null || child.killed || !child.stdin.writable)
       throw new VerificationChannelError('failed', true);
@@ -259,27 +288,48 @@ export async function callCursorAcp(
       !answer.trim()
     )
       throw new VerificationChannelError('failed');
-    const reply = answer
-      .trim()
-      .replace(/^\x60\x60\x60(?:json)?\s*/iu, '')
-      .replace(/\s*\x60\x60\x60$/u, '');
-    try {
-      return { ...object.parse(JSON.parse(reply)), providerText: answer };
-    } catch {
-      return { text: answer, claims: [], providerText: answer };
-    }
+    return answer;
   } catch (cause) {
+    if (cause instanceof CursorAcpNativeToolError)
+      throw new CursorAcpNativeToolError(!promptAttempted);
+    if (
+      !dispatchGuardStarted &&
+      !signal?.aborted &&
+      cause instanceof VerificationChannelError &&
+      cause.code === 'failed'
+    )
+      throw new CursorAcpStartupError();
     if (cause instanceof VerificationChannelError)
       throw new VerificationChannelError(cause.code, cause.confirmedNotSent || !promptAttempted);
     throw new VerificationChannelError('failed', !promptAttempted);
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
     if (sessionId && error && !child.stdin.destroyed)
       write({ method: 'session/cancel', params: { sessionId } });
     child.stdin.end();
     child.kill();
     lines.close();
     await closed;
-    if (!(await readdir(workspace)).length) await rmdir(workspace).catch(() => undefined);
+    const entries = await readdir(workspace).catch(() => undefined);
+    if (entries?.length === 0) await rmdir(workspace).catch(() => undefined);
+  }
+}
+
+export async function callCursorAcp(
+  config: CursorAcpConfig,
+  modelId: string,
+  prompt: VerificationPrompt,
+  beforeDispatch: (processClosed: AbortSignal) => Promise<void>,
+) {
+  const answer = await readCursorTurn(config, modelId, prompt, beforeDispatch);
+  const reply = answer
+    .trim()
+    .replace(/^\x60\x60\x60(?:json)?\s*/iu, '')
+    .replace(/\s*\x60\x60\x60$/u, '');
+  try {
+    return { ...object.parse(JSON.parse(reply)), providerText: answer };
+  } catch {
+    return { text: answer, claims: [], providerText: answer };
   }
 }

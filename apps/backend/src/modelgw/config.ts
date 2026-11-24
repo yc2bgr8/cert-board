@@ -6,6 +6,7 @@ import {
   selectGatewayModel,
   type ModelGatewayConfig,
 } from '@cert-board/shared';
+import { cursorAcceptanceModels, readCursorAcceptanceConfig } from './cursor-acceptance.js';
 
 export type {
   GatewayModelConfig,
@@ -68,6 +69,8 @@ export function parseModelGatewayConfig(
         throw new ModelConfigError();
     });
     const parsed = modelGatewayConfigSchema.parse(document.toJS({ maxAliasCount: 0 }));
+    if (parsed.models.some((model) => model.transport === 'cursor-acp'))
+      throw new ModelConfigError();
     const localEndpoint = overrides.localEndpoint?.trim();
     if (localEndpoint && parsed.models.filter((model) => model.transport === 'local').length !== 1)
       throw new ModelConfigError();
@@ -115,6 +118,7 @@ type ModelConfigLoadOptions = {
   allowlistPath?: string;
   environment?: string;
   sourceEnv?: NodeJS.ProcessEnv;
+  allowCursorAcceptance?: boolean;
 };
 
 export async function loadModelGatewayConfig(
@@ -136,9 +140,22 @@ export async function loadModelGatewayConfig(
     const sourceEnv = options.sourceEnv ?? (environment === 'test' ? {} : process.env);
     const localEndpoint = sourceEnv.CERT_LOCAL_MODEL_BASE_URL;
     const developmentModel = sourceEnv.CERT_DEV_MODEL_ID;
-    return parseModelGatewayConfig(source, parseAllowedModelHosts(allowlist), environment, {
+    const parsed = parseModelGatewayConfig(source, parseAllowedModelHosts(allowlist), environment, {
       ...(localEndpoint ? { localEndpoint } : {}),
       ...(developmentModel ? { developmentModel } : {}),
+    });
+    if (
+      !options.allowCursorAcceptance ||
+      !(await readCursorAcceptanceConfig(environment, sourceEnv))
+    )
+      return parsed;
+    return modelGatewayConfigSchema.parse({
+      version: parsed.version,
+      developmentDefault: cursorAcceptanceModels[0]?.id,
+      models: [
+        ...cursorAcceptanceModels,
+        ...parsed.models.filter((model) => model.transport === 'local'),
+      ],
     });
   } catch (error) {
     if (error instanceof ModelConfigError) throw error;
@@ -149,6 +166,7 @@ export async function loadModelGatewayConfig(
 export async function loadVerificationModelGatewayConfig(options: ModelConfigLoadOptions = {}) {
   const sourceEnv = options.sourceEnv ?? process.env;
   const explicitlyConfigured =
+    (options.allowCursorAcceptance && Boolean(sourceEnv.CERT_CURSOR_ACCEPTANCE_WORKER)) ||
     sourceEnv.CERT_LOCAL_MODEL_BASE_URL?.trim() ||
     (sourceEnv.HTTPS_PROXY && sourceEnv.OPENROUTER_API_KEY);
   const models = await loadModelGatewayConfig({ ...options, sourceEnv }).catch((error: unknown) => {

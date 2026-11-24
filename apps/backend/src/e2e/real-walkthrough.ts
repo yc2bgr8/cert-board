@@ -247,6 +247,7 @@ async function exerciseVerification(
   evidenceFolder: string,
   onOpened?: (id: string) => void,
 ) {
+  const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
   const readyUntil = Date.now() + 30_000;
   let workerReady = false;
   while (Date.now() < readyUntil) {
@@ -259,7 +260,7 @@ async function exerciseVerification(
     }
     await wait(500);
   }
-  assert.ok(workerReady, '外部核实进程必须同时就绪 Cursor 和 OpenRouter');
+  assert.ok(workerReady, '外部核实进程必须同时就绪 Cursor 与模型网关');
   await page.getByRole('button', { name: '外部模型', exact: true }).click();
   const group = page.getByRole('region', { name: '外部核实群聊', exact: true });
   const created = page.waitForResponse(
@@ -306,13 +307,22 @@ async function exerciseVerification(
   assert.ok(
     tested.some((item) => item.channel === 'gateway' && item.model === 'claude-opus-5-5-gateway'),
   );
+  if (cursorAcceptance) {
+    const { rowCount } = await pool.query(
+      `SELECT 1 FROM external_model_exchange e JOIN usage_ledger u ON u.request_key=e.id
+       WHERE e.conversation_id=$1 AND e.channel='gateway' AND e.returned->>'text' IS NOT NULL
+       AND u.model_id='cursor/claude-opus-5.5' AND u.status='unknown' AND e.status='unknown'`,
+      [id],
+    );
+    assert.ok(rowCount, '验收时网关核实须来自 Cursor 的 Claude Opus 5.5');
+  }
   const stop = group.getByRole('button', { name: '停止并整理', exact: true });
   if ((await stop.count()) === 1 && (await stop.isEnabled())) await stop.click();
   await group
     .getByRole('complementary', { name: '核实结论', exact: true })
     .waitFor({ timeout: 120000 });
   await page.screenshot({ path: path.join(evidenceFolder, 'verification-v7.png') });
-  return { id, channels: tested };
+  return { id, channels: tested, gatewayTransport: cursorAcceptance ? 'cursor-acp' : 'openrouter' };
 }
 
 export type WalkthroughBatchContext = {
@@ -539,7 +549,7 @@ async function main() {
     let errorId: string | null = null;
     let verification: Awaited<ReturnType<typeof exerciseVerification>> | null = null;
     if (process.env.CERT_WALKTHROUGH_DIAGNOSTIC !== '1') {
-      stage = '真实核实验证 Cursor 与 OpenRouter 两条通道';
+      stage = '真实核实验证 Cursor 与模型网关两条应用通道';
       verification = await exerciseVerification(page, pool, evidenceFolder);
       stage = '错误编号与日志关联';
       await page.goto(`${config.WEB_ORIGIN}/?conversation=${randomUUID()}`);
@@ -566,19 +576,34 @@ async function main() {
       await wait(1000);
     }
     const cost = (
-      await pool.query<{ model: string; paid: string; unknown: number; calls: number }>(
+      await pool.query<{ model: string; paid: string; unknown: number; notSent: number; calls: number }>(
         `SELECT model_id AS model,COALESCE(sum(actual_nano) FILTER(WHERE status='settled'),0)::text AS paid,
-       count(*) FILTER(WHERE status IN ('unknown','reserved'))::int AS unknown,count(*)::int AS calls
+       count(*) FILTER(WHERE status IN ('unknown','reserved'))::int AS unknown,
+       count(*) FILTER(WHERE status='not_sent')::int AS "notSent",count(*)::int AS calls
        FROM usage_ledger WHERE created_at>=$1 GROUP BY model_id ORDER BY model_id`,
         [startedAt],
       )
     ).rows;
-    assert.ok(cost.some(({ model }) => model === 'openai/gpt-6.2-astra-pro'));
+    const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
+    const mainModel = cursorAcceptance ? 'cursor/gpt-5.6-sol' : 'openai/gpt-6.2-astra-pro';
+    assert.ok(cost.some(({ model, calls }) => model === mainModel && calls > 0));
+    if (cursorAcceptance) {
+      assert.ok(cost.every(({ calls, unknown, notSent, paid }) => calls === unknown + notSent && paid === '0'));
+      for (const conversationId of [registration, maintenance]) {
+        const { rows } = await pool.query<{ model: string }>(
+          `SELECT DISTINCT u.model_id AS model FROM usage_ledger u JOIN run r ON r.id=u.run_id
+           WHERE r.conversation_id=$1 AND u.purpose='agent'`, [conversationId],
+        );
+        assert.deepEqual(rows.map(({model}) => model), [mainModel]);
+      }
+    }
     assert.equal(blocked, 0);
     const proof = {
       status: 'passed',
       commit: testedCommit,
       instance,
+      mainModel,
+      modelTransport: cursorAcceptance ? 'cursor-acp' : 'openrouter',
       errorId,
       verification,
       registration: {

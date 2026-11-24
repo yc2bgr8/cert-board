@@ -30,7 +30,7 @@ async function main() {
   const model = configured.models.find(
     (entry) => entry.id === 'qwen-flash' && entry.enabled && entry.purposes.includes('agent'),
   );
-  if (!model || model.transport === 'local' || !process.env[model.apiKeyEnv])
+  if (!model || model.transport === 'local' || model.transport === 'cursor-acp' || !process.env[model.apiKeyEnv])
     throw new Error('REAL_TEST_MODEL_MISSING');
   const models = { version: 1 as const, models: [model] };
   const hosts = parseAllowedModelHosts(

@@ -119,6 +119,16 @@ describe('唯一YAML模型配置来源', () => {
     expect(production).not.toHaveProperty('developmentDefault');
   });
 
+  it('独立专项只在调用方明确启用时考虑 Cursor 验收配置', async () => {
+    const environment = 'development';
+    const sourceEnv = { CERT_CURSOR_ACCEPTANCE_WORKER: '1' };
+    const config = await loadModelGatewayConfig({ environment, sourceEnv });
+    expect(selectGatewayModel(config, 'evaluation')?.upstreamModel).toBe('openai/gpt-6.2-astra-pro');
+    await expect(
+      loadModelGatewayConfig({ environment, sourceEnv, allowCursorAcceptance: true }),
+    ).rejects.toBeInstanceOf(ModelConfigError);
+  });
+
   it('只使用 Cursor 的宿主进程在模型配置缺失时继续使用程序主持', async () => {
     const configPath = 'nonexistent-model-config-fixture';
     await expect(

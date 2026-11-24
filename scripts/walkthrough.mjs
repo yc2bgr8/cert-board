@@ -78,6 +78,7 @@ async function main() {
           CERT_WALKTHROUGH_DIAGNOSTIC: diagnostic ? '1' : '0',
           CERT_WALKTHROUGH_VERIFICATION_ONLY: verificationOnly ? '1' : '0',
           CERT_WALKTHROUGH_BATCH: batch ? '1' : '0',
+          ...(runtime.CERT_CURSOR_ACCEPTANCE_WORKER && { CERT_WALKTHROUGH_CURSOR: '1' }),
           ...(specialty ? { [specialty.environment]: '1' } : {}),
         },
       },
