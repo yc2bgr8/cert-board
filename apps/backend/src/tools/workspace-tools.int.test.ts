@@ -211,27 +211,18 @@ test('K05 同时保存草稿和来源表，写入可撤销，送审拒绝被改�
   });
   await write(receipt.markdownPath, original, modified.value.file.sha256);
   const exact = (await save()).value.workspaceVersion;
-  await write('交付/另存封面.md', original);
-  const renamed = (await save()).value.workspaceVersion;
-  await expect(
-    call('submit_for_review', { ...submission, workspaceVersion: renamed }),
-  ).rejects.toMatchObject({
+  await expect(write('交付/另存封面.md', original + '\n')).rejects.toMatchObject({
     code: 'TOOL_DATA_REJECTED',
-    message: expect.stringContaining('保留登记路径'),
+    message: expect.stringContaining('模板来源标记'),
   });
-  const restored = workspaceToolSaveSchema.parse(
-    (
-      await call('workspace_restore', {
-        targetVersionId: exact,
-        expectedDraftVersion: (await list()).draftVersion,
-        summary: '恢复原始配对的草稿和来源表',
-      })
-    ).data,
-  ).workspaceVersion;
+  await expect(write('交付/另存来源.json', JSON.stringify(sourceMap))).rejects.toMatchObject({
+    code: 'TOOL_DATA_REJECTED',
+    message: expect.stringContaining('模板来源标记'),
+  });
   await expect(
     call('submit_for_review', {
       ...submission,
-      workspaceVersion: restored,
+      workspaceVersion: exact,
       claims: [
         {
           ...submission.claims[0]!,
@@ -249,7 +240,7 @@ test('K05 同时保存草稿和来源表，写入可撤销，送审拒绝被改�
     message: expect.stringContaining('列入这次送审证据'),
   });
   await expect(
-    call('submit_for_review', { ...submission, workspaceVersion: restored }),
+    call('submit_for_review', { ...submission, workspaceVersion: exact }),
   ).resolves.toMatchObject({
     data: { status: 'pending', requiresBrowserDecision: true },
     dataLevel: 'confidential',

@@ -2,14 +2,13 @@ import { coverLetterDraftInputSchema, coverLetterDraftOutputSchema } from '@cert
 import { AppError } from '../api/errors.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import {
-  coverLetterFileName,
   coverLetterReference,
   coverLetterReferenceKey,
-  coverLetterSourcesName,
   loadCoverLetterManifest,
   parseK05Draft,
   renderK05Draft,
 } from '../knowledge/draft-template.js';
+import { coverLetterFileName, coverLetterSourcesName } from '../knowledge/cover-letter-files.js';
 import { verifyReadReceipts } from '../reviews/submission.js';
 import {
   resolveWorkspaceToolContext,

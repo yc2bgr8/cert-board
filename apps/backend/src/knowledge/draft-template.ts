@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { coverLetterFieldsSchema, type DocumentCitation } from '@cert-board/shared';
 import { readFile } from 'node:fs/promises';
 import { AppError } from '../api/errors.js';
+import { coverLetterArtifact, coverLetterMarker } from './cover-letter-files.js';
 
 const key = z.string().regex(/^[a-z][a-z0-9_]{1,63}$/u);
 const singleLine = (value: string) => !value.includes('\0') && !/[\r\n]/u.test(value);
@@ -58,11 +59,9 @@ const escaped = (value: string) =>
     .map((character) => (markdownPunctuation.has(character) ? '\\' + character : character))
     .join('');
 
-export const coverLetterFileName = '510k-cover-letter.draft.md';
-export const coverLetterSourcesName = '510k-cover-letter.sources.json';
 export function coverLetterReference({ documentId, version, page, quote }: Reference) {
   return {
-    documentId,
+    documentId: documentId.toLowerCase(),
     version,
     page,
     quoteSha256: createHash('sha256').update(quote).digest('hex'),
@@ -179,7 +178,7 @@ export async function renderK05Draft(
   }
   const missing = new Set<string>();
   const notice = synthetic ? 'Synthetic test data. For internal review.' : 'For internal review.';
-  const lines = [`# ${escaped(manifest.title)} — draft`, notice];
+  const lines = [`# ${escaped(manifest.title)} — draft`, coverLetterMarker, notice];
   const documentParagraphs: string[] = [];
   const paragraphs = manifest.paragraphs.map((item, index) => {
     const evidence = new Map<string, Reference>();
@@ -218,6 +217,7 @@ export async function renderK05Draft(
       paragraphs: documentParagraphs,
     },
     sourceMap: {
+      artifact: coverLetterArtifact,
       templateCode: manifest.code,
       templateVersion: manifest.version,
       publication: manifest.publication,

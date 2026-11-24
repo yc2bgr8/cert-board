@@ -32,6 +32,7 @@ import { authorize } from '../auth/authorization.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { compareFileManifests } from './diff.js';
 import { decodeUtf8Text, sliceUnicodeText } from './text.js';
+import { coverLetterFileHasValidPath } from '../knowledge/cover-letter-files.js';
 
 type Executor = Pool | PoolClient;
 type Workspace = ReturnType<typeof workspaceRecordSchema.parse>;
@@ -813,6 +814,12 @@ async function writeDraftContent(
     dataLevel?: DataLevel;
   },
 ) {
+  if (!coverLetterFileHasValidPath(data.bytes, data.path))
+    throw new AppError(
+      422,
+      'WORKSPACE_K05_ARTIFACT_PATH',
+      'K05 草稿和来源表需使用登记的交付文件名。',
+    );
   const viewer = actor(identity);
   const draftKey = id(draftId);
   return mutation(pool, viewer, async (client) => {

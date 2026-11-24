@@ -13,7 +13,10 @@ export const coverLetterFieldsSchema = z.record(
       .min(1)
       .max(300)
       .refine((value) => !value.includes('\0') && !/[\r\n]/u.test(value)),
-    source: documentCitationSchema,
+    source: documentCitationSchema.transform(({ documentId, ...source }) => ({
+      documentId: documentId.toLowerCase(),
+      ...source,
+    })),
   }),
 );
 export const coverLetterDraftInputSchema = z.strictObject({

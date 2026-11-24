@@ -238,6 +238,10 @@ const safeInputHints = new Map<string, string>([
   ['K05_ORIGINAL_MISMATCH', 'K05 引文与原页不一致，请逐字使用 doc_read 返回的完整字段行。'],
   ['K05_DRAFT_LIMIT', '单次最多审核 12 份 K05 信函草稿，请缩小交付范围。'],
   [
+    'WORKSPACE_K05_ARTIFACT_PATH',
+    'K05 草稿与来源表含模板来源标记，请保留登记文件名并通过 K05 工具重新生成。',
+  ],
+  [
     'K05_DRAFT_PROOF_REQUIRED',
     'K05 信函及来源表须使用同一次生成的文件，保留登记路径。请恢复配对文件，或移除旧文件后重新生成。',
   ],

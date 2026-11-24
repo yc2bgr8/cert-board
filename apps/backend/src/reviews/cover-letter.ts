@@ -7,12 +7,8 @@ import {
   type WorkspaceFileDescriptor,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
-import {
-  coverLetterFileName,
-  coverLetterReference,
-  coverLetterReferenceKey,
-  coverLetterSourcesName,
-} from '../knowledge/draft-template.js';
+import { coverLetterReference, coverLetterReferenceKey } from '../knowledge/draft-template.js';
+import { coverLetterFileName, coverLetterSourcesName } from '../knowledge/cover-letter-files.js';
 import { refreshDocumentReference } from '../tools/document-context.js';
 import type { ToolExecutionContext } from '../tools/registry.js';
 

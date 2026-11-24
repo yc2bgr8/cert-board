@@ -138,7 +138,7 @@ test('完整字段必须在引文的实际位置，已引同版其他页冲突�
       device_name: { value: 'Model A', source: { ...source, quote: name } },
       applicant_name: {
         value: 'Synthetic applicant',
-        source: { ...source, page: 2, quote: applicant },
+        source: { ...source, documentId: documentId.toUpperCase(), page: 2, quote: applicant },
       },
     },
     async (ref) => pages[ref.page - 1]!,
