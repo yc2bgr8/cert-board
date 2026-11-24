@@ -3,7 +3,11 @@ import type {
   DeadlineCalculation,
   DeadlineNotice,
   DeadlineStage,
+  ConfirmedFact,
+  DocumentCitation,
+  FactCandidate,
   ReminderProfile,
+  RulePackSeed,
   SkillVersionMetadata,
   SkillRollbackEvidence,
   VerificationClaim,
@@ -25,6 +29,7 @@ import {
   pgEnum,
   pgSequence,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -578,7 +583,10 @@ export const ruleFalsePositive = pgTable(
   },
   (table) => [
     unique('rule_false_positive_finding_unique').on(
-      table.documentVersionId, table.ruleId, table.ruleVersion, table.findingKey,
+      table.documentVersionId,
+      table.ruleId,
+      table.ruleVersion,
+      table.findingKey,
     ),
     check('rule_false_positive_id_valid', sql`${table.ruleId} ~ '^R[0-7]$'`),
     check('rule_false_positive_version_set', sql`length(btrim(${table.ruleVersion})) > 0`),
@@ -2988,3 +2996,192 @@ export const heartbeat = pgTable('heartbeat', {
   service: varchar('service', { length: 80 }).primaryKey(),
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
 });
+
+export const factCandidate = pgTable(
+  'fact_candidate',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => certProject.id, { onDelete: 'restrict' }),
+    proposalRunId: uuid('proposal_run_id')
+      .notNull()
+      .references(() => run.id, { onDelete: 'restrict' }),
+    proposedBy: uuid('proposed_by')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    subject: varchar('subject', { length: 120 }).notNull(),
+    field: varchar('field', { length: 80 }).notNull(),
+    value: jsonb('value').$type<FactCandidate['value']>().notNull(),
+    unit: varchar('unit', { length: 32 }),
+    sourceDocumentId: uuid('source_document_id')
+      .notNull()
+      .references(() => document.id, { onDelete: 'restrict' }),
+    evidence: jsonb('evidence').$type<DocumentCitation>().notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    baseRevision: integer('base_revision').notNull(),
+    dueAt: timestamp('due_at', { withTimezone: true }),
+    status: varchar('status', { length: 16 })
+      .$type<FactCandidate['status']>()
+      .notNull()
+      .default('pending'),
+    version: integer('version').notNull().default(1),
+    decidedBy: uuid('decided_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionReason: varchar('decision_reason', { length: 600 }),
+    ...timestamps(),
+  },
+  (t) => [
+    unique('fact_candidate_scope_unique').on(t.id, t.projectId, t.subject, t.field),
+    check(
+      'fact_candidate_status_ok',
+      sql`${t.status} IN ('pending','confirmed','rewritten','rejected','cancelled')`,
+    ),
+    check('fact_candidate_revision_ok', sql`${t.baseRevision} >= 0 AND ${t.version} > 0`),
+    check('fact_candidate_level_ok', sql`${t.dataLevel} IN ('internal','confidential')`),
+    check(
+      'fact_candidate_key_ok',
+      sql`length(btrim(${t.subject})) > 0 AND ${t.field} ~ '^[a-z][a-z0-9_]{0,79}$'`,
+    ),
+    check(
+      'fact_candidate_evidence_ok',
+      sql`jsonb_typeof(${t.evidence}) = 'object' AND (${t.evidence}->>'documentId')::uuid IS NOT DISTINCT FROM ${t.sourceDocumentId}`,
+    ),
+    check(
+      'fact_candidate_value_ok',
+      sql`jsonb_typeof(${t.value}) IN ('string','number','boolean') AND (jsonb_typeof(${t.value}) <> 'number' OR NULLIF(btrim(${t.unit}),'') IS NOT NULL)`,
+    ),
+    check(
+      'fact_candidate_decision_ok',
+      sql`(${t.status} IN ('pending','cancelled') AND ${t.decidedBy} IS NULL AND ${t.decidedAt} IS NULL) OR (${t.status} IN ('confirmed','rewritten','rejected') AND ${t.decidedBy} IS NOT NULL AND ${t.decidedAt} IS NOT NULL)`,
+    ),
+    index('fact_candidate_pending_idx')
+      .on(t.projectId, t.createdAt, t.id)
+      .where(sql`${t.status} = 'pending'`),
+  ],
+);
+
+export const fact = pgTable(
+  'fact',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => certProject.id, { onDelete: 'restrict' }),
+    subject: varchar('subject', { length: 120 }).notNull(),
+    field: varchar('field', { length: 80 }).notNull(),
+    value: jsonb('value').$type<ConfirmedFact['value']>().notNull(),
+    unit: varchar('unit', { length: 32 }),
+    candidateId: uuid('candidate_id').notNull().unique(),
+    sourceDocumentId: uuid('source_document_id')
+      .notNull()
+      .references(() => document.id, { onDelete: 'restrict' }),
+    evidence: jsonb('evidence').$type<DocumentCitation>().notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    revision: integer('revision').notNull(),
+    replacesId: uuid('replaces_id'),
+    validFrom: timestamp('valid_from', { withTimezone: true }).notNull().defaultNow(),
+    validUntil: timestamp('valid_until', { withTimezone: true }),
+    locked: boolean('locked').notNull().default(false),
+    confirmedBy: uuid('confirmed_by')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+  },
+  (t) => [
+    unique('fact_key_revision_unique').on(t.projectId, t.subject, t.field, t.revision),
+    unique('fact_scope_unique').on(t.id, t.projectId, t.subject, t.field),
+    foreignKey({
+      name: 'fact_candidate_scope_fk',
+      columns: [t.candidateId, t.projectId, t.subject, t.field],
+      foreignColumns: [
+        factCandidate.id,
+        factCandidate.projectId,
+        factCandidate.subject,
+        factCandidate.field,
+      ],
+    }).onDelete('restrict'),
+    foreignKey({
+      name: 'fact_replaces_scope_fk',
+      columns: [t.replacesId, t.projectId, t.subject, t.field],
+      foreignColumns: [t.id, t.projectId, t.subject, t.field],
+    }).onDelete('restrict'),
+    check(
+      'fact_revision_ok',
+      sql`(${t.revision} = 1 AND ${t.replacesId} IS NULL) OR (${t.revision} > 1 AND ${t.replacesId} IS NOT NULL AND ${t.replacesId} <> ${t.id})`,
+    ),
+    check('fact_validity_ok', sql`${t.validUntil} IS NULL OR ${t.validUntil} > ${t.validFrom}`),
+    check('fact_level_ok', sql`${t.dataLevel} IN ('internal','confidential')`),
+    check(
+      'fact_value_ok',
+      sql`jsonb_typeof(${t.value}) IN ('string','number','boolean') AND (jsonb_typeof(${t.value}) <> 'number' OR NULLIF(btrim(${t.unit}),'') IS NOT NULL)`,
+    ),
+    check(
+      'fact_evidence_ok',
+      sql`jsonb_typeof(${t.evidence}) = 'object' AND (${t.evidence}->>'documentId')::uuid IS NOT DISTINCT FROM ${t.sourceDocumentId}`,
+    ),
+  ],
+);
+
+export const rulePack = pgTable(
+  'rule_pack',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    code: varchar('code', { length: 80 }).notNull().unique(),
+    jurisdiction: varchar('jurisdiction', { length: 2 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('rule_pack_code_ok', sql`${t.code} ~ '^[a-z][a-z0-9_]{0,79}$'`),
+    check('rule_pack_jurisdiction_ok', sql`${t.jurisdiction} ~ '^[A-Z]{2}$'`),
+  ],
+);
+
+export const rulePackVersion = pgTable(
+  'rule_pack_version',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    packId: uuid('pack_id')
+      .notNull()
+      .references(() => rulePack.id, { onDelete: 'restrict' }),
+    version: varchar('version', { length: 14 }).notNull(),
+    content: jsonb('content').$type<RulePackSeed>().notNull(),
+    publication: varchar('publication', { length: 16 })
+      .$type<'development' | 'published'>()
+      .notNull(),
+    publishedBy: uuid('published_by').references(() => appUser.id, { onDelete: 'restrict' }),
+    publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('rule_pack_version_unique').on(t.packId, t.version),
+    unique('rule_pack_version_scope_unique').on(t.id, t.packId),
+    check('rule_pack_version_number_ok', sql`${t.version} ~ '^([0-9]{1,4}[.]){2}[0-9]{1,4}$'`),
+    check(
+      'rule_pack_version_publication_ok',
+      sql`(${t.publication} = 'development' AND ${t.publishedBy} IS NULL) OR (${t.publication} = 'published' AND ${t.publishedBy} IS NOT NULL)`,
+    ),
+    check(
+      'rule_pack_version_content_ok',
+      sql`jsonb_typeof(${t.content}) = 'object' AND ${t.content}->>'version' = ${t.version}`,
+    ),
+  ],
+);
+
+export const runRulePack = pgTable(
+  'run_rule_pack',
+  {
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => run.id, { onDelete: 'restrict' }),
+    packId: uuid('pack_id').notNull(),
+    versionId: uuid('version_id').notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.runId, t.packId] }),
+    foreignKey({
+      name: 'run_rule_pack_version_scope_fk',
+      columns: [t.versionId, t.packId],
+      foreignColumns: [rulePackVersion.id, rulePackVersion.packId],
+    }).onDelete('restrict'),
+  ],
+);

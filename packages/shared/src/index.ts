@@ -40,3 +40,4 @@ export * from './web.js';
 export * from './official.js';
 export * from './rules.js';
 export * from './deadlines.js';
+export * from './knowledge.js';

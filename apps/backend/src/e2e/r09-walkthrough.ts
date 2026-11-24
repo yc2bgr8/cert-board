@@ -12,6 +12,7 @@ import {
 import { nanoToUsd } from '../budget/meter.js';
 import { normalizeWhitespace } from '../checks/quotes.js';
 import type { BlobStore } from '../documents/blob-store.js';
+import { parseWalkthroughJson } from './walkthrough-json.js';
 
 export const r09Replacements = [
   ['范围说明：本轮核对 D035。', '范围说明：本轮核对 D035 的两个原文位置。'],
@@ -153,27 +154,9 @@ export function r09ReadOnlyAnswerMatches(
   pages: readonly { sourceKey: string; page: number; text: string }[],
   msds: { sourceKey: string; page: number },
 ) {
-  const text = answer.trim();
-  const fenced = /^```(?:json)?\s*\r?\n([\s\S]+?)\r?\n```$/iu.exec(text);
-  const payload = fenced?.[1] ?? text;
-  let value: unknown;
-  try {
-    value = JSON.parse(payload);
-  } catch {
-    return false;
-  }
-  const parsed = packageAnswerSchema.safeParse(value);
-  if (!parsed.success) return false;
-  const returned = parsed.data.MSDS;
-  // JSON.parse 会覆盖重复字段，比较原始键数与已验证结构的键数。
-  const fields = [...payload.matchAll(/"(?:\\[\s\S]|[^"\\])*"/gu)].filter((token) =>
-    /^\s*:/u.test(payload.slice(token.index + token[0].length)),
-  ).length;
-  const parsedFields =
-    Object.keys(parsed.data).length +
-    Object.keys(returned).length +
-    parsed.data.用水证据.reduce((total, item) => total + Object.keys(item).length, 0);
-  if (fields !== parsedFields) return false;
+  const parsed = parseWalkthroughJson(answer, packageAnswerSchema);
+  if (!parsed) return false;
+  const returned = parsed.MSDS;
   if (
     returned.资料编号 !== msds.sourceKey ||
     returned.页码 !== msds.page ||
@@ -182,7 +165,7 @@ export function r09ReadOnlyAnswerMatches(
   )
     return false;
   return packageSources.every((source) => {
-    const item = parsed.data.用水证据.find(
+    const item = parsed.用水证据.find(
       (row) => row.资料编号 === source.key && row.页码 === source.page,
     );
     return (

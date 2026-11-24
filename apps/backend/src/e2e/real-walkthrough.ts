@@ -19,6 +19,7 @@ import { requiredRevisionSections, revisionSections } from './walkthrough-report
 import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthrough-batch.js';
 import { checkOfficialBrowserRun } from './official-walkthrough.js';
 import { checkRulesBrowserRun } from './rules-walkthrough.js';
+import { checkKnowledgeWalkthrough } from './knowledge-walkthrough.js';
 import { checkR09PackageReadOnly, checkR09Revision, r09Replacements, readOnlyWorkspaceSnapshot } from './r09-walkthrough.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
@@ -368,6 +369,19 @@ async function main() {
     await page.getByLabel('密码', { exact: true }).fill(password);
     await page.getByRole('button', { name: '登录', exact: true }).click();
     await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
+    if (process.env.CERT_WALKTHROUGH_KNOWLEDGE_ONLY === '1') {
+      stage = '维护 Agent 读取规则包并记录运行版本';
+      await page.getByRole('button', { name: '维护Agent', exact: true }).click();
+      const conversation = await freshConversation(page, maintenanceProjectId, 'M02 规则包版本核查', 'read_only');
+      const { runId } = await send(page,
+        '请调用 knowledge_get 读取规则包 us_fda_m02，以回执为依据核对年度注册窗口、该财年企业年费和一间境外机构可指定的美国代理人数。最终只输出 JSON 对象 {"版本":"","状态":"","开始":"MM-DD","结束":"MM-DD","财年":0,"金额":0,"币种":"","代理人数":0,"来源":["","",""]}。状态请选择“待注册人员确认”“已确认”或“待核”。来源写这三个条目各自的 source.url。只读核查，不保存或提交。',
+      );
+      const proof = await checkKnowledgeWalkthrough(page, pool, runId, conversation);
+      assert.equal(blocked, 0);
+      await writeFile(path.join(evidenceFolder, 'knowledge-result.json'), JSON.stringify({ ...proof, status: 'passed', instance, commit: testedCommit }, null, 2), 'utf8');
+      console.log('事实与规则包真实浏览器验收通过。');
+      return;
+    }
     if (process.env.CERT_WALKTHROUGH_R09_ONLY === '1') {
       stage = 'R09 的原文核验和双修改浏览器专项';
       const reportPath = `交付/R09-双修改走查-${randomUUID().slice(0, 8)}.md`;

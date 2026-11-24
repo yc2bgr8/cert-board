@@ -28,6 +28,11 @@ const specialties = [
     receipt: 'rules-result.json',
   },
   { flag: '--r09-only', environment: 'CERT_WALKTHROUGH_R09_ONLY', receipt: 'r09-result.json' },
+  {
+    flag: '--knowledge-only',
+    environment: 'CERT_WALKTHROUGH_KNOWLEDGE_ONLY',
+    receipt: 'knowledge-result.json',
+  },
 ].filter(({ flag }) => process.argv.includes(flag));
 const specialty = specialties[0];
 const officialOnly = specialty?.flag === '--official-only';
@@ -36,6 +41,11 @@ async function main() {
   if (verificationOnly && (!diagnostic || batch)) throw new Error('正式走查需要完整执行全部场景。');
   if (specialty && (batch || diagnostic || specialties.length > 1))
     throw new Error('正式走查每次只能运行一个专项。');
+  if (specialty?.flag === '--knowledge-only') {
+    const vm = await readFile('/etc/cert-board-acceptance-vm', 'utf8').catch(() => '');
+    if (process.platform !== 'linux' || vm.trim() !== 'cert-board-acceptance')
+      throw new Error('规则包真实专项应在独立 Linux 验收虚拟机运行。');
+  }
   const initial = clean();
   if (!diagnostic && (initial.status !== 0 || initial.stdout.trim()))
     throw new Error('正式走查须使用已提交的代码。');

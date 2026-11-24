@@ -1,0 +1,436 @@
+import { createHash, randomUUID } from 'node:crypto';
+import type { Pool, PoolClient } from 'pg';
+import {
+  confirmedFactSchema,
+  factCandidateSchema,
+  type BrowserIdentity,
+  type ConfirmedFact,
+  type DocumentCitation,
+  type FactDecisionInput,
+  type FactProposal,
+  type FactProposalResult,
+  type KnowledgeGetInput,
+  type ToolApprovalPreview,
+} from '@cert-board/shared';
+import { AppError } from '../api/errors.js';
+import { authorize } from '../auth/authorization.js';
+import { quoteAppears } from '../checks/quotes.js';
+import type { ToolExecutionContext, ToolUndoRecord } from '../tools/registry.js';
+
+type Database = Pick<Pool, 'query'>;
+type Project = { id: string; owner_user_id: string };
+type CandidateRow = Omit<FactProposal, 'dueAt'> & {
+  id: string;
+  projectId: string;
+  baseRevision: number;
+  version: number;
+  status: string;
+  dataLevel: 'internal' | 'confidential';
+  dueAt: Date | null;
+  createdAt: Date;
+};
+type FactRow = Omit<ConfirmedFact, 'validFrom' | 'validUntil'> & {
+  dataLevel: 'internal' | 'confidential';
+  validFrom: Date;
+  validUntil: Date | null;
+};
+type CurrentRevision = Pick<FactRow, 'id' | 'revision' | 'locked' | 'dataLevel'>;
+const unavailable = () =>
+  new AppError(404, 'FACT_SCOPE_NOT_FOUND', '未找到当前项目或候选，请重新打开项目。');
+const changed = () =>
+  new AppError(409, 'FACT_CANDIDATE_CHANGED', '候选或同字段事实已更新，请刷新后重新核对。');
+const candidateCols = `c.id,c.project_id AS "projectId",c.subject,c.field,c.value,c.unit,c.evidence,
+  c.base_revision AS "baseRevision",c.version,c.status,c.due_at AS "dueAt",c.created_at AS "createdAt"`;
+const factCols = `f.id,f.subject,f.field,f.value,f.unit,f.evidence,f.revision,f.locked,f.replaces_id AS "replacesId",
+  f.valid_from AS "validFrom",f.valid_until AS "validUntil",f.confirmed_by AS "confirmedBy"`;
+const classification = `(SELECT v.data_level FROM document_version v
+  WHERE v.document_id=d.id ORDER BY v.data_level DESC LIMIT 1)`;
+const factClassification = `CASE WHEN EXISTS (
+  SELECT 1 FROM fact prior JOIN fact_candidate origin ON origin.id=prior.candidate_id
+  WHERE prior.project_id=f.project_id AND prior.subject=f.subject AND prior.field=f.field
+    AND prior.revision<=f.revision AND (prior.data_level='confidential' OR EXISTS (
+      SELECT 1 FROM document_version sv
+      WHERE sv.document_id IN (prior.source_document_id,origin.source_document_id) AND sv.data_level='confidential'
+    ))
+) THEN 'confidential'::document_data_level ELSE 'internal'::document_data_level END`;
+const highest = (...levels: ReadonlyArray<string | null | undefined>) =>
+  levels.includes('confidential') ? ('confidential' as const) : ('internal' as const);
+const digest = (input: unknown) => createHash('sha256').update(JSON.stringify(input)).digest('hex');
+
+function projectForTool(ctx: ToolExecutionContext) {
+  if (ctx.projectId === null) throw unavailable();
+  return ctx.projectId;
+}
+
+async function readSource(db: Database, projectId: string, citation: DocumentCitation) {
+  const {
+    rows: [row],
+  } = await db.query<{ text: string; data_level: string }>(
+    `SELECT p.text,${classification} AS data_level FROM document d
+       JOIN document_version v ON v.document_id=d.id AND v.version_no=$3
+       JOIN document_page p ON p.version_id=v.id AND p.page_number=$4
+       WHERE d.id=$2 AND d.project_id=$1 AND NOT d.voided AND NOT p.is_placeholder FOR SHARE OF d`,
+    [projectId, citation.documentId, citation.version, citation.page],
+  );
+  if (!row || !quoteAppears(row.text, citation.quote))
+    throw new AppError(
+      422,
+      'FACT_EVIDENCE_INVALID',
+      '证据须逐字出现在本项目的有效资料页。请用 doc_read 重读并附上对应引语。',
+    );
+  return highest(row.data_level);
+}
+
+async function currentRevision(
+  db: Database,
+  projectId: string,
+  key: Pick<FactProposal, 'subject' | 'field'>,
+) {
+  const { rows } = await db.query<CurrentRevision>(
+    `SELECT f.id,f.revision,f.locked,${factClassification} AS "dataLevel" FROM fact f
+       WHERE f.project_id=$1 AND f.subject=$2 AND f.field=$3 ORDER BY f.revision DESC LIMIT 1`,
+    [projectId, key.subject, key.field],
+  );
+  return rows[0];
+}
+
+const toCandidate = (row: CandidateRow) =>
+  factCandidateSchema.parse({
+    ...row,
+    dueAt: row.dueAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+  });
+const toFact = (row: Omit<FactRow, 'dataLevel'>) =>
+  confirmedFactSchema.parse({
+    ...row,
+    validFrom: row.validFrom.toISOString(),
+    validUntil: row.validUntil?.toISOString() ?? null,
+  });
+
+export async function previewFactProposal(
+  ctx: ToolExecutionContext,
+  input: FactProposal,
+): Promise<ToolApprovalPreview> {
+  const projectId = projectForTool(ctx);
+  const level = await readSource(ctx.tx, projectId, input.evidence);
+  const revision = await currentRevision(ctx.tx, projectId, input);
+  return {
+    summary: '创建一条待注册人员确认的事实候选',
+    dataLevel: highest(ctx.maxDataLevel, level),
+    targetVersions: [
+      {
+        targetType: 'fact',
+        targetId: revision?.id ?? projectId,
+        version: revision ? String(revision.revision) : null,
+      },
+    ],
+    changes: [
+      {
+        recordType: 'fact_candidate',
+        recordId: projectId,
+        field: input.field,
+        before: null,
+        after: {
+          subject: input.subject,
+          value: input.value,
+          unit: input.unit,
+          dueAt: input.dueAt,
+          baseRevision: revision?.revision ?? 0,
+          source: {
+            documentId: input.evidence.documentId,
+            version: input.evidence.version,
+            page: input.evidence.page,
+          },
+        },
+      },
+    ],
+  };
+}
+
+export async function proposeFact(ctx: ToolExecutionContext, input: FactProposal, id: string) {
+  const projectId = projectForTool(ctx);
+  const level = highest(ctx.maxDataLevel, await readSource(ctx.tx, projectId, input.evidence));
+  const revision = await currentRevision(ctx.tx, projectId, input);
+  const {
+    rows: [row],
+  } = await ctx.tx.query<CandidateRow>(
+    `INSERT INTO fact_candidate AS c (id,project_id,proposal_run_id,proposed_by,subject,field,value,unit,source_document_id,evidence,data_level,base_revision,due_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10::jsonb,$11,$12,$13) RETURNING ${candidateCols}, c.data_level AS "dataLevel"`,
+    [
+      id,
+      projectId,
+      ctx.runId,
+      ctx.actor.userId,
+      input.subject,
+      input.field,
+      JSON.stringify(input.value),
+      input.unit,
+      input.evidence.documentId,
+      JSON.stringify(input.evidence),
+      level,
+      revision?.revision ?? 0,
+      input.dueAt,
+    ],
+  );
+  const { dataLevel, ...candidate } = toCandidate(row!);
+  return { data: candidate, dataLevel, afterVersion: candidate.version };
+}
+
+export function captureFactProposal() {
+  return {
+    targetType: 'fact_candidate',
+    targetId: randomUUID(),
+    beforeState: { existed: false },
+    beforeVersion: null,
+  };
+}
+
+export async function factCandidateVersion(ctx: ToolExecutionContext, id: string) {
+  const { rows } = await ctx.tx.query<{ version: number }>(
+    `SELECT version FROM fact_candidate WHERE id=$1 AND project_id=$2 AND proposed_by=$3 FOR UPDATE`,
+    [id, projectForTool(ctx), ctx.actor.userId],
+  );
+  return rows[0]?.version ?? null;
+}
+
+export async function cancelFactProposal(ctx: ToolExecutionContext, record: ToolUndoRecord) {
+  const { rows } = await ctx.tx.query<{ version: number }>(
+    `UPDATE fact_candidate SET status='cancelled',version=version+1,updated_at=now()
+       WHERE id=$1 AND project_id=$2 AND proposed_by=$3 AND status='pending' AND version=$4 RETURNING version`,
+    [record.targetId, projectForTool(ctx), ctx.actor.userId, record.afterVersion],
+  );
+  if (!rows[0]) throw changed();
+  return { afterVersion: rows[0].version };
+}
+
+export async function refreshFactProposalLevel(
+  ctx: ToolExecutionContext,
+  candidate: Pick<FactProposalResult, 'id' | 'evidence'>,
+) {
+  const projectId = projectForTool(ctx);
+  const {
+    rows: [stored],
+  } = await ctx.tx.query<{ data_level: string }>(
+    'SELECT data_level FROM fact_candidate WHERE id=$1 AND project_id=$2 AND proposed_by=$3',
+    [candidate.id, projectId, ctx.actor.userId],
+  );
+  if (!stored) throw unavailable();
+  return highest(stored.data_level, await readSource(ctx.tx, projectId, candidate.evidence));
+}
+
+export async function readConfirmedFacts(
+  ctx: ToolExecutionContext,
+  input: Extract<KnowledgeGetInput, { kind: 'facts' }>,
+) {
+  const { rows } = await ctx.tx.query<FactRow>(
+    `SELECT ${factCols}, ${factClassification} AS "dataLevel"
+       FROM fact f JOIN document d ON d.id=f.source_document_id
+       WHERE f.project_id=$1 AND d.project_id=$1 AND NOT d.voided
+         AND ($2::text IS NULL OR f.subject=$2) AND ($3::text IS NULL OR f.field=$3)
+         AND ($4::uuid IS NULL OR f.id>$4) AND f.valid_from<=statement_timestamp()
+         AND (f.valid_until IS NULL OR f.valid_until>statement_timestamp())
+         AND NOT EXISTS (SELECT 1 FROM fact newer WHERE newer.project_id=f.project_id AND newer.subject=f.subject
+           AND newer.field=f.field AND newer.revision>f.revision)
+       ORDER BY f.id LIMIT $5`,
+    [
+      projectForTool(ctx),
+      input.subject ?? null,
+      input.field ?? null,
+      input.afterId ?? null,
+      input.limit + 1,
+    ],
+  );
+  const selected = rows.slice(0, input.limit);
+  const facts = selected.map(({ dataLevel: _level, ...item }) => toFact(item));
+  return {
+    data: {
+      kind: 'facts' as const,
+      facts,
+      nextAfterId: rows.length > input.limit ? facts.at(-1)!.id : null,
+    },
+    dataLevel: highest(...selected.map(({ dataLevel }) => dataLevel)),
+  };
+}
+
+export async function refreshConfirmedFactsLevel(
+  ctx: ToolExecutionContext,
+  facts: ConfirmedFact[],
+) {
+  if (facts.length === 0) return 'internal' as const;
+  const { rows } = await ctx.tx.query<{ data_level: string }>(
+    `SELECT ${factClassification} AS data_level FROM fact f
+       JOIN document d ON d.id=f.source_document_id
+       WHERE f.project_id=$1 AND d.project_id=$1 AND NOT d.voided AND f.id=ANY($2::uuid[])
+         AND f.valid_from<=statement_timestamp() AND (f.valid_until IS NULL OR f.valid_until>statement_timestamp())
+         AND NOT EXISTS (SELECT 1 FROM fact newer WHERE newer.project_id=f.project_id AND newer.subject=f.subject
+           AND newer.field=f.field AND newer.revision>f.revision)`,
+    [projectForTool(ctx), facts.map(({ id }) => id)],
+  );
+  if (rows.length !== facts.length)
+    throw new AppError(
+      409,
+      'FACT_RESULT_CHANGED',
+      '上次读取的事实已过期、被替换或来源不可用，请重新使用 knowledge_get。',
+    );
+  return highest(...rows.map(({ data_level }) => data_level));
+}
+
+async function browserProject(
+  db: Database,
+  actor: BrowserIdentity,
+  projectId: string,
+  lock: boolean,
+) {
+  const {
+    rows: [project],
+  } = await db.query<Project>(
+    `SELECT id,owner_user_id FROM cert_project WHERE id=$1${lock ? ' FOR UPDATE' : ''}`,
+    [projectId],
+  );
+  if (
+    !project ||
+    !authorize(actor, lock ? 'record.write' : 'project.read', {
+      projectId,
+      ownerUserId: project.owner_user_id,
+    })
+  )
+    throw unavailable();
+  return project;
+}
+
+export async function listFactCandidates(
+  db: Database,
+  actor: BrowserIdentity,
+  projectId: string,
+  afterId?: string,
+) {
+  await browserProject(db, actor, projectId, false);
+  const { rows } = await db.query<CandidateRow>(
+    `SELECT ${candidateCols},GREATEST(c.data_level,${classification}) AS "dataLevel"
+       FROM fact_candidate c JOIN document d ON d.id=c.source_document_id AND d.project_id=c.project_id
+       WHERE c.project_id=$1 AND c.status='pending'
+       AND ($2::uuid IS NULL OR c.id>$2) ORDER BY c.id LIMIT 21`,
+    [projectId, afterId ?? null],
+  );
+  const items = rows.slice(0, 20).map(toCandidate);
+  return { items, nextAfterId: rows.length > 20 ? items.at(-1)!.id : null };
+}
+
+export async function decideFactCandidate(
+  db: PoolClient,
+  actor: BrowserIdentity,
+  projectId: string,
+  candidateId: string,
+  input: FactDecisionInput,
+) {
+  if (actor.kind !== 'browser')
+    throw new AppError(403, 'FACT_BROWSER_REQUIRED', '仅接受浏览器中的人工确认。');
+  const project = await browserProject(db, actor, projectId, true);
+  const {
+    rows: [row],
+  } = await db.query<CandidateRow>(
+    `SELECT ${candidateCols},c.data_level AS "dataLevel" FROM fact_candidate c WHERE c.id=$1 AND c.project_id=$2 FOR UPDATE`,
+    [candidateId, project.id],
+  );
+  if (!row) throw unavailable();
+  const candidate = toCandidate(row);
+  if (candidate.status !== 'pending' || candidate.version !== input.expectedVersion)
+    throw changed();
+  if (input.decision === 'set_due') {
+    const {
+      rows: [changedDue],
+    } = await db.query<{ version: number }>(
+      `UPDATE fact_candidate SET due_at=$2,version=version+1,updated_at=now()
+         WHERE id=$1 AND due_at IS DISTINCT FROM $2::timestamptz RETURNING version`,
+      [candidate.id, input.dueAt],
+    );
+    if (changedDue)
+      await db.query(
+        `INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id,before_hash,after_hash)
+         VALUES ($1,'browser','fact.due_set','fact_candidate',$2,$3,$4)`,
+        [actor.userId, candidate.id, digest(candidate.dueAt), digest(input.dueAt)],
+      );
+    return {
+      candidateId: candidate.id,
+      factId: null,
+      status: 'pending',
+      version: changedDue?.version ?? candidate.version,
+    };
+  }
+  const status =
+    input.decision === 'confirm'
+      ? 'confirmed'
+      : input.decision === 'rewrite'
+        ? 'rewritten'
+        : 'rejected';
+  let factId: string | null = null;
+  const approvedEvidence = input.decision === 'rewrite' ? input.evidence : candidate.evidence;
+  const level =
+    input.decision === 'reject'
+      ? candidate.dataLevel
+      : highest(candidate.dataLevel, await readSource(db, projectId, approvedEvidence));
+  const previous =
+    input.decision === 'reject' ? undefined : await currentRevision(db, projectId, candidate);
+  if (input.decision !== 'reject' && (previous?.revision ?? 0) !== candidate.baseRevision)
+    throw changed();
+  if (previous?.locked && project.owner_user_id !== actor.userId)
+    throw new AppError(403, 'FACT_OWNER_REQUIRED', '该事实已锁定，须由项目负责人确认修订。');
+
+  const {
+    rows: [decisionTime],
+  } = await db.query<{ at: Date; accepted: boolean }>(
+    `WITH decided AS MATERIALIZED (SELECT date_trunc('milliseconds',clock_timestamp()) AS at)
+      SELECT at, ($1::timestamptz IS NULL OR $1::timestamptz>at) AS accepted FROM decided`,
+    [input.decision === 'reject' ? null : input.validUntil],
+  );
+  if (!decisionTime?.accepted)
+    throw new AppError(422, 'FACT_VALIDITY_INVALID', '有效期须晚于确认时间，请调整结束时间。');
+
+  await db.query(
+    `UPDATE fact_candidate SET status=$2,version=version+1,decided_by=$3,decided_at=$5,decision_reason=$4,updated_at=$5 WHERE id=$1`,
+    [
+      candidate.id,
+      status,
+      actor.userId,
+      input.decision === 'confirm' ? null : input.reason,
+      decisionTime.at,
+    ],
+  );
+  if (input.decision !== 'reject') {
+    const { rows } = await db.query<{ id: string }>(
+      `INSERT INTO fact (project_id,subject,field,value,unit,candidate_id,data_level,revision,replaces_id,valid_until,locked,confirmed_by,valid_from,source_document_id,evidence)
+         VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb) RETURNING id`,
+      [
+        projectId,
+        candidate.subject,
+        candidate.field,
+        JSON.stringify(input.decision === 'rewrite' ? input.value : candidate.value),
+        input.decision === 'rewrite' ? input.unit : candidate.unit,
+        candidate.id,
+        highest(level, previous?.dataLevel),
+        candidate.baseRevision + 1,
+        previous?.id ?? null,
+        input.validUntil,
+        input.locked ?? previous?.locked ?? false,
+        actor.userId,
+        decisionTime.at,
+        approvedEvidence.documentId,
+        JSON.stringify(approvedEvidence),
+      ],
+    );
+    factId = rows[0]!.id;
+  }
+  await db.query(
+    `INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id,before_hash,after_hash,created_at)
+       VALUES ($1,'browser',$2,'fact_candidate',$3,$4,$5,$6)`,
+    [
+      actor.userId,
+      `fact.${status}`,
+      candidate.id,
+      digest({ status: candidate.status, version: candidate.version }),
+      digest({ status, version: candidate.version + 1, factId }),
+      decisionTime.at,
+    ],
+  );
+  return { candidateId: candidate.id, factId, status, version: candidate.version + 1 };
+}

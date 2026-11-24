@@ -1,0 +1,56 @@
+code: us_fda_m02
+title: 美国 FDA 企业注册与列名（开发草稿，待注册人员确认）
+jurisdiction: US
+version: 0.1.0
+rules:
+  - id: annual_registration_window
+    statement: 适用企业的年度注册窗口为每年 10 月 1 日至 12 月 31 日。即使没有更新，也需按年完成注册。
+    status: pending_confirmation
+    source:
+      url: https://www.ecfr.gov/current/title-21/chapter-I/subchapter-H/part-807/subpart-B/section-807.22
+      archiveUrl: https://www.govinfo.gov/content/pkg/CFR-2025-title21-vol8/pdf/CFR-2025-title21-vol8-sec807-22.pdf
+      section: 21 CFR 807.22(b)(1)
+      checkedOn: '2026-11-24'
+    parameters:
+      window_start: '10-01'
+      window_end: '12-31'
+  - id: annual_listing_review
+    statement: 适用企业在年度窗口核对 FDA 现有器械列名，报告未报告的变更、删除和新增，确认存档信息准确。
+    status: pending_confirmation
+    source:
+      url: https://www.ecfr.gov/current/title-21/chapter-I/subchapter-H/part-807/subpart-B/section-807.22
+      archiveUrl: https://www.govinfo.gov/content/pkg/CFR-2025-title21-vol8/pdf/CFR-2025-title21-vol8-sec807-22.pdf
+      section: 21 CFR 807.22(b)(3)
+      checkedOn: '2026-11-24'
+  - id: fiscal_2027_registration_fee
+    statement: FDA 发布的 2027 财年企业年度注册费为每家 13,785 美元。具体机构的缴费义务或获准减免由注册人员核对。
+    status: pending_confirmation
+    source:
+      url: https://www.fda.gov/industry/fda-user-fee-programs/medical-device-user-fee-amendments-mdufa-fees
+      archiveUrl: https://www.govinfo.gov/content/pkg/FR-2026-07-30/pdf/2026-15335.pdf
+      section: 91 FR 48134–48142，表 5，企业年度注册费
+      checkedOn: '2026-11-24'
+    parameters:
+      fiscal_year: 2027
+      amount: 13785
+      currency: USD
+      valid_from: '2026-10-01'
+      valid_through: '2027-09-30'
+  - id: foreign_establishment_us_agent
+    statement: 适用的境外企业登记一名美国代理人，并提供其姓名、地址和电话。代理人须居住在美国或在美国有营业场所。
+    status: pending_confirmation
+    source:
+      url: https://www.ecfr.gov/current/title-21/chapter-I/subchapter-H/part-807/subpart-C/section-807.40
+      archiveUrl: https://www.govinfo.gov/content/pkg/CFR-2025-title21-vol8/pdf/CFR-2025-title21-vol8-sec807-40.pdf
+      section: 21 CFR 807.40(b)(1) 及 (b) 前段
+      checkedOn: '2026-11-24'
+  - id: us_agent_change
+    statement: 美国代理人的姓名、地址或电话号码变化时，境外企业或美国代理人于变化后 10 个工作日内向 FDA 报告。
+    status: pending_confirmation
+    source:
+      url: https://www.ecfr.gov/current/title-21/chapter-I/subchapter-H/part-807/subpart-C/section-807.40
+      archiveUrl: https://www.govinfo.gov/content/pkg/CFR-2025-title21-vol8/pdf/CFR-2025-title21-vol8-sec807-40.pdf
+      section: 21 CFR 807.40(b)(3)
+      checkedOn: '2026-11-24'
+    parameters:
+      business_days: 10
