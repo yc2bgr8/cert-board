@@ -79,6 +79,25 @@ test('工作日截止按北京时间，一日一份，分人展示完成、待�
         .statusCode,
     ).toBe(400);
     const pending = summary!.pending[0]!;
+    const { rows: newerThreads } = await context.pool.query<{ id: string }>(
+      `INSERT INTO conversation (project_id,user_id,goal_id,title,permission_mode,agent_code)
+       SELECT $1,$2,$3,'合成截点后提示','full','registration' FROM generate_series(1,52)
+       RETURNING id`,
+      [context.projectId, memberA, context.goalId],
+    );
+    const newerIds = newerThreads.map(({ id }) => id);
+    await context.pool.query(
+      `INSERT INTO run(conversation_id,user_id,project_id,goal_id,status,updated_at)
+       SELECT id,user_id,project_id,goal_id,'failed','2030-01-08T10:00:00Z'
+       FROM conversation WHERE id=ANY($1::uuid[])`,
+      [newerIds],
+    );
+    await context.pool.query(
+      `UPDATE conversation c SET current_run_id=r.id FROM run r
+       WHERE c.id=r.conversation_id AND c.id=ANY($1::uuid[])`,
+      [newerIds],
+    );
+    expect((await read(first.headers))?.pending.map(({ id }) => id)).toEqual([pending.id]);
     expect(
       (
         await context.app.inject({
@@ -93,6 +112,48 @@ test('工作日截止按北京时间，一日一份，分人展示完成、待�
     await expect(
       context.pool.query('DELETE FROM daily_digest WHERE user_id=$1', [memberA]),
     ).rejects.toMatchObject({ code: '55000' });
+  } finally {
+    await context.close();
+  }
+});
+
+test('明日按每条期限的法域计算，延迟采样按实际时刻登记', async () => {
+  const context = await createIntegrationContext();
+  try {
+    const { runId, userId, callId } = await context.run('MEMBER_A', 'full');
+    const registry = new ToolRegistry(context.pool, [reminderSetTool()], { environment: 'test' });
+    await registry.execute({ runId, userId, callId }, 'reminder_set', {
+      title: '合成檀香山当地明日到期',
+      profile: 'certificate',
+      calculation: {
+        startDate: '2030-01-08',
+        quantity: 0,
+        unit: 'calendar_days',
+        jurisdictionTz: 'Pacific/Honolulu',
+      },
+    });
+    await buildDailyDigests(context.pool, new Date('2030-01-08T09:00:00Z'));
+    const browser = await context.login('MEMBER_A');
+    const read = async () =>
+      dailyDigestResponseSchema.parse(
+        (
+          await context.app.inject({ url: '/api/me/daily-digest', headers: browser.headers })
+        ).json(),
+      ).digest;
+    expect((await read())?.tomorrow).toMatchObject([
+      { dueOn: '2030-01-08', jurisdictionTz: 'Pacific/Honolulu' },
+    ]);
+    await context.pool.query(
+      `INSERT INTO goal(project_id,owner_user_id,title,acceptance_criteria,status,updated_at)
+       VALUES($1,$2,'合成延迟采样已完成目标','合成验收','completed','2030-01-09T09:45:00Z')`,
+      [context.projectId, userId],
+    );
+    await buildDailyDigests(context.pool, new Date('2030-01-09T10:00:00Z'));
+    expect(await read()).toMatchObject({
+      date: '2030-01-09',
+      generatedAt: '2030-01-09T10:00:00.000Z',
+      completed: [{ title: '合成延迟采样已完成目标' }],
+    });
   } finally {
     await context.close();
   }

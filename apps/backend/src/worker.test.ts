@@ -108,6 +108,7 @@ beforeEach(() => {
   state.stopQueue.mockResolvedValue(undefined);
   state.createQueue.mockResolvedValue({ stop: state.stopQueue });
   state.startDeadlines.mockResolvedValue(undefined);
+  state.startDigest.mockResolvedValue(undefined);
   state.consume.mockImplementation(async (_boss, handler) => {
     state.handler = handler;
     return 'worker-fixture';
@@ -211,6 +212,20 @@ test('shutdown等待正在清理的维护事务，不与关库竞争', async () 
     await stopping;
   }
   expect(state.closeDatabase).toHaveBeenCalledTimes(1);
+});
+
+test('日摘要登记失败后仍启动 Agent 派发，后台独立重试摘要', async () => {
+  vi.useFakeTimers();
+  state.startDigest.mockRejectedValueOnce(new Error('synthetic-digest-registration-failure'));
+  worker = await startWorker();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(state.consume).toHaveBeenCalledOnce();
+  expect(state.warn).toHaveBeenCalledWith(
+    { event: 'daily_digest_queue_deferred' },
+    expect.any(String),
+  );
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(state.startDigest).toHaveBeenCalledTimes(2);
 });
 
 test('启动阶段停止会等consumer注册结束，不让晚注册任务落入已关闭依赖', async () => {

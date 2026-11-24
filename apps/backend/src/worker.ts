@@ -52,6 +52,7 @@ export async function startWorker() {
   let dispatch: Promise<void> | undefined;
   let maintenance: Promise<void> | undefined;
   let registration: Promise<string> | undefined;
+  let digestRegistration: Promise<void> | undefined;
   let stopPromise: Promise<void> | undefined;
   let stopDocumentWorker: (() => Promise<void>) | undefined;
   let stopPackageWorker: (() => Promise<void>) | undefined;
@@ -76,6 +77,7 @@ export async function startWorker() {
           failed = true;
         });
       if (registration) await registration.catch(() => undefined);
+      if (digestRegistration) await digestRegistration;
       if (boss)
         await boss.stop({ graceful: true, timeout: 20_000 }).catch(() => {
           failed = true;
@@ -195,7 +197,21 @@ export async function startWorker() {
     );
     const queue = boss;
     await startDeadlineQueue(queue, resources.database);
-    await startDailyDigestQueue(queue, resources.database);
+    let digestReady = false;
+    const ensureDailyDigest = () => {
+      if (closing || digestReady || digestRegistration) return;
+      digestRegistration = Promise.resolve()
+        .then(() => startDailyDigestQueue(queue, resources.database))
+        .then(() => {
+          digestReady = true;
+        })
+        .catch(() => {
+          logger.warn({ event: 'daily_digest_queue_deferred' }, '日摘要队列暂不可用，后台会重试。');
+        })
+        .finally(() => {
+          digestRegistration = undefined;
+        });
+    };
     const dispatchQueued = async () => {
       const queued = await resources.database.query<{ id: string }>(
         `SELECT id FROM run WHERE status='queued' AND trigger_type<>'evaluation' AND lease_generation=0 AND lease_owner IS NULL
@@ -337,6 +353,7 @@ export async function startWorker() {
     }, 1_000);
     interval = setInterval(() => {
       logger.info({ event: 'worker_heartbeat' }, '后台进程心跳');
+      ensureDailyDigest();
       if (maintenance || closing) return;
       maintenance = (async () => {
         await reconcile();
@@ -348,6 +365,7 @@ export async function startWorker() {
           maintenance = undefined;
         });
     }, 30_000);
+    ensureDailyDigest();
     logger.info({ event: 'worker_ready' }, '后台运行器已就绪。');
     return { stop };
   } catch (error) {

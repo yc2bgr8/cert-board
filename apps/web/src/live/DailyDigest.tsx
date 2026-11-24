@@ -4,6 +4,12 @@ import { api, errorMessage } from './api.js';
 
 type Resource = DailyDigestContent['completed'][number];
 type Notice = DailyDigestContent['pending'][number];
+const clock = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
 
 export function DailyDigest({
   onOpen,
@@ -21,6 +27,7 @@ export function DailyDigest({
     refetchInterval: 60_000,
   });
   const digest = query.data?.digest;
+  const observedTime = digest ? clock.format(new Date(digest.generatedAt)) : null;
   const resourceButton = (item: Resource) =>
     onOpenTarget ? (
       <button
@@ -46,7 +53,11 @@ export function DailyDigest({
     <section className="live-page-card live-daily-digest" aria-label="日摘要">
       <header className="live-page-card-head">
         <h2>日摘要</h2>
-        {digest && <time dateTime={digest.date}>{digest.date} · 北京时间</time>}
+        {digest && (
+          <time dateTime={digest.generatedAt} title={`北京时间 ${observedTime}`}>
+            {digest.date} · {observedTime !== '17:00' && `${observedTime} · `}北京时间
+          </time>
+        )}
       </header>
       {query.isPending && (
         <p className="live-page-message" role="status">

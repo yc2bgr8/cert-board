@@ -373,7 +373,11 @@ export async function readPublicEvents(
 export async function readMemberNotifications(database: Database, actor: BrowserIdentity) {
   return readMemberNotificationsForUser(database, actor.userId);
 }
-export async function readMemberNotificationsForUser(database: Database, userId: string) {
+export async function readMemberNotificationsForUser(
+  database: Database,
+  userId: string,
+  scope: { observedAt?: Date; ids?: readonly string[] } = {},
+) {
   const conversationLimit = 50;
   const skillLimit = 10;
   const rows = (
@@ -427,18 +431,22 @@ export async function readMemberNotificationsForUser(database: Database, userId:
        SELECT p.id,'skill',NULL::uuid,NULL::uuid,p.created_at,NULL
        FROM skill_rollback_proposal p JOIN skill s ON s.id=p.skill_id AND s.revision=p.release_revision
        WHERE p.status IN ('pending','notice')
+     ), scoped AS (
+       SELECT * FROM pending
+       WHERE ($4::timestamptz IS NULL OR created_at <= $4)
+         AND ($5::uuid[] IS NULL OR id=ANY($5))
      ) SELECT p.id,p.kind,p.conversation_id AS "conversationId",p.project_id AS "projectId",p.created_at AS "createdAt",p.deadline,
        CASE WHEN v.id IS NOT NULL THEN jsonb_build_object('roomId',v.room_id,'kind',v.kind) END AS verification,
        CASE WHEN rb.id IS NOT NULL THEN jsonb_build_object('skillId',rb.skill_id,'activeVersion',sv.version) END AS "skillRollback"
        FROM (
-         (SELECT * FROM pending WHERE kind<>'skill' ORDER BY created_at DESC,id DESC LIMIT $2)
+         (SELECT * FROM scoped WHERE kind<>'skill' ORDER BY created_at DESC,id DESC LIMIT $2)
          UNION ALL
-         (SELECT * FROM pending WHERE kind='skill' ORDER BY created_at DESC,id DESC LIMIT $3)
+         (SELECT * FROM scoped WHERE kind='skill' ORDER BY created_at DESC,id DESC LIMIT $3)
        ) p LEFT JOIN verification_notice v ON v.id=p.id AND p.kind='verification'
        LEFT JOIN skill_rollback_proposal rb ON rb.id=p.id AND p.kind='skill'
        LEFT JOIN skill_version sv ON sv.id=rb.active_version_id
        ORDER BY (p.kind='skill'),p.created_at DESC,p.id DESC`,
-      [userId, conversationLimit + 1, skillLimit + 1],
+      [userId, conversationLimit + 1, skillLimit + 1, scope.observedAt ?? null, scope.ids ?? null],
     )
   ).rows;
   const conversationItems = rows.filter(({ kind }) => kind !== 'skill');

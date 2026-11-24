@@ -12,16 +12,11 @@ export const dailyDigestTimezone = 'Asia/Shanghai';
 type DigestWindow = {
   date: string;
   start: Date;
-  cutoff: Date;
-  tomorrow: string;
   eligible: boolean;
 };
 
 function noticeKey(item: DailyDigestContent['pending'][number]) {
-  const target = item.verification
-    ? `${item.verification.roomId}:${item.verification.kind}`
-    : (item.skillRollback?.skillId ?? item.id);
-  return `${item.kind}:${target}`;
+  return `${item.kind}:${item.id}`;
 }
 export function latestDigestNotices(items: DailyDigestContent['pending']) {
   const latest = new Map<string, DailyDigestContent['pending'][number]>();
@@ -49,8 +44,6 @@ async function digestWindow(database: Pool, now: Date) {
         make_time($3::int,0,0) AS send_time)
       SELECT local::date::text AS date,
         (local::date::timestamp AT TIME ZONE $2) AS start,
-        ((local::date+send_time) AT TIME ZONE $2) AS cutoff,
-        (local::date+1)::text AS tomorrow,
         extract(isodow FROM local) BETWEEN 1 AND 5 AND local::time>=send_time AS eligible
       FROM clock`,
     [now, dailyDigestTimezone, dailyDigestHour],
@@ -61,8 +54,13 @@ async function digestWindow(database: Pool, now: Date) {
 const resourceFields = `g.id,g.title,g.project_id AS "projectId",
   (SELECT c.id FROM conversation c WHERE c.goal_id=g.id AND c.user_id=g.owner_user_id
     ORDER BY c.updated_at DESC,c.id DESC LIMIT 1) AS "conversationId"`;
-async function digestForUser(tx: PoolClient, userId: string, window: DigestWindow) {
-  const args = [userId, window.start, window.cutoff, dailyDigestLimit + 1];
+async function digestForUser(
+  tx: PoolClient,
+  userId: string,
+  window: DigestWindow,
+  observedAt: Date,
+) {
+  const args = [userId, window.start, observedAt, dailyDigestLimit + 1];
   const completed = (
     await tx.query(
       `SELECT ${resourceFields} FROM goal g WHERE g.owner_user_id=$1 AND g.status='completed'
@@ -76,9 +74,10 @@ async function digestForUser(tx: PoolClient, userId: string, window: DigestWindo
        t.due_on::text AS "dueOn",t.jurisdiction_tz AS "jurisdictionTz"
        FROM timer t JOIN goal g ON g.id=t.goal_id
        WHERE g.owner_user_id=$1 AND g.status NOT IN ('completed','cancelled')
-         AND t.state='active' AND t.due_on=$2::date AND t.created_at<=$3
-       ORDER BY t.due_at,t.id LIMIT $4`,
-      [userId, window.tomorrow, window.cutoff, dailyDigestLimit + 1],
+         AND t.state='active' AND t.due_on=(($2::timestamptz AT TIME ZONE t.jurisdiction_tz)::date+1)
+         AND t.created_at<=$2
+       ORDER BY t.due_at,t.id LIMIT $3`,
+      [userId, observedAt, dailyDigestLimit + 1],
     )
   ).rows;
   const localTestMessages = (
@@ -91,10 +90,8 @@ async function digestForUser(tx: PoolClient, userId: string, window: DigestWindo
       args,
     )
   ).rows;
-  const snapshot = await readMemberNotificationsForUser(tx, userId);
-  const pending = latestDigestNotices(
-    snapshot.items.filter((item) => Date.parse(item.createdAt) <= window.cutoff.getTime()),
-  );
+  const snapshot = await readMemberNotificationsForUser(tx, userId, { observedAt });
+  const pending = latestDigestNotices(snapshot.items);
   const groups = [completed, pending, tomorrow, localTestMessages];
   if (groups.every((group) => group.length === 0)) return null;
   return dailyDigestContentSchema.parse({
@@ -125,7 +122,7 @@ export async function buildDailyDigests(pool: Pool, now = new Date()) {
         [id],
       );
       if (active.rowCount) {
-        const summary = await digestForUser(tx, id, window);
+        const summary = await digestForUser(tx, id, window, now);
         if (summary) {
           const saved = await tx.query(
             `INSERT INTO daily_digest(user_id,business_date,content,generated_at)
@@ -157,7 +154,9 @@ export async function readDailyDigest(tx: PoolClient, userId: string) {
   if (!row) return dailyDigestResponseSchema.parse({ digest: null });
   const content = dailyDigestContentSchema.parse(row.content);
   const keys = new Set(content.pending.map(noticeKey));
-  const current = await readMemberNotificationsForUser(tx, userId);
+  const current = await readMemberNotificationsForUser(tx, userId, {
+    ids: content.pending.map((item) => item.id),
+  });
   return dailyDigestResponseSchema.parse({
     digest: {
       ...content,

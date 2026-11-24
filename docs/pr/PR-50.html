@@ -17,7 +17,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
 </style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#范围">范围</a><a class="level-2" href="#验收">验收</a><a class="level-2" href="#没做什么">没做什么</a></nav><main><h1 id="pr-50-站内日摘要">PR-50 站内日摘要</h1>
 <h2 id="范围">范围</h2>
-<ul><li>在「待我处理」右侧查看最近一期「日摘要」。北京时间周一至周五 17:00，由后台任务为有内容的成员生成一份站内摘要。</li><li>今日完成按当前成员拥有的已完成目标读取。明日到期按各事项登记的法域日期展示。待你处理归并同一事项的重复提示，并随当前待办状态更新。同一对话里的独立审批分别显示。每条提供项目、对话或原卡片入口。</li><li>本地测试消息回执另列，内容仅显示摘要和原对话入口。站内摘要按当前登录账号读取。</li></ul>
+<ul><li>在「待我处理」右侧查看最近一期「日摘要」。北京时间周一至周五 17:00，由后台任务为有内容的成员生成一份站内摘要。当天延迟生成时，页面显示实际采样时刻。</li><li>今日完成按当前成员拥有的已完成目标读取。明日到期按各事项登记的法域日期展示。待你处理归并同一事项的重复提示，并随当前待办状态更新。同一对话里的独立审批分别显示。每条提供项目、对话或原卡片入口。</li><li>本地测试消息回执另列，内容仅显示摘要和原对话入口。站内摘要按当前登录账号读取。</li></ul>
 <h2 id="验收">验收</h2>
 <ul><li><code>pnpm exec vitest run apps/backend/src/deadlines/daily-digest.test.ts apps/backend/src/worker.test.ts</code> 核对后台队列、工作日计划和重复通知合并。</li><li><code>node scripts/test-integration.mjs apps/backend/src/deadlines/daily-digest.int.test.ts</code> 核对 17:00 边界、周末、并发一次、账号隔离、当地到期、确认后更新，以及已发布记录只追加。</li><li><code>pnpm test:e2e</code> 使用合成日期、完成事项和项目链接核对真实 Chromium 页面。<a href="../evidence/pr50-12-daily-digest-1440x900.png">1440×900 界面证据</a></li><li>开发验收中 8 项单测、13 项专项集成及 Chromium 回归通过。已在真实 pg-boss 内核对任务登记。浏览器外部请求、页面错误及模型费用均为零。</li></ul>
 <h2 id="没做什么">没做什么</h2>

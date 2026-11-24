@@ -1373,7 +1373,9 @@ async function main() {
     await buildDailyDigests(harness.pool, new Date('2030-01-08T09:00:00Z'));
     await page.getByRole('button', { name: /待我处理/u }).click();
     const digest = page.getByRole('region', { name: '日摘要', exact: true });
-    await digest.getByText('2030-01-08 · 北京时间', { exact: true }).waitFor();
+    const digestDate = digest.getByText('2030-01-08 · 北京时间', { exact: true });
+    await digestDate.waitFor();
+    assert.equal(await digestDate.getAttribute('title'), '北京时间 17:00');
     const completedDigest = digest.getByRole('button', { name: '合成日摘要完成记录', exact: true });
     await completedDigest.waitFor();
     await digest.scrollIntoViewIfNeeded();
