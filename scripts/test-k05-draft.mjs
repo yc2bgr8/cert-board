@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { renderK05Draft } from '../apps/backend/src/knowledge/draft-template.ts';
+import { parseK05Draft, renderK05Draft } from '../apps/backend/src/knowledge/draft-template.ts';
 import { SandboxClient } from '../apps/backend/src/sandbox/client.ts';
 import { sandboxBaseUrl } from '../packages/shared/src/config.ts';
 
@@ -10,6 +10,11 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
 assert.ok(!args.length || (args.length === 1 && args[0] === '--docx'), '只接受可选参数 --docx');
 const documentId = '11111111-1111-4111-8111-111111111111';
+const template = await readFile(
+  path.join(root, 'knowledge', 'k05', 'us-510k-cover-letter.yaml'),
+  'utf8',
+);
+const labels = parseK05Draft(template).fields;
 const values = {
   submission_type: 'Traditional',
   draft_date: '2030-01-08',
@@ -19,22 +24,24 @@ const values = {
 const fields = Object.fromEntries(
   Object.entries(values).map(([name, value]) => [
     name,
-    { value, source: { documentId, version: 1, page: 1, quote: `合成资料 ${name} ${value}` } },
+    { value, source: { documentId, version: 1, page: 1, quote: `${labels[name][0]}: ${value}` } },
   ]),
 );
 const page = Object.values(fields)
   .map(({ source }) => source.quote)
   .join('\n');
-const template = await readFile(
-  path.join(root, 'knowledge', 'k05', 'us-510k-cover-letter.yaml'),
-  'utf8',
-);
-const draft = await renderK05Draft(template, fields, async (reference) =>
-  reference.documentId === documentId && reference.version === 1 && reference.page === 1
-    ? page
-    : null,
+const draft = await renderK05Draft(
+  template,
+  fields,
+  async (reference) =>
+    reference.documentId === documentId && reference.version === 1 && reference.page === 1
+      ? page
+      : null,
+  { synthetic: true },
 );
 assert.equal(draft.sourceMap.publication, 'draft');
+assert.equal(draft.sourceMap.synthetic, true);
+assert.deepEqual(draft.sourceMap.unverified, []);
 assert.equal(draft.sourceMap.paragraphs.length, 5);
 assert.ok(draft.sourceMap.missing.includes('contact_name'));
 let word;
@@ -57,8 +64,11 @@ if (args.includes('--docx')) {
     '510k-cover-letter.sources.json',
   ]);
   const document = word.find(({ path }) => path.endsWith('.docx'));
+  const preview = word.find(({ path }) => path.endsWith('.pdf'));
   const map = word.find(({ path }) => path.endsWith('.json'));
-  assert.equal(JSON.parse(map.bytes.toString('utf8')).wordSha256, document.sha256);
+  const sourceMap = JSON.parse(map.bytes.toString('utf8'));
+  assert.equal(sourceMap.wordSha256, document.sha256);
+  assert.equal(sourceMap.pdfSha256, preview.sha256);
 }
 const reports = path.join(root, '.local');
 await mkdir(reports, { recursive: true });

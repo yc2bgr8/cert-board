@@ -1,5 +1,39 @@
 import { z } from 'zod';
 import { documentCitationSchema } from './checks.js';
+import { workspacePathSchema } from './workspace-path.js';
+import { sha256Schema } from './documents.js';
+
+const templateFieldKey = z.string().regex(/^[a-z][a-z0-9_]{1,63}$/u);
+export const coverLetterFieldsSchema = z.record(
+  templateFieldKey,
+  z.strictObject({
+    value: z
+      .string()
+      .trim()
+      .min(1)
+      .max(300)
+      .regex(/^[^\r\n\u0000]+$/u),
+    source: documentCitationSchema,
+  }),
+);
+export const coverLetterDraftInputSchema = z.strictObject({
+  fields: coverLetterFieldsSchema.refine((fields) => Object.keys(fields).length <= 11),
+  outputDirectory: workspacePathSchema.refine((value) => /^交付\/[^/]+$/u.test(value)),
+  expectedDraftVersion: z.number().int().positive().max(2147483647),
+});
+export const coverLetterDraftOutputSchema = z.strictObject({
+  markdownPath: workspacePathSchema,
+  sourceMapPath: workspacePathSchema,
+  markdownSha256: sha256Schema,
+  sourceMapSha256: sha256Schema,
+  missing: templateFieldKey.array().max(11),
+  unverified: templateFieldKey.array().max(11),
+  sources: documentCitationSchema
+    .omit({ quote: true })
+    .extend({ quoteSha256: sha256Schema })
+    .array()
+    .max(11),
+});
 
 const code = z.string().regex(/^[a-z][a-z0-9_]{0,79}$/u);
 const text = (max: number) =>

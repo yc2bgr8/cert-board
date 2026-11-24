@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { isAlias, isNode, parseDocument, visit } from 'yaml';
 import { z } from 'zod';
-import { documentCitationSchema } from '@cert-board/shared';
+import { coverLetterFieldsSchema, type DocumentCitation } from '@cert-board/shared';
+import { readFile } from 'node:fs/promises';
 
 const key = z.string().regex(/^[a-z][a-z0-9_]{1,63}$/u);
 const singleLine = (value: string) => !value.includes('\0') && !/[\r\n]/u.test(value);
@@ -21,15 +22,14 @@ const manifestSchema = z.strictObject({
   version: z.string().regex(/^\d{1,4}\.\d{1,4}\.\d{1,4}$/u),
   publication: z.literal('draft'),
   title: z.string().min(1).max(140).refine(singleLine),
+  fields: z.record(
+    key,
+    z.array(z.string().trim().min(1).max(100).refine(singleLine)).min(1).max(6),
+  ),
   sources: authority.array().min(1).max(12),
   paragraphs: paragraph.array().min(1).max(24),
 });
-const fieldSchema = z.strictObject({
-  value: z.string().trim().min(1).max(300).refine(singleLine),
-  source: documentCitationSchema,
-});
-const fieldsSchema = z.record(key, fieldSchema);
-type Reference = z.infer<typeof documentCitationSchema>;
+type Reference = DocumentCitation;
 type ReadPage = (ref: Reference) => Promise<string | null>;
 const slot = /\{\{([a-z][a-z0-9_]{1,63})\}\}/gu;
 const markdownPunctuation = new Set([
@@ -50,11 +50,32 @@ const markdownPunctuation = new Set([
   '|',
   '<',
   '>',
+  '&',
 ]);
 const escaped = (value: string) =>
   [...value]
     .map((character) => (markdownPunctuation.has(character) ? '\\' + character : character))
     .join('');
+
+export const coverLetterFileName = '510k-cover-letter.draft.md';
+export const coverLetterSourcesName = '510k-cover-letter.sources.json';
+export function coverLetterReference({ documentId, version, page, quote }: Reference) {
+  return {
+    documentId,
+    version,
+    page,
+    quoteSha256: createHash('sha256').update(quote).digest('hex'),
+  };
+}
+export function coverLetterReferenceKey(ref: ReturnType<typeof coverLetterReference>) {
+  return JSON.stringify([ref.documentId, ref.version, ref.page, ref.quoteSha256]);
+}
+export function loadCoverLetterManifest() {
+  return readFile(
+    new URL('../../../../knowledge/k05/us-510k-cover-letter.yaml', import.meta.url),
+    'utf8',
+  );
+}
 
 export function parseK05Draft(text: string) {
   if (Buffer.byteLength(text, 'utf8') > 32_000) throw new Error('K05 模板超过允许大小。');
@@ -83,33 +104,73 @@ export function parseK05Draft(text: string) {
     )
       throw new Error('K05 模板的来源引用或占位符无效。');
   }
+  const slots = new Set(
+    value.paragraphs.flatMap(({ text }) => [...text.matchAll(slot)].map((match) => match[1]!)),
+  );
+  const labels = Object.values(value.fields)
+    .flat()
+    .map((label) => label.toLowerCase());
+  if (
+    slots.size !== Object.keys(value.fields).length ||
+    [...slots].some((field) => !Object.hasOwn(value.fields, field)) ||
+    labels.some((label) => /[:：]/u.test(label)) ||
+    new Set(labels).size !== labels.length
+  )
+    throw new Error('K05 模板必须为每个占位符声明独立的资料字段标签。');
   return value;
 }
 
-export async function renderK05Draft(template: string, input: unknown, readPage: ReadPage) {
+function labelledValues(text: string, labels: string[]) {
+  const accepted = new Set(labels.map((label) => label.toLowerCase()));
+  return text.split(/\r?\n/u).flatMap((line) => {
+    const fields = /^\s*([^:：]+)[:：][ \t]*(.*?)[ \t]*$/u.exec(line);
+    return fields && accepted.has(fields[1]!.trim().toLowerCase()) ? [fields[2]!] : [];
+  });
+}
+
+export async function renderK05Draft(
+  template: string,
+  input: unknown,
+  readPage: ReadPage,
+  { synthetic = false } = {},
+) {
   const manifest = parseK05Draft(template);
-  const fields = fieldsSchema.parse(input);
-  const used = new Set(
-    manifest.paragraphs.flatMap(({ text }) => [...text.matchAll(slot)].map((match) => match[1]!)),
-  );
+  const fields = coverLetterFieldsSchema.parse(input);
   const pages = new Map<string, Promise<string | null>>();
+  const verified = new Map<string, (typeof fields)[string]>();
+  const unverified: string[] = [];
   for (const [field, entry] of Object.entries(fields)) {
-    if (!used.has(field) || !entry.source.quote.includes(entry.value))
-      throw new Error('K05 字段需由模板声明，并在所引原文中逐字出现。');
+    if (!Object.hasOwn(manifest.fields, field)) throw new Error('K05 字段需由模板声明。');
     const ref = entry.source;
     const pageKey = JSON.stringify([ref.documentId, ref.version, ref.page]);
     const reading = pages.get(pageKey) ?? readPage(ref);
     pages.set(pageKey, reading);
-    if (!(await reading)?.includes(ref.quote)) throw new Error('K05 依据与资料库原文不一致。');
+    const page = await reading;
+    if (!page?.includes(ref.quote)) throw new Error('K05 依据与资料库原文不一致。');
+    const labels = manifest.fields[field]!;
+    const originals = page.split(/\r?\n/u);
+    const cited = ref.quote
+      .split(/\r?\n/u)
+      .filter((line) => originals.includes(line))
+      .join('\n');
+    const values = new Set(labelledValues(page, labels));
+    if (
+      values.size === 1 &&
+      values.has(entry.value) &&
+      labelledValues(cited, labels).includes(entry.value)
+    )
+      verified.set(field, entry);
+    else unverified.push(field);
   }
   const missing = new Set<string>();
-  const lines = [`# ${escaped(manifest.title)} — draft`, 'For internal review.'];
+  const notice = synthetic ? 'Synthetic test data. For internal review.' : 'For internal review.';
+  const lines = [`# ${escaped(manifest.title)} — draft`, notice];
   const documentParagraphs: string[] = [];
   const paragraphs = manifest.paragraphs.map((item, index) => {
     const evidence = new Map<string, Reference>();
     const values = new Map<string, string>();
     const text = item.text.replace(slot, (_match, field: string) => {
-      const entry = Object.hasOwn(fields, field) ? fields[field] : undefined;
+      const entry = verified.get(field);
       if (!entry) {
         missing.add(field);
         const placeholder = `[TO VERIFY: ${field}]`;
@@ -126,22 +187,29 @@ export async function renderK05Draft(template: string, input: unknown, readPage:
       id: item.id,
       number: index + 1,
       sources: item.sources,
-      evidence: [...evidence].map(([field, source]) => ({ field, source })),
+      evidence: [...evidence].map(([field, source]) => ({
+        field,
+        source,
+        value: verified.get(field)!.value,
+      })),
     };
   });
   const markdown = lines.join('\n\n') + '\n';
   return {
     markdown,
     document: {
-      title: `${manifest.title.replace(/[^\p{L}\p{N} ]/gu, '').trim()} draft`,
+      title: `${manifest.title} draft`,
+      notice,
       paragraphs: documentParagraphs,
     },
     sourceMap: {
       templateCode: manifest.code,
       templateVersion: manifest.version,
       publication: manifest.publication,
+      synthetic,
       contentSha256: createHash('sha256').update(markdown).digest('hex'),
       missing: [...missing],
+      unverified,
       sources: manifest.sources,
       paragraphs,
     },

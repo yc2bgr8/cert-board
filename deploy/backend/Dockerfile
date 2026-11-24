@@ -17,6 +17,7 @@ COPY packages packages
 FROM workspace AS backend
 COPY agents agents
 COPY skills skills
+COPY knowledge/k05/us-510k-cover-letter.yaml knowledge/k05/us-510k-cover-letter.yaml
 COPY deploy/models.yaml deploy/models.yaml
 COPY deploy/egress/allowlist deploy/egress/allowlist
 COPY deploy/backend/network-probe.mjs deploy/backend/network-probe.mjs

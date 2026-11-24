@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
   agentIdentitySchema,
   codeRunOutputSchema,
+  coverLetterDraftOutputSchema,
   workspaceToolListSchema,
   workspaceToolReadSchema,
   workspaceToolWriteSchema,
@@ -20,6 +21,11 @@ import { buildWorkspaceTools } from './workspace-tools.js';
 import { ToolRegistry } from './registry.js';
 import { buildSandboxTools } from './code-run.js';
 import { SandboxClient } from '../sandbox/client.js';
+import { ingestParsedDocument } from '../documents/service.js';
+import { docReadTool } from './doc-read.js';
+import { coverLetterDraftTool } from './cover-letter-draft.js';
+import { submitForReviewTool } from './submit-for-review.js';
+import { loadReviewPolicy } from '../reviews/policy.js';
 
 class MemoryStore implements DocumentBlobStore {
   readonly contents = new Map<string, Buffer>();
@@ -96,6 +102,131 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.unstubAllGlobals();
   await context?.close();
+});
+
+test('K05 同时保存草稿和来源表，写入可撤销，送审拒绝被改动的草稿', async () => {
+  const quote = 'Device name: Synthetic device A';
+  const applicant = 'Applicant name: Synthetic applicant A';
+  const date = 'Draft date: 2030-01-08';
+  const { documentId } = await ingestParsedDocument(context.pool, store, {
+    projectId: context.projectId,
+    sourceKey: 'SYNTH-K05',
+    name: '合成资料 K05',
+    sourcePath: 'synthetic/k05.txt',
+    sourceSnapshot: createHash('sha256').update('synthetic-k05').digest('hex'),
+    originalSha256: createHash('sha256').update(quote).digest('hex'),
+    dataLevel: 'confidential',
+    authorType: 'external',
+    sourceMetadata: {},
+    pages: [
+      {
+        pageNumber: 1,
+        text: [quote, applicant, date].join('\n'),
+        method: 'text',
+        locatorKind: 'physical_page',
+        ocrScore: null,
+        isPlaceholder: false,
+      },
+    ],
+  });
+  const policy = await loadReviewPolicy('test');
+  registry = new ToolRegistry(context.pool, [
+    ...buildWorkspaceTools(store),
+    docReadTool(),
+    coverLetterDraftTool(store),
+    submitForReviewTool(policy),
+  ]);
+  const name = 'k05_cover_letter_draft';
+  const reference1 = { documentId, version: 1, page: 1, quote };
+  const request = {
+    outputDirectory: '交付/合成申报',
+    expectedDraftVersion: owner.draft!.version,
+    fields: { device_name: { value: 'Synthetic device A', source: reference1 } },
+  };
+  await expect(call(name, request)).rejects.toMatchObject({ code: 'REVIEW_READ_REQUIRED' });
+  await expect(call(name, request, await prepare('MEMBER_A', 'read_only'))).rejects.toMatchObject({
+    statusCode: 403,
+  });
+  await call('doc_read', { id: documentId, version: 1, page: 1 });
+  const saved = await call(name, request);
+  const receipt = coverLetterDraftOutputSchema.parse(saved.data);
+  expect(saved.dataLevel).toBe('confidential');
+  expect(receipt.missing).not.toContain('device_name');
+  expect(receipt.missing).toContain('contact_name');
+  const files = (await list()).items.filter(({ path }) => path.startsWith('交付/合成申报/'));
+  const draft = files.find(({ path }) => path === receipt.markdownPath)!;
+  const sidecar = files.find(({ path }) => path === receipt.sourceMapPath)!;
+  const sourceMap = JSON.parse((await store.get(sidecar.sha256)).toString('utf8'));
+  expect(sourceMap.contentSha256).toBe(draft.sha256);
+  expect(sourceMap.paragraphs[0].evidence[0]).toEqual({
+    field: 'device_name',
+    value: 'Synthetic device A',
+    source: request.fields.device_name.source,
+  });
+  expect((await store.get(draft.sha256)).toString('utf8')).toContain('for Synthetic device A.');
+  await expect(
+    call(name, { ...request, expectedDraftVersion: (await list()).draftVersion }),
+  ).rejects.toMatchObject({ statusCode: 409 });
+  await registry.undo(reference(), saved.undoId!);
+  expect((await list()).items.some(({ path }) => path.startsWith('交付/合成申报/'))).toBe(false);
+
+  await call(name, { ...request, expectedDraftVersion: (await list()).draftVersion });
+  const original = (await store.get(draft.sha256)).toString('utf8');
+  const modified = await write(
+    receipt.markdownPath,
+    original + 'Test modification.\n',
+    draft.sha256,
+  );
+  const savedModified = (await save()).value.workspaceVersion;
+  const submission = {
+    skill: policy.skill,
+    workspaceVersion: savedModified,
+    conclusion: '合成信函草稿待注册人员核对。',
+    claims: [
+      {
+        id: 'C1',
+        object: '合成申报',
+        field: '器械名称',
+        value: 'Synthetic device A',
+        unit: null,
+        sources: [reference1],
+        status: 'checked',
+      },
+    ],
+    evidence: [reference1, { ...reference1, quote: applicant }],
+    decisions: [],
+    missing: [],
+    uncertain: [],
+    nextStep: '核对信函中的资料原文和待核项。',
+  };
+  await expect(call('submit_for_review', submission)).rejects.toMatchObject({
+    code: 'K05_DRAFT_PROOF_REQUIRED',
+  });
+  await write(receipt.markdownPath, original, modified.value.file.sha256);
+  const exact = (await save()).value.workspaceVersion;
+  await expect(
+    call('submit_for_review', {
+      ...submission,
+      workspaceVersion: exact,
+      claims: [
+        {
+          ...submission.claims[0]!,
+          value: 'Synthetic applicant A',
+          sources: [{ ...reference1, quote: applicant }],
+        },
+      ],
+      evidence: [
+        { ...reference1, quote: applicant },
+        { ...reference1, quote: date },
+      ],
+    }),
+  ).rejects.toMatchObject({ code: 'K05_DRAFT_EVIDENCE_REQUIRED' });
+  await expect(
+    call('submit_for_review', { ...submission, workspaceVersion: exact }),
+  ).resolves.toMatchObject({
+    data: { status: 'pending', requiresBrowserDecision: true },
+    dataLevel: 'confidential',
+  });
 });
 
 test('沙箱只读运行允许预览，保存产出进入工作副本并可撤销', async () => {

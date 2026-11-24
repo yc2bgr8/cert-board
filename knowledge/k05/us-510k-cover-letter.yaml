@@ -2,6 +2,18 @@ code: us_510k_cover_letter
 version: 0.1.0
 publication: draft
 title: 510(k) cover letter
+fields:
+  submission_type: [Submission type, 申报类型]
+  device_name: [Device name, 器械名称]
+  draft_date: [Draft date, 草稿日期]
+  applicant_name: [Applicant name, 申请人名称]
+  applicant_address: [Applicant address, 申请人地址]
+  contact_name: [Contact name, 联系人姓名]
+  contact_email: [Contact email, 联系人邮箱]
+  device_model: [Device model, 器械型号]
+  product_code: [Product code, 产品代码]
+  submission_purpose: [Submission purpose, 申报缘由]
+  comparator_reference: [Proposed comparator, 拟用对比器械]
 sources:
   - id: fda_letter_fields
     url: https://www.fda.gov/medical-devices/premarket-notification-510k/content-510k

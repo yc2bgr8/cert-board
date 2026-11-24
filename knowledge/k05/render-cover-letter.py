@@ -37,16 +37,11 @@ for border in title.element.xpath("./w:pPr/w:pBdr"):
     border.getparent().remove(border)
 
 document.add_paragraph(draft["document"]["title"], style="Title")
-document.add_paragraph("For internal review.")
+document.add_paragraph(draft["document"]["notice"])
 for text in draft["document"]["paragraphs"]:
     document.add_paragraph(text)
 document.save(target)
 
-sources = draft["sourceMap"]
-sources["wordSha256"] = hashlib.sha256(target.read_bytes()).hexdigest()
-(output / "510k-cover-letter.sources.json").write_text(
-    json.dumps(sources, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-)
 subprocess.run(
     [
         "libreoffice",
@@ -61,4 +56,10 @@ subprocess.run(
     check=True,
     capture_output=True,
     timeout=50,
+)
+sources = draft["sourceMap"]
+sources["wordSha256"] = hashlib.sha256(target.read_bytes()).hexdigest()
+sources["pdfSha256"] = hashlib.sha256(target.with_suffix(".pdf").read_bytes()).hexdigest()
+(output / "510k-cover-letter.sources.json").write_text(
+    json.dumps(sources, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
 )

@@ -8,6 +8,7 @@ const labels: Readonly<Record<string, string>> = {
   doc_read: '读取资料原文',
   code_run: '在沙箱运行代码',
   code_run_save: '运行代码并保存产出',
+  k05_cover_letter_draft: '生成 Cover Letter 草稿和来源表',
   ws_list: '列出工作区文件',
   ws_read: '读取工作区文件',
   ws_search: '查找工作区文件内容',

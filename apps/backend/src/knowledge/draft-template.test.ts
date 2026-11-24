@@ -24,7 +24,15 @@ const values = {
 const fields = Object.fromEntries(
   Object.entries(values).map(([field, value]) => [
     field,
-    { value, source: { documentId, version: 2, page: 3, quote: `合成证据 ${field} ${value}` } },
+    {
+      value,
+      source: {
+        documentId,
+        version: 2,
+        page: 3,
+        quote: `${parseK05Draft(template).fields[field]![0]}: ${value}`,
+      },
+    },
   ]),
 );
 const page = Object.values(fields)
@@ -67,8 +75,41 @@ test('缺项在草稿上可见，伪造或跨版本原文拒绝渲染', async ()
       },
       async () => page,
     ),
-  ).rejects.toThrow('逐字出现');
+  ).resolves.toMatchObject({ sourceMap: { unverified: ['device_name'] } });
   expect(() => parseK05Draft(template.replace('[fda_signature_note]', '[missing_source]'))).toThrow(
     '来源引用',
   );
+});
+
+test('否定字样、错误的日期字段和同页冲突留为待核，预览保留原文字面值', async () => {
+  const lines = [
+    'Submission type: Special (not Traditional)',
+    'Planned filing date: 2030-01-08',
+    'Device name: Synthetic device',
+    'Device name: Different device',
+    'Applicant name: Company &copy;',
+  ];
+  const result = await renderK05Draft(
+    template,
+    Object.fromEntries(
+      [
+        ['submission_type', 'Traditional'],
+        ['draft_date', '2030-01-08'],
+        ['device_name', 'Synthetic device'],
+        ['applicant_name', 'Company &copy;'],
+      ].map(([field, value], index) => [
+        field,
+        { value, source: { documentId, version: 2, page: 3, quote: lines[index < 3 ? index : 4] } },
+      ]),
+    ),
+    async () => lines.join('\n'),
+    { synthetic: true },
+  );
+  expect(result.sourceMap.unverified).toEqual(['submission_type', 'draft_date', 'device_name']);
+  expect(result.sourceMap.synthetic).toBe(true);
+  expect(result.sourceMap.paragraphs[0]?.evidence).toEqual([]);
+  expect(result.markdown).toContain('Company \\&copy;');
+  expect(result.markdown).toContain('Synthetic test data. For internal review.');
+  expect(result.document.title).toBe('510(k) cover letter draft');
+  expect(result.document.paragraphs[1]).toContain('Company &copy;');
 });

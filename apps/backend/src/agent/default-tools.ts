@@ -18,6 +18,7 @@ import { buildSandboxTools } from '../tools/code-run.js';
 import type { SandboxClient } from '../sandbox/client.js';
 import { waitRegisterTool } from '../tools/wait-register.js';
 import { factProposeTool, knowledgeGetTool } from '../tools/knowledge-tools.js';
+import { coverLetterDraftTool } from '../tools/cover-letter-draft.js';
 
 export async function buildAgentTools(
   store: DocumentBlobStore,
@@ -33,6 +34,9 @@ export async function buildAgentTools(
   return [
     ...buildDocumentTools(),
     ...buildWorkspaceTools(store),
+    ...(agentCode === 'registration' && process.env.NODE_ENV !== 'production'
+      ? [coverLetterDraftTool(store)]
+      : []),
     ...(sandbox ? buildSandboxTools(store, sandbox) : []),
     ...agentInteractionTools(),
     waitRegisterTool(),

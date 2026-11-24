@@ -17,6 +17,7 @@ import { compareFileManifests } from '../workspace/diff.js';
 import type { ToolExecutionContext, ToolUndoRecord } from '../tools/registry.js';
 import { requireReviewPolicy } from './policy.js';
 import { reviewContentHash } from './content.js';
+import { verifyCoverLetterDrafts } from './cover-letter.js';
 
 const error = (code: string, message: string, status = 422) => new AppError(status, code, message);
 const key = (ref: DocumentCitation) =>
@@ -63,7 +64,7 @@ async function manifest(
   return rows.rows.map((file) => ({ ...file, byteSize: Number(file.byteSize) }));
 }
 
-async function verifyReadReceipts(
+export async function verifyReadReceipts(
   ctx: ToolExecutionContext,
   references: DocumentCitation[],
 ): Promise<EvidenceReference[]> {
@@ -232,6 +233,12 @@ export async function submitReview(
     baseVersionId === approvedVersionId ? changes : await compareFrom(approvedVersionId);
   if (changes.length > 1000 || approvalChanges.length > 1000)
     throw error('REVIEW_DIFF_LIMIT', '本次改动超过1000个文件，请缩小交付范围后再提交审核。', 413);
+  const draftLevels = await verifyCoverLetterDrafts(
+    ctx,
+    currentManifest,
+    approvalChanges,
+    references,
+  );
   const diff = {
     baseVersionId,
     changes,
@@ -247,7 +254,7 @@ export async function submitReview(
     risk: policy.risk,
     cardType: policy.cardType,
   });
-  const dataLevel = highest(ctx.maxDataLevel, checks.dataLevel);
+  const dataLevel = highest(ctx.maxDataLevel, checks.dataLevel, ...draftLevels);
   await ctx.tx.query(
     `INSERT INTO review_card(id,project_id,goal_id,conversation_id,run_id,invocation_id,created_by,workspace_version_id,skill_id,skill_version,risk,card_type,structured_result,check_report,diff,evidence_refs,content_hash,data_level)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
