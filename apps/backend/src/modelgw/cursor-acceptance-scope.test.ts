@@ -6,7 +6,14 @@ const base = 'b'.repeat(40);
 const testCommit = 'c'.repeat(40);
 const tree = 'd'.repeat(40);
 const run = { scope: 'business', status: 'running', testCommit, head, base, mergeTree: tree };
-const permit = { pr: 'PR-34', number: 65, head, base, observedHead: 'f'.repeat(40) };
+const permit = {
+  pr: 'PR-34',
+  number: 65,
+  head,
+  base,
+  mergeTree: tree,
+  observedHead: 'f'.repeat(40),
+};
 const current = {
   testCommit,
   parents: `${base} ${head}`,
@@ -84,4 +91,14 @@ test('启动参数和匹配标题不能替代独立签发的目标提交记录',
       validateCursorAcceptanceScope({ pr: 'PR-34', head }, run, authorization, current),
     ).toThrow();
   }
+});
+
+test('即使双亲正确也须匹配独立签发的合并代码树', () => {
+  const otherTree = '1'.repeat(40);
+  expect(() =>
+    validateCursorAcceptanceScope({ pr: 'PR-34', head }, { ...run, mergeTree: otherTree }, permit, {
+      ...current,
+      tree: otherTree,
+    }),
+  ).toThrow();
 });

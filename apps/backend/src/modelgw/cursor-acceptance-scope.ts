@@ -12,6 +12,7 @@ const authorization = approval.extend({
   number: z.union([z.literal(65), z.literal(66)]),
   observedHead: sha,
   base: sha,
+  mergeTree: sha,
 });
 const reportSchema = z.object({
   scope: z.literal('business'),
@@ -42,6 +43,7 @@ export function validateCursorAcceptanceScope(
     permit.number !== cursorAcceptanceTargets[pr] ||
     permit.head !== head ||
     permit.base !== report.base ||
+    permit.mergeTree !== report.mergeTree ||
     report.head !== head ||
     report.testCommit !== git.testCommit ||
     git.parents !== `${report.base} ${head}` ||

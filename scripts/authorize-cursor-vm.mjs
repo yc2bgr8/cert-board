@@ -30,7 +30,11 @@ try {
   )
     throw new Error();
   run('git', ['merge-base', '--is-ancestor', observedHead, candidate]);
-  console.log(JSON.stringify({ pr, number: Number(number), head: candidate, observedHead, base }));
+  const mergeTree = run('git', ['merge-tree', '--write-tree', base, candidate]);
+  if (!sha.test(mergeTree)) throw new Error();
+  console.log(
+    JSON.stringify({ pr, number: Number(number), head: candidate, observedHead, base, mergeTree }),
+  );
 } catch {
   console.error('Cursor 验收授权未生成。请核对获准 PR、远端 main、当前分支及候选提交。');
   process.exitCode = 1;
