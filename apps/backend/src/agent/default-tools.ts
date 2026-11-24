@@ -17,6 +17,7 @@ import { reminderSetTool } from '../tools/reminder-set.js';
 import { buildSandboxTools } from '../tools/code-run.js';
 import type { SandboxClient } from '../sandbox/client.js';
 import { waitRegisterTool } from '../tools/wait-register.js';
+import { factProposeTool, knowledgeGetTool } from '../tools/knowledge-tools.js';
 
 export async function buildAgentTools(
   store: DocumentBlobStore,
@@ -39,6 +40,8 @@ export async function buildAgentTools(
     checkRunTool(),
     identifierCheckTool(),
     rulesRunTool(store, ruleSources),
+    knowledgeGetTool(),
+    factProposeTool(),
     deadlineCalcTool(),
     reminderSetTool(),
     submitForReviewTool(skill.reviewPolicy),

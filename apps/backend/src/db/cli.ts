@@ -10,6 +10,7 @@ import { createDependencies } from '../dependencies.js';
 import { AppError } from '../api/errors.js';
 import { seedDevelopmentWorkspace } from '../workspace/seed.js';
 import { seedDevelopmentBudgetPolicy } from '../budget/service.js';
+import { seedDevelopmentRulePack } from '../knowledge/rule-packs.js';
 
 async function main() {
   const action = process.argv[2];
@@ -49,6 +50,7 @@ async function main() {
       );
       const project = await seedDevelopmentProject(pool, process.env);
       await seedDevelopmentBudgetPolicy(pool, config.NODE_ENV);
+      await seedDevelopmentRulePack(pool, config.NODE_ENV);
       console.log('开发预算已就绪，保留已有额度、整晚批次和停止状态。');
       console.log(
         project.created

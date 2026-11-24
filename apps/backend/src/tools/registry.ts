@@ -225,7 +225,11 @@ function versionToken(value: unknown): string | null {
     );
   return parsed.data;
 }
-const safeReviewHints = new Map<string, string>([
+const safeInputHints = new Map<string, string>([
+  [
+    'FACT_EVIDENCE_INVALID',
+    '证据须逐字出现在本项目的有效资料页中，请用 doc_read 重读并附上对应引语。',
+  ],
   ['SANDBOX_DUPLICATE_INPUT', '输入别名重复，请为每个文件使用不同名称。'],
   ['SANDBOX_INPUT_LIMIT', '输入合计超过 12 MiB，请减少文件后重试。'],
   ['SANDBOX_OUTPUT_LIMIT', '产出超过文件数或总大小上限，请拆分处理后重试。'],
@@ -283,7 +287,7 @@ async function callback<T>(operation: () => Promise<T>): Promise<T> {
       throw fail(
         error.statusCode,
         'TOOL_DATA_REJECTED',
-        safeReviewHints.get(error.code) ??
+        safeInputHints.get(error.code) ??
           '输入或业务检查未通过，请核对参数、分页位置或资料解析状态后重试。',
       );
     throw fail(
