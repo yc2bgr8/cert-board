@@ -92,9 +92,13 @@ export async function checkKnowledgeWalkthrough(
       answer.财年 === fee.parameters.fiscal_year &&
       answer.金额 === fee.parameters.amount &&
       answer.币种 === fee.parameters.currency &&
-      answer.代理人数 === 1 &&
-      [annual, fee, agent].every(({ source }) => answer.来源.includes(source.url)),
-    '维护 Agent 的最终答复须对照实际规则包核对版本、数值、依据和待确认状态。',
+      answer.代理人数 === 1,
+    '维护 Agent 的最终答复须对照实际规则包核对版本、数值和待确认状态。',
+  );
+  assert.deepEqual(
+    [...answer.来源].sort(),
+    [annual, fee, agent].map(({ source }) => source.url).sort(),
+    '答复须逐条提供实际核对的出处。',
   );
   await page
     .locator('article.live-agent-message')
