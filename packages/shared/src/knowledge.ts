@@ -12,7 +12,7 @@ export const coverLetterFieldsSchema = z.record(
       .trim()
       .min(1)
       .max(300)
-      .regex(/^[^\r\n\u0000]+$/u),
+      .refine((value) => !value.includes('\0') && !/[\r\n]/u.test(value)),
     source: documentCitationSchema,
   }),
 );

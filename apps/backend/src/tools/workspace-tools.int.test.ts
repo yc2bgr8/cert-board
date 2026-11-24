@@ -117,7 +117,7 @@ test('K05 同时保存草稿和来源表，写入可撤销，送审拒绝被改�
     originalSha256: createHash('sha256').update(quote).digest('hex'),
     dataLevel: 'confidential',
     authorType: 'external',
-    sourceMetadata: {},
+    sourceMetadata: { synthetic: true },
     pages: [
       {
         pageNumber: 1,
@@ -143,7 +143,10 @@ test('K05 同时保存草稿和来源表，写入可撤销，送审拒绝被改�
     expectedDraftVersion: owner.draft!.version,
     fields: { device_name: { value: 'Synthetic device A', source: reference1 } },
   };
-  await expect(call(name, request)).rejects.toMatchObject({ code: 'REVIEW_READ_REQUIRED' });
+  await expect(call(name, request)).rejects.toMatchObject({
+    code: 'TOOL_DATA_REJECTED',
+    message: expect.stringContaining('doc_read'),
+  });
   await expect(call(name, request, await prepare('MEMBER_A', 'read_only'))).rejects.toMatchObject({
     statusCode: 403,
   });
@@ -158,12 +161,15 @@ test('K05 同时保存草稿和来源表，写入可撤销，送审拒绝被改�
   const sidecar = files.find(({ path }) => path === receipt.sourceMapPath)!;
   const sourceMap = JSON.parse((await store.get(sidecar.sha256)).toString('utf8'));
   expect(sourceMap.contentSha256).toBe(draft.sha256);
+  expect(sourceMap.synthetic).toBe(true);
   expect(sourceMap.paragraphs[0].evidence[0]).toEqual({
     field: 'device_name',
     value: 'Synthetic device A',
     source: request.fields.device_name.source,
   });
-  expect((await store.get(draft.sha256)).toString('utf8')).toContain('for Synthetic device A.');
+  const generated = (await store.get(draft.sha256)).toString('utf8');
+  expect(generated).toContain('for Synthetic device A.');
+  expect(generated).toContain('Synthetic test data. For internal review.');
   await expect(
     call(name, { ...request, expectedDraftVersion: (await list()).draftVersion }),
   ).rejects.toMatchObject({ statusCode: 409 });
@@ -200,14 +206,32 @@ test('K05 同时保存草稿和来源表，写入可撤销，送审拒绝被改�
     nextStep: '核对信函中的资料原文和待核项。',
   };
   await expect(call('submit_for_review', submission)).rejects.toMatchObject({
-    code: 'K05_DRAFT_PROOF_REQUIRED',
+    code: 'TOOL_DATA_REJECTED',
+    message: expect.stringContaining('保留登记路径'),
   });
   await write(receipt.markdownPath, original, modified.value.file.sha256);
   const exact = (await save()).value.workspaceVersion;
+  await write('交付/另存封面.md', original);
+  const renamed = (await save()).value.workspaceVersion;
+  await expect(
+    call('submit_for_review', { ...submission, workspaceVersion: renamed }),
+  ).rejects.toMatchObject({
+    code: 'TOOL_DATA_REJECTED',
+    message: expect.stringContaining('保留登记路径'),
+  });
+  const restored = workspaceToolSaveSchema.parse(
+    (
+      await call('workspace_restore', {
+        targetVersionId: exact,
+        expectedDraftVersion: (await list()).draftVersion,
+        summary: '恢复原始配对的草稿和来源表',
+      })
+    ).data,
+  ).workspaceVersion;
   await expect(
     call('submit_for_review', {
       ...submission,
-      workspaceVersion: exact,
+      workspaceVersion: restored,
       claims: [
         {
           ...submission.claims[0]!,
@@ -220,9 +244,12 @@ test('K05 同时保存草稿和来源表，写入可撤销，送审拒绝被改�
         { ...reference1, quote: date },
       ],
     }),
-  ).rejects.toMatchObject({ code: 'K05_DRAFT_EVIDENCE_REQUIRED' });
+  ).rejects.toMatchObject({
+    code: 'TOOL_DATA_REJECTED',
+    message: expect.stringContaining('列入这次送审证据'),
+  });
   await expect(
-    call('submit_for_review', { ...submission, workspaceVersion: exact }),
+    call('submit_for_review', { ...submission, workspaceVersion: restored }),
   ).resolves.toMatchObject({
     data: { status: 'pending', requiresBrowserDecision: true },
     dataLevel: 'confidential',

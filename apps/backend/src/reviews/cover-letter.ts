@@ -19,7 +19,7 @@ import type { ToolExecutionContext } from '../tools/registry.js';
 export async function verifyCoverLetterDrafts(
   ctx: ToolExecutionContext,
   manifest: readonly WorkspaceFileDescriptor[],
-  changes: ReadonlyArray<{ path: string }>,
+  changes: ReadonlyArray<{ path: string; afterSha256: string | null }>,
   references: readonly DocumentCitation[],
 ): Promise<DataLevel[]> {
   const files = new Map(manifest.map((file) => [file.path, file]));
@@ -37,6 +37,31 @@ export async function verifyCoverLetterDrafts(
     if (normalized !== coverLetterFileName && normalized !== coverLetterSourcesName) continue;
     if (filename !== normalized && files.has(path)) throw invalid();
     directories.add(posix.dirname(path));
+  }
+  const current = changes.filter(({ afterSha256 }) => afterSha256 !== null);
+  if (current.length) {
+    const moved = await ctx.tx.query(
+      `WITH changed_files AS (
+         SELECT * FROM jsonb_to_recordset($2::jsonb) AS f(path text, "afterSha256" text)
+       ), receipt_files AS (
+         SELECT artifact.path, artifact.sha256 FROM tool_invocation i JOIN conversation_tool_result r
+         ON r.invocation_id=i.id AND r.conversation_id=i.conversation_id AND r.user_id=i.user_id
+         JOIN run source_run ON source_run.id=i.run_id
+         CROSS JOIN LATERAL (VALUES
+           (r.content_json #>> '{result,data,markdownPath}', r.content_json #>> '{result,data,markdownSha256}'),
+           (r.content_json #>> '{result,data,sourceMapPath}', r.content_json #>> '{result,data,sourceMapSha256}')
+         ) AS artifact(path, sha256)
+         WHERE source_run.project_id=$1 AND i.tool_name='k05_cover_letter_draft'
+            AND i.effect='reversible_write' AND i.operation='execute' AND i.status='completed'
+            AND artifact.sha256 IN (SELECT "afterSha256" FROM changed_files)
+       )
+       SELECT 1 FROM changed_files f
+       WHERE EXISTS (SELECT 1 FROM receipt_files a WHERE a.sha256=f."afterSha256")
+       AND NOT EXISTS (SELECT 1 FROM receipt_files a WHERE a.sha256=f."afterSha256" AND a.path=f.path)
+       LIMIT 1`,
+      [ctx.projectId, JSON.stringify(current)],
+    );
+    if (moved.rowCount) throw invalid();
   }
   if (directories.size === 0) return [];
   if (directories.size > 12)

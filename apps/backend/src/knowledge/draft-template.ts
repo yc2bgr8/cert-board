@@ -3,6 +3,7 @@ import { isAlias, isNode, parseDocument, visit } from 'yaml';
 import { z } from 'zod';
 import { coverLetterFieldsSchema, type DocumentCitation } from '@cert-board/shared';
 import { readFile } from 'node:fs/promises';
+import { AppError } from '../api/errors.js';
 
 const key = z.string().regex(/^[a-z][a-z0-9_]{1,63}$/u);
 const singleLine = (value: string) => !value.includes('\0') && !/[\r\n]/u.test(value);
@@ -128,6 +129,19 @@ function labelledValues(text: string, labels: string[]) {
   });
 }
 
+function citesFieldLine(page: string, quote: string, labels: string[], value: string) {
+  if (!labelledValues(quote, labels).includes(value)) return false;
+  const lines = quote.split(/\r?\n/u);
+  for (let start = page.indexOf(quote); start !== -1; start = page.indexOf(quote, start + 1)) {
+    const end = start + quote.length;
+    const beginsLine = start === 0 || page[start - 1] === '\n';
+    const endsLine = end === page.length || page[end] === '\n' || page.startsWith('\r\n', end);
+    const complete = lines.slice(beginsLine ? 0 : 1, endsLine ? lines.length : -1);
+    if (labelledValues(complete.join('\n'), labels).includes(value)) return true;
+  }
+  return false;
+}
+
 export async function renderK05Draft(
   template: string,
   input: unknown,
@@ -136,28 +150,29 @@ export async function renderK05Draft(
 ) {
   const manifest = parseK05Draft(template);
   const fields = coverLetterFieldsSchema.parse(input);
-  const pages = new Map<string, Promise<string | null>>();
+  const versions = new Map<string, Map<number, string>>();
   const verified = new Map<string, (typeof fields)[string]>();
   const unverified: string[] = [];
   for (const [field, entry] of Object.entries(fields)) {
     if (!Object.hasOwn(manifest.fields, field)) throw new Error('K05 字段需由模板声明。');
     const ref = entry.source;
-    const pageKey = JSON.stringify([ref.documentId, ref.version, ref.page]);
-    const reading = pages.get(pageKey) ?? readPage(ref);
-    pages.set(pageKey, reading);
-    const page = await reading;
-    if (!page?.includes(ref.quote)) throw new Error('K05 依据与资料库原文不一致。');
+    const versionKey = JSON.stringify([ref.documentId, ref.version]);
+    const pages = versions.get(versionKey) ?? new Map<number, string>();
+    versions.set(versionKey, pages);
+    const page = pages.get(ref.page) ?? (await readPage(ref));
+    if (!page?.includes(ref.quote))
+      throw new AppError(422, 'K05_ORIGINAL_MISMATCH', 'K05 依据与资料库原文不一致。');
+    pages.set(ref.page, page);
+  }
+  for (const [field, entry] of Object.entries(fields)) {
+    const ref = entry.source;
     const labels = manifest.fields[field]!;
-    const originals = page.split(/\r?\n/u);
-    const cited = ref.quote
-      .split(/\r?\n/u)
-      .filter((line) => originals.includes(line))
-      .join('\n');
-    const values = new Set(labelledValues(page, labels));
+    const pages = versions.get(JSON.stringify([ref.documentId, ref.version]))!;
+    const values = new Set([...pages.values()].flatMap((page) => labelledValues(page, labels)));
     if (
       values.size === 1 &&
       values.has(entry.value) &&
-      labelledValues(cited, labels).includes(entry.value)
+      citesFieldLine(pages.get(ref.page)!, ref.quote, labels, entry.value)
     )
       verified.set(field, entry);
     else unverified.push(field);

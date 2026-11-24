@@ -113,3 +113,36 @@ test('否定字样、错误的日期字段和同页冲突留为待核，预览�
   expect(result.document.title).toBe('510(k) cover letter draft');
   expect(result.document.paragraphs[1]).toContain('Company &copy;');
 });
+
+test('完整字段必须在引文的实际位置，已引同版其他页冲突时留为待核', async () => {
+  const name = 'Device name: Model A';
+  const applicant = 'Applicant name: Synthetic applicant';
+  const unsupported = `${name}\n${applicant}`;
+  const pages = [`Previous ${unsupported}\n${name}`, `${applicant}\nDevice name: Model B`];
+  const source = { documentId, version: 2, page: 1, quote: unsupported };
+  const partial = await renderK05Draft(
+    template,
+    { device_name: { value: 'Model A', source } },
+    async () => pages[0]!,
+  );
+  expect(partial.sourceMap.unverified).toEqual(['device_name']);
+  const exact = await renderK05Draft(
+    template,
+    { device_name: { value: 'Model A', source: { ...source, quote: name } } },
+    async () => pages[0]!,
+  );
+  expect(exact.sourceMap.unverified).toEqual([]);
+  const conflicting = await renderK05Draft(
+    template,
+    {
+      device_name: { value: 'Model A', source: { ...source, quote: name } },
+      applicant_name: {
+        value: 'Synthetic applicant',
+        source: { ...source, page: 2, quote: applicant },
+      },
+    },
+    async (ref) => pages[ref.page - 1]!,
+  );
+  expect(conflicting.sourceMap.unverified).toEqual(['device_name']);
+  expect(conflicting.markdown).toContain('Synthetic applicant');
+});

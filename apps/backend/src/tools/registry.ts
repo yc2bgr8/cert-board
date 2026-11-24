@@ -234,6 +234,14 @@ const safeInputHints = new Map<string, string>([
   ['SANDBOX_INPUT_LIMIT', '输入合计超过 12 MiB，请减少文件后重试。'],
   ['SANDBOX_OUTPUT_LIMIT', '产出超过文件数或总大小上限，请拆分处理后重试。'],
   ['SANDBOX_OUTPUT_TYPE_REJECTED', '产出目录只接受普通文件，请删除链接及特殊文件后重试。'],
+  ['K05_FIELD_UNKNOWN', '请按 K05 工具说明使用模板字段。'],
+  ['K05_ORIGINAL_MISMATCH', 'K05 引文与原页不一致，请逐字使用 doc_read 返回的完整字段行。'],
+  ['K05_DRAFT_LIMIT', '单次最多审核 12 份 K05 信函草稿，请缩小交付范围。'],
+  [
+    'K05_DRAFT_PROOF_REQUIRED',
+    'K05 信函及来源表须使用同一次生成的文件，保留登记路径。请恢复配对文件，或移除旧文件后重新生成。',
+  ],
+  ['K05_DRAFT_EVIDENCE_REQUIRED', '请把 K05 来源表中采用的完整资料引文一并列入这次送审证据。'],
   [
     'REVIEW_READ_REQUIRED',
     '每条完整引文都须有本对话成功的doc_read回执。请重新读取对应资料版本和页码，确保一段结果完整包含引文，再提交审核。',

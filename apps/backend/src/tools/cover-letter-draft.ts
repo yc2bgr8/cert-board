@@ -88,16 +88,35 @@ export function coverLetterDraftTool(store: DocumentBlobStore): ToolDefinition {
       for (const reference of references)
         levels.push(await refreshDocumentReference(ctx, reference));
       await verifyReadReceipts(ctx, references);
-      const draft = await renderK05Draft(template, request.fields, async (ref) => {
-        const page = await ctx.tx.query<{ text: string }>(
-          `SELECT p.text FROM document_page p JOIN document_version v ON v.id=p.version_id
+      const synthetic = (
+        await ctx.tx.query<{ synthetic: boolean }>(
+          `SELECT EXISTS (
+          SELECT 1 FROM jsonb_to_recordset($1::jsonb) AS ref("documentId" uuid, version integer)
+          JOIN document_version v ON v.document_id=ref."documentId" AND v.version_no=ref.version
+          JOIN document d ON d.id=v.document_id AND d.project_id=$2 AND NOT d.voided
+          WHERE v.source_metadata->'synthetic'='true'::jsonb
+        ) AS synthetic`,
+          [
+            JSON.stringify(references.map(({ documentId, version }) => ({ documentId, version }))),
+            ctx.projectId,
+          ],
+        )
+      ).rows[0]!.synthetic;
+      const draft = await renderK05Draft(
+        template,
+        request.fields,
+        async (ref) => {
+          const page = await ctx.tx.query<{ text: string }>(
+            `SELECT p.text FROM document_page p JOIN document_version v ON v.id=p.version_id
            JOIN document d ON d.id=v.document_id
            WHERE d.id=$1 AND d.project_id=$2 AND NOT d.voided AND v.version_no=$3
              AND p.page_number=$4 AND NOT p.is_placeholder`,
-          [ref.documentId, ctx.projectId, ref.version, ref.page],
-        );
-        return page.rows[0]?.text ?? null;
-      });
+            [ref.documentId, ctx.projectId, ref.version, ref.page],
+          );
+          return page.rows[0]?.text ?? null;
+        },
+        { synthetic },
+      );
       const id = scope.draft.id;
       const dataLevel = highestDocumentLevel(levels);
       const markdownPath = `${request.outputDirectory}/${coverLetterFileName}`;
