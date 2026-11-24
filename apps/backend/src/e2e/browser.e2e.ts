@@ -181,6 +181,31 @@ async function main() {
       });
       const author = await authorContext.newPage();
       author.setDefaultTimeout(15000);
+      const requestKeys: string[] = [];
+      author.on('request', (request) => {
+        if (
+          request.method() === 'POST' &&
+          new URL(request.url()).pathname === '/api/knowledge/reviews'
+        )
+          requestKeys.push((request.postDataJSON() as { requestKey: string }).requestKey);
+      });
+      await author.addInitScript(() => {
+        const sendRequest = globalThis.fetch.bind(globalThis);
+        let dropped = false;
+        globalThis.fetch = async (input, init) => {
+          const response = await sendRequest(input, init);
+          if (
+            !dropped &&
+            response.ok &&
+            init?.method === 'POST' &&
+            new URL(response.url).pathname === '/api/knowledge/reviews'
+          ) {
+            dropped = true;
+            throw new TypeError('合成响应丢失');
+          }
+          return response;
+        };
+      });
       await author.goto(harness.origin);
       try {
         await author
@@ -210,20 +235,6 @@ async function main() {
       });
       await type.selectOption('template');
       await yaml.fill(template);
-      const requestKeys: string[] = [];
-      await authorContext.route(`${harness.origin}/api/knowledge/reviews`, async (route) => {
-        if (route.request().method() !== 'POST') {
-          await route.fallback();
-          return;
-        }
-        requestKeys.push((route.request().postDataJSON() as { requestKey: string }).requestKey);
-        if (requestKeys.length === 1) {
-          assert.equal((await route.fetch()).status(), 200);
-          await route.abort();
-        } else {
-          await route.continue();
-        }
-      });
       const submit = panel.getByRole('button', { name: '提交审阅', exact: true });
       await submit.click();
       await panel.getByRole('alert').waitFor();
