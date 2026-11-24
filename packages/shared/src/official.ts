@@ -35,7 +35,8 @@ const publicName = z
   .trim()
   .min(2)
   .max(120)
-  .regex(/^[A-Za-z0-9][A-Za-z0-9 .,'&()_-]*$/u);
+  .regex(/^[^\p{C}\p{Zl}\p{Zp}]+$/u)
+  .regex(/[\p{L}\p{N}]/u);
 const page = { asOf: cutoff, offset };
 
 export const officialLookupInputSchema = z.discriminatedUnion('dataset', [

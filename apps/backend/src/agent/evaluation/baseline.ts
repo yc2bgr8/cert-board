@@ -6,8 +6,16 @@ import { z } from 'zod';
 import { decimalUsdSchema } from '@cert-board/shared';
 import { nanoToUsd, usdToNano } from '../../budget/meter.js';
 
-const primaryModel = 'openai/gpt-6.2-astra-pro';
-const costModel = z.enum([primaryModel, 'anthropic/claude-opus-5.5']);
+const modelProfiles = {
+  openrouter: { primary: 'openai/gpt-6.2-astra-pro', peer: 'anthropic/claude-opus-5.5' },
+  'cursor-acp': { primary: 'cursor/gpt-5.6-sol', peer: 'cursor/claude-opus-5.5' },
+} as const;
+const costModel = z.enum([
+  modelProfiles.openrouter.primary,
+  modelProfiles.openrouter.peer,
+  modelProfiles['cursor-acp'].primary,
+  modelProfiles['cursor-acp'].peer,
+]);
 const sha = z.string().regex(/^[0-9a-f]{40}$/u);
 const identifier = z
   .string()
@@ -46,9 +54,12 @@ const resultSchema = z.object({
   status: z.literal('passed'),
   commit: sha,
   errorId: z.uuid(),
+  modelTransport: z.enum(['openrouter', 'cursor-acp']).default('openrouter'),
+  mainModel: costModel.optional(),
   registration: reviewedCase,
   maintenance: reviewedCase,
   verification: z.object({
+    gatewayTransport: z.enum(['openrouter', 'cursor-acp']).default('openrouter'),
     channels: z
       .array(
         z.discriminatedUnion('channel', [
@@ -60,7 +71,7 @@ const resultSchema = z.object({
           z.object({
             channel: z.literal('gateway'),
             model: z.literal('claude-opus-5-5-gateway'),
-            status: z.literal('settled'),
+            status: z.enum(['settled', 'unknown']),
           }),
         ]),
       )
@@ -98,6 +109,8 @@ export function summarizeAgentBaseline(
   const steps = report.steps.filter(({ name }) => name === 'walkthrough');
   const channels = result.verification.channels;
   const models = result.cost.map(({ model }) => model);
+  const profile = modelProfiles[result.modelTransport];
+  const gatewayStatus = channels.find(({ channel }) => channel === 'gateway')?.status;
   const registrationId = result.registration.url.slice(conversationUrl.length).toLowerCase();
   const maintenanceId = result.maintenance.url.slice(conversationUrl.length).toLowerCase();
   if (
@@ -112,12 +125,22 @@ export function summarizeAgentBaseline(
     evidence.completedAt - evidence.startedAt > (steps[0]!.seconds + 1) * 1000 ||
     new Set(channels.map(({ channel }) => channel)).size !== 2 ||
     new Set(models).size !== models.length ||
-    !result.cost.some(({ model, calls }) => model === primaryModel && calls >= 2)
+    models.some((model) => model !== profile.primary && model !== profile.peer) ||
+    !result.cost.some(({ model, calls }) => model === profile.primary && calls >= 2) ||
+    result.verification.gatewayTransport !== result.modelTransport ||
+    ((result.modelTransport === 'cursor-acp' || result.mainModel !== undefined) &&
+      result.mainModel !== profile.primary) ||
+    (result.modelTransport === 'openrouter' &&
+      channels.some(({ status }) => status !== 'settled')) ||
+    (result.modelTransport === 'cursor-acp' &&
+      (gatewayStatus !== 'unknown' ||
+        !result.cost.some(({ model, unknown }) => model === profile.peer && unknown > 0)))
   )
     throw new Error('真实模型走查的身份、专项或计量记录不匹配。');
 
   return {
-    primaryModel,
+    primaryModel: profile.primary,
+    modelTransport: result.modelTransport,
     completedAt: report.completedAt,
     base: report.base,
     head: report.head,

@@ -18,10 +18,19 @@ const missing = () =>
   new AppError(404, 'M02_GOAL_UNAVAILABLE', '请打开自己负责的美国维护目标，再设置 M02 定时核查。');
 type ScheduleRow = { enabled: boolean; enabled_by: string; version: number; updated_at: Date };
 
+async function availableM02Pack(db: Pick<Pool, 'query'>, environment: string) {
+  if (!permitsDraftAgentExecution(environment)) return null;
+  const pack = await latestRulePack(db, packCode, environment);
+  if (!pack) return null;
+  const definition = await loadManagedAgentDefinition(db, 'maintenance', 'full');
+  return definition.skills.some(({ id }) => id === 'M02') ? pack : null;
+}
+
 export async function getM02Schedule(
   db: Pick<Pool, 'query'>,
   actor: BrowserIdentity,
   goalId: string,
+  environment: string,
 ) {
   const {
     rows: [row],
@@ -34,6 +43,7 @@ export async function getM02Schedule(
   );
   if (!row) throw missing();
   return m02ScheduleViewSchema.parse({
+    available: !!(await availableM02Pack(db, environment)),
     enabled: row.enabled,
     version: row.version,
     updatedAt: row.updated_at?.toISOString() ?? null,
@@ -45,6 +55,7 @@ export async function setM02Schedule(
   actor: BrowserIdentity,
   goalId: string,
   input: M02ScheduleInput,
+  environment: string,
 ) {
   if (actor.kind !== 'browser') throw missing();
   const {
@@ -58,6 +69,13 @@ export async function setM02Schedule(
     [goalId, actor.userId],
   );
   if (!goal) throw missing();
+  const available = !!(await availableM02Pack(db, environment));
+  if (input.enabled && !available)
+    throw new AppError(
+      409,
+      'M02_SCHEDULE_UNAVAILABLE',
+      '维护 Agent、M02 或规则包当前不可用，暂不能启用定时核查。',
+    );
   if (input.enabled && (goal.status !== 'active' || !goal.project_open || !goal.workspace_ready))
     throw new AppError(409, 'M02_GOAL_INACTIVE', '请先恢复维护目标和项目，并为项目准备工作区。');
   const {
@@ -67,6 +85,7 @@ export async function setM02Schedule(
     throw new AppError(409, 'M02_SCHEDULE_CHANGED', '定时设置已变化，请刷新后重试。');
   if (before && before.enabled === input.enabled && before.enabled_by === actor.userId)
     return m02ScheduleViewSchema.parse({
+      available,
       enabled: before.enabled,
       version: before.version,
       updatedAt: before.updated_at.toISOString(),
@@ -85,6 +104,7 @@ export async function setM02Schedule(
     [actor.userId, input.enabled ? 'm02.schedule_enabled' : 'm02.schedule_disabled', goalId],
   );
   return m02ScheduleViewSchema.parse({
+    available,
     enabled: saved!.enabled,
     version: saved!.version,
     updatedAt: saved!.updated_at.toISOString(),
@@ -142,8 +162,9 @@ async function enqueueM02(
       direction_version: number;
       today: string;
       restricted: boolean;
+      enabled_at: Date;
     }>(
-      `SELECT g.project_id,g.owner_user_id,g.direction_version,
+      `SELECT g.project_id,g.owner_user_id,g.direction_version,s.updated_at AS enabled_at,
          to_char(($2::timestamptz AT TIME ZONE p.jurisdiction_tz)::date,'YYYY-MM-DD') AS today,
          (w.data_level='confidential' OR EXISTS(SELECT 1 FROM document d JOIN document_version v ON v.document_id=d.id
            WHERE d.project_id=p.id AND v.data_level='confidential') OR EXISTS(SELECT 1 FROM fact f
@@ -166,11 +187,15 @@ async function enqueueM02(
     const month = `m02:${goalId}:monthly:${periods.month}`;
     const annual = periods.annual ? `m02:${goalId}:annual:${periods.annual}` : null;
     const possible = annual ? [annual, month] : [month];
-    const { rows: fired } = await db.query<{ source_key: string }>(
-      `SELECT source_key FROM goal_event WHERE source='timer' AND source_key=ANY($1::text[])`,
-      [possible],
+    const { rows: fired } = await db.query<{ source_key: string; retryable: boolean }>(
+      `SELECT e.source_key,COALESCE(e.state='cancelled' AND r.status='failed' AND r.lease_generation=0
+        AND e.processed_at<$2,false) AS retryable FROM goal_event e LEFT JOIN run r ON r.id=e.wake_run_id
+        WHERE e.goal_id=$3 AND e.source='timer' AND e.source_key=ANY($1::text[])`,
+      [possible, goal.enabled_at, goalId],
     );
-    const due = possible.filter((key) => !fired.some(({ source_key }) => source_key === key));
+    const due = possible.filter(
+      (key) => !fired.some(({ source_key, retryable }) => source_key === key && !retryable),
+    );
     if (
       !due.length ||
       (
@@ -214,9 +239,12 @@ async function enqueueM02(
     ]);
     const event = await db.query<{ id: string }>(
       `INSERT INTO goal_event(goal_id,source,source_key,state,wake_run_id)
-       SELECT $1,'timer',key,'queued',$2 FROM unnest($3::text[]) AS pending(key) RETURNING id`,
+       SELECT $1,'timer',key,'queued',$2 FROM unnest($3::text[]) AS pending(key)
+       ON CONFLICT (source,source_key) DO UPDATE SET state='queued',wake_run_id=EXCLUDED.wake_run_id,processed_at=NULL
+       WHERE goal_event.goal_id=EXCLUDED.goal_id AND goal_event.state='cancelled' RETURNING id`,
       [goalId, run, due],
     );
+    if (event.rowCount !== due.length) throw new Error('M02_SCHEDULE_EVENT_CONFLICT');
     await appendConversationMessageTx(db, {
       runId: run,
       userId: goal.owner_user_id,
@@ -227,8 +255,11 @@ async function enqueueM02(
       },
     });
     await db.query(
-      "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system','m02.schedule_wakeup','run',$1)",
-      [run],
+      "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system',$1,'run',$2)",
+      [
+        fired.some(({ retryable }) => retryable) ? 'm02.schedule_requeued' : 'm02.schedule_wakeup',
+        run,
+      ],
     );
     await db.query('COMMIT');
     return true;
@@ -246,10 +277,8 @@ export async function scanM02Schedules(pool: Pool, environment: string, now = ne
     'SELECT goal_id FROM m02_schedule WHERE enabled ORDER BY goal_id',
   );
   if (!rows.length) return 0;
-  const pack = await latestRulePack(pool, packCode, environment);
+  const pack = await availableM02Pack(pool, environment);
   if (!pack) return 0;
-  const definition = await loadManagedAgentDefinition(pool, 'maintenance', 'full');
-  if (!definition.skills.some(({ id }) => id === 'M02')) return 0;
   let dispatched = 0;
   for (const { goal_id } of rows) if (await enqueueM02(pool, goal_id, pack, now)) dispatched++;
   return dispatched;

@@ -263,8 +263,13 @@ export async function inspectM02Walkthrough(
        FROM usage_ledger WHERE run_id=$1 GROUP BY model_id ORDER BY model_id`,
     [run],
   );
-  assert.ok(cost.some(({ model }) => model === 'openai/gpt-6.2-astra-pro'));
+  const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
+  const mainModel = cursorAcceptance ? 'cursor/gpt-5.6-sol' : 'openai/gpt-6.2-astra-pro';
+  assert.ok(cost.some(({ model, calls }) => model === mainModel && calls > 0));
+  if (cursorAcceptance) assert.deepEqual(cost.map(({ model }) => model), [mainModel]);
   return {
+    mainModel,
+    modelTransport: cursorAcceptance ? 'cursor-acp' : 'openrouter',
     ownerOffline: true,
     review: 'pending',
     official,

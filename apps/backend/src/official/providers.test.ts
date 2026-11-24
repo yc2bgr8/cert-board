@@ -200,7 +200,7 @@ test('openFDA 的 GUDID 查询限定公开产品代码和至少一个可复查�
     'product_codes.code.exact:"LRK" AND (brand_name.exact:"Example A" OR company_name.exact:"Synthetic Company" OR premarket_submissions.submission_number:"K123456")',
   );
   const matched = {
-    record_key: 'fixture-udi',
+    public_device_record_key: 'fixture-udi',
     brand_name: 'Example A',
     product_codes: [{ code: 'LRK' }],
     identifiers: [{ type: 'Primary', id: '012345' }],
@@ -237,6 +237,38 @@ test('openFDA 的 GUDID 查询限定公开产品代码和至少一个可复查�
       error: { code: 'NOT_FOUND', message: 'No matches found!' },
     }).records,
   ).toEqual([]);
+});
+
+test('真实 FDA UDI 回执分别提供公开记录键和主器械标识', () => {
+  const captured = recorded('fda-udi-positive-lrk');
+  const raw = captured.results[0];
+  const criteria = input({
+    dataset: 'fda_gudid_search',
+    productCode: 'LRK',
+    brandNames: ['EMA Now'],
+  });
+  expect(raw.record_key).toBeUndefined();
+  const primary = raw.identifiers.find((item: { type: string }) => item.type === 'Primary').id;
+  expect(normalizeOfficialResponse(criteria, captured).records).toMatchObject([
+    {
+      identifier: raw.public_device_record_key,
+      gudidRecordKey: raw.public_device_record_key,
+      primaryDeviceIdentifier: primary,
+      name: 'EMA Now',
+      productCode: 'LRK',
+    },
+  ]);
+  expect(raw.public_device_record_key).not.toEqual(primary);
+});
+
+test('FDA 精确名称保留 Unicode，并把名称中的引号和反斜线留在同一个字面值内', () => {
+  const brand = '示例™ "型号" \\ 双环';
+  const criteria = input({ dataset: 'fda_gudid_search', productCode: 'LRK', brandNames: [brand] });
+  const request = new URL(officialRequestUrl(criteria));
+  expect(request.searchParams.get('search')).toBe(
+    String.raw`product_codes.code.exact:"LRK" AND (brand_name.exact:"示例™ \"型号\" \\ 双环")`,
+  );
+  expect(() => input({ ...criteria, brandNames: ['示例\n二'] })).toThrow();
 });
 
 test('录制的 AccessGUDID 结果保留可证实的版本日期', () => {

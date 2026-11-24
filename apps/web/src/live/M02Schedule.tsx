@@ -21,7 +21,8 @@ export function M02Schedule({
   });
   if (schedule.isError) return <small role="alert">{errorMessage(schedule.error)}</small>;
   if (!schedule.data) return null;
-  const { enabled, version } = schedule.data;
+  const { available, enabled, version } = schedule.data;
+  if (!available && !enabled) return <small>定时核查暂不可用。</small>;
   return (
     <div>
       <button

@@ -13,6 +13,7 @@ import {
 } from '../budget/service.js';
 import { ModelGateway, type GatewayTransport, type UpstreamChatRequest } from './service.js';
 import { createWorkerModelTransport } from './transport.js';
+import { cursorAcceptanceModels } from './cursor-acceptance.js';
 
 let context: Awaited<ReturnType<typeof createIntegrationContext>>;
 let caller: GatewayContext;
@@ -161,6 +162,20 @@ async function localEndpoint(mock: () => unknown, timeoutMs = 2000) {
   };
 }
 
+test('Cursor 验收模型与其他外部模型一样禁止发送保密请求', async () => {
+  await context.pool.query("UPDATE conversation SET max_data_level='confidential' WHERE id=$1", [
+    caller.conversationId,
+  ]);
+  const fixture = transport(response());
+  const gateway = new ModelGateway(context.pool, {
+    version: 1, models: cursorAcceptanceModels,
+  }, fixture.handler, { environment: 'test' });
+  await expect(gateway.complete(request, caller)).rejects.toMatchObject({
+    code: 'MODEL_LOCAL_REQUIRED',
+  });
+  expect(fixture.calls()).toBe(0);
+});
+
 test('本地 OpenAI 兼容端点接收保密请求，保留工具参数并按实际令牌零费结算', async () => {
   const fixture = await localEndpoint(() => {
     const raw = response();
@@ -187,7 +202,8 @@ test('本地 OpenAI 兼容端点接收保密请求，保留工具参数并按实
   });
   try {
     const remote = configuration.models[0];
-    if (!remote || remote.transport === 'local') throw new Error('REMOTE_FIXTURE_MISSING');
+    if (!remote || remote.transport === 'local' || remote.transport === 'cursor-acp')
+      throw new Error('REMOTE_FIXTURE_MISSING');
     await expect(fixture.transport.catalog(remote)).rejects.toMatchObject({
       code: 'MODEL_PROXY_INVALID',
     });

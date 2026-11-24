@@ -31,7 +31,7 @@ export async function startVerificationWorker(
   const config =
     bundle && profileDirectory && path.isAbsolute(bundle) && path.isAbsolute(profileDirectory)
       ? {
-          executable: path.join(bundle, 'node.exe'),
+          executable: path.join(bundle, process.platform === 'win32' ? 'node.exe' : 'node'),
           entrypoint: path.join(bundle, 'index.js'),
           profileDirectory,
         }

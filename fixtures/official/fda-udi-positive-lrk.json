@@ -1,0 +1,28 @@
+{
+  "meta": {
+    "results": {
+      "skip": 0,
+      "limit": 1,
+      "total": 1
+    }
+  },
+  "results": [
+    {
+      "public_device_record_key": "00000000-0000-4000-8000-000000000001",
+      "brand_name": "EMA Now",
+      "company_name": "The Myerson Company Limited",
+      "public_version_date": "2021-07-27",
+      "product_codes": [
+        {
+          "code": "LRK"
+        }
+      ],
+      "identifiers": [
+        {
+          "id": "00842326101166",
+          "type": "Primary"
+        }
+      ]
+    }
+  ]
+}

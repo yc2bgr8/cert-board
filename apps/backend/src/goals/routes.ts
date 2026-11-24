@@ -84,7 +84,7 @@ export function registerGoalWakeupRoutes<Logger extends FastifyBaseLogger>(
     const actor = await requireBrowserIdentity(request, pool, config);
     const loc = parameters.safeParse(request.params);
     if (!loc.success) throw invalid();
-    return getM02Schedule(pool, actor, loc.data.id);
+    return getM02Schedule(pool, actor, loc.data.id, config.NODE_ENV);
   });
   app.post('/api/goals/:id/m02-schedule', { bodyLimit: 1024 }, async (request, reply) => {
     reply.header('cache-control', 'no-store');
@@ -102,7 +102,7 @@ export function registerGoalWakeupRoutes<Logger extends FastifyBaseLogger>(
       );
       if (!active.rowCount) throw new AppError(401, 'LOGIN_REQUIRED', '登录已失效，请重新登录。');
       const actor = await requireBrowserIdentity(request, db, config, { write: true });
-      const result = await setM02Schedule(db, actor, loc.data.id, body.data);
+      const result = await setM02Schedule(db, actor, loc.data.id, body.data, config.NODE_ENV);
       await db.query('COMMIT');
       return result;
     } catch (error) {

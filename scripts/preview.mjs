@@ -50,6 +50,11 @@ export async function previewEnvironment(slotName, officialFetcher = false) {
       : {}),
   };
   delete runtime.CERT_DEV_MODEL_ID;
+  delete runtime.CERT_CURSOR_ACCEPTANCE_WORKER;
+  if (slotName === 'walkthrough' && process.env.CERT_CURSOR_ACCEPTANCE === '1') {
+    runtime.CERT_CURSOR_ACCEPTANCE_WORKER = '1';
+    delete runtime.OPENROUTER_API_KEY;
+  }
   const seed = {
     ...backendEnvironment('api', runtime),
     ...Object.fromEntries(

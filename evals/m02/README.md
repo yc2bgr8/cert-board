@@ -5,3 +5,5 @@ E12 核对美国企业注册与列名。`l08-public.ts` 保存公开查询条件
 评测包含有记录、查询成功但零条和来源失败。成功零条的结论只覆盖当次条件。列名机构、注册号、到期年份、美国代理人企业、四个商品名、申请人登记和 UDI 查询各有待核实项。现场遇到变化需给出新回执及原因。站内提醒由程序计算日期，无任何真实联络。
 
 2026-11-24 实际核查时，列名回执中的商品名包含完整的 `Anti Snoring Mouthpiece L08` 后缀，UDI 精确查询用全名。美国代理人栏实际返回 `DCSTAR INC`，历史快照记为 `Registrar Corp`。代理人协议签署、有效期和变化原因继续待注册人员核实。
+
+同日从 openFDA 保存 `EMA Now` 的公开 UDI 非空样本。夹具保留一条记录和解析所用字段，设备记录 UUID 用合成值。单测分别检查 `public_device_record_key` 与 `identifiers` 中的主 DI，真实专项保留对公开回执两个原值的核对。含商标的名称以原字符串生成精确查询。[公开数据源](https://api.fda.gov/device/udi.json?search=product_codes.code.exact%3A%22LRK%22&limit=1) · [夹具](../../fixtures/official/fda-udi-positive-lrk.json)

@@ -16,6 +16,9 @@ const exactOpenFdaFields = {
   fda_registration_company: 'registration.name.exact',
 } as const;
 
+const exactLiteral = (value: string) =>
+  `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+
 export function officialRequestUrl(input: OfficialLookupInput) {
   if (
     input.asOf &&
@@ -33,7 +36,7 @@ export function officialRequestUrl(input: OfficialLookupInput) {
     );
   const fda = (key: keyof typeof exactOpenFdaFields, endpoint: string, value: string) => {
     const url = new URL(`https://api.fda.gov/device/${endpoint}.json`);
-    const conditions = [`${exactOpenFdaFields[key]}:"${value}"`];
+    const conditions = [`${exactOpenFdaFields[key]}:${exactLiteral(value)}`];
     if (input.dataset === 'fda_registration') {
       if (input.listedProductCode)
         conditions.push(`products.product_code:"${input.listedProductCode}"`);
@@ -72,8 +75,10 @@ export function officialRequestUrl(input: OfficialLookupInput) {
       return fda(input.dataset, 'registrationlisting', input.companyName);
     case 'fda_gudid_search': {
       const url = new URL('https://api.fda.gov/device/udi.json');
-      const matches = (input.brandNames ?? []).map((brand) => `brand_name.exact:"${brand}"`);
-      if (input.companyName) matches.push(`company_name.exact:"${input.companyName}"`);
+      const matches = (input.brandNames ?? []).map(
+        (brand) => `brand_name.exact:${exactLiteral(brand)}`,
+      );
+      if (input.companyName) matches.push(`company_name.exact:${exactLiteral(input.companyName)}`);
       if (input.kNumber) matches.push(`premarket_submissions.submission_number:"${input.kNumber}"`);
       url.searchParams.set(
         'search',
@@ -146,7 +151,8 @@ const registration = z.object({
     .optional(),
 });
 const fdaGUDID = z.object({
-  record_key: text,
+  public_device_record_key: nullableText,
+  record_key: nullableText,
   brand_name: nullableText,
   company_name: nullableText,
   public_version_date: optionalDate,
@@ -324,10 +330,11 @@ function normalizeRecord(input: OfficialLookupInput, raw: unknown): OfficialReco
       const brand = row.brand_name;
       const matchesBrand = brand && input.brandNames?.some((name) => sameIdentifier(brand, name));
       if (!matchesK && !matchesCompany && !matchesBrand) return null;
+      const recordKey = text.parse(row.public_device_record_key || row.record_key);
       const primary = row.identifiers?.find(({ type }) => type === 'Primary')?.id;
       return {
-        identifier: row.record_key.slice(0, 64),
-        gudidRecordKey: label(row.record_key),
+        identifier: recordKey.slice(0, 64),
+        gudidRecordKey: label(recordKey),
         primaryDeviceIdentifier: primary && primary.length <= 64 ? primary : undefined,
         name: label(row.brand_name),
         company: label(row.company_name),

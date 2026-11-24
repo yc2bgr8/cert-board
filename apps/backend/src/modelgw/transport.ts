@@ -3,8 +3,11 @@ import {
   isLocalGatewayEndpoint,
   selectGatewayModel,
   type ModelGatewayConfig,
+  type CursorGatewayModel,
   type OpenRouterGatewayModel,
 } from '@cert-board/shared';
+import type { CursorAcpConfig } from '../external-model/cursor-acp.js';
+import { sendCursorAcceptance } from './cursor-acceptance.js';
 
 type RemoteTarget = Pick<OpenRouterGatewayModel, 'baseUrl' | 'apiKeyEnv' | 'transport'>;
 type Target = RemoteTarget | { baseUrl: string | null; transport: 'local' };
@@ -15,6 +18,7 @@ type Options = {
   environment?: Record<string, string | undefined>;
   timeoutMs?: number;
   maxResponseBytes?: number;
+  cursorAcceptance?: CursorAcpConfig;
 };
 
 export class GatewayTransportError extends Error {
@@ -65,6 +69,7 @@ export class RealGatewayTransport {
   #credential: (name: string) => string | undefined;
   #timeout: number;
   #responseLimit: number;
+  #cursorAcceptance: CursorAcpConfig | undefined;
 
   constructor(options: Options) {
     let proxyUri: string | undefined;
@@ -93,13 +98,30 @@ export class RealGatewayTransport {
     )
       throw new GatewayTransportError('MODEL_TRANSPORT_LIMIT_INVALID');
     const environment = options.environment ?? process.env;
+    this.#cursorAcceptance = options.cursorAcceptance;
     this.#credential = (name) => environment[name];
     this.#dispatcher = proxyUri
       ? new ProxyAgent({ uri: proxyUri, requestTls: { rejectUnauthorized: true } })
       : undefined;
   }
 
-  async send(model: Target, body: unknown, signal?: AbortSignal): Promise<unknown> {
+  async send(
+    model: Target | CursorGatewayModel,
+    body: unknown,
+    signal?: AbortSignal,
+    beforeCursorDispatch?: () => Promise<void>,
+  ): Promise<unknown> {
+    if (model.transport === 'cursor-acp') {
+      if (!this.#cursorAcceptance)
+        throw new GatewayTransportError('MODEL_CURSOR_ACCEPTANCE_REQUIRED');
+      return sendCursorAcceptance(
+        this.#cursorAcceptance,
+        model,
+        body,
+        signal,
+        beforeCursorDispatch,
+      );
+    }
     return this.#call(model, 'chat/completions', body, signal);
   }
 
@@ -232,9 +254,10 @@ export class RealGatewayTransport {
 
 export function createWorkerModelTransport(models: ModelGatewayConfig, options: Options) {
   const local = selectGatewayModel(models, 'agent')?.transport === 'local';
+  const cursor = options.cursorAcceptance !== undefined;
   const { proxyUrl, ...rest } = options;
   return new RealGatewayTransport({
     ...rest,
-    ...(proxyUrl || !local ? { proxyUrl: proxyUrl ?? '' } : {}),
+    ...(proxyUrl || (!local && !cursor) ? { proxyUrl: proxyUrl ?? '' } : {}),
   });
 }

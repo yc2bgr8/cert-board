@@ -47,9 +47,10 @@ export function backendEnvironment(kind, local, inherited = process.env) {
     ...(kind !== 'api'
       ? ['OPENROUTER_API_KEY', 'HTTPS_PROXY', 'CERT_LOCAL_MODEL_BASE_URL', 'CERT_DEV_MODEL_ID']
       : []),
-    ...(kind === 'verification'
+    ...(kind === 'verification' || (kind === 'worker' && local.CERT_CURSOR_ACCEPTANCE_WORKER === '1')
       ? ['CERT_CURSOR_BUNDLE', 'CERT_CURSOR_PROFILE', 'CERT_CURSOR_PRIVACY_CONFIRMED']
       : []),
+    ...(kind !== 'api' ? ['CERT_CURSOR_ACCEPTANCE_WORKER'] : []),
     ...(kind === 'worker' || kind === 'verification'
       ? ['CERT_FETCHER_URL', 'CERT_WEB_EXTENDED_HOSTS']
       : []),

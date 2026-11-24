@@ -121,11 +121,12 @@ export async function checkCursorAccount(config: CursorAcpConfig) {
   }
 }
 
-export async function callCursorAcp(
+export async function readCursorTurn(
   config: CursorAcpConfig,
   modelId: string,
-  prompt: VerificationPrompt,
+  prompt: unknown,
   beforeDispatch: (processClosed: AbortSignal) => Promise<void>,
+  signal?: AbortSignal,
 ) {
   const model = cursorModels[modelId as keyof typeof cursorModels];
   if (typeof model !== 'string') throw new VerificationChannelError('failed');
@@ -136,6 +137,7 @@ export async function callCursorAcp(
   )
     throw new VerificationChannelError('not_installed');
   await verifiedProfile(config.profileDirectory);
+  if (signal?.aborted) throw new VerificationChannelError('failed', true);
   const workspace = await mkdtemp(path.join(tmpdir(), 'cert-board-cursor-'));
   const child = spawn(config.executable, [config.entrypoint, '--sandbox', 'enabled', 'acp'], {
     cwd: workspace,
@@ -164,6 +166,9 @@ export async function callCursorAcp(
     for (const waiter of waits.values()) waiter.reject(error);
     waits.clear();
   }
+  const onAbort = () => abort(new VerificationChannelError('failed'));
+  signal?.addEventListener('abort', onAbort, { once: true });
+  if (signal?.aborted) onAbort();
   const timer = setTimeout(
     () => abort(new VerificationChannelError('timeout')),
     config.timeoutMs ?? 300000,
@@ -259,21 +264,14 @@ export async function callCursorAcp(
       !answer.trim()
     )
       throw new VerificationChannelError('failed');
-    const reply = answer
-      .trim()
-      .replace(/^\x60\x60\x60(?:json)?\s*/iu, '')
-      .replace(/\s*\x60\x60\x60$/u, '');
-    try {
-      return { ...object.parse(JSON.parse(reply)), providerText: answer };
-    } catch {
-      return { text: answer, claims: [], providerText: answer };
-    }
+    return answer;
   } catch (cause) {
     if (cause instanceof VerificationChannelError)
       throw new VerificationChannelError(cause.code, cause.confirmedNotSent || !promptAttempted);
     throw new VerificationChannelError('failed', !promptAttempted);
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
     if (sessionId && error && !child.stdin.destroyed)
       write({ method: 'session/cancel', params: { sessionId } });
     child.stdin.end();
@@ -281,5 +279,23 @@ export async function callCursorAcp(
     lines.close();
     await closed;
     if (!(await readdir(workspace)).length) await rmdir(workspace).catch(() => undefined);
+  }
+}
+
+export async function callCursorAcp(
+  config: CursorAcpConfig,
+  modelId: string,
+  prompt: VerificationPrompt,
+  beforeDispatch: (processClosed: AbortSignal) => Promise<void>,
+) {
+  const answer = await readCursorTurn(config, modelId, prompt, beforeDispatch);
+  const reply = answer
+    .trim()
+    .replace(/^\x60\x60\x60(?:json)?\s*/iu, '')
+    .replace(/\s*\x60\x60\x60$/u, '');
+  try {
+    return { ...object.parse(JSON.parse(reply)), providerText: answer };
+  } catch {
+    return { text: answer, claims: [], providerText: answer };
   }
 }

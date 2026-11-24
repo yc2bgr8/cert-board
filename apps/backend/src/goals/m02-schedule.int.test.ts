@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as wait } from 'node:timers/promises';
 import { afterEach, expect, test } from 'vitest';
+import { createApp } from '../app.js';
 import { seedDevelopmentRulePack } from '../knowledge/rule-packs.js';
+import { finishAbandonedAgentRun } from '../queue/agent-queue.js';
 import { createIntegrationContext } from '../test-support/context.js';
 import { scanM02Schedules } from './m02-schedule.js';
 
@@ -43,6 +45,7 @@ test('只有当前负责人能通过浏览器启停，旧设置版本不能覆�
   const write = (headers: typeof login.headers, enabled: boolean, expectedVersion: number) =>
     context.app.inject({ method: 'POST', url, headers, payload: { enabled, expectedVersion } });
   expect((await context.app.inject({ url, headers: login.headers })).json()).toEqual({
+    available: true,
     enabled: false,
     version: 0,
     updatedAt: null,
@@ -60,6 +63,92 @@ test('只有当前负责人能通过浏览器启停，旧设置版本不能覆�
     version: 2,
   });
   expect((await write(login.headers, true, 2)).statusCode).toBe(409);
+});
+
+test('正式环境不给计划显示为可启用，现有设置仍可停用', async () => {
+  const { pool, owner, goal } = await setup();
+  const { headers } = await context.login();
+  const url = `/api/goals/${goal}/m02-schedule`;
+  const post = (app: ReturnType<typeof createApp>, enabled: boolean, expectedVersion: number) =>
+    app.inject({
+      method: 'POST',
+      url,
+      headers,
+      payload: { enabled, expectedVersion },
+    });
+  expect((await post(context.app, true, 0)).statusCode).toBe(200);
+  await pool.query('UPDATE app_user SET is_development=false WHERE id=$1', [owner]);
+  const production = createApp(
+    { ...context.config, NODE_ENV: 'production' },
+    {
+      database: pool,
+      checkDatabase: async () => undefined,
+      checkStorage: async () => undefined,
+      close: async () => undefined,
+    },
+  );
+  try {
+    expect((await production.inject({ url, headers })).json()).toMatchObject({
+      available: false,
+      enabled: true,
+    });
+    expect((await post(production, false, 1)).json()).toMatchObject({
+      available: false,
+      enabled: false,
+      version: 2,
+    });
+    const refused = await post(production, true, 2);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ error: { code: 'M02_SCHEDULE_UNAVAILABLE' } });
+    expect(await scanM02Schedules(pool, 'production')).toBe(0);
+  } finally {
+    await production.close();
+  }
+});
+
+test('重新启用时补做同一窗口中尚未启动的失败，已取得运行权的核查不重复', async () => {
+  const { pool, goal } = await setup();
+  const { headers } = await context.login();
+  const url = `/api/goals/${goal}/m02-schedule`;
+  const post = (enabled: boolean, expectedVersion: number) =>
+    context.app.inject({
+      method: 'POST',
+      url,
+      headers,
+      payload: { enabled, expectedVersion },
+    });
+  const today = new Date('2027-10-02T18:00Z');
+  const events = async () =>
+    (
+      await pool.query<{ id: string; wake_run_id: string; state: string; source_key: string }>(
+        'SELECT id,wake_run_id,state,source_key FROM goal_event WHERE goal_id=$1 ORDER BY source_key',
+        [goal],
+      )
+    ).rows;
+  expect((await post(true, 0)).statusCode).toBe(200);
+  expect(await scanM02Schedules(pool, 'test', today)).toBe(1);
+  const initial = await events();
+  expect(initial).toHaveLength(2);
+  expect((await post(false, 1)).statusCode).toBe(200);
+  expect((await post(true, 2)).statusCode).toBe(200);
+  expect(await finishAbandonedAgentRun(pool, initial[0]!.wake_run_id, true)).toBe(true);
+  expect((await events()).every(({ state }) => state === 'cancelled')).toBe(true);
+  expect(await scanM02Schedules(pool, 'test', today)).toBe(0);
+  expect((await post(false, 3)).statusCode).toBe(200);
+  expect((await post(true, 4)).statusCode).toBe(200);
+  const attempts = await Promise.all([
+    scanM02Schedules(pool, 'test', today),
+    scanM02Schedules(pool, 'test', today),
+  ]);
+  expect(attempts.sort()).toEqual([0, 1]);
+  const resumed = await events();
+  expect(resumed.map(({ id }) => id)).toEqual(initial.map(({ id }) => id));
+  expect(resumed[0]!.wake_run_id).not.toBe(initial[0]!.wake_run_id);
+  await pool.query('UPDATE run SET lease_generation=1 WHERE id=$1', [resumed[0]!.wake_run_id]);
+  expect(await finishAbandonedAgentRun(pool, resumed[0]!.wake_run_id, true)).toBe(true);
+  expect((await post(false, 5)).statusCode).toBe(200);
+  expect((await post(true, 6)).statusCode).toBe(200);
+  expect(await scanM02Schedules(pool, 'test', today)).toBe(0);
 });
 
 test('按法域月份唤醒离线负责人，年度窗口前一天触发，扫描并发不会重复', async () => {
