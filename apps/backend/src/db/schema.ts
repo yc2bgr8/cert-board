@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import type {
+  certQueryEventSchema,
   DeadlineCalculation,
   DeadlineNotice,
   DeadlineStage,
@@ -15,6 +16,7 @@ import type {
   VerificationModel,
   VerificationSettingsInput,
 } from '@cert-board/shared';
+import type { z } from 'zod';
 import {
   boolean,
   date,
@@ -472,6 +474,126 @@ export const documentDataLevel = pgEnum('document_data_level', [
   'internal',
   'confidential',
 ]);
+
+export const credential = pgTable(
+  'credential',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => certProject.id, { onDelete: 'restrict' }),
+    modelId: uuid('model_id').references(() => model.id, { onDelete: 'restrict' }),
+    holderEntityId: uuid('holder_entity_id')
+      .notNull()
+      .references(() => legalEntity.id, { onDelete: 'restrict' }),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    credentialType: varchar('credential_type', { length: 80 }).notNull(),
+    credentialNumber: varchar('credential_number', { length: 120 }).notNull(),
+    market: certMarket('market'),
+    effectiveDate: date('effective_date'),
+    expiryDate: date('expiry_date'),
+    expiryKind: varchar('expiry_kind', { length: 16 }).notNull().default('unknown'),
+    status: varchar('status', { length: 16 }).notNull(),
+    source: varchar('source', { length: 255 }).notNull(),
+    dataLevel: documentDataLevel('data_level').notNull().default('internal'),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    check(
+      'credential_values',
+      sql`length(btrim(${table.credentialType})) > 0
+      AND length(btrim(${table.credentialNumber})) > 0 AND length(btrim(${table.source})) > 0
+      AND ${table.version} > 0 AND ${table.status} IN ('active','expired','revoked')`,
+    ),
+    check(
+      'credential_expiry',
+      sql`${table.expiryKind} IN ('dated','perpetual','unknown')
+      AND (${table.expiryKind} = 'dated') = (${table.expiryDate} IS NOT NULL)
+      AND (${table.expiryDate} IS NULL OR ${table.effectiveDate} IS NULL OR ${table.effectiveDate} <= ${table.expiryDate})`,
+    ),
+    index('credential_project_expiry_idx').on(table.projectId, table.expiryDate),
+  ],
+);
+
+export const marketAuthorization = pgTable(
+  'market_authorization',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => certProject.id, { onDelete: 'restrict' }),
+    modelId: uuid('model_id')
+      .notNull()
+      .references(() => model.id, { onDelete: 'restrict' }),
+    market: certMarket('market').notNull(),
+    status: varchar('status', { length: 16 }).notNull(),
+    credentialId: uuid('credential_id').references(() => credential.id, { onDelete: 'restrict' }),
+    source: varchar('source', { length: 255 }).notNull(),
+    dataLevel: documentDataLevel('data_level').notNull().default('internal'),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    unique('market_authorization_model_market_key').on(table.modelId, table.market),
+    check('market_authorization_market', sql`${table.market} IN ('US','CA')`),
+    check(
+      'market_authorization_status',
+      sql`${table.status} IN ('not_applied','in_progress','sellable','listed','inactive')
+      AND (${table.status} NOT IN ('sellable','listed') OR ${table.credentialId} IS NOT NULL)
+      AND ${table.version} > 0 AND length(btrim(${table.source})) > 0`,
+    ),
+    index('market_authorization_project_idx').on(table.projectId, table.market),
+  ],
+);
+
+export const certMilestone = pgTable(
+  'cert_milestone',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => certProject.id, { onDelete: 'restrict' }),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    milestoneType: varchar('milestone_type', { length: 80 }).notNull(),
+    title: varchar('title', { length: 255 }).notNull(),
+    plannedDate: date('planned_date').notNull(),
+    completedDate: date('completed_date'),
+    dataLevel: documentDataLevel('data_level').notNull().default('internal'),
+    version: integer('version').notNull().default(1),
+  },
+  (table) => [
+    check(
+      'cert_milestone_values',
+      sql`length(btrim(${table.milestoneType})) > 0
+      AND length(btrim(${table.title})) > 0 AND ${table.version} > 0`,
+    ),
+    index('cert_milestone_project_date_idx').on(table.projectId, table.plannedDate),
+  ],
+);
+
+export const certQueryCoverage = pgTable(
+  'cert_query_coverage',
+  {
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => certProject.id, { onDelete: 'restrict' }),
+    dataset: varchar('dataset', { length: 24 }).notNull(),
+    source: varchar('source', { length: 255 }).notNull(),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }).notNull(),
+    dataLevel: documentDataLevel('data_level').notNull().default('internal'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.dataset] }),
+    check(
+      'cert_query_coverage_values',
+      sql`${table.dataset} IN ('credential','market_authorization','cert_milestone')
+      AND length(btrim(${table.source})) > 0`,
+    ),
+  ],
+);
 export const documentAuthorType = pgEnum('document_author_type', ['ai', 'human', 'external']);
 export const documentContentKind = pgEnum('document_content_kind', ['parsed_text', 'original']);
 export const documentPageMethod = pgEnum('document_page_method', ['text', 'ocr', 'docx', 'xlsx']);
@@ -2186,6 +2308,7 @@ export const runEvent = pgTable(
     contentHash: varchar('content_hash', { length: 64 }),
     sandboxInputHashes: varchar('sandbox_input_hashes', { length: 64 }).array(),
     sandboxOutputHashes: varchar('sandbox_output_hashes', { length: 64 }).array(),
+    certQuery: jsonb('cert_query').$type<z.infer<typeof certQueryEventSchema>>(),
     dataLevel: documentDataLevel('data_level'),
     reasonCode: runEventReason('reason_code'),
     inputTokens: bigint('input_tokens', { mode: 'number' }),

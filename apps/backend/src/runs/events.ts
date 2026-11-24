@@ -14,7 +14,7 @@ import { currentServiceIdentity } from '../auth/member.js';
 import { lockOwnedRun } from './lock.js';
 
 const columns = `e.id,e.run_id AS "runId",e.seq,e.type,e.invocation_id AS "invocationId",e.request_id AS "requestId",e.content_hash AS "contentHash",
-e.sandbox_input_hashes AS "sandboxInputHashes",e.sandbox_output_hashes AS "sandboxOutputHashes",e.data_level AS "dataLevel",e.reason_code AS "reasonCode",
+e.sandbox_input_hashes AS "sandboxInputHashes",e.sandbox_output_hashes AS "sandboxOutputHashes",e.cert_query AS "certQuery",e.data_level AS "dataLevel",e.reason_code AS "reasonCode",
 e.input_tokens AS "inputTokens",e.output_tokens AS "outputTokens",e.total_tokens AS "totalTokens",e.cost_nano AS "costNano",e.duration_ms AS "durationMs",e.created_at AS "createdAt"`;
 function dto(row: Record<string, unknown>) {
   return runEventRecordSchema.parse({
@@ -72,6 +72,22 @@ export async function appendRunEvent(pool: Pool, input: unknown) {
         'RUN_EVENT_REFERENCE_FORBIDDEN',
         '模型计量引用不属于当前运行，已拒绝写入事件。',
       );
+    if (
+      event.certQuery &&
+      (event.type !== 'tool_completed' ||
+        !event.invocationId ||
+        !(
+          await tx.query(
+            'SELECT id FROM tool_invocation WHERE id=$1 AND tool_name=$2 AND status=$3',
+            [event.invocationId, 'cert_query', 'completed'],
+          )
+        ).rowCount)
+    )
+      throw new AppError(
+        400,
+        'RUN_EVENT_CERT_QUERY_INVALID',
+        '台账查询回执只关联已完成的台账查询。',
+      );
     const seq = Number(run.last_event_seq) + 1;
     if (!Number.isSafeInteger(seq))
       throw new AppError(409, 'RUN_EVENT_SEQUENCE_LIMIT', '运行事件序号已达上限，请新建运行。');
@@ -80,8 +96,8 @@ export async function appendRunEvent(pool: Pool, input: unknown) {
       [seq, runId],
     );
     const saved = await tx.query<Record<string, unknown>>(
-      `INSERT INTO run_event AS e(run_id,seq,type,invocation_id,request_id,content_hash,data_level,reason_code,input_tokens,output_tokens,total_tokens,cost_nano,duration_ms,sandbox_input_hashes,sandbox_output_hashes)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING ${columns}`,
+      `INSERT INTO run_event AS e(run_id,seq,type,invocation_id,request_id,content_hash,data_level,reason_code,input_tokens,output_tokens,total_tokens,cost_nano,duration_ms,sandbox_input_hashes,sandbox_output_hashes,cert_query)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING ${columns}`,
       [
         runId,
         seq,
@@ -98,6 +114,7 @@ export async function appendRunEvent(pool: Pool, input: unknown) {
         event.durationMs ?? null,
         event.sandboxInputHashes ?? null,
         event.sandboxOutputHashes ?? null,
+        event.certQuery ?? null,
       ],
     );
     const record = dto(saved.rows[0]!);

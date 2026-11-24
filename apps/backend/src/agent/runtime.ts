@@ -5,6 +5,7 @@ import {
   agentIdentitySchema,
   chatMessageSchema,
   codeRunReceiptSchema,
+  certQueryResultSchema,
   runControlNotificationSchema,
   reviewSubmitResultSchema,
   toolApprovalPendingResultSchema,
@@ -890,6 +891,8 @@ export async function executeAgentRun(
                 }
               }
               const sandbox = runsSandbox ? codeRunReceiptSchema.parse(result.data) : undefined;
+              const certQuery =
+                entry.name === 'cert_query' ? certQueryResultSchema.parse(result.data) : undefined;
               await appendRunEvent(pool, {
                 runId,
                 userId: context.userId,
@@ -897,6 +900,17 @@ export async function executeAgentRun(
                   type: 'tool_completed',
                   invocationId: result.invocationId,
                   dataLevel,
+                  ...(certQuery && {
+                    certQuery: {
+                      status: certQuery.status,
+                      template: certQuery.template,
+                      catalogVersion: certQuery.catalogVersion,
+                      scope: certQuery.scope.kind,
+                      asOf: certQuery.asOf,
+                      gaps: certQuery.gaps,
+                      truncated: certQuery.truncated,
+                    },
+                  }),
                   ...(sandbox && {
                     contentHash: sandbox.codeSha256,
                     sandboxInputHashes: sandbox.inputHashes.map(({ sha256 }) => sha256),

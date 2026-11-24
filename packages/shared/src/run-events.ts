@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { nanoAmountSchema } from './budget.js';
 import { documentDataLevelSchema, sha256Schema } from './documents.js';
+import { certQueryEventSchema } from './cert-query.js';
 
 const id = z.string().uuid('运行或关联记录编号无效。');
 const count = z.number().int().nonnegative().safe();
@@ -38,6 +39,7 @@ const eventFields = {
   contentHash: sha256Schema.nullable().optional(),
   sandboxInputHashes: z.array(sha256Schema).max(16).nullable().optional(),
   sandboxOutputHashes: z.array(sha256Schema).max(32).nullable().optional(),
+  certQuery: certQueryEventSchema.nullable().optional(),
   dataLevel: documentDataLevelSchema.nullable().optional(),
   reasonCode: runEventReasonSchema.nullable().optional(),
   inputTokens: count.nullable().optional(),
