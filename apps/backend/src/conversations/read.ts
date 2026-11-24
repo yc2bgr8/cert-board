@@ -371,6 +371,9 @@ export async function readPublicEvents(
   );
 }
 export async function readMemberNotifications(database: Database, actor: BrowserIdentity) {
+  return readMemberNotificationsForUser(database, actor.userId);
+}
+export async function readMemberNotificationsForUser(database: Database, userId: string) {
   const conversationLimit = 50;
   const skillLimit = 10;
   const rows = (
@@ -435,7 +438,7 @@ export async function readMemberNotifications(database: Database, actor: Browser
        LEFT JOIN skill_rollback_proposal rb ON rb.id=p.id AND p.kind='skill'
        LEFT JOIN skill_version sv ON sv.id=rb.active_version_id
        ORDER BY (p.kind='skill'),p.created_at DESC,p.id DESC`,
-      [actor.userId, conversationLimit + 1, skillLimit + 1],
+      [userId, conversationLimit + 1, skillLimit + 1],
     )
   ).rows;
   const conversationItems = rows.filter(({ kind }) => kind !== 'skill');

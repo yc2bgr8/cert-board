@@ -160,7 +160,7 @@ export function Settings({
                     </div>
                     <div>
                       <dt>日摘要</dt>
-                      <dd>尚未接入</dd>
+                      <dd>站内 · 工作日 17:00</dd>
                     </div>
                   </dl>
                   {error && (

@@ -21,6 +21,7 @@ import {
   withConversationReadSession,
 } from '../conversations/read.js';
 import { createConversationStreams } from '../conversations/stream.js';
+import { readDailyDigest } from '../deadlines/daily-digest.js';
 
 export function registerConversationReadRoutes<Logger extends FastifyBaseLogger>(
   app: FastifyInstance<
@@ -92,5 +93,17 @@ export function registerConversationReadRoutes<Logger extends FastifyBaseLogger>
     if (Object.keys(request.query as object).length)
       throw new AppError(400, 'EVENT_QUERY_INVALID', '通知地址不接受查询参数。');
     return streams.open(request, reply, null);
+  });
+  app.get('/api/me/daily-digest', async (request, reply) => {
+    if (Object.keys(request.query as object).length)
+      throw new AppError(
+        400,
+        'DAILY_DIGEST_QUERY_INVALID',
+        '日摘要按当前登录账号读取，不接受查询参数。',
+      );
+    reply.header('cache-control', 'no-store');
+    return withConversationReadSession(pool, config, request, (tx, actor) =>
+      readDailyDigest(tx, actor.userId),
+    );
   });
 }

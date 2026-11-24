@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   loadModels: vi.fn(),
   createQueue: vi.fn(),
   startDeadlines: vi.fn(),
+  startDigest: vi.fn(),
   consume: vi.fn(),
   continuations: vi.fn(),
   lookupTicket: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock('./modelgw/service.js', () => ({ ModelGateway: class {} }));
 vi.mock('./agent/default-tools.js', () => ({ buildAgentTools: async () => [] }));
 vi.mock('./agent/runtime.js', () => ({ executeAgentRun: state.execute }));
 vi.mock('./deadlines/queue.js', () => ({ startDeadlineQueue: state.startDeadlines }));
+vi.mock('./deadlines/daily-digest-queue.js', () => ({ startDailyDigestQueue: state.startDigest }));
 vi.mock('./approvals/continuation.js', () => ({
   listContinuationsForDispatch: state.continuations,
   getContinuationTicket: state.lookupTicket,
@@ -83,6 +85,7 @@ test('后台把批准后续跑送回同一运行，旧初始任务和不匹配�
     expect.anything(),
     expect.anything(),
   );
+  expect(state.startDigest).toHaveBeenCalledExactlyOnceWith(expect.anything(), expect.anything());
   expect(state.enqueue).toHaveBeenCalledExactlyOnceWith(expect.anything(), runId, ticketId);
   const { signal } = new AbortController();
   await state.handler!(runId, signal);

@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import type { ProjectRecord } from '@cert-board/shared';
 import { api, errorMessage, type ConversationDetail } from './api.js';
 import type { MemberNotificationSnapshot } from './useMemberNotifications.js';
+import { DailyDigest } from './DailyDigest.js';
 import './pages.css';
 
 type Notice = MemberNotificationSnapshot['items'][number];
@@ -58,11 +59,13 @@ export function Inbox({
   error,
   projects,
   onOpen,
+  onOpenDigestTarget,
 }: {
   snapshot: MemberNotificationSnapshot | null;
   error: string | null;
   projects: readonly ProjectRecord[];
   onOpen(item: Notice): void;
+  onOpenDigestTarget?(projectId: string, conversationId: string | null): void;
 }) {
   const [filter, setFilter] = useState<(typeof filters)[number]>('all');
   const acknowledge = useMutation({
@@ -224,12 +227,7 @@ export function Inbox({
               <p className="live-page-message live-muted">暂无待处理期限提醒。</p>
             )}
           </section>
-          <section className="live-page-card">
-            <header className="live-page-card-head">
-              <h2>今天已完成</h2>
-            </header>
-            <p className="live-page-message live-muted">日摘要尚未接入。</p>
-          </section>
+          <DailyDigest onOpen={onOpen} onOpenTarget={onOpenDigestTarget} labels={noticeLabels} />
         </aside>
       </div>
     </div>

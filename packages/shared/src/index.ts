@@ -41,3 +41,4 @@ export * from './official.js';
 export * from './rules.js';
 export * from './deadlines.js';
 export * from './knowledge.js';
+export * from './daily-digest.js';

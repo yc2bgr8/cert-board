@@ -2997,6 +2997,31 @@ export const heartbeat = pgTable('heartbeat', {
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
 });
 
+export const dailyDigest = pgTable(
+  'daily_digest',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    businessDate: date('business_date', { mode: 'string' }).notNull(),
+    content: jsonb('content').notNull(),
+    generatedAt: timestamp('generated_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.businessDate] }),
+    check('daily_digest_workday', sql`EXTRACT(ISODOW FROM ${t.businessDate}) BETWEEN 1 AND 5`),
+    check(
+      'daily_digest_publish_time',
+      sql`(${t.generatedAt} AT TIME ZONE 'Asia/Shanghai')::date=${t.businessDate}
+      AND (${t.generatedAt} AT TIME ZONE 'Asia/Shanghai')::time >= TIME '17:00'`,
+    ),
+    check(
+      'daily_digest_content_bounded',
+      sql`jsonb_typeof(${t.content})='object' AND octet_length(${t.content}::text)<=65536`,
+    ),
+  ],
+);
+
 export const factCandidate = pgTable(
   'fact_candidate',
   {

@@ -398,3 +398,21 @@
   overflow-wrap: anywhere;
   font: inherit;
 }
+.live-daily-digest .live-page-card-head time {
+  color: var(--color-cb-muted);
+  font-size: 12px;
+}
+.live-daily-digest h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+.live-daily-digest ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 16px;
+}
+.live-daily-digest .live-page-message + .live-page-message {
+  border-top: 1px solid var(--color-cb-line);
+}

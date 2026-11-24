@@ -14,6 +14,7 @@ import { buildAgentTools } from './agent/default-tools.js';
 import { buildWebTools } from './tools/web-tools.js';
 import { executeAgentRun } from './agent/runtime.js';
 import { startDeadlineQueue } from './deadlines/queue.js';
+import { startDailyDigestQueue } from './deadlines/daily-digest-queue.js';
 import { DocumentParserClient, maximumDocumentBytes } from './documents/docsvc-client.js';
 import { startDocumentParseWorker } from './documents/parse-tasks.js';
 import { maximumIntakeBytes } from './intake/archive.js';
@@ -118,14 +119,12 @@ export async function startWorker() {
       environment: config.NODE_ENV,
     });
     const store = new BlobStore(resources.storage, config.MINIO_BUCKET);
-    const ruleSources = config.CERT_DOCSVC_URL ? {
-      store: new BlobStore(
-        resources.storage,
-        config.MINIO_BUCKET,
-        maximumDocumentBytes,
-      ),
-      parser: new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
-    } : undefined;
+    const ruleSources = config.CERT_DOCSVC_URL
+      ? {
+          store: new BlobStore(resources.storage, config.MINIO_BUCKET, maximumDocumentBytes),
+          parser: new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
+        }
+      : undefined;
     if (ruleSources) {
       const { store: originalStore, parser } = ruleSources;
       const packageStore = new BlobStore(
@@ -196,6 +195,7 @@ export async function startWorker() {
     );
     const queue = boss;
     await startDeadlineQueue(queue, resources.database);
+    await startDailyDigestQueue(queue, resources.database);
     const dispatchQueued = async () => {
       const queued = await resources.database.query<{ id: string }>(
         `SELECT id FROM run WHERE status='queued' AND trigger_type<>'evaluation' AND lease_generation=0 AND lease_owner IS NULL

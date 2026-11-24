@@ -442,6 +442,16 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     if (current.href !== window.location.href)
       window.history.replaceState(window.history.state, '', current);
   }, [view, conversationId]);
+  const openConversationTarget = (projectId: string | null, conversationId: string | null) => {
+    const project = availableProjects.find((candidate) => candidate.id === projectId);
+    if (project) setSidebarAgent(project.projectType);
+    setPanels([]);
+    setTab('conversation');
+    setProjectId(projectId);
+    setConversationId(conversationId);
+    setView('conversation');
+    setMobileOpen(false);
+  };
   const openNotice = (item: MemberNotificationSnapshot['items'][number]) => {
     if (item.kind === 'skill') {
       openDialog('settings', item.id);
@@ -459,14 +469,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       openProposal(item.id);
       return;
     }
-    const project = availableProjects.find((candidate) => candidate.id === item.projectId);
-    if (project) setSidebarAgent(project.projectType);
-    setPanels([]);
-    setTab('conversation');
-    setProjectId(item.projectId);
-    setConversationId(item.conversationId);
-    setView('conversation');
-    setMobileOpen(false);
+    openConversationTarget(item.projectId, item.conversationId);
   };
   const created = (
     id: string,
@@ -708,6 +711,9 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               error={notifications.error}
               projects={projects}
               onOpen={openNotice}
+              onOpenDigestTarget={(project, conversation) =>
+                conversation ? openConversationTarget(project, conversation) : openProject(project)
+              }
             />
           ) : view === 'conversation' && conversationId ? (
             <>

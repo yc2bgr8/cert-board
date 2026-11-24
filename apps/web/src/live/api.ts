@@ -73,6 +73,7 @@ import {
   verificationShareSchema,
   verificationLinkPageSchema,
   verificationReviewInputSchema,
+  dailyDigestResponseSchema,
   skillPageSchema,
   skillVersionViewSchema,
   skillActionSchema,
@@ -240,6 +241,8 @@ const signalOption = (signal: AbortSignal | undefined) => (signal ? { signal } :
 const externalPage = (cursor: string | null) =>
   cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
 export const api = {
+  dailyDigest: (signal?: AbortSignal) =>
+    request('/api/me/daily-digest', dailyDigestResponseSchema, signalOption(signal)),
   skills: (signal?: AbortSignal) => request('/api/skills', skillPageSchema, signalOption(signal)),
   skillRollbackPolicy: (signal?: AbortSignal) =>
     request('/api/skill-rollback-policy', skillRollbackPolicySchema, signalOption(signal)),

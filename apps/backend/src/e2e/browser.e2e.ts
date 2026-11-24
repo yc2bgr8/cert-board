@@ -13,6 +13,7 @@ import { startBrowserHarness } from '../test-support/browser-harness.js';
 import { reviewBrowserFlow } from '../test-support/browser-review-flow.js';
 import { calculateDeadline } from '../deadlines/calendar.js';
 import { scanDeadlineReminders } from '../deadlines/scan.js';
+import { buildDailyDigests } from '../deadlines/daily-digest.js';
 import { processTestOutbound } from '../outbound/service.js';
 import { developmentGoalId } from '../projects/seed.js';
 import { parseSkillDraftMarkdown } from '../skills/markdown.js';
@@ -1362,6 +1363,26 @@ async function main() {
     } finally {
       harness.verification.runtime.status = savedStatus;
     }
+    stage = '站内日摘要和项目链接';
+    await harness.pool.query(
+      `INSERT INTO goal(project_id,owner_user_id,title,acceptance_criteria,status,updated_at)
+        SELECT $1,id,'合成日摘要完成记录','合成验收','completed','2030-01-08T08:32:00Z'
+        FROM app_user WHERE username='admin'`,
+      [harness.projectId],
+    );
+    await buildDailyDigests(harness.pool, new Date('2030-01-08T09:00:00Z'));
+    await page.getByRole('button', { name: /待我处理/u }).click();
+    const digest = page.getByRole('region', { name: '日摘要', exact: true });
+    await digest.getByText('2030-01-08 · 北京时间', { exact: true }).waitFor();
+    const completedDigest = digest.getByRole('button', { name: '合成日摘要完成记录', exact: true });
+    await completedDigest.waitFor();
+    await digest.scrollIntoViewIfNeeded();
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+    });
+    await page.screenshot({ path: path.join(output, 'pr50-12-daily-digest-1440x900.png') });
+    await completedDigest.click();
+    await page.getByRole('heading', { name: 'L08 510(k)', exact: true }).waitFor();
     stage = 'CSP与零外网检查';
     const cspState = await page.evaluate(() => {
       const state = globalThis as typeof globalThis & {
@@ -1470,6 +1491,7 @@ async function main() {
             'agent_verification_waits_and_resumes_with_human_input',
             'stopping_conversation_stops_linked_verification',
             'cursor_unavailable_reaches_review_uncertainty',
+            'in_app_daily_digest_links_to_project',
             'width_1280',
           ],
           externalRequests,
@@ -1502,6 +1524,7 @@ async function main() {
             'pr-u4-08-files.png',
             'pr-u4-09-documents.png',
             'pr-u4-12-inbox.png',
+            'pr50-12-daily-digest-1440x900.png',
             'pr-15-12-deadline-inbox.png',
             'pr-u4-15-settings.png',
             'prd8-12-skill-rollback-inbox.png',
