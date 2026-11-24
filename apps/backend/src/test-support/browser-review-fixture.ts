@@ -17,7 +17,11 @@ export const browserRevisionText =
   '补充阅读范围：本次仅核对已导入摘要的两处文字，不代表完成整包资料审阅。';
 export const browserVerificationUncertainty = 'Cursor 通道不可用，对比器械编号的外部核实待补。';
 
-export function createBrowserReviewScript(revision: boolean, extraUncertainty?: string) {
+export function createBrowserReviewScript(
+  revision: boolean,
+  extraUncertainty?: string,
+  revisionText = browserRevisionText,
+) {
   if (process.env.NODE_ENV !== 'test') throw new Error('BROWSER_FIXTURE_TEST_ONLY');
   let step = 0;
   let hits: DocumentSearchItem[] = [];
@@ -73,7 +77,7 @@ export function createBrowserReviewScript(revision: boolean, extraUncertainty?: 
         const content =
           '# L08 K号写法核查\n\n两处写法不同，正确编号待注册人员核对原件确认。\n\n' +
           lines.join('\n\n') +
-          (revision ? `\n\n${browserRevisionText}\n` : '\n');
+          (revision ? `\n\n${revisionText}\n` : '\n');
         return {
           name: 'ws_write',
           input: { path: browserReviewPath, content, expectedSha256: current?.sha256 ?? null },

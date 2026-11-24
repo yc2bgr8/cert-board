@@ -41,3 +41,5 @@ export * from './official.js';
 export * from './rules.js';
 export * from './deadlines.js';
 export * from './knowledge.js';
+export * from './human-feedback.js';
+export * from './human-revision.js';

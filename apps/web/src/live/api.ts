@@ -73,6 +73,14 @@ import {
   verificationShareSchema,
   verificationLinkPageSchema,
   verificationReviewInputSchema,
+  humanFeedbackInputSchema,
+  humanFeedbackListSchema,
+  humanFeedbackResultSchema,
+  type HumanFeedbackInput,
+  humanRevisionInputSchema,
+  humanRevisionListSchema,
+  humanRevisionViewSchema,
+  type HumanRevisionInput,
   skillPageSchema,
   skillVersionViewSchema,
   skillActionSchema,
@@ -567,6 +575,28 @@ export const api = {
       conversationPublicRecordSchema,
       signalOption(signal),
     ),
+  humanFeedback: (id: string, signal?: AbortSignal) =>
+    request(
+      `/api/conversations/${identifier(id)}/feedback`,
+      humanFeedbackListSchema,
+      signalOption(signal),
+    ),
+  saveHumanFeedback: (id: string, input: HumanFeedbackInput) =>
+    request(`/api/conversations/${identifier(id)}/feedback`, humanFeedbackResultSchema, {
+      method: 'POST',
+      body: checked(humanFeedbackInputSchema, input),
+    }),
+  humanRevisions: (workspaceId: string, reviewId: string, signal?: AbortSignal) =>
+    request(
+      `/api/workspaces/${identifier(workspaceId)}/human-revisions?reviewId=${identifier(reviewId)}`,
+      humanRevisionListSchema,
+      signalOption(signal),
+    ),
+  saveHumanRevision: (workspaceId: string, input: HumanRevisionInput) =>
+    request(`/api/workspaces/${identifier(workspaceId)}/human-revisions`, humanRevisionViewSchema, {
+      method: 'POST',
+      body: checked(humanRevisionInputSchema, input),
+    }),
   createConversation: (input: ConversationCreateInput, projectId?: string) =>
     request(
       projectId ? `/api/projects/${identifier(projectId)}/conversations` : '/api/conversations',

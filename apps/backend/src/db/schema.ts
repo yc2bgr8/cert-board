@@ -2485,6 +2485,88 @@ export const conversationMessage = pgTable(
     ),
   ],
 );
+export const humanFeedback = pgTable(
+  'human_feedback',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversation.id, { onDelete: 'restrict' }),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => run.id, { onDelete: 'restrict' }),
+    messageId: uuid('message_id').references(() => conversationMessage.id, {
+      onDelete: 'restrict',
+    }),
+    reviewId: uuid('review_id').references(() => reviewCard.id, { onDelete: 'restrict' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    browserSessionId: uuid('browser_session_id').notNull(),
+    requestKey: uuid('request_key').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    rating: varchar('rating', { length: 10 }).$type<'helpful' | 'unhelpful'>().notNull(),
+    reason: varchar('reason', { length: 600 }),
+    skills: jsonb('skills').$type<{ id: string; version: string }[]>().notNull(),
+    dataLevel: documentDataLevel('data_level').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    unique('human_feedback_request_unique').on(t.userId, t.requestKey),
+    check('human_feedback_target_required', sql`num_nonnulls(${t.messageId},${t.reviewId})=1`),
+    check(
+      'human_feedback_rating_ok',
+      sql`(${t.rating}='helpful' AND ${t.reason} IS NULL) OR
+        (${t.rating}='unhelpful' AND (${t.reason} IS NULL OR btrim(${t.reason}) <> ''))`,
+    ),
+    check('human_feedback_hash_ok', sql`${t.fingerprint} ~ '^[a-f0-9]{64}$'`),
+    check(
+      'human_feedback_skills_ok',
+      sql`jsonb_typeof(${t.skills})='array' AND jsonb_array_length(${t.skills})<=16`,
+    ),
+    index('human_feedback_conversation_user_idx').on(t.conversationId, t.userId, t.createdAt),
+  ],
+);
+export const humanRevision = pgTable(
+  'human_revision',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'restrict' }),
+    reviewId: uuid('review_id')
+      .notNull()
+      .references(() => reviewCard.id, { onDelete: 'restrict' }),
+    sourceVersionId: uuid('source_version_id')
+      .notNull()
+      .references(() => workspaceVersion.id, { onDelete: 'restrict' }),
+    newVersionId: uuid('new_version_id')
+      .notNull()
+      .unique()
+      .references(() => workspaceVersion.id, { onDelete: 'restrict' }),
+    authorId: uuid('author_id')
+      .notNull()
+      .references(() => appUser.id, { onDelete: 'restrict' }),
+    browserSessionId: uuid('browser_session_id').notNull(),
+    requestKey: uuid('request_key').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    path: text('path').notNull(),
+    skillId: varchar('skill_id', { length: 64 }).notNull(),
+    skillVersion: varchar('skill_version', { length: 128 }).notNull(),
+    difference: jsonb('difference').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    unique('human_revision_request_unique').on(t.authorId, t.requestKey),
+    check('human_revision_source_distinct', sql`${t.sourceVersionId}<>${t.newVersionId}`),
+    check('human_revision_hash_ok', sql`${t.fingerprint} ~ '^[a-f0-9]{64}$'`),
+    check(
+      'human_revision_diff_bounded',
+      sql`jsonb_typeof(${t.difference})='object' AND octet_length(${t.difference}::text)<=524288`,
+    ),
+    index('human_revision_review_idx').on(t.workspaceId, t.reviewId, t.createdAt),
+  ],
+);
 export const conversationEvent = pgTable(
   'conversation_event',
   {

@@ -4,6 +4,8 @@ import type { DocumentCitation, ReviewCardView, ReviewDecisionInput } from '@cer
 import { SafeMarkdown } from '../SafeMarkdown.js';
 import { useBrowserCommand } from './ApprovalCard.js';
 import { api, errorMessage, isStaleError } from './api.js';
+import { HumanFeedback } from './HumanFeedback.js';
+import { HumanRevision } from './HumanRevision.js';
 import { verificationSettingsKey } from './VerificationWorkbench.js';
 import {
   LinkedVerificationHistoryActions,
@@ -420,6 +422,22 @@ function ReviewCardContent({
               />
             </details>
           )}
+          {workspace.data &&
+            card.diff.changes.some(
+              ({ path, afterSha256 }) => afterSha256 && /\.(md|txt)$/iu.test(path),
+            ) && (
+              <HumanRevision
+                workspaceId={workspace.data.id}
+                projectId={card.projectId}
+                reviewId={card.id}
+                sourceVersionId={card.workspaceVersion}
+                expectedCurrentVersionId={workspace.data.currentVersionId}
+                current={version?.authorType === 'ai'}
+                paths={card.diff.changes
+                  .filter(({ path, afterSha256 }) => afterSha256 && /\.(md|txt)$/iu.test(path))
+                  .map(({ path }) => path)}
+              />
+            )}
         </ReviewSection>
         <ReviewSection title="依据">
           {sources[0] && secondLocation && (
@@ -574,6 +592,7 @@ function ReviewCardContent({
       </div>
       <footer className="live-review-footer">
         <h3 className="sr-only">操作</h3>
+        <HumanFeedback conversationId={card.conversationId} kind="review" targetId={card.id} />
         {pending ? (
           <>
             <div className="live-review-actions">

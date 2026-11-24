@@ -299,6 +299,7 @@ function ConversationView({
                     {index === processIndex && <InlineExecution activities={entry.tools} />}
                     <ChatBubble
                       message={message}
+                      conversationId={record.id}
                       agentName={agentNames[record.agentCode]}
                       maintenance={record.agentCode === 'maintenance'}
                     />

@@ -257,3 +257,30 @@
   color: var(--color-cb-bad);
   margin-top: 6px;
 }
+.live-human-revision {
+  margin-top: 12px;
+}
+.live-human-revision form {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+.live-human-revision form label {
+  display: grid;
+  gap: 4px;
+}
+.live-human-file span {
+  padding: 6px 8px;
+  border: 1px solid var(--color-cb-line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.live-human-file:focus-within span {
+  outline: 2px solid var(--color-cb-teal-ink);
+  outline-offset: 2px;
+}
+.live-human-revision pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}

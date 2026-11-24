@@ -321,6 +321,9 @@ async function main() {
     await page.getByText('已读取资料原文，正确编号仍待确认。', { exact: false }).waitFor();
     await until(() => read.observed.calls === 3);
     assert.equal(read.observed.readPage, 1);
+    const messageFeedback = page.getByRole('group', { name: 'Agent 消息反馈', exact: true }).last();
+    await messageFeedback.getByRole('button', { name: '有用', exact: true }).click();
+    await messageFeedback.getByText('已记录反馈', { exact: true }).waitFor();
     await page
       .getByText(/^工具过程/)
       .first()
@@ -1362,6 +1365,34 @@ async function main() {
     } finally {
       harness.verification.runtime.status = savedStatus;
     }
+    stage = '审核卡反馈和人工修改稿';
+    await createConversation(page, harness.projectId, 'full', '人工修改稿验收');
+    harness.plan('human_revision_source');
+    await send(page, '请更新合成核查底稿并提交审核。');
+    await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
+    const humanReview = page.getByRole('article', { name: '审核结果', exact: true });
+    const cardFeedback = humanReview.getByRole('group', { name: '审核卡反馈', exact: true });
+    await cardFeedback.getByRole('button', { name: '没用', exact: true }).click();
+    await cardFeedback.getByLabel('反馈原因（选填）', { exact: true }).fill('合成反馈，请补范围。');
+    await cardFeedback.getByRole('button', { name: '提交反馈', exact: true }).click();
+    await cardFeedback.getByText('已记录反馈', { exact: true }).waitFor();
+    stage = '从审核卡上传人工修改稿并核对段落';
+    await humanReview.getByText('人工修改稿', { exact: true }).click();
+    await humanReview.getByLabel('修改稿（Markdown 或纯文本）', { exact: true }).setInputFiles({
+      name: '合成修改稿.md',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from('合成修改后的范围\n\n合成修改后的结论\n\n核对原稿中的依据。'),
+    });
+    await humanReview.getByRole('button', { name: '上传并保存新版本', exact: true }).click();
+    const humanVersion = humanReview.getByText(/人工修改第 \d+ 版/u);
+    await humanVersion.waitFor();
+    await humanVersion.click();
+    await humanReview.getByText('合成修改后的结论', { exact: true }).waitFor();
+    await humanVersion.scrollIntoViewIfNeeded();
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+    });
+    await page.screenshot({ path: path.join(output, 'pr49-08-human-revision-1440x900.png') });
     stage = 'CSP与零外网检查';
     const cspState = await page.evaluate(() => {
       const state = globalThis as typeof globalThis & {
@@ -1470,6 +1501,7 @@ async function main() {
             'agent_verification_waits_and_resumes_with_human_input',
             'stopping_conversation_stops_linked_verification',
             'cursor_unavailable_reaches_review_uncertainty',
+            'browser_feedback_and_human_revision',
             'width_1280',
           ],
           externalRequests,
@@ -1500,6 +1532,7 @@ async function main() {
             'pr-u3-10-proposal.png',
             'pr-u4-03-project.png',
             'pr-u4-08-files.png',
+            'pr49-08-human-revision-1440x900.png',
             'pr-u4-09-documents.png',
             'pr-u4-12-inbox.png',
             'pr-15-12-deadline-inbox.png',

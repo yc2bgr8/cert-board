@@ -20,6 +20,7 @@ export type BrowserScenario =
   | 'approval'
   | 'review'
   | 'revision'
+  | 'human_revision_source'
   | 'approval_text'
   | 'review_decision_resume'
   | 'proposal'
@@ -75,10 +76,16 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
   if (process.env.NODE_ENV !== 'test') throw new Error('BROWSER_FIXTURE_TEST_ONLY');
   let phase = 0;
   const reviewScript =
-    kind === 'review' || kind === 'revision' || kind === 'consult_verification_unavailable'
+    kind === 'review' ||
+    kind === 'revision' ||
+    kind === 'human_revision_source' ||
+    kind === 'consult_verification_unavailable'
       ? createBrowserReviewScript(
           kind !== 'review',
           kind === 'consult_verification_unavailable' ? browserVerificationUncertainty : undefined,
+          kind === 'human_revision_source'
+            ? '合成人工改稿验收底稿，仍需补写具体核查范围。'
+            : undefined,
         )
       : undefined;
   let release!: () => void;

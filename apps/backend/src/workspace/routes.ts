@@ -14,6 +14,8 @@ import {
   workspaceReadQuerySchema,
   workspaceDiffQuerySchema,
   workspaceDiffResponseSchema,
+  humanRevisionQuerySchema,
+  humanRevisionMaxBytes,
   type BackendConfig,
   type BrowserIdentity,
   type WorkspaceFileRecord,
@@ -25,6 +27,8 @@ import {
   getWorkspaceByProject,
   listVersions,
   listVersionFiles,
+  listHumanRevisions,
+  saveHumanRevision,
   readVersionFile,
 } from './service.js';
 import { compareFileManifests, compareTextLines } from './diff.js';
@@ -108,6 +112,42 @@ export function registerWorkspaceRoutes<Logger extends FastifyBaseLogger>(
     reply.header('cache-control', 'no-store');
     return listVersions(pool, identity, identifier(request.params), request.query);
   });
+  app.get('/api/workspaces/:id/human-revisions', async (request, reply) => {
+    const identity = await requireBrowserIdentity(request, pool, config);
+    const query = humanRevisionQuerySchema.safeParse(request.query);
+    if (!query.success) throw bad();
+    reply.header('cache-control', 'no-store');
+    return listHumanRevisions(pool, identity, identifier(request.params), query.data.reviewId);
+  });
+  app.post(
+    '/api/workspaces/:id/human-revisions',
+    { bodyLimit: humanRevisionMaxBytes * 6 + 2048 },
+    async (request, reply) => {
+      const storage = requireStore(store);
+      const workspaceId = identifier(request.params);
+      const tx = await pool.connect();
+      try {
+        await tx.query('BEGIN');
+        const actor = await requireBrowserIdentity(request, tx, config, { write: true });
+        const locked = await tx.query(
+          `SELECT s.id FROM web_session s JOIN app_user u ON u.id=s.user_id
+        WHERE s.id=$1 AND s.user_id=$2 AND s.revoked_at IS NULL
+          AND s.expires_at>clock_timestamp() AND u.status='active' FOR SHARE OF s,u`,
+          [actor.sessionId, actor.userId],
+        );
+        if (!locked.rowCount) throw new AppError(401, 'LOGIN_REQUIRED', '登录已失效，请重新登录。');
+        const verified = await requireBrowserIdentity(request, tx, config, { write: true });
+        const revision = await saveHumanRevision(tx, storage, verified, workspaceId, request.body);
+        await tx.query('COMMIT');
+        return reply.header('cache-control', 'no-store').send(revision);
+      } catch (err) {
+        await tx.query('ROLLBACK').catch(() => undefined);
+        throw err;
+      } finally {
+        tx.release();
+      }
+    },
+  );
   app.get('/api/workspaces/:id/files', async (request, reply) => {
     const identity = await requireBrowserIdentity(request, pool, config);
     reply.header('cache-control', 'no-store');

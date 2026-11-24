@@ -23,6 +23,12 @@ import {
   workspaceUndoOverlaySchema,
   workspaceUndoSnapshotSchema,
   workspaceToolUndoStateSchema,
+  humanRevisionInputSchema,
+  humanRevisionListSchema,
+  humanRevisionViewSchema,
+  humanRevisionMaxBytes,
+  reviewDiffSchema,
+  type BrowserIdentity,
   type WorkspaceToolUndoState,
   type ServiceIdentity,
   type DataLevel,
@@ -32,6 +38,7 @@ import { authorize } from '../auth/authorization.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { compareFileManifests } from './diff.js';
 import { decodeUtf8Text, sliceUnicodeText } from './text.js';
+import { compareHumanRevision } from './paragraph-diff.js';
 
 type Executor = Pool | PoolClient;
 type Workspace = ReturnType<typeof workspaceRecordSchema.parse>;
@@ -910,21 +917,15 @@ async function assertCurrentBase(client: PoolClient, context: DraftContext) {
     },
   );
 }
-async function persistVersion(
+async function installWorkspaceVersion(
   client: PoolClient,
   identity: ServiceIdentity,
-  context: DraftContext,
+  workspace: Workspace,
   files: Manifest,
   summary: string,
-  action: string,
+  level: DataLevel,
 ) {
-  const parent = await currentVersion(client, context.workspace);
-  const level = highest(
-    context.workspace.dataLevel,
-    context.draft.dataLevel,
-    context.conversation.max_data_level,
-    ...[...files.values()].map((file) => file.dataLevel),
-  );
+  const parent = await currentVersion(client, workspace);
   const published = sorted(files).map((file) => ({
     ...file,
     dataLevel: highest(file.dataLevel, level),
@@ -933,8 +934,8 @@ async function persistVersion(
     `INSERT INTO workspace_version AS v(workspace_id,project_id,number,parent_version_id,author_user_id,author_type,summary,data_level)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ${versionFields}`,
     [
-      context.workspace.id,
-      context.workspace.projectId,
+      workspace.id,
+      workspace.projectId,
       parent.number + 1,
       parent.id,
       identity.userId,
@@ -952,7 +953,31 @@ async function persistVersion(
   );
   await client.query(
     'UPDATE workspace SET current_version_id=$1,data_level=$2,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$3',
-    [version.id, level, context.workspace.id],
+    [version.id, level, workspace.id],
+  );
+  return { version, parent, published };
+}
+async function persistVersion(
+  client: PoolClient,
+  identity: ServiceIdentity,
+  context: DraftContext,
+  files: Manifest,
+  summary: string,
+  action: string,
+) {
+  const level = highest(
+    context.workspace.dataLevel,
+    context.draft.dataLevel,
+    context.conversation.max_data_level,
+    ...[...files.values()].map((file) => file.dataLevel),
+  );
+  const { version, parent, published } = await installWorkspaceVersion(
+    client,
+    identity,
+    context.workspace,
+    files,
+    summary,
+    level,
   );
   const result = await client.query<Record<string, unknown>>(
     `UPDATE workspace_draft d SET base_version_id=$1,data_level=$2,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE id=$3 RETURNING ${draftFields}`,
@@ -971,6 +996,217 @@ async function persistVersion(
   );
   return workspaceSaveResultSchema.parse({ version, draft });
 }
+
+const humanRevisionFields = `${versionFields},h.id AS "revisionId",h.review_id AS "reviewId",
+  h.source_version_id AS "sourceVersionId",h.path,h.skill_id AS "skillId",
+  h.skill_version AS "skillVersion",h.difference,h.fingerprint`;
+function revisionView(row: Record<string, unknown>) {
+  const {
+    revisionId,
+    reviewId,
+    sourceVersionId,
+    path,
+    skillId,
+    skillVersion,
+    difference,
+    fingerprint: _fingerprint,
+    ...version
+  } = row;
+  return humanRevisionViewSchema.parse({
+    id: revisionId,
+    reviewId,
+    sourceVersionId,
+    path,
+    skillId,
+    skillVersion,
+    difference,
+    version: toVersion(version),
+  });
+}
+type RevisionReview = {
+  workspace_version_id: string;
+  skill_id: string;
+  skill_version: string;
+  data_level: DataLevel;
+  diff: unknown;
+};
+async function revisionReview(client: Executor, workspace: Workspace, reviewId: string) {
+  const {
+    rows: [row],
+  } = await client.query<RevisionReview>(
+    'SELECT workspace_version_id,skill_id,skill_version,data_level,diff FROM review_card WHERE id=$1 AND project_id=$2',
+    [reviewId, workspace.projectId],
+  );
+  if (!row) throw absent();
+  return row;
+}
+
+export async function listHumanRevisions(
+  pool: Pool,
+  identity: BrowserIdentity,
+  workspaceId: string,
+  reviewId: string,
+) {
+  const workspace = await workspaceAccess(pool, identity, workspaceId);
+  await revisionReview(pool, workspace, reviewId);
+  const { rows } = await pool.query(
+    `SELECT ${humanRevisionFields} FROM human_revision h
+      JOIN workspace_version v ON v.id=h.new_version_id AND v.workspace_id=h.workspace_id
+      WHERE h.workspace_id=$1 AND h.review_id=$2 ORDER BY h.created_at DESC,h.id DESC LIMIT 5`,
+    [workspace.id, reviewId],
+  );
+  return humanRevisionListSchema.parse({ items: rows.map(revisionView) });
+}
+
+export async function saveHumanRevision(
+  client: PoolClient,
+  store: DocumentBlobStore,
+  identity: BrowserIdentity,
+  workspaceId: string,
+  raw: unknown,
+) {
+  const parsed = humanRevisionInputSchema.safeParse(raw);
+  if (!parsed.success) throw invalid();
+  const input = parsed.data;
+  const sourceId = input.sourceVersionId.toLowerCase();
+  const expectedId = input.expectedCurrentVersionId.toLowerCase();
+  const reviewId = input.reviewId.toLowerCase();
+  const workspace = await workspaceAccess(client, identity, workspaceId, true, true);
+  const review = await revisionReview(client, workspace, reviewId);
+  const encoded = Buffer.from(input.text, 'utf8');
+  const sha256 = createHash('sha256').update(encoded).digest('hex');
+  const fingerprint = digest({
+    workspaceId: workspace.id,
+    reviewId,
+    sourceId,
+    expectedId,
+    path: input.path,
+    sha256,
+    dataLevel: input.dataLevel,
+  });
+  const stale = () =>
+    new AppError(
+      409,
+      'HUMAN_REVISION_CONFLICT',
+      '工作区或修改稿请求已经变化，请打开当前关联审核卡后重试。',
+    );
+  const {
+    rows: [prior],
+  } = await client.query(
+    `SELECT ${humanRevisionFields} FROM human_revision h JOIN workspace_version v ON v.id=h.new_version_id
+      WHERE h.author_id=$1 AND h.request_key=$2`,
+    [identity.userId, input.requestKey],
+  );
+  if (prior) {
+    if (prior.fingerprint !== fingerprint) throw stale();
+    return revisionView(prior);
+  }
+  if (workspace.currentVersionId !== expectedId || review.workspace_version_id !== sourceId)
+    throw stale();
+  const source = await versionAccess(client, identity, sourceId);
+  const sourceFiles = await manifest(client, sourceId);
+  const before = expectedId === sourceId ? sourceFiles : await manifest(client, expectedId);
+  const original = sourceFiles.get(input.path);
+  const changed = reviewDiffSchema
+    .parse(review.diff)
+    .changes.some(
+      (change) => change.path === input.path && change.afterSha256 === original?.sha256,
+    );
+  if (source.version.authorType !== 'ai' || !original || !changed)
+    throw new AppError(409, 'HUMAN_REVISION_SOURCE', '请选用当前审核卡中由 Agent 保存的文件。');
+  const currentFile = before.get(input.path);
+  if (
+    !currentFile ||
+    currentFile.sha256 !== original.sha256 ||
+    currentFile.byteSize !== original.byteSize ||
+    currentFile.mediaType !== original.mediaType
+  )
+    throw new AppError(
+      409,
+      'HUMAN_REVISION_FILE_CHANGED',
+      '所选文件此后已有修改，请保留现有版本并重新核对。',
+    );
+  const mediaType = original.mediaType.split(';', 1)[0]?.trim().toLowerCase();
+  if (
+    !/\.(md|txt)$/iu.test(input.path) ||
+    (mediaType !== 'text/plain' && mediaType !== 'text/markdown')
+  )
+    throw new AppError(415, 'HUMAN_REVISION_FORMAT', '当前支持 UTF-8 的 Markdown 和纯文本修改稿。');
+  if (original.byteSize > humanRevisionMaxBytes)
+    throw new AppError(413, 'HUMAN_REVISION_DIFF_LIMIT', '原稿超过当前对比大小上限。');
+  if (original.sha256 === sha256)
+    throw new AppError(409, 'HUMAN_REVISION_UNCHANGED', '上传内容与原稿完全一致。');
+  const rawBefore = await store.get(original.sha256);
+  if (
+    rawBefore.length !== original.byteSize ||
+    createHash('sha256').update(rawBefore).digest('hex') !== original.sha256
+  )
+    throw new AppError(500, 'WORKSPACE_CONTENT_MISMATCH', '原稿与登记的版本不一致，请刷新后重试。');
+  const difference = compareHumanRevision(decodeUtf8Text(rawBefore), input.text);
+  const blob = await store.put(encoded);
+  if (blob.sha256 !== sha256)
+    throw new AppError(500, 'WORKSPACE_CONTENT_MISMATCH', '修改稿写入后无法核对，请重试。');
+  const level = highest(
+    workspace.dataLevel,
+    original.dataLevel,
+    review.data_level,
+    input.dataLevel,
+  );
+  const files = new Map(before);
+  files.set(input.path, { ...currentFile, sha256, byteSize: encoded.length, dataLevel: level });
+  await decisionAppend(store, before, files);
+  const { version } = await installWorkspaceVersion(
+    client,
+    identity,
+    workspace,
+    files,
+    '上传人工修改稿',
+    level,
+  );
+  const {
+    rows: [saved],
+  } = await client.query<{ id: string }>(
+    `INSERT INTO human_revision(workspace_id,review_id,source_version_id,new_version_id,
+        author_id,browser_session_id,request_key,fingerprint,path,skill_id,skill_version,difference)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)
+      ON CONFLICT(author_id,request_key) DO NOTHING RETURNING id`,
+    [
+      workspace.id,
+      reviewId,
+      sourceId,
+      version.id,
+      identity.userId,
+      identity.sessionId,
+      input.requestKey,
+      fingerprint,
+      input.path,
+      review.skill_id,
+      review.skill_version,
+      JSON.stringify(difference),
+    ],
+  );
+  if (!saved) throw stale();
+  await audit(
+    client,
+    identity,
+    'workspace.human_revised',
+    'workspace_version',
+    version.id,
+    { sourceId, sha256: original.sha256, reviewId },
+    { versionId: version.id, sha256, revisionId: saved.id },
+  );
+  return humanRevisionViewSchema.parse({
+    id: saved.id,
+    reviewId,
+    sourceVersionId: sourceId,
+    path: input.path,
+    version,
+    skillId: review.skill_id,
+    skillVersion: review.skill_version,
+    difference,
+  });
+}
+
 export async function saveDraft(
   pool: Executor,
   store: DocumentBlobStore,

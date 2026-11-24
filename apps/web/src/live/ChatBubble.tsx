@@ -3,6 +3,7 @@
 import { SafeMarkdown } from '../SafeMarkdown.js';
 import type { LiveMessage } from './events.js';
 import { ShellIcon } from './ShellIcon.js';
+import { HumanFeedback } from './HumanFeedback.js';
 
 const clock = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
@@ -13,10 +14,12 @@ const clock = new Intl.DateTimeFormat('zh-CN', {
 
 export function ChatBubble({
   message,
+  conversationId,
   agentName,
   maintenance,
 }: {
   message: LiveMessage;
+  conversationId: string;
   agentName: string;
   maintenance: boolean;
 }) {
@@ -31,6 +34,13 @@ export function ChatBubble({
         <time dateTime={message.createdAt}>{clock.format(new Date(message.createdAt))}</time>
       </header>
       <SafeMarkdown workbench>{message.text}</SafeMarkdown>
+      {message.messageId && (
+        <HumanFeedback
+          conversationId={conversationId}
+          kind="message"
+          targetId={message.messageId}
+        />
+      )}
     </article>
   );
 }

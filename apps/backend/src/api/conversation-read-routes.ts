@@ -21,6 +21,7 @@ import {
   withConversationReadSession,
 } from '../conversations/read.js';
 import { createConversationStreams } from '../conversations/stream.js';
+import { listHumanFeedback } from '../conversations/human-feedback.js';
 
 export function registerConversationReadRoutes<Logger extends FastifyBaseLogger>(
   app: FastifyInstance<
@@ -76,6 +77,12 @@ export function registerConversationReadRoutes<Logger extends FastifyBaseLogger>
       );
     return withConversationReadSession(pool, config, request, (tx, actor) =>
       readPublicMessages(tx, actor, id(request.params), options.data),
+    );
+  });
+  app.get('/api/conversations/:id/feedback', async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    return withConversationReadSession(pool, config, request, (tx, actor) =>
+      listHumanFeedback(tx, actor, id(request.params)),
     );
   });
   app.get('/api/conversations/:id/events', async (request, reply) => {

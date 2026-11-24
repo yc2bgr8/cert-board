@@ -25,6 +25,7 @@ import {
   preflightConversationStopTx,
 } from '../conversations/commands.js';
 import { AppError } from './errors.js';
+import { saveHumanFeedback } from '../conversations/human-feedback.js';
 
 export function registerConversationWriteRoutes<Logger extends FastifyBaseLogger>(
   app: FastifyInstance<
@@ -96,6 +97,12 @@ export function registerConversationWriteRoutes<Logger extends FastifyBaseLogger
       sendConversationMessageTx(tx, actor, identifier(request), request.body),
     );
   });
+  app.post('/api/conversations/:id/feedback', { bodyLimit: 4_096 }, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    return browserTransaction(request, (tx, actor) =>
+      saveHumanFeedback(tx, actor, identifier(request), request.body),
+    );
+  });
   app.patch('/api/conversations/:id/permission-mode', options, async (request, reply) => {
     reply.header('cache-control', 'no-store');
     return browserTransaction(request, (tx, actor) =>
@@ -124,7 +131,8 @@ export function registerConversationWriteRoutes<Logger extends FastifyBaseLogger
       notifyUserId = actor.userId;
       return stopConversationRunTx(tx, actor, conversationId, input.data);
     });
-    if (notifyUserId) await notifyRunStop(pool, input.data.runId, notifyUserId).catch(() => undefined);
+    if (notifyUserId)
+      await notifyRunStop(pool, input.data.runId, notifyUserId).catch(() => undefined);
     return result;
   });
 }
