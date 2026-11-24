@@ -15,7 +15,11 @@ import { developmentProjectId } from '../projects/seed.js';
 import { nanoToUsd } from '../budget/meter.js';
 import { createDependencies } from '../dependencies.js';
 import { BlobStore } from '../documents/blob-store.js';
-import { requiredRevisionSections, revisionSections } from './walkthrough-report.js';
+import {
+  canRequestReviewResubmission,
+  requiredRevisionSections,
+  revisionSections,
+} from './walkthrough-report.js';
 import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthrough-batch.js';
 import { checkOfficialBrowserRun } from './official-walkthrough.js';
 import { checkRulesBrowserRun } from './rules-walkthrough.js';
@@ -88,6 +92,7 @@ async function waitForReview(
   pool: pg.Pool,
   conversationId: string,
   expectedCount: number,
+  resubmission?: { previousCardId: string; requested: boolean },
 ) {
   const until = Date.now() + budgetOfWaiting;
   let lastAnswered: string | null = null;
@@ -110,6 +115,26 @@ async function waitForReview(
       )
     ).rows[0];
     if (run && ['failed', 'stopped', 'budget_exhausted'].includes(run.status)) {
+      if (resubmission && !resubmission.requested && run.status === 'stopped') {
+        const reason = await pool.query<{ code: string | null }>(
+          `SELECT payload_json->>'reasonCode' AS code FROM conversation_event
+            WHERE run_id=$1 AND type='run_status' ORDER BY seq DESC LIMIT 1`,
+          [run.id],
+        );
+        if (canRequestReviewResubmission(
+          resubmission.previousCardId, cards, run.status, reason.rows[0]?.code ?? null,
+          resubmission.requested,
+        )) {
+          resubmission.requested = true;
+          console.log('真实 R09 改稿轮未生成审核卡。通过原对话发送一次重提请求。');
+          const resumed = await send(
+            page,
+            '请继续刚才的修改，核对同一报告路径内的核查范围、已核实和待核实三个小节，保存文件并重新提交审核卡。',
+          );
+          assert.notEqual(resumed.runId, run.id);
+          continue;
+        }
+      }
       console.error(`${stage}出现运行错误。错误编号 ${run.id}`);
       throw new Error('WALKTHROUGH_RUN_STOPPED');
     }
@@ -522,12 +547,14 @@ async function main() {
     const original = await waitForReview(page, pool, registration, 1);
     const firstReport = await inspectSubmission(pool, original, 'R09');
     await review(page, pool, original, path.join(evidenceFolder, 'r09-first-review.png'), false);
+    const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
+    const resubmission = cursorAcceptance ? { previousCardId: original, requested: false } : undefined;
     stage = '真实 R09 修改重提和人工通过';
     await send(
       page,
       '请修改原路径的 Markdown 报告，新增或更新“核查范围”“已核实”“待核实”三个带 Markdown 标题的小节。各小节都补实质内容，然后保存并重新提交审核。',
     );
-    const revised = await waitForReview(page, pool, registration, 2);
+    const revised = await waitForReview(page, pool, registration, 2, resubmission);
     await verifyRevision(pool, blobs, revised, firstReport);
     await review(page, pool, revised, path.join(evidenceFolder, 'r09-approved.png'), true);
     const registrationTools = await verifyTools(pool, registration);
@@ -584,7 +611,6 @@ async function main() {
         [startedAt],
       )
     ).rows;
-    const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
     const mainModel = cursorAcceptance ? 'cursor/gpt-5.6-sol' : 'openai/gpt-6.2-astra-pro';
     assert.ok(cost.some(({ model, calls }) => model === mainModel && calls > 0));
     if (cursorAcceptance) {
@@ -609,6 +635,7 @@ async function main() {
       registration: {
         url: `${config.WEB_ORIGIN}/?conversation=${registration}`,
         tools: registrationTools,
+        resubmissionRequested: resubmission?.requested ?? false,
       },
       maintenance: {
         url: `${config.WEB_ORIGIN}/?conversation=${maintenance}`,

@@ -1,5 +1,22 @@
 export const requiredRevisionSections = ['核查范围', '已核实', '待核实'] as const;
 
+export function canRequestReviewResubmission(
+  previousCardId: string,
+  cards: { id: string; status: string }[],
+  runStatus: string,
+  reasonCode: string | null,
+  alreadyRequested: boolean,
+) {
+  return (
+    !alreadyRequested &&
+    cards.length === 1 &&
+    cards[0]?.id === previousCardId &&
+    cards[0].status === 'rejected' &&
+    runStatus === 'stopped' &&
+    reasonCode === 'REVIEW_NOT_SUBMITTED'
+  );
+}
+
 export function revisionSections(markdown: Buffer) {
   const sections = new Map<string, string>();
   const active: Array<{ name: string; level: number }> = [];
