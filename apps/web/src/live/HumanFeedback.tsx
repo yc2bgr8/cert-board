@@ -90,6 +90,7 @@ export function HumanFeedback({
           <label>
             反馈原因（选填）
             <textarea
+              aria-label="反馈原因（选填）"
               rows={2}
               value={reason}
               maxLength={600}
