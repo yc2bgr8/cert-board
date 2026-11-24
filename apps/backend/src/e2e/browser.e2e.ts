@@ -13,6 +13,7 @@ import { startBrowserHarness } from '../test-support/browser-harness.js';
 import { reviewBrowserFlow } from '../test-support/browser-review-flow.js';
 import { calculateDeadline } from '../deadlines/calendar.js';
 import { scanDeadlineReminders } from '../deadlines/scan.js';
+import { saveOpsFindings } from '../ops/service.js';
 import { processTestOutbound } from '../outbound/service.js';
 import { developmentGoalId } from '../projects/seed.js';
 import { parseSkillDraftMarkdown } from '../skills/markdown.js';
@@ -1124,6 +1125,18 @@ async function main() {
       throw new Error('BROWSER_MANAGEMENT_LOGIN_FAILED');
     }
     authenticated = true;
+    await saveOpsFindings(
+      harness.pool,
+      [
+        {
+          key: 'gateway_credit',
+          level: 'critical',
+          detail: '最近一小时收到 OpenRouter 额度不足的回执。',
+          active: true,
+        },
+      ],
+      new Date(),
+    );
     await page.getByRole('button', { name: '设置', exact: true }).click();
     const maintenanceEntry = settings.getByRole('button', { name: '维护页', exact: true });
     await maintenanceEntry.press('Enter');
@@ -1134,6 +1147,13 @@ async function main() {
       .getByLabel('外部核实用量')
       .filter({ hasText: /本月 5 次/u })
       .waitFor();
+    const alerts = management.getByRole('region', { name: '本机运维告警', exact: true });
+    await alerts.getByText('最近一小时收到 OpenRouter 额度不足的回执。', { exact: true }).waitFor();
+    await alerts.scrollIntoViewIfNeeded();
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+    });
+    await page.screenshot({ path: path.join(output, 'pr51-16-ops-alerts-1440x900.png') });
     assert.ok((await management.getByText('尚未接入', { exact: true }).count()) > 0);
     await captureWorkbench(page, output, 'pr-u4-16-management.png');
     await captureWorkbench(page, output, 'pr-d6-16-budget.png');
@@ -1456,6 +1476,7 @@ async function main() {
             'inbox_type_filter',
             'profile_reads_actual_account_and_stream',
             'management_entry_only_with_permission',
+            'local_ops_alerts_admin_view',
             'verification_start_and_manual_mention',
             'verification_order_and_redaction_archive',
             'verification_four_categories_and_source_anchor',
@@ -1507,6 +1528,7 @@ async function main() {
             'prd8-12-skill-rollback-inbox.png',
             'prd8-15-skill-rollback-settings.png',
             'pr-u4-16-management.png',
+            'pr51-16-ops-alerts-1440x900.png',
             'pr-d6-14a-verification.png',
             'pr-d6-14b-verification.png',
             'pr-d6-15-privacy.png',

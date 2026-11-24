@@ -215,10 +215,14 @@ export class RealGatewayTransport {
       return parsed;
     } catch (error) {
       if (error instanceof GatewayTransportError) throw error;
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
       throw new GatewayTransportError(
         signal?.aborted
           ? 'MODEL_ABORTED'
-          : combined.aborted
+          : combined.aborted ||
+              code === 'UND_ERR_HEADERS_TIMEOUT' ||
+              code === 'UND_ERR_BODY_TIMEOUT' ||
+              code === 'UND_ERR_CONNECT_TIMEOUT'
             ? 'MODEL_TIMEOUT'
             : 'MODEL_TRANSPORT_FAILED',
       );

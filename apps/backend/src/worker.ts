@@ -39,6 +39,7 @@ import {
 } from './goals/verification-wakeups.js';
 import { scanGoalEvents, scanReviewDecisionEvents } from './goals/goal-events.js';
 import { scanSkillRollbackProposals } from './skills/rollback.js';
+import { scanOpsAlerts } from './ops/service.js';
 
 export async function startWorker() {
   const config = parseBackendConfig(process.env);
@@ -50,6 +51,7 @@ export async function startWorker() {
   let dispatchInterval: ReturnType<typeof setInterval> | undefined;
   let dispatch: Promise<void> | undefined;
   let maintenance: Promise<void> | undefined;
+  let opsScan: Promise<void> | undefined;
   let registration: Promise<string> | undefined;
   let stopPromise: Promise<void> | undefined;
   let stopDocumentWorker: (() => Promise<void>) | undefined;
@@ -83,6 +85,7 @@ export async function startWorker() {
       await Promise.allSettled([
         ...tasks,
         ...(maintenance ? [maintenance] : []),
+        ...(opsScan ? [opsScan] : []),
         ...(dispatch ? [dispatch] : []),
       ]);
       if (transport)
@@ -118,14 +121,12 @@ export async function startWorker() {
       environment: config.NODE_ENV,
     });
     const store = new BlobStore(resources.storage, config.MINIO_BUCKET);
-    const ruleSources = config.CERT_DOCSVC_URL ? {
-      store: new BlobStore(
-        resources.storage,
-        config.MINIO_BUCKET,
-        maximumDocumentBytes,
-      ),
-      parser: new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
-    } : undefined;
+    const ruleSources = config.CERT_DOCSVC_URL
+      ? {
+          store: new BlobStore(resources.storage, config.MINIO_BUCKET, maximumDocumentBytes),
+          parser: new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME),
+        }
+      : undefined;
     if (ruleSources) {
       const { store: originalStore, parser } = ruleSources;
       const packageStore = new BlobStore(
@@ -325,6 +326,21 @@ export async function startWorker() {
       await stop();
       throw new Error('WORKER_START_CANCELLED');
     }
+    const refreshOps = () => {
+      if (closing || opsScan) return;
+      opsScan = scanOpsAlerts(resources.database, config, resources, webTools.length > 0)
+        .then((opened) => {
+          for (const { key, level } of opened) {
+            logger.warn({ event: 'ops_alert_opened', key, level }, '已记录本机运维告警。');
+          }
+        })
+        .catch(() => {
+          logger.warn({ event: 'ops_scan_deferred' }, '本机运维检查暂未完成，后台会重试。');
+        })
+        .finally(() => {
+          opsScan = undefined;
+        });
+    };
     dispatchInterval = setInterval(() => {
       if (dispatch || closing) return;
       dispatch = dispatchQueued()
@@ -337,6 +353,7 @@ export async function startWorker() {
     }, 1_000);
     interval = setInterval(() => {
       logger.info({ event: 'worker_heartbeat' }, '后台进程心跳');
+      refreshOps();
       if (maintenance || closing) return;
       maintenance = (async () => {
         await reconcile();
@@ -348,6 +365,7 @@ export async function startWorker() {
           maintenance = undefined;
         });
     }, 30_000);
+    refreshOps();
     logger.info({ event: 'worker_ready' }, '后台运行器已就绪。');
     return { stop };
   } catch (error) {

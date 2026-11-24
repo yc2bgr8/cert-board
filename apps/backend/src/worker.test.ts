@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   loadModels: vi.fn(),
   createQueue: vi.fn(),
   startDeadlines: vi.fn(),
+  scanOps: vi.fn(),
   consume: vi.fn(),
   continuations: vi.fn(),
   lookupTicket: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock('./modelgw/service.js', () => ({ ModelGateway: class {} }));
 vi.mock('./agent/default-tools.js', () => ({ buildAgentTools: async () => [] }));
 vi.mock('./agent/runtime.js', () => ({ executeAgentRun: state.execute }));
 vi.mock('./deadlines/queue.js', () => ({ startDeadlineQueue: state.startDeadlines }));
+vi.mock('./ops/service.js', () => ({ scanOpsAlerts: state.scanOps }));
 vi.mock('./approvals/continuation.js', () => ({
   listContinuationsForDispatch: state.continuations,
   getContinuationTicket: state.lookupTicket,
@@ -105,6 +107,7 @@ beforeEach(() => {
   state.stopQueue.mockResolvedValue(undefined);
   state.createQueue.mockResolvedValue({ stop: state.stopQueue });
   state.startDeadlines.mockResolvedValue(undefined);
+  state.scanOps.mockResolvedValue([]);
   state.consume.mockImplementation(async (_boss, handler) => {
     state.handler = handler;
     return 'worker-fixture';

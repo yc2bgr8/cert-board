@@ -7,6 +7,7 @@ import { ShellIcon } from './ShellIcon.js';
 import type { StreamConnection } from './useConversationStream.js';
 import { ExternalSettings, ExternalUsageSummary } from './ExternalSettings.js';
 import { SkillVersions } from './SkillVersions.js';
+import { OpsAlerts } from './OpsAlerts.js';
 import './pages.css';
 
 const managementSections = [
@@ -217,14 +218,21 @@ function Maintenance({ user }: { user: PublicUser }) {
           )}
           {title === '预算与用量' && <ExternalUsageSummary userId={user.id} view="budget" />}
           {title === '模型配置' && <ExternalUsageSummary userId={user.id} view="models" />}
-          {title === '告警' && <ExternalUsageSummary userId={user.id} view="alert" />}
-          <p className="live-page-message live-muted">
-            {title === '用户与权限'
-              ? '账号管理尚未接入。'
-              : title === '预算与用量'
-                ? '其他预算视图尚未接入。'
-                : '尚未接入'}
-          </p>
+          {title === '告警' && (
+            <>
+              <OpsAlerts userId={user.id} />
+              <ExternalUsageSummary userId={user.id} view="alert" />
+            </>
+          )}
+          {title !== '告警' && (
+            <p className="live-page-message live-muted">
+              {title === '用户与权限'
+                ? '账号管理尚未接入。'
+                : title === '预算与用量'
+                  ? '其他预算视图尚未接入。'
+                  : '尚未接入'}
+            </p>
+          )}
         </section>
       ))}
     </div>

@@ -2997,6 +2997,43 @@ export const heartbeat = pgTable('heartbeat', {
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
 });
 
+export const modelGatewayFailure = pgTable(
+  'model_gateway_failure',
+  {
+    requestKey: uuid('request_key')
+      .primaryKey()
+      .references(() => usageLedger.requestKey, { onDelete: 'restrict' }),
+    kind: varchar('kind', { length: 24 }).$type<'error' | 'timeout' | 'credits'>().notNull(),
+    observedAt: timestamp('observed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('model_gateway_failure_kind_ok', sql`${t.kind} IN ('error','timeout','credits')`),
+    index('model_gateway_failure_recent_idx').on(t.observedAt),
+  ],
+);
+
+export const opsAlert = pgTable(
+  'ops_alert',
+  {
+    key: varchar('key', { length: 40 }).primaryKey(),
+    level: varchar('level', { length: 12 }).notNull(),
+    detail: varchar('detail', { length: 400 }).notNull(),
+    openedAt: timestamp('opened_at', { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  },
+  (t) => [
+    check('ops_alert_key_ok', sql`${t.key} ~ '^[a-z_]{1,40}$'`),
+    check('ops_alert_level_ok', sql`${t.level} IN ('warning','critical')`),
+    check('ops_alert_detail_present', sql`length(btrim(${t.detail}))>0`),
+    check(
+      'ops_alert_times_ok',
+      sql`${t.openedAt} <= ${t.lastSeenAt}
+      AND (${t.resolvedAt} IS NULL OR ${t.lastSeenAt} <= ${t.resolvedAt})`,
+    ),
+  ],
+);
+
 export const factCandidate = pgTable(
   'fact_candidate',
   {

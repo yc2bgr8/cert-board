@@ -439,7 +439,17 @@ export class ModelGateway {
     try {
       raw = await this.transport.send(model, body, signal);
     } catch (error) {
-      const rawUsage = object(error)?.usage,
+      const fault = object(error);
+      if (!signal?.aborted) {
+        await recordGatewayFailure(
+          this.pool,
+          context.requestKey,
+          fault?.code,
+          fault?.httpStatus,
+          model.baseUrl ? new URL(model.baseUrl).hostname : '',
+        ).catch(() => undefined);
+      }
+      const rawUsage = fault?.usage,
         usage = this.usage(rawUsage);
       if (usage || local)
         await this.account(context, usage ?? estimatedLocalUsage, rawUsage, local);
@@ -510,3 +520,4 @@ export class ModelGateway {
     });
   }
 }
+import { recordGatewayFailure } from '../ops/failure.js';

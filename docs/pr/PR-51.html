@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-51 本机运维告警</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#使用">使用</a><a class="level-2" href="#阈值">阈值</a><a class="level-2" href="#验收">验收</a><a class="level-2" href="#没做什么">没做什么</a></nav><main><h1 id="pr-51-本机运维告警">PR-51 本机运维告警</h1>
+<h2 id="使用">使用</h2>
+<ul><li>使用有管理权限的开发账号登录，打开「设置 → 维护页 → 告警」。页面展示当前活跃告警、最近检查时刻与过期状态。普通成员的浏览器会话无法读取告警接口。</li><li>后台每 30 秒检查既有本机服务与数据库记录。定时器仍使用原有扫描及心跳；告警检查超过三分钟未更新时，维护页提示检查后台进程。</li><li>模型网关只增加脱敏的失败分类，用于区分上游错误、超时和 OpenRouter 额度不足。原有返回值和计量流程照常。告警及日志留在本机。</li></ul>
+<h2 id="阈值">阈值</h2>
+<ul><li>服务探测失败、定时器超两小时未扫描、24 小时内唤醒失败、近一小时 OpenRouter 额度错误，以及已记录的最近一次备份失败，产生严重告警。</li><li>当前等待派发达到 20 条，或近一小时在至少 5 条样本时队列失败率及网关失败率达到 20%、网关超时率达到 10%，产生警告。</li><li>费用按既有月度告警比例、当月已结算金额产生警告。后端工作目录所在磁盘剩余少于 5 GiB 或 10% 时提示。无法取得的信号不用于声明已有告警恢复。</li></ul>
+<h2 id="验收">验收</h2>
+<ul><li><code>pnpm exec vitest run apps/backend/src/ops/rules.test.ts apps/backend/src/worker.test.ts apps/backend/src/modelgw/transport.test.ts</code> 检查所有告警规则和后台生命周期。</li><li><code>node scripts/test-integration.mjs apps/backend/src/ops/service.int.test.ts apps/backend/src/ops/guards.int.test.ts apps/backend/src/modelgw/service.int.test.ts</code> 检查实际数据库、管理员隔离、故障登记与恢复、后端用量分类及原计量。</li><li><code>pnpm test:e2e</code> 从浏览器维护页验证告警。<a href="../evidence/pr51-16-ops-alerts-1440x900.png">1440×900 界面证据</a></li><li>开发验收已通过 16 项单测、34 项专项集成和 Chromium 回归。模拟 402 仍按既有账本记为待核，维护页仅显示告警分类。浏览器外部请求、页面错误及模型费用均为零。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>备份告警读取现有审计的 <code>backup.failed</code> 与 <code>backup.completed</code> 信号。自动备份写入该信号随 PR-39 接入。</li><li>告警渠道按 v7 保持为本机日志和维护页。正式真实模型验收和同一提交复审仍待完成。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

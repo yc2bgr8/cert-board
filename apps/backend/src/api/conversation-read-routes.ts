@@ -21,6 +21,8 @@ import {
   withConversationReadSession,
 } from '../conversations/read.js';
 import { createConversationStreams } from '../conversations/stream.js';
+import { authorize } from '../auth/authorization.js';
+import { readOpsAlerts } from '../ops/service.js';
 
 export function registerConversationReadRoutes<Logger extends FastifyBaseLogger>(
   app: FastifyInstance<
@@ -92,5 +94,13 @@ export function registerConversationReadRoutes<Logger extends FastifyBaseLogger>
     if (Object.keys(request.query as object).length)
       throw new AppError(400, 'EVENT_QUERY_INVALID', '通知地址不接受查询参数。');
     return streams.open(request, reply, null);
+  });
+  app.get('/api/ops/alerts', async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    return withConversationReadSession(pool, config, request, (tx, actor) => {
+      if (!authorize(actor, 'ops.read'))
+        throw new AppError(403, 'OPS_ALERTS_FORBIDDEN', '运维告警仅系统维护人员可查看。');
+      return readOpsAlerts(tx);
+    });
   });
 }

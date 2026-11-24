@@ -12,7 +12,7 @@ import {
   reconcileUsage,
 } from '../budget/service.js';
 import { ModelGateway, type GatewayTransport, type UpstreamChatRequest } from './service.js';
-import { createWorkerModelTransport } from './transport.js';
+import { createWorkerModelTransport, GatewayTransportError } from './transport.js';
 
 let context: Awaited<ReturnType<typeof createIntegrationContext>>;
 let caller: GatewayContext;
@@ -229,7 +229,7 @@ test.each([
     response: () => response({ usage: undefined }),
     code: 'MODEL_USAGE_INCOMPLETE',
   },
-])('本地端点$scenario时停止该请求并记录零费用', async ({ response: mock, code }) => {
+])('本地端点$scenario时停止该请求并记录零费用', async ({ scenario, response: mock, code }) => {
   const fixture = await localEndpoint(mock, 1000);
   try {
     await expect(fixture.gateway.complete(request, caller)).rejects.toMatchObject({ code });
@@ -242,9 +242,39 @@ test.each([
     expect(Number(ledger.rows[0]?.input_tokens)).toBeGreaterThan(0);
     expect(Number(ledger.rows[0]?.output_tokens)).toBeGreaterThan(0);
     expect((await getBudgetSummary(context.pool)).counts.unknown).toBe(0);
+    if (scenario === '超时') {
+      const ops = await context.pool.query(
+        'SELECT kind FROM model_gateway_failure WHERE request_key=$1',
+        [caller.requestKey],
+      );
+      expect(ops.rows).toEqual([{ kind: 'timeout' }]);
+    }
   } finally {
     await fixture.close();
   }
+});
+
+test('额度失败只给本机告警登记分类，保留原模型错误和待核账状态', async () => {
+  const gateway = new ModelGateway(
+    context.pool,
+    configuration,
+    {
+      kind: 'fixture',
+      async send() {
+        throw new GatewayTransportError('MODEL_HTTP_ERROR', 402);
+      },
+    },
+    { environment: 'test' },
+  );
+  await expect(gateway.complete(request, caller)).rejects.toMatchObject({
+    code: 'MODEL_UPSTREAM_FAILED',
+  });
+  const event = await context.pool.query(
+    `SELECT f.kind,l.status FROM model_gateway_failure f JOIN usage_ledger l ON l.request_key=f.request_key
+      WHERE l.request_key=$1`,
+    [caller.requestKey],
+  );
+  expect(event.rows).toEqual([{ kind: 'credits', status: 'unknown' }]);
 });
 
 test('配置模型和限价透传，工具调用保留，用量先结算且只新预占派发一次', async () => {
