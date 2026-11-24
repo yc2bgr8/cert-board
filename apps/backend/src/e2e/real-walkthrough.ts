@@ -92,39 +92,55 @@ async function waitForReview(
   pool: pg.Pool,
   conversationId: string,
   expectedCount: number,
-  resubmission?: { previousCardId: string; requested: boolean },
+  resubmission?: { previousCardId: string; runId: string; requested: boolean },
 ) {
   const until = Date.now() + budgetOfWaiting;
   let lastAnswered: string | null = null;
   while (Date.now() < until) {
     const cards = (
-      await pool.query<{ id: string; status: string }>(
-        'SELECT id,status FROM review_card WHERE conversation_id=$1 ORDER BY created_at,id',
+      await pool.query<{ id: string; status: string; run_id: string }>(
+        'SELECT id,status,run_id FROM review_card WHERE conversation_id=$1 ORDER BY created_at,id',
         [conversationId],
       )
     ).rows;
     if (cards.length >= expectedCount && cards.at(-1)?.status === 'pending') {
+      if (resubmission) assert.equal(cards.at(-1)?.run_id, resubmission.runId);
       const next = page.getByRole('button', { name: '查看审核', exact: true }).last();
       await next.waitFor({ timeout: 15000 });
       return cards.at(-1)!.id;
     }
     const run = (
-      await pool.query<{ id: string; status: string }>(
-        'SELECT r.id,r.status FROM conversation c JOIN run r ON r.id=c.current_run_id WHERE c.id=$1',
-        [conversationId],
+      await pool.query<{ id: string; status: string; current_run_id: string | null }>(
+        `SELECT r.id,r.status,c.current_run_id FROM conversation c
+          JOIN run r ON r.id=COALESCE($2::uuid,c.current_run_id) AND r.conversation_id=c.id
+          WHERE c.id=$1`,
+        [conversationId, resubmission?.runId ?? null],
       )
     ).rows[0];
+    if (resubmission && run?.current_run_id !== resubmission.runId)
+      throw new Error('WALKTHROUGH_RUN_CHANGED');
     if (run && ['failed', 'stopped', 'budget_exhausted'].includes(run.status)) {
       if (resubmission && !resubmission.requested && run.status === 'stopped') {
-        const reason = await pool.query<{ code: string | null }>(
-          `SELECT payload_json->>'reasonCode' AS code FROM conversation_event
-            WHERE run_id=$1 AND type='run_status' ORDER BY seq DESC LIMIT 1`,
-          [run.id],
+        const reason = await pool.query<{ code: string | null; tool_failed: boolean }>(
+          `SELECT e.payload_json->>'reasonCode' AS code,EXISTS(
+              SELECT 1 FROM conversation_event f WHERE f.run_id=e.run_id AND f.type='tool_failed'
+            ) AS tool_failed
+            FROM conversation_event e JOIN conversation c ON c.current_run_id=e.run_id
+            WHERE c.id=$2 AND e.run_id=$1 AND e.type='run_status' ORDER BY e.seq DESC LIMIT 1`,
+          [run.id, conversationId],
         );
-        if (canRequestReviewResubmission(
-          resubmission.previousCardId, cards, run.status, reason.rows[0]?.code ?? null,
-          resubmission.requested,
-        )) {
+        const stopped = reason.rows[0];
+        if (
+          stopped &&
+          canRequestReviewResubmission(
+            resubmission.previousCardId,
+            cards,
+            run.status,
+            stopped.code,
+            resubmission.requested,
+            stopped.tool_failed,
+          )
+        ) {
           resubmission.requested = true;
           console.log('真实 R09 改稿轮未生成审核卡。通过原对话发送一次重提请求。');
           const resumed = await send(
@@ -132,6 +148,7 @@ async function waitForReview(
             '请继续刚才的修改，核对同一报告路径内的核查范围、已核实和待核实三个小节，保存文件并重新提交审核卡。',
           );
           assert.notEqual(resumed.runId, run.id);
+          resubmission.runId = resumed.runId;
           continue;
         }
       }
@@ -548,12 +565,14 @@ async function main() {
     const firstReport = await inspectSubmission(pool, original, 'R09');
     await review(page, pool, original, path.join(evidenceFolder, 'r09-first-review.png'), false);
     const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
-    const resubmission = cursorAcceptance ? { previousCardId: original, requested: false } : undefined;
     stage = '真实 R09 修改重提和人工通过';
-    await send(
+    const revision = await send(
       page,
       '请修改原路径的 Markdown 报告，新增或更新“核查范围”“已核实”“待核实”三个带 Markdown 标题的小节。各小节都补实质内容，然后保存并重新提交审核。',
     );
+    const resubmission = cursorAcceptance
+      ? { previousCardId: original, runId: revision.runId, requested: false }
+      : undefined;
     const revised = await waitForReview(page, pool, registration, 2, resubmission);
     await verifyRevision(pool, blobs, revised, firstReport);
     await review(page, pool, revised, path.join(evidenceFolder, 'r09-approved.png'), true);

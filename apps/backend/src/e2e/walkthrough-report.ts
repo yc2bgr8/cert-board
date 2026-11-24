@@ -6,9 +6,11 @@ export function canRequestReviewResubmission(
   runStatus: string,
   reasonCode: string | null,
   alreadyRequested: boolean,
+  hadToolError: boolean,
 ) {
   return (
     !alreadyRequested &&
+    !hadToolError &&
     cards.length === 1 &&
     cards[0]?.id === previousCardId &&
     cards[0].status === 'rejected' &&

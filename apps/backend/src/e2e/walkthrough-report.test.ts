@@ -3,10 +3,11 @@ import { canRequestReviewResubmission, revisionSections } from './walkthrough-re
 
 test('只在原 R09 卡已退回且重提轮明确没有送审时允许一次浏览器提醒', () => {
   const cards = [{ id: 'original', status: 'rejected' }];
-  const request = (status: string, reason: string | null, used = false) =>
-    canRequestReviewResubmission('original', cards, status, reason, used);
+  const request = (status: string, reason: string | null, used = false, toolError = false) =>
+    canRequestReviewResubmission('original', cards, status, reason, used, toolError);
   expect(request('stopped', 'REVIEW_NOT_SUBMITTED')).toBe(true);
   expect(request('stopped', 'REVIEW_NOT_SUBMITTED', true)).toBe(false);
+  expect(request('stopped', 'REVIEW_NOT_SUBMITTED', false, true)).toBe(false);
   expect(request('failed', 'MODEL_UPSTREAM_FAILED')).toBe(false);
   expect(request('stopped', 'MODEL_UPSTREAM_FAILED')).toBe(false);
   expect(request('budget_exhausted', 'REVIEW_NOT_SUBMITTED')).toBe(false);
@@ -18,7 +19,14 @@ test('只在原 R09 卡已退回且重提轮明确没有送审时允许一次浏
     [...cards, { id: 'revised', status: 'pending' }],
   ]) {
     expect(
-      canRequestReviewResubmission('original', previous, 'stopped', 'REVIEW_NOT_SUBMITTED', false),
+      canRequestReviewResubmission(
+        'original',
+        previous,
+        'stopped',
+        'REVIEW_NOT_SUBMITTED',
+        false,
+        false,
+      ),
     ).toBe(false);
   }
 });
