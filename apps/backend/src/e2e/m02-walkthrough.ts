@@ -256,17 +256,22 @@ export async function inspectM02Walkthrough(
     model: string;
     paid: string;
     unknown: number;
+    notSent: number;
     calls: number;
   }>(
     `SELECT model_id AS model,COALESCE(sum(actual_nano) FILTER(WHERE status='settled'),0)::text AS paid,
-       count(*) FILTER(WHERE status IN ('unknown','reserved'))::int AS unknown,count(*)::int AS calls
+       count(*) FILTER(WHERE status IN ('unknown','reserved'))::int AS unknown,
+       count(*) FILTER(WHERE status='not_sent')::int AS "notSent",count(*)::int AS calls
        FROM usage_ledger WHERE run_id=$1 GROUP BY model_id ORDER BY model_id`,
     [run],
   );
   const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
   const mainModel = cursorAcceptance ? 'cursor/gpt-5.6-sol' : 'openai/gpt-6.2-astra-pro';
   assert.ok(cost.some(({ model, calls }) => model === mainModel && calls > 0));
-  if (cursorAcceptance) assert.deepEqual(cost.map(({ model }) => model), [mainModel]);
+  if (cursorAcceptance) {
+    assert.deepEqual(cost.map(({ model }) => model), [mainModel]);
+    assert.ok(cost.every(({ calls, unknown, notSent, paid }) => calls === unknown + notSent && paid === '0'));
+  }
   return {
     mainModel,
     modelTransport: cursorAcceptance ? 'cursor-acp' : 'openrouter',

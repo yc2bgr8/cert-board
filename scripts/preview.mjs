@@ -8,6 +8,7 @@ import { parseEnv } from 'node:util';
 import { setTimeout as wait } from 'node:timers/promises';
 import { previewSlots } from '../packages/shared/src/config.ts';
 import { previewIsIdle } from '../apps/backend/src/preview/idle.ts';
+import { confirmCursorAcceptanceScope } from '../apps/backend/src/modelgw/cursor-acceptance-scope.ts';
 import { backendEnvironment } from './start-backend.mjs';
 import { localProcessEnvironment, runDev } from './dev.mjs';
 
@@ -51,8 +52,11 @@ export async function previewEnvironment(slotName, officialFetcher = false) {
   };
   delete runtime.CERT_DEV_MODEL_ID;
   delete runtime.CERT_CURSOR_ACCEPTANCE_WORKER;
-  if (slotName === 'walkthrough' && process.env.CERT_CURSOR_ACCEPTANCE === '1') {
-    runtime.CERT_CURSOR_ACCEPTANCE_WORKER = '1';
+  delete runtime.CERT_CURSOR_ACCEPTANCE_HEAD;
+  if (slotName === 'walkthrough' && process.env.CERT_CURSOR_ACCEPTANCE) {
+    const allowed = await confirmCursorAcceptanceScope(root, process.env.CERT_CURSOR_ACCEPTANCE, process.env.CERT_CURSOR_ACCEPTANCE_HEAD);
+    runtime.CERT_CURSOR_ACCEPTANCE_WORKER = allowed.pr;
+    runtime.CERT_CURSOR_ACCEPTANCE_HEAD = allowed.head;
     delete runtime.OPENROUTER_API_KEY;
   }
   const seed = {

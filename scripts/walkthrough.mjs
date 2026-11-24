@@ -61,7 +61,7 @@ async function main() {
   );
   await mkdir(folder, { recursive: true });
   const { runtime } = await previewEnvironment('walkthrough', useOfficialFetcher);
-  if (specialty?.flag === '--cursor-probe' && runtime.CERT_CURSOR_ACCEPTANCE_WORKER !== '1')
+  if (specialty?.flag === '--cursor-probe' && !runtime.CERT_CURSOR_ACCEPTANCE_WORKER)
     throw new Error('正式走查的 Cursor 合成预检须启用验收专用通道。');
   const live = diagnostic ? null : await startPreview('walkthrough', undefined, useOfficialFetcher);
   try {
@@ -82,7 +82,7 @@ async function main() {
           CERT_WALKTHROUGH_DIAGNOSTIC: diagnostic ? '1' : '0',
           CERT_WALKTHROUGH_VERIFICATION_ONLY: verificationOnly ? '1' : '0',
           CERT_WALKTHROUGH_BATCH: batch ? '1' : '0',
-          ...(runtime.CERT_CURSOR_ACCEPTANCE_WORKER === '1' && { CERT_WALKTHROUGH_CURSOR: '1' }),
+          ...(runtime.CERT_CURSOR_ACCEPTANCE_WORKER && { CERT_WALKTHROUGH_CURSOR: '1' }),
           ...(specialty ? { [specialty.environment]: '1' } : {}),
         },
       },

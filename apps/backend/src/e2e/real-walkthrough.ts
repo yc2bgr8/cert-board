@@ -654,9 +654,10 @@ async function main() {
       await wait(1000);
     }
     const cost = (
-      await pool.query<{ model: string; paid: string; unknown: number; calls: number }>(
+      await pool.query<{ model: string; paid: string; unknown: number; notSent: number; calls: number }>(
         `SELECT model_id AS model,COALESCE(sum(actual_nano) FILTER(WHERE status='settled'),0)::text AS paid,
-       count(*) FILTER(WHERE status IN ('unknown','reserved'))::int AS unknown,count(*)::int AS calls
+       count(*) FILTER(WHERE status IN ('unknown','reserved'))::int AS unknown,
+       count(*) FILTER(WHERE status='not_sent')::int AS "notSent",count(*)::int AS calls
        FROM usage_ledger WHERE created_at>=$1 GROUP BY model_id ORDER BY model_id`,
         [startedAt],
       )
@@ -665,6 +666,7 @@ async function main() {
     const mainModel = cursorAcceptance ? 'cursor/gpt-5.6-sol' : 'openai/gpt-6.2-astra-pro';
     assert.ok(cost.some(({ model, calls }) => model === mainModel && calls > 0));
     if (cursorAcceptance) {
+      assert.ok(cost.every(({ calls, unknown, notSent, paid }) => calls === unknown + notSent && paid === '0'));
       for (const conversationId of [registration, maintenance]) {
         const { rows } = await pool.query<{ model: string }>(
           `SELECT DISTINCT u.model_id AS model FROM usage_ledger u JOIN run r ON r.id=u.run_id

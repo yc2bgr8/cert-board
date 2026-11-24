@@ -151,6 +151,15 @@ test('Cursor 真实回执只接受相符的通道、两种模型并如实保留�
   expect(() =>
     summarize(report, { ...cursor, cost: [{ ...cursor.cost[0], unknown: 0 }, cursor.cost[1]] }),
   ).toThrow();
+  expect(() =>
+    summarize(report, { ...cursor, cost: [{ ...cursor.cost[0], unknown: 2 }, cursor.cost[1]] }),
+  ).toThrow();
+  expect(
+    summarize(report, {
+      ...cursor,
+      cost: [{ ...cursor.cost[0], unknown: 2, notSent: 2 }, cursor.cost[1]],
+    }),
+  ).toMatchObject({ requests: 5, unsettledRequests: 3 });
 });
 
 test('只接受虚拟机走查步骤记录的那轮回执', () => {

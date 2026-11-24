@@ -9,6 +9,7 @@ import {
 } from '@cert-board/shared';
 import { readCursorTurn, type CursorAcpConfig } from '../external-model/cursor-acp.js';
 import { VerificationChannelError } from '../external-model/verification-runtime.js';
+import { confirmCursorAcceptanceScope } from './cursor-acceptance-scope.js';
 
 const marker = '/etc/cert-board-acceptance-vm';
 const profiles: Pick<
@@ -49,7 +50,7 @@ export async function readCursorAcceptanceConfig(
   environment: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<CursorAcpConfig | undefined> {
-  if (env.CERT_CURSOR_ACCEPTANCE_WORKER !== '1') return;
+  if (!env.CERT_CURSOR_ACCEPTANCE_WORKER) return;
   const bundle = env.CERT_CURSOR_BUNDLE;
   const profileDirectory = env.CERT_CURSOR_PROFILE;
   if (
@@ -71,6 +72,11 @@ export async function readCursorAcceptanceConfig(
     (await readFile(marker, 'utf8')).trim() !== 'cert-board-acceptance'
   )
     throw new Error('CURSOR_ACCEPTANCE_VM_REQUIRED');
+  await confirmCursorAcceptanceScope(
+    process.cwd(),
+    env.CERT_CURSOR_ACCEPTANCE_WORKER,
+    env.CERT_CURSOR_ACCEPTANCE_HEAD,
+  );
   return {
     executable: path.join(bundle, 'node'),
     entrypoint: path.join(bundle, 'index.js'),

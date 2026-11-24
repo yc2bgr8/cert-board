@@ -166,7 +166,7 @@ export async function loadModelGatewayConfig(
 export async function loadVerificationModelGatewayConfig(options: ModelConfigLoadOptions = {}) {
   const sourceEnv = options.sourceEnv ?? process.env;
   const explicitlyConfigured =
-    (options.allowCursorAcceptance && sourceEnv.CERT_CURSOR_ACCEPTANCE_WORKER === '1') ||
+    (options.allowCursorAcceptance && Boolean(sourceEnv.CERT_CURSOR_ACCEPTANCE_WORKER)) ||
     sourceEnv.CERT_LOCAL_MODEL_BASE_URL?.trim() ||
     (sourceEnv.HTTPS_PROXY && sourceEnv.OPENROUTER_API_KEY);
   const models = await loadModelGatewayConfig({ ...options, sourceEnv }).catch((error: unknown) => {

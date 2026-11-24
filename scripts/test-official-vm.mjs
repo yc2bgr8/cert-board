@@ -13,7 +13,7 @@ async function main() {
   if (process.platform !== 'linux' || marker.trim() !== 'cert-board-acceptance')
     throw new Error('官方专项应在独立 Linux 验收虚拟机运行。');
   const m02 = process.argv.includes('--m02');
-  const cursorProbe = m02 && process.env.CERT_CURSOR_ACCEPTANCE === '1';
+  const cursorProbe = m02 && process.env.CERT_CURSOR_ACCEPTANCE === 'PR-34';
   let status;
   try {
     status =
