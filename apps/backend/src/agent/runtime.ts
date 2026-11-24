@@ -44,7 +44,7 @@ import {
   parkGoalWaitTx,
 } from '../goals/goal-events.js';
 import { createToolRuntime } from './tool-runtime.js';
-import { loadManagedAgentDefinition } from './definitions.js';
+import { loadManagedAgentDefinition, permitsDraftAgentExecution } from './definitions.js';
 import { toolLabel, toolSummary } from './tool-progress.js';
 import { sandboxWorkTimeMs } from '../sandbox/client.js';
 import { investigateSubagents, questionForSubagentConflicts, subagentTool } from './subagents.js';
@@ -111,6 +111,7 @@ type Context = {
   projectName: string;
   workspaceVersion: string;
   approvedReviewId: string | null;
+  m02Wake: boolean;
   actor: AgentIdentity;
 };
 const denied = () =>
@@ -141,6 +142,7 @@ async function loadContext(pool: Pool, runId: string): Promise<Context> {
       owner_user_id: string;
       current_version_id: string;
       approved_review_id: string | null;
+      m02_wake: boolean;
     }>(
       `SELECT r.id,r.user_id,r.conversation_id,r.project_id,r.goal_id,r.status,r.lease_generation,c.permission_mode,c.agent_code,u.username,u.display_name,u.is_development,u.is_management,p.name AS project_name,p.owner_user_id,w.current_version_id,
        (SELECT card.id FROM goal_event e JOIN review_decision d ON d.id::text=e.source_key
@@ -149,11 +151,16 @@ async function loadContext(pool: Pool, runId: string): Promise<Context> {
           AND e.source='review_decision' AND e.state='queued' AND d.action='approved'
           AND card.status='approved' AND card.conversation_id=r.conversation_id
           AND card.project_id=r.project_id AND card.goal_id=r.goal_id
-        ORDER BY e.created_at,e.id LIMIT 1) AS approved_review_id
+        ORDER BY e.created_at,e.id LIMIT 1) AS approved_review_id,
+       COALESCE(recurrence.present,false) AS m02_wake
     FROM run r JOIN conversation c ON c.id=r.conversation_id AND c.user_id=r.user_id
     JOIN app_user u ON u.id=r.user_id JOIN cert_project p ON p.id=r.project_id JOIN workspace w ON w.project_id=p.id JOIN goal g ON g.id=r.goal_id
+    LEFT JOIN LATERAL (SELECT true AS present FROM goal_event e WHERE e.wake_run_id=r.id AND e.goal_id=g.id
+      AND e.source='timer' AND e.source_key LIKE 'm02:'||g.id::text||':%' LIMIT 1) recurrence ON r.trigger_type='wakeup'
     WHERE r.id=$1 AND u.status='active' AND c.status='active' AND c.project_id=r.project_id AND c.goal_id=r.goal_id
-      AND g.project_id=r.project_id AND g.status='active' AND g.direction_version=r.direction_version`,
+      AND g.project_id=r.project_id AND g.status='active' AND g.direction_version=r.direction_version
+      AND (recurrence.present IS NULL OR (p.status NOT IN ('closed','cancelled') AND g.owner_user_id=r.user_id
+        AND EXISTS(SELECT 1 FROM m02_schedule s WHERE s.goal_id=g.id AND s.enabled AND s.enabled_by=r.user_id)))`,
       [runId],
     )
   ).rows[0];
@@ -195,6 +202,7 @@ async function loadContext(pool: Pool, runId: string): Promise<Context> {
     projectName: row.project_name,
     workspaceVersion: row.current_version_id,
     approvedReviewId: row.approved_review_id,
+    m02Wake: row.m02_wake,
     actor,
   };
 }
@@ -280,7 +288,7 @@ export async function executeAgentRun(
     verificationId?: string;
   } = {},
 ): Promise<AgentRunOutcome> {
-  if (!['development', 'test'].includes(process.env.NODE_ENV ?? 'production'))
+  if (!permitsDraftAgentExecution(process.env.NODE_ENV ?? 'production'))
     throw new AppError(
       403,
       'AGENT_DEFINITION_UNREVIEWED',
@@ -365,6 +373,8 @@ export async function executeAgentRun(
       context.agentCode,
       context.permissionMode,
     );
+    if (context.m02Wake && !definition.skills.some(({ id }) => id === 'M02'))
+      throw new AppError(409, 'M02_SKILL_UNAVAILABLE', '当前维护 Agent 没有生效的 M02 技能，本轮核查已停止。');
     const definitions =
       typeof dependencies.definitions === 'function'
         ? await dependencies.definitions(context.agentCode)

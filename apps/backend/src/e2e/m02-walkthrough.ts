@@ -43,7 +43,7 @@ export async function prepareM02Walkthrough(pool: pg.Pool, blobs: BlobStore) {
   const name = `L08 公开资料定时核查 ${project.slice(0, 6)}`;
   const brief = await blobs.put(
     Buffer.from(
-      `# L08 公开资料核查\n这是独立验收项目。输入只包含公开的检索条件和合成归档提示。使用 M02。三项查询分别是：fda_registration 同时填写登记号、LRK 与 K 号；fda_registration_company 按申请人全名；fda_gudid_search 填写 LRK、K 号和四个商品名（按资料列出的顺序）。记录列名机构、登记号、到期年份、美国代理人企业、四个名称、申请人登记和 UDI，每项待核实。成功记录需留官方档案，查询不成功如实列项。完成待核实的年度注册和年费站内提醒，提交审核。`,
+      `# L08 公开资料核查\n这是独立验收项目。输入只包含公开的检索条件和合成归档提示。使用 M02。三项查询分别是：fda_registration 同时填写登记号、LRK 与 K 号；fda_registration_company 按申请人全名；fda_gudid_search 填写 LRK、K 号和四个商品全名（按资料列出的顺序）。记录列名机构、登记号、到期年份、美国代理人企业、四个名称、申请人登记和 UDI，每项待核实。成功记录需留官方档案，查询不成功如实列项。送审 claims 中，申请人登记用 id=applicant_lookup，公开 UDI 用 id=udi_lookup，两项都引用各自档案，状态用 unverified。观察到成功零条时，该项 value 写“本次查询条件下未查到”；成功返回记录时写“本次查询首批匹配 N 条”，N 按实际首批记录数。完成待核实的年度注册和年费站内提醒，提交审核。`,
     ),
   );
   const db = await pool.connect();
@@ -191,6 +191,20 @@ export async function inspectM02Walkthrough(
       citations.some(({ documentId }) => documentId === receipt.evidence!.documentId),
       `审核卡缺少 ${kind} 档案引文`,
     );
+    if (kind !== 'registration') {
+      const claimId = kind === 'applicant' ? 'applicant_lookup' : 'udi_lookup';
+      const matches = receipt.records.length;
+      const claim = submission.claims.find(({ id }) => id === claimId);
+      assert.ok(claim && claim.status === 'unverified', `${kind} 结论未留待核实`);
+      assert.equal(
+        claim.value,
+        matches ? `本次查询首批匹配 ${matches} 条` : '本次查询条件下未查到',
+      );
+      assert.ok(
+        claim.sources.some(({ documentId }) => documentId === receipt.evidence!.documentId),
+        `${kind} 结论未引用本次查询档案`,
+      );
+    }
     return {
       kind,
       fetchedAt: receipt.fetchedAt,
@@ -198,18 +212,17 @@ export async function inspectM02Walkthrough(
       records: receipt.records,
     };
   });
-  assert.ok(
-    official[0]?.records.some(
-      (record) =>
-        record.company &&
-        record.identifier === input.registrationNumber &&
-        record.registrationExpiryYear &&
-        record.usAgentBusiness &&
-        input.brandNames.every((name) => record.proprietaryNames?.includes(name)),
-    ),
-    '列名回执缺少历史用例中的登记字段或商品名；请核对新公开记录',
+  const listing = official[0]?.records.find(
+    (record) =>
+      record.company &&
+      record.identifier === input.registrationNumber &&
+      record.registrationExpiryYear &&
+      record.usAgentBusiness &&
+      input.brandNames.every((name) =>
+        record.proprietaryNames?.some((actual) => actual.toLowerCase() === name.toLowerCase()),
+      ),
   );
-  const listing = official[0]!.records[0]!;
+  assert.ok(listing, '列名回执缺少用例所需的登记字段或完整商品名；请核对新公开记录');
   for (const value of [
     listing.company,
     listing.identifier,

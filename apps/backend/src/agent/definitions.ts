@@ -44,9 +44,11 @@ const skillUnavailable = () =>
     'SKILL_UNAVAILABLE',
     '当前Agent没有可加载的这个技能版本，请按系统提示中的技能索引选择；不要传文件路径。',
   );
+export function permitsDraftAgentExecution(environment: string) {
+  return process.env.NODE_ENV !== 'production' && ['development', 'test'].includes(environment);
+}
 function development(environment: string) {
-  if (process.env.NODE_ENV === 'production' || !['development', 'test'].includes(environment))
-    throw unavailable();
+  if (!permitsDraftAgentExecution(environment)) throw unavailable();
 }
 function frontmatter(source: string) {
   if (Buffer.byteLength(source, 'utf8') > 32000) throw unavailable();

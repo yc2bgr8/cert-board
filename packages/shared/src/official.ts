@@ -100,6 +100,8 @@ export const officialRecordSchema = z.strictObject({
   proprietaryNames: z.array(z.string().min(1).max(240)).max(30).optional(),
   proprietaryNamesTruncated: z.literal(true).optional(),
   usAgentBusiness: z.string().min(1).max(240).optional(),
+  gudidRecordKey: z.string().min(1).max(240).optional(),
+  primaryDeviceIdentifier: z.string().min(1).max(64).optional(),
   regulationNumber: regulationNumber.optional(),
   deviceClass: z.string().max(12).optional(),
   licenceNumber: digits.optional(),

@@ -8,6 +8,7 @@ import {
   type RulePackSeed,
 } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
+import { loadManagedAgentDefinition, permitsDraftAgentExecution } from '../agent/definitions.js';
 import { appendConversationMessageTx } from '../conversations/storage.js';
 import { latestRulePack } from '../knowledge/rule-packs.js';
 
@@ -52,7 +53,8 @@ export async function setM02Schedule(
     `SELECT g.status,p.status NOT IN ('closed','cancelled') AS project_open,
        EXISTS(SELECT 1 FROM workspace w WHERE w.project_id=p.id AND w.current_version_id IS NOT NULL) AS workspace_ready
        FROM goal g JOIN cert_project p ON p.id=g.project_id
-       WHERE g.id=$1 AND g.owner_user_id=$2 AND p.project_type='maintenance' AND p.market='US' FOR UPDATE OF g`,
+       WHERE g.id=$1 AND g.owner_user_id=$2 AND p.project_type='maintenance' AND p.market='US'
+       FOR UPDATE OF g FOR SHARE OF p`,
     [goalId, actor.userId],
   );
   if (!goal) throw missing();
@@ -113,6 +115,26 @@ async function enqueueM02(
   try {
     await db.query('BEGIN');
     const {
+      rows: [owner],
+    } = await db.query<{ id: string }>(
+      `SELECT u.id FROM goal g JOIN app_user u ON u.id=g.owner_user_id
+       WHERE g.id=$1 AND u.status='active' FOR SHARE OF u`,
+      [goalId],
+    );
+    if (!owner) {
+      await db.query('ROLLBACK');
+      return false;
+    }
+    const workspace = await db.query(
+      `SELECT w.id FROM workspace w JOIN goal g ON g.project_id=w.project_id
+        WHERE g.id=$1 AND w.current_version_id IS NOT NULL FOR SHARE OF w`,
+      [goalId],
+    );
+    if (!workspace.rowCount) {
+      await db.query('ROLLBACK');
+      return false;
+    }
+    const {
       rows: [goal],
     } = await db.query<{
       project_id: string;
@@ -130,11 +152,11 @@ async function enqueueM02(
        JOIN app_user u ON u.id=g.owner_user_id AND u.status='active'
        JOIN workspace w ON w.project_id=p.id AND w.current_version_id IS NOT NULL
        JOIN pg_timezone_names tz ON tz.name=p.jurisdiction_tz
-       WHERE g.id=$1 AND s.enabled AND s.enabled_by=g.owner_user_id
+       WHERE g.id=$1 AND g.owner_user_id=$3 AND s.enabled AND s.enabled_by=g.owner_user_id
          AND g.status='active' AND p.project_type='maintenance' AND p.market='US'
          AND p.status NOT IN ('closed','cancelled')
-       FOR SHARE OF u FOR UPDATE OF g,s`,
-      [goalId, now],
+       FOR UPDATE OF g,s FOR SHARE OF u,p`,
+      [goalId, now, owner.id],
     );
     if (!goal) {
       await db.query('ROLLBACK');
@@ -219,12 +241,15 @@ async function enqueueM02(
 }
 
 export async function scanM02Schedules(pool: Pool, environment: string, now = new Date()) {
+  if (!permitsDraftAgentExecution(environment)) return 0;
   const { rows } = await pool.query<{ goal_id: string }>(
     'SELECT goal_id FROM m02_schedule WHERE enabled ORDER BY goal_id',
   );
   if (!rows.length) return 0;
   const pack = await latestRulePack(pool, packCode, environment);
   if (!pack) return 0;
+  const definition = await loadManagedAgentDefinition(pool, 'maintenance', 'full');
+  if (!definition.skills.some(({ id }) => id === 'M02')) return 0;
   let dispatched = 0;
   for (const { goal_id } of rows) if (await enqueueM02(pool, goal_id, pack, now)) dispatched++;
   return dispatched;

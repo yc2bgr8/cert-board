@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { setTimeout as wait } from 'node:timers/promises';
 import { afterEach, expect, test } from 'vitest';
 import { seedDevelopmentRulePack } from '../knowledge/rule-packs.js';
 import { createIntegrationContext } from '../test-support/context.js';
@@ -120,3 +121,49 @@ test('按法域月份唤醒离线负责人，年度窗口前一天触发，扫�
   ]);
   expect(await scanM02Schedules(pool, 'test', new Date('2027-11-01T15:00Z'))).toBe(0);
 });
+
+test.each(['workspace', 'project'] as const)(
+  '定时扫描等待并发 %s 的数据级别或关闭状态提交',
+  async (change) => {
+    const { pool, goal, project, workspace } = await setup();
+    const { headers } = await context.login();
+    const started = await context.app.inject({
+      method: 'POST',
+      url: `/api/goals/${goal}/m02-schedule`,
+      headers,
+      payload: { enabled: true, expectedVersion: 0 },
+    });
+    expect(started.statusCode).toBe(200);
+    const tx = await pool.connect();
+    let scanner: Promise<number> | undefined;
+    try {
+      await tx.query('BEGIN');
+      if (change === 'workspace')
+        await tx.query("UPDATE workspace SET data_level='confidential' WHERE id=$1", [workspace]);
+      else await tx.query("UPDATE cert_project SET status='closed' WHERE id=$1", [project]);
+      const {
+        rows: [row],
+      } = await tx.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+      scanner = scanM02Schedules(pool, 'test', new Date('2027-11-02T15:00Z'));
+      const deadline = Date.now() + 3000;
+      let locked = false;
+      while (!locked && Date.now() < deadline) {
+        const { rows } = await pool.query(
+          `SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1=ANY(pg_blocking_pids(pid))`,
+          [row!.pid],
+        );
+        locked = rows.length > 0;
+        if (!locked) await wait(20);
+      }
+      expect(locked).toBe(true);
+      await tx.query('COMMIT');
+      expect(await scanner).toBe(change === 'workspace' ? 1 : 0);
+      const { rows } = await pool.query('SELECT max_data_level FROM run WHERE goal_id=$1', [goal]);
+      expect(rows).toEqual(change === 'workspace' ? [{ max_data_level: 'confidential' }] : []);
+    } finally {
+      await tx.query('ROLLBACK');
+      tx.release();
+      await scanner?.catch(() => undefined);
+    }
+  },
+);

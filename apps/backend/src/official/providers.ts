@@ -325,9 +325,10 @@ function normalizeRecord(input: OfficialLookupInput, raw: unknown): OfficialReco
       const matchesBrand = brand && input.brandNames?.some((name) => sameIdentifier(brand, name));
       if (!matchesK && !matchesCompany && !matchesBrand) return null;
       const primary = row.identifiers?.find(({ type }) => type === 'Primary')?.id;
-      const identifier = primary && primary.length <= 64 ? primary : row.record_key.slice(0, 64);
       return {
-        identifier,
+        identifier: row.record_key.slice(0, 64),
+        gudidRecordKey: label(row.record_key),
+        primaryDeviceIdentifier: primary && primary.length <= 64 ? primary : undefined,
         name: label(row.brand_name),
         company: label(row.company_name),
         productCode: input.productCode,

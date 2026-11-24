@@ -207,7 +207,24 @@ test('openFDA 的 GUDID 查询限定公开产品代码和至少一个可复查�
   };
   const rows = { meta: { results: { total: 1 } }, results: [matched] };
   expect(normalizeOfficialResponse(criteria, rows).records).toEqual([
-    { identifier: '012345', name: 'Example A', productCode: 'LRK' },
+    {
+      identifier: 'fixture-udi',
+      gudidRecordKey: 'fixture-udi',
+      primaryDeviceIdentifier: '012345',
+      name: 'Example A',
+      productCode: 'LRK',
+    },
+  ]);
+  expect(
+    normalizeOfficialResponse(criteria, { ...rows, results: [{ ...matched, identifiers: [] }] })
+      .records,
+  ).toEqual([
+    {
+      identifier: 'fixture-udi',
+      gudidRecordKey: 'fixture-udi',
+      name: 'Example A',
+      productCode: 'LRK',
+    },
   ]);
   expect(() =>
     normalizeOfficialResponse(criteria, {

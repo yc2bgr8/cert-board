@@ -4,7 +4,12 @@ export const l08PublicCriteria = {
   kNumber: 'K253845',
   registrationNumber: '3016674860',
   applicant: 'Ram.Shaw Pte., Ltd.',
-  brandNames: ['Innoflow', 'Joybloom', 'Wedoheal', 'Willnice Anti Snoring Mouthpiece L08'],
+  brandNames: [
+    'Innoflow Anti Snoring Mouthpiece L08',
+    'Joybloom Anti Snoring Mouthpiece L08',
+    'Wedoheal Anti Snoring Mouthpiece L08',
+    'Willnice Anti Snoring Mouthpiece L08',
+  ],
 };
 
 export const l08HistoricalSnapshot = {
