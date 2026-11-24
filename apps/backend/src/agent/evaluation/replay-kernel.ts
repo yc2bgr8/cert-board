@@ -30,13 +30,14 @@ const key = ({ documentId, version, page }: z.infer<typeof pageAddress>) =>
 function redactResult(
   value: z.infer<ReturnType<typeof z.json>>,
   scope: ReplayScope,
+  field = '',
 ): z.infer<ReturnType<typeof z.json>> {
   if (typeof value === 'string') return redactReplayInput(value, scope);
-  if (typeof value === 'number' && isHiddenReplayNumber(value, scope)) return '[已遮挡]';
-  if (Array.isArray(value)) return value.map((item) => redactResult(item, scope));
+  if (typeof value === 'number' && isHiddenReplayNumber(value, scope, field)) return '[已遮挡]';
+  if (Array.isArray(value)) return value.map((item) => redactResult(item, scope, field));
   if (value && typeof value === 'object')
     return Object.fromEntries(
-      Object.entries(value).map(([setting, item]) => [setting, redactResult(item, scope)]),
+      Object.entries(value).map(([setting, item]) => [setting, redactResult(item, scope, setting)]),
     );
   return value;
 }
@@ -44,16 +45,17 @@ function redactResult(
 function includesHiddenIdentity(
   value: z.infer<ReturnType<typeof z.json>>,
   scope: ReplayScope,
+  field = '',
 ): boolean {
   if (typeof value === 'string') return redactReplayInput(value, scope) !== value;
-  if (typeof value === 'number') return isHiddenReplayNumber(value, scope);
-  if (Array.isArray(value)) return value.some((item) => includesHiddenIdentity(item, scope));
+  if (typeof value === 'number') return isHiddenReplayNumber(value, scope, field);
+  if (Array.isArray(value)) return value.some((item) => includesHiddenIdentity(item, scope, field));
   return (
     !!value &&
     typeof value === 'object' &&
     Object.entries(value).some(
       ([setting, item]) =>
-        includesHiddenIdentity(setting, scope) || includesHiddenIdentity(item, scope),
+        includesHiddenIdentity(setting, scope) || includesHiddenIdentity(item, scope, setting),
     )
   );
 }

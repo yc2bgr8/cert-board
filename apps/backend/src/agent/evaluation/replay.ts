@@ -60,13 +60,43 @@ export function redactReplayInput(text: string, scope: ReplayScope) {
   return redacted + text.slice(cursor);
 }
 
-export function isHiddenReplayNumber(value: number, scope: ReplayScope) {
+const licenceFields = new Set([
+  'licence',
+  'licenceid',
+  'licencenumber',
+  'licencenumbers',
+  'licenceno',
+  'originallicenceno',
+  'licensenumber',
+  'licensenumbers',
+  'licenseno',
+  '许可号',
+  '许可编号',
+  '证照编号',
+]);
+const clearanceFields = new Set([
+  'knumber',
+  'knumbers',
+  '510knumber',
+  'clearancenumber',
+  'k号',
+  'k编号',
+]);
+const sharedIdentifierFields = new Set(['identifier', 'identifiers', 'regulatoryidentifier']);
+
+export function isHiddenReplayNumber(value: number, scope: ReplayScope, field: string) {
   if (!Number.isSafeInteger(value) || value < 0) return false;
-  const targetNumbers = [
-    ...scope.licenceNumbers,
-    ...scope.kNumbers.map((number) => number.slice(1)),
-  ];
-  return targetNumbers.some((number) => Number(number) === value);
+  const name = field
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s_-]/gu, '');
+  const shared = sharedIdentifierFields.has(name);
+  return (
+    ((shared || licenceFields.has(name)) &&
+      scope.licenceNumbers.some((number) => Number(number) === value)) ||
+    ((shared || clearanceFields.has(name)) &&
+      scope.kNumbers.some((number) => Number(number.slice(1)) === value))
+  );
 }
 
 export function archivedOfficialReplay(

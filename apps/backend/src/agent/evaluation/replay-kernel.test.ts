@@ -120,3 +120,19 @@ test('完整回放回复中的数字型许可号和全角申请人同样作废',
     });
   }
 });
+
+test('普通年份不作身份处理，具有编号语义的数字字段仍然检查', async () => {
+  const scenario = { ...input, scope: { ...input.scope, kNumbers: ['K002024'] } };
+  const replyWith = (data: object) =>
+    scripted([{ role: 'assistant', content: JSON.stringify({ evidence: [], ...data }) }]);
+  await expect(
+    runRecordedReplay(
+      scenario,
+      new Map(),
+      options(replyWith({ publicationYear: 2024, documentCount: 113514 }).complete),
+    ),
+  ).resolves.toMatchObject({ valid: true, findings: [] });
+  await expect(
+    runRecordedReplay(scenario, new Map(), options(replyWith({ k_number: 2024 }).complete)),
+  ).resolves.toMatchObject({ valid: false, findings: ['target_identity_in_response'] });
+});
