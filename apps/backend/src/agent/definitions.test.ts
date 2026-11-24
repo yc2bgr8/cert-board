@@ -16,7 +16,7 @@ test('两个Agent按固定服务端索引选不同技能，系统提示不混入
   expect(maintenance.systemPrompt).not.toContain('R09@');
   expect(registration.systemPrompt).not.toMatch(/K170825|K170285/);
 });
-test('技能正文与审核策略版本一致，M02明确为无实时官方访问的开发草稿', async () => {
+test('技能正文与审核策略版本一致，M02 草稿限定官方工具、检索范围和空回执结论', async () => {
   const registration = await loadAgentSkill('registration', { id: 'R09' }, 'test');
   const maintenance = await loadAgentSkill('maintenance', { id: 'M02', version: '0.1.0' }, 'test');
   expect(registration.skill.agentCode).toBe('registration');
@@ -28,7 +28,10 @@ test('技能正文与审核策略版本一致，M02明确为无实时官方访�
   expect(maintenance.reviewPolicy.requiredChecks).toEqual(['V1', 'V3']);
   expect(maintenance.reviewPolicy.minimumEvidence).toBe(2);
   expect(maintenance.publication).toBe('draft');
-  expect(maintenance.body).toContain('不查询FDA');
+  expect(maintenance.developmentOnly).toBe(true);
+  expect(maintenance.body).toContain('official_lookup');
+  expect(maintenance.body).toContain('只用资料中明确给出且可以公开查询的编号和名称');
+  expect(maintenance.body).toContain('只在成功回执明确返回零条时写「本次查询条件下未查到」');
 });
 test('不允许路径输入、跨Agent技能或未登记版本', async () => {
   for (const code of ['../registration', 'sales', null])
