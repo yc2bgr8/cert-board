@@ -23,6 +23,7 @@
     "test:rules": "node --import tsx scripts/walkthrough.mjs --rules-only",
     "test:r09": "node scripts/test-r09-vm.mjs",
     "test:knowledge": "node --import tsx scripts/walkthrough.mjs --knowledge-only",
+    "test:k05": "node --import tsx scripts/test-k05-draft.mjs",
     "test:l08": "node scripts/docsvc-dev.mjs l08",
     "test:e2e": "node scripts/test-e2e.mjs",
     "outbound:simulate": "node --env-file=.env.local --import tsx apps/backend/src/outbound/test-cli.ts",

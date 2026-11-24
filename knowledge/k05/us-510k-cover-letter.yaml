@@ -1,0 +1,33 @@
+code: us_510k_cover_letter
+version: 0.1.0
+publication: draft
+title: 510(k) cover letter
+sources:
+  - id: fda_letter_fields
+    url: https://www.fda.gov/medical-devices/premarket-notification-510k/content-510k
+    section: Cover Letter
+    checkedOn: '2026-11-25'
+  - id: fda_estar_attachment
+    url: https://www.fda.gov/media/152429/download
+    section: Table 1
+    checkedOn: '2026-11-25'
+  - id: fda_signature_note
+    url: https://www.fda.gov/medical-devices/premarket-notification-510k/510k-format-tips
+    section: 510(k) Format Tips
+    checkedOn: '2026-11-25'
+paragraphs:
+  - id: submission
+    sources: [fda_letter_fields, fda_estar_attachment]
+    text: 'Proposed {{submission_type}} 510(k) for {{device_name}}. Draft preparation date {{draft_date}}.'
+  - id: applicant
+    sources: [fda_letter_fields]
+    text: 'Applicant of record {{applicant_name}}, {{applicant_address}}. Review correspondence contact {{contact_name}}, {{contact_email}}.'
+  - id: device
+    sources: [fda_letter_fields]
+    text: 'Device identification for review {{device_name}}, model {{device_model}}. Proposed product code {{product_code}}.'
+  - id: purpose
+    sources: [fda_letter_fields]
+    text: 'Reason for preparing this notification {{submission_purpose}}. Proposed comparator for assessment {{comparator_reference}}.'
+  - id: signature
+    sources: [fda_signature_note]
+    text: '[Submitter to review, sign and date the final letter.]'
