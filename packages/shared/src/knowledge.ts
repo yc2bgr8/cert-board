@@ -10,23 +10,31 @@ const text = (max: number) =>
     .max(max)
     .refine((item) => /^[^\uD800-\uDFFF]*$/u.test(item) && !item.includes('\0'));
 const subject = text(120);
-const timestamp = z.iso.datetime({ offset: true });
+const timestamp = z.iso.datetime({ offset: true }).refine((item) => {
+  const offset = /[+-](\d{2}):(\d{2})$/u.exec(item);
+  return !offset || Number(offset[1]) * 60 + Number(offset[2]) <= 14 * 60;
+});
 const evidence = documentCitationSchema.refine(({ quote }) => quote.length <= 1200);
 const value = z.union([text(600), z.number().finite(), z.boolean()]);
 const unit = text(32).nullable();
 const dataLevel = z.enum(['internal', 'confidential']);
+const hasUnit = (item: { value: string | number | boolean; unit: string | null }) =>
+  typeof item.value !== 'number' || item.unit !== null;
+const unitIssue = { path: ['unit'], message: '数值须带单位，无量纲时明确填写无量纲。' };
 
-export const factProposalSchema = z.strictObject({
-  subject,
-  field: code,
-  value,
-  unit: unit.default(null),
-  evidence,
-  dueAt: timestamp.nullable().default(null),
-});
+export const factProposalSchema = z
+  .strictObject({
+    subject,
+    field: code,
+    value,
+    unit: unit.default(null),
+    evidence,
+    dueAt: timestamp.nullable().default(null),
+  })
+  .refine(hasUnit, unitIssue);
 export type FactProposal = z.infer<typeof factProposalSchema>;
 
-export const factCandidateSchema = factProposalSchema.extend({
+export const factCandidateSchema = factProposalSchema.safeExtend({
   id: z.uuid(),
   projectId: z.uuid(),
   status: z.enum(['pending', 'confirmed', 'rewritten', 'rejected', 'cancelled']),
@@ -42,40 +50,48 @@ const factOptions = {
   locked: z.boolean().optional(),
 };
 const expectedVersion = z.number().int().positive().max(2_147_483_647);
-export const factDecisionInputSchema = z.discriminatedUnion('decision', [
-  z.strictObject({ decision: z.literal('set_due'), expectedVersion, dueAt: timestamp.nullable() }),
-  z.strictObject({ decision: z.literal('confirm'), expectedVersion, ...factOptions }),
-  z.strictObject({
-    decision: z.literal('rewrite'),
-    expectedVersion,
-    ...factOptions,
-    value,
-    unit: unit.default(null),
-    reason: text(600),
-  }),
-  z.strictObject({
-    decision: z.literal('reject'),
-    expectedVersion,
-    reason: text(600),
-  }),
-]);
+export const factDecisionInputSchema = z
+  .discriminatedUnion('decision', [
+    z.strictObject({
+      decision: z.literal('set_due'),
+      expectedVersion,
+      dueAt: timestamp.nullable(),
+    }),
+    z.strictObject({ decision: z.literal('confirm'), expectedVersion, ...factOptions }),
+    z.strictObject({
+      decision: z.literal('rewrite'),
+      expectedVersion,
+      ...factOptions,
+      value,
+      unit: unit.default(null),
+      reason: text(600),
+    }),
+    z.strictObject({
+      decision: z.literal('reject'),
+      expectedVersion,
+      reason: text(600),
+    }),
+  ])
+  .refine((item) => item.decision !== 'rewrite' || hasUnit(item), unitIssue);
 export type FactDecisionInput = z.infer<typeof factDecisionInputSchema>;
 
-export const confirmedFactSchema = z.strictObject({
-  id: z.uuid(),
-  subject,
-  field: code,
-  value,
-  unit,
-  evidence,
-  dataLevel,
-  revision: z.number().int().positive(),
-  replacesId: z.uuid().nullable(),
-  validFrom: timestamp,
-  validUntil: timestamp.nullable(),
-  locked: z.boolean(),
-  confirmedBy: z.uuid(),
-});
+export const confirmedFactSchema = z
+  .strictObject({
+    id: z.uuid(),
+    subject,
+    field: code,
+    value,
+    unit,
+    evidence,
+    dataLevel,
+    revision: z.number().int().positive(),
+    replacesId: z.uuid().nullable(),
+    validFrom: timestamp,
+    validUntil: timestamp.nullable(),
+    locked: z.boolean(),
+    confirmedBy: z.uuid(),
+  })
+  .refine(hasUnit, unitIssue);
 export type ConfirmedFact = z.infer<typeof confirmedFactSchema>;
 
 const https = z

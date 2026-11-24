@@ -2,8 +2,22 @@ import assert from 'node:assert/strict';
 import { setTimeout as wait } from 'node:timers/promises';
 import type pg from 'pg';
 import type { Page } from 'playwright-core';
+import { z } from 'zod';
 import { knowledgeGetResultSchema } from '@cert-board/shared';
 import { nanoToUsd } from '../budget/meter.js';
+import { parseWalkthroughJson } from './walkthrough-json.js';
+
+const answerSchema = z.strictObject({
+  版本: z.string(),
+  状态: z.enum(['待注册人员确认', '已确认', '待核']),
+  开始: z.string(),
+  结束: z.string(),
+  财年: z.number().int(),
+  金额: z.number().finite(),
+  币种: z.string(),
+  代理人数: z.number().int(),
+  来源: z.string().array().length(3),
+});
 
 export async function checkKnowledgeWalkthrough(
   page: Page,
@@ -56,10 +70,36 @@ export async function checkKnowledgeWalkthrough(
   );
   const writes = await pool.query('SELECT 1 FROM fact_candidate WHERE proposal_run_id=$1', [runId]);
   assert.equal(writes.rowCount, 0);
+  const {
+    rows: [message],
+  } = await pool.query<{ text: string }>(
+    `SELECT message_json->>'content' AS text FROM conversation_message WHERE run_id=$1
+       AND message_json->>'role'='assistant' AND jsonb_typeof(message_json->'content')='string'
+       AND btrim(message_json->>'content')<>'' ORDER BY seq DESC LIMIT 1`,
+    [runId],
+  );
+  const answer = parseWalkthroughJson(message?.text ?? '', answerSchema);
+  const annual = pack.rules.find(({ id }) => id === 'annual_registration_window');
+  const fee = pack.rules.find(({ id }) => id === 'fiscal_2027_registration_fee');
+  const agent = pack.rules.find(({ id }) => id === 'foreign_establishment_us_agent');
+  assert.ok(annual?.parameters && fee?.parameters && agent);
+  assert.ok(
+    answer &&
+      answer.版本 === pack.version &&
+      answer.状态 === '待注册人员确认' &&
+      answer.开始 === annual.parameters.window_start &&
+      answer.结束 === annual.parameters.window_end &&
+      answer.财年 === fee.parameters.fiscal_year &&
+      answer.金额 === fee.parameters.amount &&
+      answer.币种 === fee.parameters.currency &&
+      answer.代理人数 === 1 &&
+      [annual, fee, agent].every(({ source }) => answer.来源.includes(source.url)),
+    '维护 Agent 的最终答复须对照实际规则包核对版本、数值、依据和待确认状态。',
+  );
   await page
     .locator('article.live-agent-message')
     .last()
-    .getByText(/(?:待注册人员确认|开发草稿|待确认)/u)
+    .getByText(/来源/u)
     .waitFor({ timeout: 15000 });
   const { rows: costs } = await pool.query<{
     model: string;
@@ -78,6 +118,7 @@ export async function checkKnowledgeWalkthrough(
     ruleCount: pack.rules.length,
     pinnedToRun: true,
     draftMarked: true,
+    exactAnswer: true,
     readOnly: true,
     cost: costs.map(({ paid, ...row }) => ({ ...row, usd: nanoToUsd(BigInt(paid)) })),
   };

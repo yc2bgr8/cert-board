@@ -374,7 +374,7 @@ async function main() {
       await page.getByRole('button', { name: '维护Agent', exact: true }).click();
       const conversation = await freshConversation(page, maintenanceProjectId, 'M02 规则包版本核查', 'read_only');
       const { runId } = await send(page,
-        '请调用 knowledge_get 读取编号 us_fda_m02 的规则包，概述年度注册窗口、年费和美国代理人条目，注明实际版本、依据和待确认状态。只读此次查到的规则，不替企业作合规认定，不保存或提交。',
+        '请调用 knowledge_get 读取规则包 us_fda_m02，以回执为依据核对年度注册窗口、该财年企业年费和一间境外机构可指定的美国代理人数。最终只输出 JSON 对象 {"版本":"","状态":"","开始":"MM-DD","结束":"MM-DD","财年":0,"金额":0,"币种":"","代理人数":0,"来源":["","",""]}。状态请选择“待注册人员确认”“已确认”或“待核”。来源写这三个条目各自的 source.url。只读核查，不保存或提交。',
       );
       const proof = await checkKnowledgeWalkthrough(page, pool, runId, conversation);
       assert.equal(blocked, 0);

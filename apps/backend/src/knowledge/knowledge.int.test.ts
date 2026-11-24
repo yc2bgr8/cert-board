@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { setTimeout as wait } from 'node:timers/promises';
 import { afterEach, expect, test } from 'vitest';
 import { factCandidateSchema, type FactDecisionInput } from '@cert-board/shared';
 import { createIntegrationContext } from '../test-support/context.js';
@@ -20,7 +21,7 @@ const fresh = ({ runId, userId }: { runId: string; userId: string }) => ({
   callId: randomUUID(),
 });
 
-async function fixtureSource(level: 'internal' | 'confidential' = 'internal') {
+async function fixtureSource() {
   const text = '合成证据：最初登记号 EX-01，后续更正值 EX-02。';
   const docId = randomUUID();
   await context.pool.query(
@@ -31,8 +32,8 @@ async function fixtureSource(level: 'internal' | 'confidential' = 'internal') {
     rows: [entry],
   } = await context.pool.query<{ id: string }>(
     `INSERT INTO document_version(document_id,version_no,source_snapshot,content_sha256,byte_size,media_type,content_kind,data_level,author_type)
-       VALUES($1,1,$2,$2,$3,'text/plain','parsed_text',$4,'external') RETURNING id`,
-    [docId, digest(text), Buffer.byteLength(text), level],
+       VALUES($1,1,$2,$2,$3,'text/plain','parsed_text','internal','external') RETURNING id`,
+    [docId, digest(text), Buffer.byteLength(text)],
   );
   await context.pool.query(
     `INSERT INTO document_page(version_id,page_number,text,method,locator_kind) VALUES($1,1,$2,'text','physical_page')`,
@@ -43,7 +44,7 @@ async function fixtureSource(level: 'internal' | 'confidential' = 'internal') {
 
 test('锁定事实只由负责人通过浏览器修订，Agent 的候选与已确认事实分开', async () => {
   context = await createIntegrationContext();
-  const evidence = await fixtureSource('confidential');
+  const evidence = await fixtureSource();
   const registry = new ToolRegistry(context.pool, [factProposeTool(), knowledgeGetTool()], {
     environment: 'test',
   });
@@ -128,12 +129,53 @@ test('锁定事实只由负责人通过浏览器修订，Agent 的候选与已�
   expect(
     (await approve(replacement.id, { ...command, validUntil: '2000-01-01T00:00:00Z' })).statusCode,
   ).toBe(422);
+  const lock = await context.pool.connect();
+  let waiting: ReturnType<typeof approve> | undefined;
+  try {
+    await lock.query('BEGIN');
+    await lock.query('SELECT id FROM cert_project WHERE id=$1 FOR UPDATE', [context.projectId]);
+    const expires = Date.now() + 1500;
+    waiting = approve(replacement.id, { ...command, validUntil: new Date(expires).toISOString() });
+    let blocked = false;
+    while (Date.now() < expires) {
+      const attempts = await context.pool.query(
+        "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT id,owner_user_id FROM cert_project%' LIMIT 1",
+      );
+      if (attempts.rowCount) {
+        blocked = true;
+        break;
+      }
+      await wait(20);
+    }
+    expect(blocked).toBe(true);
+    await wait(Math.max(0, expires - Date.now()) + 25);
+  } finally {
+    await lock.query('ROLLBACK');
+    lock.release();
+  }
+  expect((await waiting!).statusCode).toBe(422);
   const accepted = await approve(replacement.id, command);
   expect(accepted.statusCode).toBe(200);
   expect((await read()).data).toMatchObject({
     facts: [
-      { value: 'EX-02', revision: 2, replacesId: firstId, locked: true, dataLevel: 'confidential' },
+      { value: 'EX-02', revision: 2, replacesId: firstId, locked: true, dataLevel: 'internal' },
     ],
+  });
+  const cachedReader = fresh(reader);
+  const readInput = { kind: 'facts', subject };
+  expect((await registry.execute(cachedReader, 'knowledge_get', readInput)).dataLevel).toBe(
+    'internal',
+  );
+  await context.pool.query(
+    `INSERT INTO document_version(document_id,version_no,source_snapshot,content_sha256,byte_size,media_type,content_kind,data_level,author_type)
+       VALUES($1,2,$2,$2,1,'text/plain','parsed_text','confidential','external')`,
+    [evidence.documentId, digest('新的合成密级版本')],
+  );
+  expect((await registry.execute(cachedReader, 'knowledge_get', readInput)).dataLevel).toBe(
+    'confidential',
+  );
+  expect((await read()).data).toMatchObject({
+    facts: [{ revision: 2, dataLevel: 'confidential' }],
   });
   expect((await approve(replacement.id, command)).statusCode).toBe(409);
   const { rows } = await context.pool.query(

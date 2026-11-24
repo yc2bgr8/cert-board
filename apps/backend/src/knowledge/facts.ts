@@ -43,6 +43,13 @@ const factCols = `f.id,f.subject,f.field,f.value,f.unit,c.evidence,f.revision,f.
   f.valid_from AS "validFrom",f.valid_until AS "validUntil",f.confirmed_by AS "confirmedBy"`;
 const classification = `(SELECT v.data_level FROM document_version v
   WHERE v.document_id=d.id ORDER BY v.data_level DESC LIMIT 1)`;
+const factClassification = `CASE WHEN EXISTS (
+  SELECT 1 FROM fact prior JOIN fact_candidate source ON source.id=prior.candidate_id
+  WHERE prior.project_id=f.project_id AND prior.subject=f.subject AND prior.field=f.field
+    AND prior.revision<=f.revision AND (prior.data_level='confidential' OR EXISTS (
+      SELECT 1 FROM document_version sv WHERE sv.document_id=source.source_document_id AND sv.data_level='confidential'
+    ))
+) THEN 'confidential'::document_data_level ELSE 'internal'::document_data_level END`;
 const highest = (...levels: ReadonlyArray<string | null | undefined>) =>
   levels.includes('confidential') ? ('confidential' as const) : ('internal' as const);
 const digest = (input: unknown) => createHash('sha256').update(JSON.stringify(input)).digest('hex');
@@ -77,8 +84,7 @@ async function currentRevision(
   key: Pick<FactProposal, 'subject' | 'field'>,
 ) {
   const { rows } = await db.query<CurrentRevision>(
-    `SELECT f.id,f.revision,f.locked,GREATEST(f.data_level,${classification}) AS "dataLevel"
-       FROM fact f JOIN fact_candidate c ON c.id=f.candidate_id JOIN document d ON d.id=c.source_document_id
+    `SELECT f.id,f.revision,f.locked,${factClassification} AS "dataLevel" FROM fact f
        WHERE f.project_id=$1 AND f.subject=$2 AND f.field=$3 ORDER BY f.revision DESC LIMIT 1`,
     [projectId, key.subject, key.field],
   );
@@ -206,7 +212,7 @@ export async function readConfirmedFacts(
   input: Extract<KnowledgeGetInput, { kind: 'facts' }>,
 ) {
   const { rows } = await ctx.tx.query<FactRow>(
-    `SELECT ${factCols}, GREATEST(f.data_level,${classification}) AS "dataLevel"
+    `SELECT ${factCols}, ${factClassification} AS "dataLevel"
        FROM fact f JOIN fact_candidate c ON c.id=f.candidate_id JOIN document d ON d.id=c.source_document_id
        WHERE f.project_id=$1 AND d.project_id=$1 AND NOT d.voided
          AND ($2::text IS NULL OR f.subject=$2) AND ($3::text IS NULL OR f.field=$3)
@@ -239,7 +245,7 @@ export async function refreshConfirmedFactsLevel(
 ) {
   if (facts.length === 0) return 'internal' as const;
   const { rows } = await ctx.tx.query<{ data_level: string }>(
-    `SELECT GREATEST(f.data_level,${classification}) AS data_level FROM fact f
+    `SELECT ${factClassification} AS data_level FROM fact f
        JOIN fact_candidate c ON c.id=f.candidate_id JOIN document d ON d.id=c.source_document_id
        WHERE f.project_id=$1 AND d.project_id=$1 AND NOT d.voided AND f.id=ANY($2::uuid[])
          AND f.valid_from<=now() AND (f.valid_until IS NULL OR f.valid_until>now())
@@ -354,20 +360,30 @@ export async function decideFactCandidate(
   if (previous?.locked && project.owner_user_id !== actor.userId)
     throw new AppError(403, 'FACT_OWNER_REQUIRED', '该事实已锁定，须由项目负责人确认修订。');
 
+  const {
+    rows: [decisionTime],
+  } = await db.query<{ at: Date; accepted: boolean }>(
+    `WITH decided AS MATERIALIZED (SELECT date_trunc('milliseconds',clock_timestamp()) AS at)
+      SELECT at, ($1::timestamptz IS NULL OR $1::timestamptz>at) AS accepted FROM decided`,
+    [input.decision === 'reject' ? null : input.validUntil],
+  );
+  if (!decisionTime?.accepted)
+    throw new AppError(422, 'FACT_VALIDITY_INVALID', '有效期须晚于确认时间，请调整结束时间。');
+
   await db.query(
-    `UPDATE fact_candidate SET status=$2,version=version+1,decided_by=$3,decided_at=now(),decision_reason=$4,updated_at=now() WHERE id=$1`,
-    [candidate.id, status, actor.userId, input.decision === 'confirm' ? null : input.reason],
+    `UPDATE fact_candidate SET status=$2,version=version+1,decided_by=$3,decided_at=$5,decision_reason=$4,updated_at=$5 WHERE id=$1`,
+    [
+      candidate.id,
+      status,
+      actor.userId,
+      input.decision === 'confirm' ? null : input.reason,
+      decisionTime.at,
+    ],
   );
   if (input.decision !== 'reject') {
-    const valid = await db.query<{ accepted: boolean }>(
-      'SELECT ($1::timestamptz IS NULL OR $1::timestamptz > now()) AS accepted',
-      [input.validUntil],
-    );
-    if (!valid.rows[0]?.accepted)
-      throw new AppError(422, 'FACT_VALIDITY_INVALID', '有效期须晚于确认时间，请调整结束时间。');
     const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO fact (project_id,subject,field,value,unit,candidate_id,data_level,revision,replaces_id,valid_until,locked,confirmed_by)
-         VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+      `INSERT INTO fact (project_id,subject,field,value,unit,candidate_id,data_level,revision,replaces_id,valid_until,locked,confirmed_by,valid_from)
+         VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
       [
         projectId,
         candidate.subject,
@@ -381,19 +397,21 @@ export async function decideFactCandidate(
         input.validUntil,
         input.locked ?? previous?.locked ?? false,
         actor.userId,
+        decisionTime.at,
       ],
     );
     factId = rows[0]!.id;
   }
   await db.query(
-    `INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id,before_hash,after_hash)
-       VALUES ($1,'browser',$2,'fact_candidate',$3,$4,$5)`,
+    `INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id,before_hash,after_hash,created_at)
+       VALUES ($1,'browser',$2,'fact_candidate',$3,$4,$5,$6)`,
     [
       actor.userId,
       `fact.${status}`,
       candidate.id,
       digest({ status: candidate.status, version: candidate.version }),
       digest({ status, version: candidate.version + 1, factId }),
+      decisionTime.at,
     ],
   );
   return { candidateId: candidate.id, factId, status, version: candidate.version + 1 };
