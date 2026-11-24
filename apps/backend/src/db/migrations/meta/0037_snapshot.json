@@ -3732,7 +3732,7 @@
         },
         "fact_evidence_ok": {
           "name": "fact_evidence_ok",
-          "value": "jsonb_typeof(\"fact\".\"evidence\") = 'object' AND (\"fact\".\"evidence\"->>'documentId') IS NOT DISTINCT FROM \"fact\".\"source_document_id\"::text"
+          "value": "jsonb_typeof(\"fact\".\"evidence\") = 'object' AND (\"fact\".\"evidence\"->>'documentId')::uuid IS NOT DISTINCT FROM \"fact\".\"source_document_id\""
         }
       },
       "isRLSEnabled": false
@@ -3998,7 +3998,7 @@
         },
         "fact_candidate_evidence_ok": {
           "name": "fact_candidate_evidence_ok",
-          "value": "jsonb_typeof(\"fact_candidate\".\"evidence\") = 'object' AND (\"fact_candidate\".\"evidence\"->>'documentId') IS NOT DISTINCT FROM \"fact_candidate\".\"source_document_id\"::text"
+          "value": "jsonb_typeof(\"fact_candidate\".\"evidence\") = 'object' AND (\"fact_candidate\".\"evidence\"->>'documentId')::uuid IS NOT DISTINCT FROM \"fact_candidate\".\"source_document_id\""
         },
         "fact_candidate_value_ok": {
           "name": "fact_candidate_value_ok",

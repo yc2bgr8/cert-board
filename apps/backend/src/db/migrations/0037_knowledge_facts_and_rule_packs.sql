@@ -22,7 +22,7 @@ CREATE TABLE "fact" (
 	CONSTRAINT "fact_validity_ok" CHECK ("fact"."valid_until" IS NULL OR "fact"."valid_until" > "fact"."valid_from"),
 	CONSTRAINT "fact_level_ok" CHECK ("fact"."data_level" IN ('internal','confidential')),
 	CONSTRAINT "fact_value_ok" CHECK (jsonb_typeof("fact"."value") IN ('string','number','boolean') AND (jsonb_typeof("fact"."value") <> 'number' OR NULLIF(btrim("fact"."unit"),'') IS NOT NULL)),
-	CONSTRAINT "fact_evidence_ok" CHECK (jsonb_typeof("fact"."evidence") = 'object' AND ("fact"."evidence"->>'documentId') IS NOT DISTINCT FROM "fact"."source_document_id"::text)
+	CONSTRAINT "fact_evidence_ok" CHECK (jsonb_typeof("fact"."evidence") = 'object' AND ("fact"."evidence"->>'documentId')::uuid IS NOT DISTINCT FROM "fact"."source_document_id")
 );
 --> statement-breakpoint
 CREATE TABLE "fact_candidate" (
@@ -51,7 +51,7 @@ CREATE TABLE "fact_candidate" (
 	CONSTRAINT "fact_candidate_revision_ok" CHECK ("fact_candidate"."base_revision" >= 0 AND "fact_candidate"."version" > 0),
 	CONSTRAINT "fact_candidate_level_ok" CHECK ("fact_candidate"."data_level" IN ('internal','confidential')),
 	CONSTRAINT "fact_candidate_key_ok" CHECK (length(btrim("fact_candidate"."subject")) > 0 AND "fact_candidate"."field" ~ '^[a-z][a-z0-9_]{0,79}$'),
-	CONSTRAINT "fact_candidate_evidence_ok" CHECK (jsonb_typeof("fact_candidate"."evidence") = 'object' AND ("fact_candidate"."evidence"->>'documentId') IS NOT DISTINCT FROM "fact_candidate"."source_document_id"::text),
+	CONSTRAINT "fact_candidate_evidence_ok" CHECK (jsonb_typeof("fact_candidate"."evidence") = 'object' AND ("fact_candidate"."evidence"->>'documentId')::uuid IS NOT DISTINCT FROM "fact_candidate"."source_document_id"),
 	CONSTRAINT "fact_candidate_value_ok" CHECK (jsonb_typeof("fact_candidate"."value") IN ('string','number','boolean') AND (jsonb_typeof("fact_candidate"."value") <> 'number' OR NULLIF(btrim("fact_candidate"."unit"),'') IS NOT NULL)),
 	CONSTRAINT "fact_candidate_decision_ok" CHECK (("fact_candidate"."status" IN ('pending','cancelled') AND "fact_candidate"."decided_by" IS NULL AND "fact_candidate"."decided_at" IS NULL) OR ("fact_candidate"."status" IN ('confirmed','rewritten','rejected') AND "fact_candidate"."decided_by" IS NOT NULL AND "fact_candidate"."decided_at" IS NOT NULL))
 );

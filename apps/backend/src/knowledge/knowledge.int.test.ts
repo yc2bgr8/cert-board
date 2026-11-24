@@ -22,10 +22,7 @@ const fresh = ({ runId, userId }: { runId: string; userId: string }) => ({
   callId: randomUUID(),
 });
 
-async function fixtureSource(
-  text = '合成证据：最初登记号 EX-01，后续更正值 EX-02。',
-  level = 'internal',
-) {
+async function fixtureSource(text = '合成证据：最初登记号 EX-01，后续更正值 EX-02。') {
   const docId = randomUUID();
   await context.pool.query(
     `INSERT INTO document (id,project_id,source_key,name,source_path,owner_user_id) VALUES($1,$2,$3,'合成事实资料','fact.txt',$4)`,
@@ -35,8 +32,8 @@ async function fixtureSource(
     rows: [entry],
   } = await context.pool.query<{ id: string }>(
     `INSERT INTO document_version(document_id,version_no,source_snapshot,content_sha256,byte_size,media_type,content_kind,data_level,author_type)
-       VALUES($1,1,$2,$2,$3,'text/plain','parsed_text',$4,'external') RETURNING id`,
-    [docId, digest(text), Buffer.byteLength(text), level],
+       VALUES($1,1,$2,$2,$3,'text/plain','parsed_text','internal','external') RETURNING id`,
+    [docId, digest(text), Buffer.byteLength(text)],
   );
   await context.pool.query(
     `INSERT INTO document_page(version_id,page_number,text,method,locator_kind) VALUES($1,1,$2,'text','physical_page')`,
@@ -234,10 +231,9 @@ test('事实候选校验原文并按权限先问，撤销保持候选记录', as
   expect((await context.pool.query('SELECT 1 FROM fact')).rowCount).toBe(0);
 });
 
-test('待处理候选复核源密级，人工改写绑定实际新证据，读取与重放处理到期', async () => {
+test('待处理候选列表与工具重放都复核原始资料的现时密级', async () => {
   context = await createIntegrationContext();
   const original = await fixtureSource('合成原件登记号 EX-01');
-  const updated = await fixtureSource('合成更正页登记号 EX-02', 'confidential');
   const registry = new ToolRegistry(context.pool, [factProposeTool()], { environment: 'test' });
   const writer = fresh(await context.run('MEMBER_A', 'full'));
   const input = {
@@ -260,8 +256,29 @@ test('待处理候选复核源密级，人工改写绑定实际新证据，读�
   const replay = await registry.execute(writer, 'fact_propose', input);
   expect(replay).toMatchObject({ replayed: true, dataLevel: 'confidential' });
   expect(replay.data).not.toHaveProperty('dataLevel');
+});
 
-  const expires = Date.now() + 1600;
+test('人工改写绑定不同证据，新证据升密会更新读取和重放的级别', async () => {
+  context = await createIntegrationContext();
+  const original = await fixtureSource('合成原件登记号 EX-01');
+  const newSource = await fixtureSource('合成更正页登记号 EX-02');
+  const updated = { ...newSource, documentId: newSource.documentId.toUpperCase() };
+  const registry = new ToolRegistry(context.pool, [factProposeTool(), knowledgeGetTool()], {
+    environment: 'test',
+  });
+  const writer = await context.run('MEMBER_A', 'full');
+  const reader = await context.run('MEMBER_B', 'read_only');
+  const candidate = factProposalResultSchema.parse(
+    (
+      await registry.execute(fresh(writer), 'fact_propose', {
+        subject: '虚构企业',
+        field: 'registration_number',
+        value: 'EX-01',
+        evidence: original,
+      })
+    ).data,
+  );
+  const owner = await context.login('MEMBER_A');
   const decision = await context.app.inject({
     method: 'POST',
     url: `/api/projects/${context.projectId}/fact-candidates/${candidate.id}/decision`,
@@ -273,7 +290,7 @@ test('待处理候选复核源密级，人工改写绑定实际新证据，读�
       value: 'EX-02',
       unit: null,
       reason: '根据合成更正页确认',
-      validUntil: new Date(expires).toISOString(),
+      validUntil: null,
     },
   });
   expect(decision.statusCode).toBe(200);
@@ -281,19 +298,65 @@ test('待处理候选复核源密级，人工改写绑定实际新证据，读�
     candidate.id,
   ]);
   expect(stored.rows[0]).toEqual({ evidence: original });
+  const query = { kind: 'facts' };
+  const cachedReader = fresh(reader);
+  const first = await registry.execute(cachedReader, 'knowledge_get', query);
+  expect(first).toMatchObject({
+    dataLevel: 'internal',
+    data: { facts: [{ value: 'EX-02', evidence: updated }] },
+  });
+  await elevateSource(newSource.documentId);
+  expect((await registry.execute(cachedReader, 'knowledge_get', query)).dataLevel).toBe(
+    'confidential',
+  );
+  expect((await registry.execute(fresh(reader), 'knowledge_get', query)).dataLevel).toBe(
+    'confidential',
+  );
+});
 
+test('读取与重放按语句时刻认定到期，已有事务不会保留过期事实', async () => {
+  context = await createIntegrationContext();
+  const source = await fixtureSource('合成原件登记号 EX-01');
+  const registry = new ToolRegistry(context.pool, [factProposeTool()], { environment: 'test' });
+  const writer = await context.run('MEMBER_A', 'full');
+  const candidate = factProposalResultSchema.parse(
+    (
+      await registry.execute(fresh(writer), 'fact_propose', {
+        subject: '虚构企业',
+        field: 'registration_number',
+        value: 'EX-01',
+        evidence: source,
+      })
+    ).data,
+  );
+  await context.pool.query(
+    `UPDATE fact_candidate SET status='confirmed',version=version+1,decided_by=$2,decided_at=now() WHERE id=$1`,
+    [candidate.id, writer.userId],
+  );
   const tx = await context.pool.connect();
   const ctx = { tx, projectId: context.projectId } as ToolExecutionContext;
   const request = { kind: 'facts', limit: 5 } as const;
   try {
     await tx.query('BEGIN');
+    const {
+      rows: [fixture],
+    } = await context.pool.query<{ valid_until: Date }>(
+      `INSERT INTO fact(project_id,subject,field,value,unit,candidate_id,source_document_id,evidence,data_level,revision,confirmed_by,valid_from,valid_until)
+       SELECT project_id,subject,field,value,unit,id,source_document_id,evidence,data_level,1,decided_by,
+              statement_timestamp()-interval '1 hour',clock_timestamp()+interval '2 seconds'
+       FROM fact_candidate WHERE id=$1 RETURNING valid_until`,
+      [candidate.id],
+    );
     const beforeExpiry = await readConfirmedFacts(ctx, request);
     expect(beforeExpiry).toMatchObject({
-      dataLevel: 'confidential',
-      data: { facts: [{ value: 'EX-02', evidence: updated }] },
+      dataLevel: 'internal',
+      data: { facts: [{ value: 'EX-01', evidence: source }] },
     });
     expect(beforeExpiry.data.facts[0]).not.toHaveProperty('dataLevel');
-    await wait(Math.max(0, expires - Date.now()) + 30);
+    await tx.query(
+      'SELECT pg_sleep(GREATEST(0,EXTRACT(EPOCH FROM ($1::timestamptz-clock_timestamp())))+.03)',
+      [fixture!.valid_until],
+    );
     expect((await readConfirmedFacts(ctx, request)).data.facts).toEqual([]);
     await expect(refreshConfirmedFactsLevel(ctx, beforeExpiry.data.facts)).rejects.toMatchObject({
       code: 'FACT_RESULT_CHANGED',

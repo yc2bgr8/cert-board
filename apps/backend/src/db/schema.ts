@@ -3045,7 +3045,7 @@ export const factCandidate = pgTable(
     ),
     check(
       'fact_candidate_evidence_ok',
-      sql`jsonb_typeof(${t.evidence}) = 'object' AND (${t.evidence}->>'documentId') IS NOT DISTINCT FROM ${t.sourceDocumentId}::text`,
+      sql`jsonb_typeof(${t.evidence}) = 'object' AND (${t.evidence}->>'documentId')::uuid IS NOT DISTINCT FROM ${t.sourceDocumentId}`,
     ),
     check(
       'fact_candidate_value_ok',
@@ -3117,7 +3117,7 @@ export const fact = pgTable(
     ),
     check(
       'fact_evidence_ok',
-      sql`jsonb_typeof(${t.evidence}) = 'object' AND (${t.evidence}->>'documentId') IS NOT DISTINCT FROM ${t.sourceDocumentId}::text`,
+      sql`jsonb_typeof(${t.evidence}) = 'object' AND (${t.evidence}->>'documentId')::uuid IS NOT DISTINCT FROM ${t.sourceDocumentId}`,
     ),
   ],
 );
