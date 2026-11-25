@@ -98,10 +98,19 @@ async function drill() {
   assert.equal((await readFile(marker, 'utf8')).trim(), 'cert-board-acceptance');
   assert.equal(invoke('systemd-detect-virt', ['--vm'], '验收虚拟机标识无效。'), 'kvm');
   const docker = (args, stage, options) => invoke('docker', ['--context', 'default', ...args], stage, options);
-  assert.equal(docker(['ps', '-aq'], '无法核对验收机里的容器。'), '', '请使用干净的验收机。');
+  const sourceLabel = `label=com.docker.compose.project=${source}`;
+  const volumes = () => docker(['volume', 'ls', '-q'], '无法核对恢复卷创建状态。').split('\n').sort();
   assert.equal(
-    docker(['volume', 'ls', '-q', '--filter', `label=com.docker.compose.project=${source}`], '无法核对演练源数据卷。'),
+    docker(['ps', '-aq', '--filter', sourceLabel], '无法核对演练源容器。'),
+    '', '演练源容器已经存在，请使用新的验收机。',
+  );
+  assert.equal(
+    docker(['volume', 'ls', '-q', '--filter', sourceLabel], '无法核对演练源数据卷。'),
     '', '演练源卷已经存在，请使用新的验收机。',
+  );
+  assert.ok(
+    !volumes().some((name) => [`${source}_postgres_data`, `${source}_minio_data`].includes(name)),
+    '隔离部署的卷名已被占用，无法启动演练。',
   );
   const settings = {
     POSTGRES_PASSWORD: randomBytes(24).toString('hex'),
@@ -130,7 +139,6 @@ async function drill() {
   const backup = (...args) => spawnSync(process.execPath, ['scripts/backup.mjs', ...args], {
     cwd: root, env: system, encoding: 'utf8', timeout: 180_000,
   });
-  const volumes = () => docker(['volume', 'ls', '-q'], '无法核对恢复卷创建状态。').split('\n').sort();
   let target;
   try {
     compose(source, ['up', '-d', '--wait', 'postgres', 'minio'], '演练源数据服务启动失败。');
