@@ -186,10 +186,10 @@ test('只读网关核实接收自己的文本和判断字段，仍拒绝动作�
     choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: structured } }],
   });
   expect(turn).toHaveBeenCalledOnce();
-  turn.mockResolvedValueOnce(reply);
-  await expect(sendCursorAcceptance(cursor, model, ask)).resolves.toMatchObject({
-    choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: structured } }],
-  });
+  for (const malformed of [reply, structured.slice(0, -1)]) {
+    turn.mockResolvedValueOnce(malformed);
+    await expect(sendCursorAcceptance(cursor, model, ask)).rejects.toBeInstanceOf(CursorReplyFormatError);
+  }
   turn.mockResolvedValueOnce('{"content":"确定","actions":[{"name":"doc_read","arguments":{}}]}');
   await expect(sendCursorAcceptance(cursor, model, ask)).rejects.toBeInstanceOf(CursorReplyFormatError);
   turn.mockResolvedValueOnce(reply.repeat(10));

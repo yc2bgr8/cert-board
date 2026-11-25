@@ -165,13 +165,7 @@ export function parseCursorModelTurn(
     .trim()
     .replace(/^\x60\x60\x60(?:json)?\s*/iu, '')
     .replace(/\s*\x60\x60\x60$/u, '');
-  let payload: unknown;
-  try {
-    payload = JSON.parse(body);
-  } catch (error) {
-    if (!toolFreeVerification) throw error;
-    payload = { text: body, claims: [] };
-  }
+  const payload: unknown = JSON.parse(body);
   const verification = toolFreeVerification ? verificationReplySchema.safeParse(payload) : null;
   const result = modelTurn.parse(
     verification?.success
