@@ -15,7 +15,7 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;backgrou
 img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
 @media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
-</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#v6-实施顺序">v6 实施顺序</a><a class="level-2" href="#pr-34-余项">PR-34 余项</a><a class="level-2" href="#pr-35-真实模型复验阻塞">PR-35 真实模型复验阻塞</a><a class="level-2" href="#pr-36-余项">PR-36 余项</a><a class="level-2" href="#pr-38-余项">PR-38 余项</a><a class="level-2" href="#pr-33-余项">PR-33 余项</a><a class="level-2" href="#pr-32-验收余项">PR-32 验收余项</a><a class="level-2" href="#pr-31-抽取余项">PR-31 抽取余项</a><a class="level-2" href="#2026-11-20-补充">2026-11-20 补充</a><a class="level-3" href="#pr-28-后续">PR-28 后续</a><a class="level-2" href="#已有待办">已有待办</a><a class="level-2" href="#需要-lan-处理">需要 Lan 处理</a><a class="level-2" href="#各-pr-未完成验收">各 PR 未完成验收</a></nav><main><h1 id="待办">待办</h1>
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#v6-实施顺序">v6 实施顺序</a><a class="level-2" href="#pr-34-余项">PR-34 余项</a><a class="level-2" href="#pr-35-真实模型复验阻塞">PR-35 真实模型复验阻塞</a><a class="level-2" href="#pr-36-余项">PR-36 余项</a><a class="level-2" href="#pr-38-余项">PR-38 余项</a><a class="level-2" href="#pr-39-余项">PR-39 余项</a><a class="level-2" href="#pr-33-余项">PR-33 余项</a><a class="level-2" href="#pr-32-验收余项">PR-32 验收余项</a><a class="level-2" href="#pr-31-抽取余项">PR-31 抽取余项</a><a class="level-2" href="#2026-11-20-补充">2026-11-20 补充</a><a class="level-3" href="#pr-28-后续">PR-28 后续</a><a class="level-2" href="#已有待办">已有待办</a><a class="level-2" href="#需要-lan-处理">需要 Lan 处理</a><a class="level-2" href="#各-pr-未完成验收">各 PR 未完成验收</a></nav><main><h1 id="待办">待办</h1>
 <h2 id="v6-实施顺序">v6 实施顺序</h2>
 <p>PR-28 及 v5 第 1.1 节补充、PR-D7、PR-Q1、PR-Q2、PR-D8 和 PR-29 至 PR-33 已合并。PR-34 与 PR-35 的真实复验暂缓重复尝试。先继续可独立验证的部分，恢复真实通道后按依赖补齐验收和复审。PR-41 的本机候选保留。PR-54 移至 PR-64 前。<a href="变更单/需求变更单_2026-11-20_可用优先.html#附录b-对pr的调整">v6 附录 B</a></p>
 <h2 id="pr-34-余项">PR-34 余项</h2>
@@ -26,6 +26,8 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <ul><li>保留 120 例认证线离线基线和 L08 E07 副本回归。其余 L08 题需要逐例核对可用资料和标注，E04、E05、E10、E11、E14 等保留注册人员确认。PR-34、PR-35 完成后接入 M02、七维回放和正式模型回归。Flash 现有基线只有 116/120 及分组汇总，逐例差异仍需同口径的 Flash 原始报告或新实测。<a href="执行方案/AI原生器械认证板块_执行方案_v0.4.html#pr-36-评测集与回归">执行方案</a> · <a href="决定记录.html#d-081-l08-e07-的离线回归资料">离线资料决定</a></li></ul>
 <h2 id="pr-38-余项">PR-38 余项</h2>
 <ul><li>代理日志按业务与沙箱两份白名单逐行检查，接管与交还通过真实浏览器请求及剧本 Agent 验证。目标页的接管、交还按钮仍待接入。待 PR-34 合并及获准模型通道可用后，重新核对最终合并树、真实 R09 改稿和 M02 定时唤醒，再提交独立复审。<a href="执行方案/AI原生器械认证板块_执行方案_v0.4.html#pr-38-安全检查清单与端到端测试">执行方案</a></li></ul>
+<h2 id="pr-39-余项">PR-39 余项</h2>
+<ul><li>隔离部署冷备份、空卷恢复及合成恢复演练已在独立虚拟机执行。正式部署时确定每日维护窗口、归档保管与 PR-51 的备份审计信号。当前命令手动执行。待 PR-38 合并后在最终合并树复验部署、恢复及真实 R09 的后台和沙箱资源占用，并完成独立复审。<a href="决定记录.html#d-082-隔离部署的备份与恢复">决定 D-082</a></li></ul>
 <h2 id="pr-33-余项">PR-33 余项</h2>
 <ul><li>事实候选的知识管理界面、规则包人审发布与回退随 PR-42 进入。PR-34 接入 M02 实时检索、核查技能和定时唤醒。项目资料外的证据回执按各能力接入。<a href="pr/PR-33.html">范围</a></li></ul>
 <h2 id="pr-32-验收余项">PR-32 验收余项</h2>
