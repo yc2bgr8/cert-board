@@ -39,7 +39,7 @@ const severe = z.enum([
   'missed_statutory_deadline',
 ]);
 const checklist = z.record(id, z.enum(['pass', 'fail', 'pending']));
-const scope = z.enum(['synthetic', 'offline-development', 'formal']);
+const scope = z.enum(['synthetic', 'offline-development']);
 const evidenceIdentity = z.strictObject({ id, scope, head: oid, main: oid, tree: oid });
 
 export const v1ObservationSchema = z
@@ -93,11 +93,11 @@ export const v1ObservationSchema = z
     }),
   })
   .superRefine((input, context) => {
-    const indexed = new Map((input.evidenceIndex ?? []).map((item) => [item.id, item]));
-    if (indexed.size !== input.evidenceIndex?.length && input.evidenceIndex) {
+    if (!input.evidenceIndex) return;
+    const indexed = new Map(input.evidenceIndex.map((item) => [item.id, item]));
+    if (indexed.size !== input.evidenceIndex.length) {
       context.addIssue({ code: 'custom', path: ['evidenceIndex'], message: '证据标识不能重复。' });
     }
-    if (input.scope !== 'formal') return;
     for (const [key, item] of Object.entries(input.observations)) {
       if (!item) continue;
       if (
@@ -105,7 +105,7 @@ export const v1ObservationSchema = z
           const source = indexed.get(reference);
           return (
             !source ||
-            source.scope !== 'formal' ||
+            source.scope !== input.scope ||
             source.head !== input.head ||
             source.main !== input.main ||
             source.tree !== input.tree
@@ -115,7 +115,7 @@ export const v1ObservationSchema = z
         context.addIssue({
           code: 'custom',
           path: ['observations', key, 'evidence'],
-          message: '正式指标必须引用同一提交、基线和合并树的正式证据。',
+          message: '已登记证据须匹配本次范围、候选提交、基线和合并树。',
         });
     }
   });
@@ -235,7 +235,7 @@ function businessMetrics(data: Observations): Metric[] {
     completeCheck(
       'ledger_templates',
       ledger ? { data: ledger.data.matches, evidence: ledger.evidence } : undefined,
-      ledger?.data.enabled ?? [],
+      ledger ? [...new Set([...ledger.data.enabled, ...Object.keys(ledger.data.matches)])] : [],
       'pass',
     ),
     ratioMetric(
@@ -254,6 +254,15 @@ export function measureV1(input: unknown) {
   const request = v1ObservationSchema.parse(input);
   const data = request.observations;
   const severe = data.severeReview;
+  const mislabelled = m02Ids.some((key) => data.m02Public?.data[key] === 'claimed_confirmed');
+  const findings = new Set(severe?.data ?? []);
+  if (mislabelled) findings.add('mislabelled_unverified');
+  const severityEvidence = [
+    ...new Set([
+      ...(severe?.evidence ?? []),
+      ...(mislabelled ? (data.m02Public?.evidence ?? []) : []),
+    ]),
+  ];
   const feedback = data.staffFeedback;
   const use = data.staffWeeklyUse;
   const feedbackTotal = feedback
@@ -267,14 +276,14 @@ export function measureV1(input: unknown) {
     duration('system_first_work_p90', data.firstWorkMs, 5000),
     duration('system_ui_action_p90', data.uiActionMs, 1000),
     completeCheck('safety_checks', data.safetyChecks, safetyIds, 'pass'),
-    severe
+    severe || findings.size
       ? {
           code: 'severe_findings',
-          status: severe.data.length ? 'fail' : 'pass',
-          value: severe.data.length,
+          status: findings.size ? 'fail' : 'pass',
+          value: findings.size,
           total: null,
           unit: 'count',
-          evidence: severe.evidence,
+          evidence: severityEvidence,
         }
       : pending('severe_findings', 'count'),
     ratioMetric(
@@ -309,7 +318,7 @@ export function measureV1(input: unknown) {
       : metrics.some((item) => item.status === 'pending')
         ? 'awaiting_evidence'
         : 'measured',
-    severeFindings: severe?.data ?? null,
+    severeFindings: severe || findings.size ? [...findings] : null,
     staffFeedbackSummary: feedback?.data ?? null,
     metrics,
   };

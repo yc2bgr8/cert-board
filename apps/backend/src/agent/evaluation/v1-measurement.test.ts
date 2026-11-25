@@ -53,7 +53,7 @@ test('严重问题、误认公开数据、较慢过程和错误的台账回复�
   input.observations.ledger.data.matches.market_status = 'fail';
   const report = measureV1(input);
   expect(report.status).toBe('blocked');
-  expect(report.severeFindings).toEqual(['fabrication']);
+  expect(report.severeFindings).toEqual(['fabrication', 'mislabelled_unverified']);
   for (const code of ['m02_public', 'system_first_work_p90', 'ledger_templates', 'severe_findings'])
     expect(find(report, code)?.status).toBe('fail');
 });
@@ -68,22 +68,21 @@ test('样本计数错误、缺出处和无效提交编号拒绝输入', () => {
   expect(() => measureV1(withoutSource)).toThrow();
 });
 
-test('正式范围拒绝沿用不同合并树或开发范围的证据', () => {
+test('离线索引拒绝不同合并树或范围的证据，正式输入待独立采集接入', () => {
   const input = {
     ...fixture,
-    scope: 'formal',
+    scope: 'offline-development',
     observations: { r09Known: fixture.observations.r09Known },
   };
-  expect(() => measureV1(input)).toThrow('正式指标必须引用');
   const receipt = {
     id: input.observations.r09Known.evidence[0],
-    scope: 'formal',
+    scope: 'offline-development',
     head: input.head,
     main: input.main,
     tree: input.tree,
   };
   expect(() =>
-    measureV1({ ...input, evidenceIndex: [{ ...receipt, scope: 'offline-development' }] }),
+    measureV1({ ...input, evidenceIndex: [{ ...receipt, scope: 'synthetic' }] }),
   ).toThrow();
   expect(() =>
     measureV1({ ...input, evidenceIndex: [{ ...receipt, tree: input.main }] }),
@@ -91,4 +90,22 @@ test('正式范围拒绝沿用不同合并树或开发范围的证据', () => {
   expect(find(measureV1({ ...input, evidenceIndex: [receipt] }), 'r09_known_count')?.status).toBe(
     'pass',
   );
+  expect(() =>
+    measureV1({ ...input, scope: 'formal', evidenceIndex: [{ ...receipt, scope: 'formal' }] }),
+  ).toThrow();
+});
+
+test('已观测的模板失败不能通过漏列分母隐藏，自动归入确定的严重错误', () => {
+  const input = structuredClone(fixture);
+  input.observations.ledger.data.enabled = ['due_licenses'];
+  input.observations.ledger.data.matches.market_status = 'fail';
+  input.observations.m02Public.data.brands = 'claimed_confirmed';
+  const report = measureV1(input);
+  expect(find(report, 'ledger_templates')).toMatchObject({ status: 'fail', total: 2 });
+  expect(find(report, 'severe_findings')).toMatchObject({
+    status: 'fail',
+    value: 1,
+    evidence: ['synthetic-severe-review', 'synthetic-m02'],
+  });
+  expect(report.severeFindings).toEqual(['mislabelled_unverified']);
 });

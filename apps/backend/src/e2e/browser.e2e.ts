@@ -5,6 +5,7 @@ import {
   chromium,
   type Browser,
   type BrowserContext,
+  type Locator,
   type Page,
   type Request,
   type Response,
@@ -117,18 +118,72 @@ async function createConversation(
   assert.equal(value.conversation.permissionMode, mode ?? 'full');
   return value.conversation.id;
 }
-async function send(page: Page, text: string, action = '发送', beforeSend?: () => void) {
+type TimingTarget = { selector: string; text?: string };
+
+async function armBrowserTiming(button: Locator, target: TimingTarget) {
+  const probe = await button.evaluateHandle(
+    (element, wanted) => ({
+      elapsed: new Promise<number>((resolve, reject) => {
+        element.addEventListener(
+          'click',
+          () => {
+            const started = performance.now();
+            const deadline = window.setTimeout(() => {
+              window.clearInterval(sample);
+              reject(new Error('BROWSER_TIMING_TARGET_TIMEOUT'));
+            }, 15000);
+            const sample = window.setInterval(() => {
+              const found = Array.from(document.querySelectorAll(wanted.selector)).some((item) => {
+                if (wanted.text && !item.textContent?.includes(wanted.text)) return false;
+                const style = window.getComputedStyle(item);
+                const rect = item.getBoundingClientRect();
+                return (
+                  style.visibility === 'visible' &&
+                  style.display !== 'none' &&
+                  Number(style.opacity) > 0 &&
+                  rect.width > 0 &&
+                  rect.height > 0 &&
+                  rect.left < innerWidth &&
+                  rect.top < innerHeight &&
+                  rect.right > 0 &&
+                  rect.bottom > 0
+                );
+              });
+              if (!found) return;
+              window.clearInterval(sample);
+              window.clearTimeout(deadline);
+              resolve(Math.ceil(performance.now() - started));
+            }, 8);
+          },
+          { capture: true, once: true },
+        );
+      }),
+    }),
+    target,
+  );
+  return async () => {
+    try {
+      return await probe.evaluate(({ elapsed }) => elapsed);
+    } finally {
+      await probe.dispose();
+    }
+  };
+}
+
+async function send(page: Page, text: string, action = '发送', timingTarget?: TimingTarget) {
   await page.getByRole('textbox', { name: '消息', exact: true }).fill(text);
   const request = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
       /\/messages$/.test(new URL(response.url()).pathname),
   );
-  beforeSend?.();
-  await page.getByRole('button', { name: action, exact: true }).click();
+  const button = page.getByRole('button', { name: action, exact: true });
+  const readTiming = timingTarget ? await armBrowserTiming(button, timingTarget) : null;
+  await button.click();
   const response = await request;
   assert.equal(response.status(), 200);
-  return (await response.json()) as { runId: string; kind: string };
+  const result = (await response.json()) as { runId: string; kind: string };
+  return { ...result, readTiming };
 }
 
 async function main() {
@@ -245,11 +300,15 @@ async function main() {
     assert.equal(await page.getByRole('button', { name: 'L08 510(k)', exact: true }).count(), 0);
     assert.equal(await page.getByRole('button', { name: '外部模型', exact: true }).count(), 1);
     await page.getByRole('button', { name: '注册Agent', exact: true }).click();
-    const openConversationAt = performance.now();
-    await page.getByRole('button', { name: '新对话', exact: true }).click();
+    const openConversation = page.getByRole('button', { name: '新对话', exact: true });
+    const readConversationTime = await armBrowserTiming(openConversation, {
+      selector: '[role="dialog"]',
+      text: '新对话',
+    });
+    await openConversation.click();
     const newDialog = page.getByRole('dialog', { name: '新对话', exact: true });
     await newDialog.waitFor({ state: 'visible' });
-    uiActionMs.push(Math.ceil(performance.now() - openConversationAt));
+    uiActionMs.push(await readConversationTime());
     await newDialog
       .getByRole('textbox', { name: '对话标题', exact: true })
       .fill('检查L08申报包，列出缺件和前后不一致的地方，各附两处原文');
@@ -292,12 +351,15 @@ async function main() {
     );
     await page.getByRole('textbox', { name: '消息', exact: true }).fill(editedDraft);
     stage = '新版搜索';
-    const openSearchAt = performance.now();
-    await page.getByRole('button', { name: '搜索', exact: true }).click();
+    const openSearch = page.getByRole('button', { name: '搜索', exact: true });
+    const readSearchTime = await armBrowserTiming(openSearch, {
+      selector: '[role="dialog"] [role="combobox"]',
+    });
+    await openSearch.click();
     const searchDialog = page.getByRole('dialog', { name: '搜索项目或对话', exact: true });
     const searchBox = searchDialog.getByRole('combobox', { name: '搜索项目或对话', exact: true });
     await searchBox.waitFor({ state: 'visible' });
-    uiActionMs.push(Math.ceil(performance.now() - openSearchAt));
+    uiActionMs.push(await readSearchTime());
     await searchBox.fill('K123465');
     await searchDialog.getByRole('option', { name: /K123465.*写法检查/ }).waitFor();
     await captureWorkbench(page, output, 'pr-u1-13-search.png');
@@ -400,14 +462,14 @@ async function main() {
     stage = '权限模式从下一轮目录生效';
     await createConversation(page, harness.projectId, 'ask');
     const mode = harness.plan('mode');
-    let sentAt = Number.NaN;
-    await send(page, '核对资料后准备说明。', '发送', () => {
-      sentAt = performance.now();
+    const measuredSend = await send(page, '核对资料后准备说明。', '发送', {
+      selector: 'summary',
+      text: '先定位资料，再逐条核对原文。',
     });
     const planSummary = page.locator('summary').filter({ hasText: '先定位资料，再逐条核对原文。' });
     await planSummary.waitFor();
-    assert.ok(Number.isFinite(sentAt));
-    firstWorkMs.push(Math.ceil(performance.now() - sentAt));
+    assert.ok(measuredSend.readTiming);
+    firstWorkMs.push(await measuredSend.readTiming());
     await bounded(mode.reached);
     assert.ok((await planSummary.textContent())?.includes('第 1 步，共 2 步'));
     if ((await planSummary.locator('..').getAttribute('open')) === null) await planSummary.click();
