@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-38 安全检查与端到端验收</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#独立虚拟机验收">独立虚拟机验收</a><a class="level-2" href="#待完成">待完成</a></nav><main><h1 id="pr-38-安全检查与端到端验收">PR-38 安全检查与端到端验收</h1>
+<p><code>pnpm test:network</code> 在隔离部署中核对业务代理和沙箱代理各自的白名单。探针开始后，逐行检查两路日志的输出与错误流。可能发起了连接的记录必须是白名单主机的 HTTPS CONNECT。非白名单主机只有明确的拒绝记录可以出现。验收还要求预期的证书校验、连接成功和拒绝记录齐备。报告只显示统计，原始日志留在独立验收机。</p>
+<p><code>pnpm test:e2e</code> 增加手动到达后的接管、交还和唤醒。剧本 Agent 登记等待。Chromium 使用实际 Cookie 和 CSRF 调用既有接管与交还接口，核对缺失 CSRF、过期版本、接管中不唤醒。交还后只创建一个新对话，Agent 收到交还方向且浏览器能看到回复。</p>
+<h2 id="独立虚拟机验收">独立虚拟机验收</h2>
+<p>使用无模型凭据的独立 Linux 虚拟机和开发账号。启动隔离服务后运行 <code>pnpm test:network</code>，再关闭本轮隔离服务。浏览器使用虚拟机上已安装的 Chromium。工作台只允许回环地址，探针沿用已登记的域名。代理检查包含未授权主机的成功与失败记录、错误端口、非 CONNECT、两路代理混用白名单和拒绝记录缺失的合成回归。</p>
+<h2 id="待完成">待完成</h2>
+<ul><li>现有安全测试继续覆盖业务工具边界、浏览器审批、会话隔离、沙箱进程和外部资源。后续在同一独立虚拟机完成 PR-38 的整套检查并登记脱敏报告。</li><li>接管与交还的界面入口仍随目标界面接入。M02 定时唤醒依赖 PR-34，R09 最终改稿审核、只读与定时唤醒的正式联合走查待获准模型通道可用。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

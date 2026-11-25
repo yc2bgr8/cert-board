@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parseEnv } from 'node:util';
 import { chromium } from 'playwright-core';
 import { localProcessEnvironment, runDev } from './dev.mjs';
+import { readEgressAllowlist, verifyEgressLogs } from './verify-egress-container.mjs';
 
 const project = 'cert-board-isolated';
 const container = (service) => `${project}-${service}-1`;
@@ -66,9 +67,14 @@ async function verifyBrowser(url) {
     );
     assert.ok(password);
     stage = '浏览器登录';
-    browser = await chromium
-      .launch({ channel: 'chrome', headless: true })
-      .catch(() => chromium.launch({ channel: 'msedge', headless: true }));
+    const linuxChromium = '/usr/bin/chromium';
+    const hasLinuxChromium =
+      process.platform === 'linux' &&
+      await access(linuxChromium).then(() => true, () => false);
+    browser = hasLinuxChromium
+      ? await chromium.launch({ executablePath: linuxChromium, headless: true })
+      : await chromium.launch({ channel: 'chrome', headless: true })
+        .catch(() => chromium.launch({ channel: 'msedge', headless: true }));
     const context = await browser.newContext({ serviceWorkers: 'block' });
     await context.route('**/*', (route) =>
       new URL(route.request().url()).origin === url ? route.continue() : route.abort(),
@@ -156,6 +162,7 @@ async function main() {
   await verifyBrowser(url);
   console.log('浏览器登录、注销会话与隔离模式的 Cursor 门禁已验证。');
   assert.equal(await runDev('isolated-check'), 0);
+  const probeStartedAt = new Date().toISOString();
 
   for (const service of ['backend-api', 'backend-worker']) {
     assert.deepEqual(connectedNetworks(service), [network('internal')]);
@@ -250,9 +257,24 @@ async function main() {
     );
     assert.equal(direct.status, 1, `${service} 可直连公网或未完成隔离检查`);
   }
-  const log = docker('logs', '--since', '5m', container('egress'));
-  assert.match(log, /CONNECT[^\r\n]+openrouter\.ai/u);
-  assert.match(log, /CONNECT[^\r\n]+fixture\.invalid/u);
+  for (const [service, list, openedHosts, refusedHosts] of [
+    ['egress', 'isolated-allowlist', ['openrouter.ai'], ['fixture.invalid']],
+    [
+      'sandbox-egress',
+      'sandbox-allowlist',
+      ['pypi.org', 'files.pythonhosted.org'],
+      ['openrouter.ai', 'fixture.invalid'],
+    ],
+  ]) {
+    const output = dockerProcess('logs', '--since', probeStartedAt, container(service));
+    assert.equal(output.status, 0, '不能读取本轮代理日志');
+    const checked = verifyEgressLogs(output, {
+      allowedHosts: await readEgressAllowlist(list),
+      openedHosts,
+      refusedHosts,
+    });
+    console.log(`${service} 的 ${checked} 条探针窗口日志已逐行校验。`);
+  }
   const workerLog = docker('logs', '--since', '2m', container('backend-worker'));
   assert.match(workerLog, /"event":"worker_(?:ready|heartbeat)"/u);
   console.log('隔离部署、代理白名单、跨网段阻断和开发中继已验证。');

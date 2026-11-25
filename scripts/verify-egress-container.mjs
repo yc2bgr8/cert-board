@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,14 +38,37 @@ async function docker(args, includeStderr = false) {
 const assert = (condition) => {
   if (!condition) throw new Error('代理容器隔离或日志验证未通过，请核对部署配置。');
 };
-export function verifyEgressLogs({ stdout, stderr }) {
+export async function readEgressAllowlist(name) {
+  const source = await readFile(new URL(`../deploy/egress/${name}`, import.meta.url), 'utf8');
+  return source
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+}
+
+export function verifyEgressLogs({ stdout, stderr }, { allowedHosts, openedHosts, refusedHosts }) {
   const output = `${stdout}\n${stderr}`;
   assert(!output.includes(egressProbeMarker));
   assert(!/authorization:|bearer |private\?probe=/i.test(output));
+  const allowed = new Set(allowedHosts.map((host) => host.toLowerCase()));
+  const opened = new Set();
+  const refused = new Set();
   const lines = output.trim().split(/\r?\n/).filter(Boolean);
-  assert(lines.some((line) => / CONNECT openrouter\.ai 443 200 TCP_TUNNEL$/.test(line)));
-  assert(lines.some((line) => / 403 TCP_DENIED$/.test(line)));
-  assert(lines.every((line) => /^\d+\.\d{3} (?:CONNECT|POST) \S+ \d+ \d{3} \S+$/.test(line)));
+  for (const line of lines) {
+    const record = /^\d+\.\d{3} ([A-Z]+) ([a-z\d._-]+|\[?[a-f\d:.]+\]?) (\d+) (\d{3}) ([A-Z_]+)$/iu.exec(line);
+    assert(record);
+    const [, method, rawHost, port, status, result] = record;
+    const host = rawHost.toLowerCase();
+    if (status === '403' && result === 'TCP_DENIED') {
+      if (method === 'CONNECT' && port === '443') refused.add(host);
+      continue;
+    }
+    // 未被代理明确拒绝的失败请求仍可能尝试连接上游。
+    assert(method === 'CONNECT' && port === '443' && allowed.has(host) && result !== 'TCP_DENIED');
+    if (status === '200' && result === 'TCP_TUNNEL') opened.add(host);
+  }
+  assert(openedHosts.every((host) => opened.has(host)));
+  assert(refusedHosts.every((host) => refused.has(host)));
   return lines.length;
 }
 export async function verifyEgressContainer() {
@@ -77,7 +101,11 @@ export async function verifyEgressContainer() {
     version,
     user: 'non-root',
     credentials: false,
-    loggedRequests: verifyEgressLogs(output),
+    loggedRequests: verifyEgressLogs(output, {
+      allowedHosts: await readEgressAllowlist('allowlist'),
+      openedHosts: ['openrouter.ai'],
+      refusedHosts: ['example.com'],
+    }),
   };
 }
 

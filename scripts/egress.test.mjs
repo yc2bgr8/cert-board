@@ -4,13 +4,54 @@ import { expect, test } from 'vitest';
 import { proxyProbe, egressProbeMarker } from './verify-egress.mjs';
 import { verifyEgressLogs } from './verify-egress-container.mjs';
 
+const developmentPolicy = {
+  allowedHosts: ['openrouter.ai'],
+  openedHosts: ['openrouter.ai'],
+  refusedHosts: ['fixture.invalid'],
+};
+
 test('容器日志同时检查stdout和stderr，敏感标记不能躲入stderr', () => {
   const stdout =
-    '1794963196.008 CONNECT openrouter.ai 443 200 TCP_TUNNEL\n1794963197.008 CONNECT example.com 443 403 TCP_DENIED\n';
-  expect(verifyEgressLogs({ stdout, stderr: '' })).toBe(2);
-  expect(() => verifyEgressLogs({ stdout, stderr: `${egressProbeMarker}\n` })).toThrow(
-    '日志验证未通过',
-  );
+    '1794963196.008 CONNECT openrouter.ai 443 200 TCP_TUNNEL\n1794963197.008 CONNECT fixture.invalid 443 403 TCP_DENIED\n';
+  expect(verifyEgressLogs({ stdout, stderr: '' }, developmentPolicy)).toBe(2);
+  expect(() =>
+    verifyEgressLogs({ stdout, stderr: `${egressProbeMarker}\n` }, developmentPolicy),
+  ).toThrow('日志验证未通过');
+});
+
+test.each([
+  'CONNECT fixture.invalid 443 200 TCP_TUNNEL',
+  'CONNECT fixture.invalid 443 503 TCP_MISS',
+  'CONNECT openrouter.ai 8443 200 TCP_TUNNEL',
+  'POST openrouter.ai 443 200 TCP_MISS',
+])('发现额外的未授权派发记录即失败（%s）', (entry) => {
+  const stdout = [
+    '1794963196.008 CONNECT openrouter.ai 443 200 TCP_TUNNEL',
+    '1794963197.008 CONNECT fixture.invalid 443 403 TCP_DENIED',
+  ].join('\n');
+  expect(() =>
+    verifyEgressLogs({ stdout, stderr: `1794963198.008 ${entry}` }, developmentPolicy),
+  ).toThrow('日志验证未通过');
+});
+
+test('沙箱代理使用自己的白名单，并同时证明允许与拒绝的探针', () => {
+  const policy = {
+    allowedHosts: ['pypi.org', 'files.pythonhosted.org'],
+    openedHosts: ['pypi.org', 'files.pythonhosted.org'],
+    refusedHosts: ['fixture.invalid', 'openrouter.ai'],
+  };
+  const lines = [
+    '1794963196.008 CONNECT pypi.org 443 200 TCP_TUNNEL',
+    '1794963197.008 CONNECT files.pythonhosted.org 443 200 TCP_TUNNEL',
+    '1794963198.008 CONNECT fixture.invalid 443 403 TCP_DENIED',
+    '1794963199.008 CONNECT openrouter.ai 443 403 TCP_DENIED',
+  ];
+  const logs = { stdout: lines.slice(0, 3).join('\n'), stderr: lines[3] };
+  expect(verifyEgressLogs(logs, policy)).toBe(4);
+  expect(() => verifyEgressLogs({ ...logs, stderr: '' }, policy)).toThrow('日志验证未通过');
+  expect(() =>
+    verifyEgressLogs({ ...logs, stderr: lines[3].replace('403 TCP_DENIED', '200 TCP_TUNNEL') }, policy),
+  ).toThrow('日志验证未通过');
 });
 
 test('最小代理仅登记既定精确OpenRouter主机，拒绝非CONNECT、非443和非白名单', async () => {

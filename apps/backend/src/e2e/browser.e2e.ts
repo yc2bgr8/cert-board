@@ -17,6 +17,8 @@ import { processTestOutbound } from '../outbound/service.js';
 import { developmentGoalId } from '../projects/seed.js';
 import { parseSkillDraftMarkdown } from '../skills/markdown.js';
 import { stageSkillVersion } from '../skills/service.js';
+import { scanGoalEvents } from '../goals/goal-events.js';
+import { browserHandoffNote, browserWakeupText } from '../test-support/browser-fixture.js';
 import {
   browserReviewPath,
   browserVerificationUncertainty,
@@ -91,11 +93,13 @@ async function createConversation(
   mode?: 'ask' | 'read_only' | 'full',
   title?: string,
   firstMessage?: string,
+  goalId?: string,
 ) {
   await page.getByRole('button', { name: '新对话', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '新对话', exact: true });
   if (title) await dialog.getByRole('textbox', { name: '对话标题', exact: true }).fill(title);
   await dialog.getByRole('combobox', { name: '选择项目', exact: true }).selectOption(projectId);
+  if (goalId) await dialog.getByRole('combobox', { name: '工作目标', exact: true }).selectOption(goalId);
   if (firstMessage)
     await dialog.getByRole('textbox', { name: '首条消息', exact: true }).fill(firstMessage);
   if (mode)
@@ -128,6 +132,73 @@ async function send(page: Page, text: string, action = '发送') {
   const response = await request;
   assert.equal(response.status(), 200);
   return (await response.json()) as { runId: string; kind: string };
+}
+
+async function exerciseGoalHandoff(
+  page: Page,
+  harness: Awaited<ReturnType<typeof startBrowserHarness>>,
+  beforeReload: () => Promise<void>,
+) {
+  const { rows: [goal] } = await harness.pool.query<{ id: string }>(
+    `INSERT INTO goal(project_id,owner_user_id,title,acceptance_criteria)
+     SELECT id,owner_user_id,'合成资料到达验收','确认资料到达后在新对话继续。'
+     FROM cert_project WHERE id=$1 RETURNING id`,
+    [harness.projectId],
+  );
+  assert.ok(goal);
+  const previous = await createConversation(page, harness.projectId, 'full', '接管前核查', undefined, goal.id);
+  const waitModel = harness.plan('manual_goal_wait');
+  const { runId } = await send(page, '请等待我确认合成资料到达。');
+  await until(async () => (await harness.pool.query(
+    "SELECT id FROM run WHERE id=$1 AND status='waiting' AND lease_owner IS NULL",
+    [runId],
+  )).rowCount === 1);
+  assert.equal(waitModel.observed.calls, 1);
+  const currentGoal = async () => (await harness.pool.query<{ status: string; version: number }>(
+    'SELECT status,version FROM goal WHERE id=$1', [goal.id],
+  )).rows[0]!;
+  const post = (endpoint: 'control' | 'arrival', payload: Record<string, unknown>, authorized = true) =>
+    page.evaluate(async ({ endpoint, payload, authorized, id }) => {
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (authorized) {
+        const auth = await fetch('/api/auth/me');
+        if (!auth.ok) throw new Error('BROWSER_GOAL_AUTH_FAILED');
+        const { csrfToken } = await auth.json();
+        headers['x-csrf-token'] = csrfToken;
+      }
+      return (await fetch(`/api/goals/${id}/${endpoint}`, {
+        method: 'POST', headers, body: JSON.stringify(payload),
+      })).status;
+    }, { endpoint, payload, authorized, id: goal.id });
+  const before = await currentGoal();
+  assert.equal(before.status, 'waiting_decision');
+  const takeover = { action: 'takeover', expectedVersion: before.version, note: '人工先核对合成资料。' };
+  assert.equal(await post('control', takeover, false), 403);
+  assert.deepEqual(await currentGoal(), before);
+  assert.equal(await post('control', takeover), 200);
+  const controlled = await currentGoal();
+  assert.equal(controlled.status, 'human_controlled');
+  const handoff = { action: 'handoff', expectedVersion: controlled.version, note: browserHandoffNote };
+  assert.equal(await post('control', { ...handoff, expectedVersion: before.version }), 409);
+  assert.equal(await post('arrival', { sourceKey: 'pr38-browser-arrival' }), 200);
+  await scanGoalEvents(harness.pool);
+  const wakeups = async () => (await harness.pool.query<{ conversation_id: string }>(
+    "SELECT conversation_id FROM run WHERE goal_id=$1 AND trigger_type='wakeup'",
+    [goal.id],
+  )).rows;
+  assert.deepEqual(await wakeups(), []);
+  const resumeModel = harness.plan('manual_goal_resume');
+  assert.equal(await post('control', handoff), 200);
+  await until(async () => (await wakeups()).length > 0);
+  const resumed = await wakeups();
+  assert.equal(resumed.length, 1);
+  assert.notEqual(resumed[0]!.conversation_id, previous);
+  await beforeReload();
+  await page.goto(`${harness.origin}/?conversation=${resumed[0]!.conversation_id}`);
+  await page.getByText(browserWakeupText, { exact: true }).waitFor();
+  await scanGoalEvents(harness.pool);
+  assert.equal((await wakeups()).length, 1);
+  assert.equal(resumeModel.observed.calls, 1);
 }
 
 async function main() {
@@ -173,6 +244,17 @@ async function main() {
     let pageErrors = 0;
     let priorCspViolations = 0;
     const priorCspDirectives = new Set<string>();
+    const rememberCsp = async () => {
+      const previous = await page!.evaluate(() => {
+        const state = globalThis as typeof globalThis & {
+          __certCspViolations: number;
+          __certCspDirectives: string[];
+        };
+        return { count: state.__certCspViolations, directives: state.__certCspDirectives };
+      });
+      priorCspViolations += previous.count;
+      for (const directive of previous.directives) priorCspDirectives.add(directive);
+    };
     page.on('pageerror', () => {
       pageErrors++;
     });
@@ -543,17 +625,7 @@ async function main() {
         create: (title) => createConversation(page!, harness.projectId, 'ask', title),
         send: (text) => send(page!, text),
         until,
-        async beforeReload() {
-          const previous = await page!.evaluate(() => {
-            const state = globalThis as typeof globalThis & {
-              __certCspViolations: number;
-              __certCspDirectives: string[];
-            };
-            return { count: state.__certCspViolations, directives: state.__certCspDirectives };
-          });
-          priorCspViolations += previous.count;
-          for (const directive of previous.directives) priorCspDirectives.add(directive);
-        },
+        beforeReload: rememberCsp,
         stage: (name) => {
           stage = name;
         },
@@ -1362,6 +1434,8 @@ async function main() {
     } finally {
       harness.verification.runtime.status = savedStatus;
     }
+    stage = '浏览器接管、交还与新对话唤醒';
+    await exerciseGoalHandoff(page, harness, rememberCsp);
     stage = 'CSP与零外网检查';
     const cspState = await page.evaluate(() => {
       const state = globalThis as typeof globalThis & {
@@ -1428,6 +1502,7 @@ async function main() {
             'allow_once',
             'allow_conversation',
             'shared_read_only',
+            'goal_takeover_handoff_and_single_wakeup',
             'markdown_html_images_tables_code_and_stylesheet_filter',
             'markdown_script_blocked_and_image_without_referrer',
             'conversation_switch_preserves_edited_draft',

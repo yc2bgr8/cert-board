@@ -26,7 +26,11 @@ export type BrowserScenario =
   | 'external_quote'
   | 'review_verification_resume'
   | 'consult_verification'
-  | 'consult_verification_unavailable';
+  | 'consult_verification_unavailable'
+  | 'manual_goal_wait'
+  | 'manual_goal_resume';
+export const browserHandoffNote = '请按交还方向核对合成清单。';
+export const browserWakeupText = '已在新对话按人工交还方向恢复核查。';
 export const browserModels: ModelGatewayConfig = {
   version: 1,
   models: [
@@ -130,6 +134,18 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
           request.messages.filter((message) => message.role === 'user').at(-1)?.content ?? '';
         if (kind === 'review_decision_resume')
           throw new Error('BROWSER_APPROVAL_RECEIPT_MODEL_CALLED');
+        if (kind === 'manual_goal_wait')
+          return call('wait_register', {
+            source: 'manual',
+            sourceKey: 'pr38-browser-arrival',
+            nextStep: '核对合成清单。',
+            reason: '等待负责人确认资料到达。',
+          });
+        if (kind === 'manual_goal_resume') {
+          if (!request.messages.some(({ role, content }) => role === 'system' && content.includes(browserHandoffNote)))
+            throw new Error('BROWSER_GOAL_HANDOFF_MISSING');
+          return response({ role: 'assistant', content: browserWakeupText });
+        }
         const latest = request.messages.at(-1);
         const previous: unknown = latest?.role === 'tool' ? JSON.parse(latest.content) : null;
         if (kind === 'approval_text') {
