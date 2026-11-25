@@ -1,0 +1,168 @@
+{
+  "request": {
+    "synthetic": true,
+    "subject": "SYNTH-DEVICE",
+    "asOf": "2030-01-10T10:00:00+08:00",
+    "fields": [
+      { "field": "device_model" },
+      { "field": "certificate_number", "reportedValue": "SYNTH-UNCONFIRMED" },
+      { "field": "standard_number" },
+      { "field": "expiry_date" },
+      { "field": "market_status" }
+    ],
+    "facts": [
+      {
+        "level": "internal",
+        "fact": {
+          "id": "48000000-0000-4000-8000-000000000001",
+          "subject": "SYNTH-DEVICE",
+          "field": "device_model",
+          "value": "SYNTH-CP-01",
+          "unit": null,
+          "evidence": {
+            "documentId": "48000000-0000-4000-8000-000000000011",
+            "version": 1,
+            "page": 1,
+            "quote": "型号：SYNTH-CP-01"
+          },
+          "revision": 1,
+          "replacesId": null,
+          "validFrom": "2028-01-01T00:00:00Z",
+          "validUntil": null,
+          "locked": true,
+          "confirmedBy": "48000000-0000-4000-8000-000000000099"
+        }
+      },
+      {
+        "level": "internal",
+        "fact": {
+          "id": "48000000-0000-4000-8000-000000000002",
+          "subject": "SYNTH-DEVICE",
+          "field": "certificate_number",
+          "value": "SYNTH-CERT-01",
+          "unit": null,
+          "evidence": {
+            "documentId": "48000000-0000-4000-8000-000000000011",
+            "version": 1,
+            "page": 2,
+            "quote": "证照编号：SYNTH-CERT-01"
+          },
+          "revision": 1,
+          "replacesId": null,
+          "validFrom": "2028-01-01T00:00:00Z",
+          "validUntil": null,
+          "locked": true,
+          "confirmedBy": "48000000-0000-4000-8000-000000000099"
+        }
+      },
+      {
+        "level": "confidential",
+        "fact": {
+          "id": "48000000-0000-4000-8000-000000000003",
+          "subject": "SYNTH-DEVICE",
+          "field": "standard_number",
+          "value": "SYNTH-PRIVATE-STANDARD",
+          "unit": null,
+          "evidence": {
+            "documentId": "48000000-0000-4000-8000-000000000011",
+            "version": 1,
+            "page": 3,
+            "quote": "标准号：SYNTH-PRIVATE-STANDARD"
+          },
+          "revision": 1,
+          "replacesId": null,
+          "validFrom": "2028-01-01T00:00:00Z",
+          "validUntil": null,
+          "locked": true,
+          "confirmedBy": "48000000-0000-4000-8000-000000000099"
+        }
+      },
+      {
+        "level": "internal",
+        "fact": {
+          "id": "48000000-0000-4000-8000-000000000004",
+          "subject": "SYNTH-DEVICE",
+          "field": "expiry_date",
+          "value": "2036-10-01",
+          "unit": null,
+          "evidence": {
+            "documentId": "48000000-0000-4000-8000-000000000011",
+            "version": 1,
+            "page": 4,
+            "quote": "有效期截止日：2036-10-01"
+          },
+          "revision": 1,
+          "replacesId": null,
+          "validFrom": "2028-01-01T00:00:00Z",
+          "validUntil": null,
+          "locked": true,
+          "confirmedBy": "48000000-0000-4000-8000-000000000099"
+        }
+      },
+      {
+        "level": "internal",
+        "fact": {
+          "id": "48000000-0000-4000-8000-000000000005",
+          "subject": "SYNTH-DEVICE",
+          "field": "expiry_date",
+          "value": "2035-10-01",
+          "unit": null,
+          "evidence": {
+            "documentId": "48000000-0000-4000-8000-000000000011",
+            "version": 2,
+            "page": 4,
+            "quote": "有效期截止日：2035-10-01"
+          },
+          "revision": 2,
+          "replacesId": "48000000-0000-4000-8000-000000000004",
+          "validFrom": "2028-02-01T00:00:00Z",
+          "validUntil": "2028-12-01T00:00:00Z",
+          "locked": true,
+          "confirmedBy": "48000000-0000-4000-8000-000000000099"
+        }
+      }
+    ],
+    "clearances": [
+      {
+        "factId": "48000000-0000-4000-8000-000000000001",
+        "revision": 1,
+        "decision": "allow_sales_draft"
+      },
+      {
+        "factId": "48000000-0000-4000-8000-000000000002",
+        "revision": 1,
+        "decision": "allow_sales_draft"
+      },
+      {
+        "factId": "48000000-0000-4000-8000-000000000003",
+        "revision": 1,
+        "decision": "allow_sales_draft"
+      },
+      {
+        "factId": "48000000-0000-4000-8000-000000000004",
+        "revision": 1,
+        "decision": "allow_sales_draft"
+      }
+    ]
+  },
+  "pages": [
+    {
+      "documentId": "48000000-0000-4000-8000-000000000011",
+      "version": 1,
+      "page": 1,
+      "text": "合成资料\n型号：SYNTH-CP-01"
+    },
+    {
+      "documentId": "48000000-0000-4000-8000-000000000011",
+      "version": 1,
+      "page": 2,
+      "text": "合成资料\n证照编号：SYNTH-CERT-01"
+    },
+    {
+      "documentId": "48000000-0000-4000-8000-000000000011",
+      "version": 1,
+      "page": 3,
+      "text": "合成资料\n标准号：SYNTH-PRIVATE-STANDARD"
+    }
+  ]
+}
