@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-45 R01 立项计划与 R02 路径研判</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#本机候选范围">本机候选范围</a><a class="level-2" href="#开发验收">开发验收</a><a class="level-2" href="#没做什么">没做什么</a></nav><main><h1 id="pr-45-r01-立项计划与-r02-路径研判">PR-45 R01 立项计划与 R02 路径研判</h1>
+<h2 id="本机候选范围">本机候选范围</h2>
+<ul><li>供注册人员审阅的 R01、R02 技能草稿可用现行 <code>skill:stage</code> 登记。R01 区分目标日期、候选时间和有出处的实际事件。R02 引导分类、路径和编号回查，分开候选与正式审核决定。</li><li><code>work_schedule_calculate</code> 接受人员提供的目标日期、节点、负责人、日历日工期和依赖，计算最晚安排、关键路径及起始限制下的可行性。没有已知起始条件则待确认。它只计算计划，原有项目事实和工作区通过现有入口操作，法定期限另走期限工具。</li><li>E01 至 E03 的判分数据用 FDA 官方记录核对。E23 的实际日期保留报表字段或 FDA 接收和决定字段的出处。日期语义以实际报表字段为准，立项、送样、付款和草稿报告仍保持缺少证据。<a href="https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpcd/classification.cfm?id=LRK" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">FDA LRK（外部链接）</a> · <a href="https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID=K253845" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">FDA L08 记录（外部链接）</a> · <a href="https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID=K170825" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">FDA SnoreRx（外部链接）</a></li></ul>
+<h2 id="开发验收">开发验收</h2>
+<ul><li><code>pnpm eval:r01-r02</code> 核对技能草稿元数据、已知判分事实、原文逐页出处、倒排、并行依赖、闰日、关键路径、不可行目标及无效前置关系。</li><li>隔离虚拟机的类型、lint、6 项专项、35 项 Agent 剧本及只读工具注册集成通过。两个草稿分别按其完整路径登记两次，实际数据库各保留一份 <code>0.1.0</code>，发布记录为零。当前候选的技术判断继续提交浏览器审核。</li></ul>
+<h2 id="没做什么">没做什么</h2>
+<ul><li>Agent 直接创建新项目、业务计划节点持久化及改期差异联动仍待完成。现在由注册人员在浏览器建立项目，Agent 将倒排计划作为工作区交付。</li><li>正式市场规则包与技能发布依赖 PR-42。用受控设计资料完成真实模型的 L08 分类与路径回放、20 例 pd 评测和 CPAP 的注册人员评审均待完成。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

@@ -1,0 +1,72 @@
+{
+  "purpose": "仅供判分。正式分类回放禁止将本文件和 L08 的事后申报答案交给 Agent。",
+  "checkedOn": "2026-11-25",
+  "classificationUrl": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpcd/classification.cfm?id=LRK",
+  "application": {
+    "url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID=K253845",
+    "identifier": "K253845",
+    "type": "Traditional",
+    "receivedOn": "2025-12-02",
+    "decidedOn": "2026-03-03"
+  },
+  "candidateUrl": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID=K170825",
+  "t1Timeline": [
+    {
+      "code": "sample_made",
+      "date": "2025-02-21",
+      "document": "D023",
+      "page": 6,
+      "rawQuote": "Production Date:\n2025.02.21"
+    },
+    {
+      "code": "cleaning_test_started",
+      "date": "2025-04-22",
+      "document": "D023",
+      "page": 5,
+      "rawQuote": "Test Starting Date:\nApril 22, 2025"
+    },
+    {
+      "code": "durability_report",
+      "date": "2025-07-04",
+      "document": "D025",
+      "page": 1,
+      "rawQuote": "Report date: 2025/07/04"
+    },
+    {
+      "code": "shelf_life_report",
+      "date": "2025-07-08",
+      "document": "D027",
+      "page": 1,
+      "rawQuote": "Report date: 2025/07/08"
+    },
+    {
+      "code": "cleaning_signed",
+      "date": "2025-07-15",
+      "document": "D023",
+      "page": 4,
+      "rawQuote": "Study Director:\nDate:\nJuly.15,2025"
+    },
+    {
+      "code": "material_report",
+      "date": "2025-08-01",
+      "document": "D032",
+      "page": 1,
+      "rawQuote": "Date : Aug 01, 2025"
+    },
+    {
+      "code": "biocompatibility_report_oct21",
+      "date": "2025-10-21",
+      "document": "D028",
+      "page": 1,
+      "rawQuote": "FINAL REPORT DATE \n2025-10-21"
+    },
+    {
+      "code": "biocompatibility_report_oct28",
+      "date": "2025-10-28",
+      "document": "D029",
+      "page": 1,
+      "rawQuote": "FINAL REPORT DATE \n2025-10-28"
+    }
+  ],
+  "missingDateEvidence": ["project_started", "sample_sent", "payment", "draft_report"]
+}

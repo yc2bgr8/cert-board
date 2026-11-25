@@ -31,6 +31,7 @@
     "eval:agent": "node scripts/eval-agent.mjs",
     "eval:agent:baseline": "node --import tsx apps/backend/src/agent/evaluation/baseline.ts",
     "eval:r09": "vitest run apps/backend/src/agent/evaluation/r09-extraction.test.ts apps/backend/src/agent/evaluation/r09-l08.test.ts apps/backend/src/rules/rv05.test.ts",
+    "eval:r01-r02": "vitest run apps/backend/src/projects/work-schedule.test.ts apps/backend/src/agent/evaluation/r01-r02.test.ts",
     "docs:html": "node scripts/docs-html.mjs",
     "env:init": "node scripts/init-env.mjs",
     "db:generate": "drizzle-kit generate",

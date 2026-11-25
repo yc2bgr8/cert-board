@@ -226,6 +226,9 @@ function versionToken(value: unknown): string | null {
   return parsed.data;
 }
 const safeInputHints = new Map<string, string>([
+  ['WORK_SCHEDULE_DEPENDENCY', '请使用唯一的节点编号，每个前置编号须已存在且只列一次。'],
+  ['WORK_SCHEDULE_CYCLE', '前置关系形成环。请核对互相依赖的节点并删除冲突依赖。'],
+  ['WORK_SCHEDULE_DATE_RANGE', '倒排日期超出支持范围，请确认目标日期和节点工期后重试。'],
   [
     'FACT_EVIDENCE_INVALID',
     '证据须逐字出现在本项目的有效资料页中，请用 doc_read 重读并附上对应引语。',

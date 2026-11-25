@@ -18,6 +18,7 @@ const labels: Readonly<Record<string, string>> = {
   workspace_rebase: '合并工作区版本',
   check_run: '核对原文和提交结构',
   plan_update: '更新任务计划',
+  work_schedule_calculate: '计算注册项目倒排计划',
   ask_user: '等待发起人回答',
   submit_for_review: '提交审核',
   propose_external: '登记外发提案',

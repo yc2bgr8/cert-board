@@ -18,6 +18,7 @@ import { buildSandboxTools } from '../tools/code-run.js';
 import type { SandboxClient } from '../sandbox/client.js';
 import { waitRegisterTool } from '../tools/wait-register.js';
 import { factProposeTool, knowledgeGetTool } from '../tools/knowledge-tools.js';
+import { workScheduleTool } from '../tools/work-schedule.js';
 
 export async function buildAgentTools(
   store: DocumentBlobStore,
@@ -33,6 +34,7 @@ export async function buildAgentTools(
   return [
     ...buildDocumentTools(),
     ...buildWorkspaceTools(store),
+    ...(agentCode === 'registration' ? [workScheduleTool()] : []),
     ...(sandbox ? buildSandboxTools(store, sandbox) : []),
     ...agentInteractionTools(),
     waitRegisterTool(),
