@@ -140,6 +140,21 @@ describe('本地依赖服务脚本', () => {
     expect(relaySection).toContain('cap_drop: [ALL]');
   });
 
+  it.each([
+    ['dev', 'minio', 'cert_board'],
+    ['preview', 'relay', 'cert_board_lan'],
+  ])(
+    '数据库（%s）由容器 init 回收孤儿进程，健康探针直接检查 TCP 监听',
+    (slot, nextService, database) => {
+      const compose = readFileSync(new URL(`../deploy/compose.${slot}.yml`, import.meta.url), 'utf8');
+      const postgres = compose.split('  postgres:')[1].split(`  ${nextService}:`)[0];
+      expect(postgres).toContain('init: true');
+      expect(postgres).toContain(
+        `test: ['CMD', 'pg_isready', '-h', '127.0.0.1', '-U', 'cert_board', '-d', '${database}']`,
+      );
+    },
+  );
+
   it('容器部署只发布回环入口，代理及三个隔离网段有独立配置', () => {
     const compose = readFileSync(
       new URL('../deploy/compose.isolated.yml', import.meta.url),

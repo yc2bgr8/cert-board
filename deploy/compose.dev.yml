@@ -3,6 +3,8 @@ name: cert-board
 services:
   postgres:
     image: pgvector/pgvector:0.8.1-pg16
+    # 由容器 init 回收孤儿探针，避免 PostgreSQL 把探针退出误当成数据库进程崩溃。
+    init: true
     environment:
       POSTGRES_DB: cert_board
       POSTGRES_USER: cert_board
@@ -12,7 +14,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./deploy/postgres/001-test-database.sql:/docker-entrypoint-initdb.d/001-test-database.sql:ro
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U cert_board -d cert_board']
+      test: ['CMD', 'pg_isready', '-h', '127.0.0.1', '-U', 'cert_board', '-d', 'cert_board']
       interval: 5s
       timeout: 3s
       retries: 20
