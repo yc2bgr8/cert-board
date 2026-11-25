@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-37 模型正式比选</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#待完成">待完成</a></nav><main><h1 id="pr-37-模型正式比选">PR-37 模型正式比选</h1>
+<p>按执行方案先准备 K14 的公开回放底稿。独立验收虚拟机可以执行 <code>pnpm k14:collect A 2026-11-25</code> 或 <code>pnpm k14:collect C 2026-11-25</code>。只读取计划中的官方来源。每次采集生成独立目录，原始响应、索引、来源地址、获取时刻、大小和 SHA-256 保存在本机 <code>.local/k14/</code>。运行 <code>pnpm k14:verify &lt;档案编号&gt;</code> 离线重新校验并重算索引。</p>
+<ul><li>A 收集 FDA 四个产品代码从 2016 年以来的 SESE 决定，核对 API 总数和实际记录。2026 年候选的公开摘要按 K 号请求并记录取得状态。</li><li>C 收集 MDALL 活动许可，再按「许可号、器械编号」连接器械及型号标识。不同许可内可能出现同一个器械编号。按各自首次加入日期截去晚于指定日期的记录。活动状态仅对应本次公开快照。历史取消状态和跨市场对应关系仍待补充。</li><li>两地的 2026 年候选只供挑选。正式评测还要核对每个模型的训练截止日期、准备及审阅题目，并走 PR-35 的遮挡、时间截断和偷看检测。原始索引带公开编号，供本地题目构建使用。</li></ul>
+<p>构建仓库的 Docsvc 测试镜像后，<code>pnpm k14:extract-a &lt;集 A 档案编号&gt;</code> 用无网络容器逐页解析原件。结果另存为 <code>.local/k14-pages/</code>，记录原件与逐页文件的 SHA-256、物理页码、解析方式和空白页。原件缺失和解析失败在清单分开记录。</p>
+<h2 id="待完成">待完成</h2>
+<ul><li>对公开摘要页的判分标准、题目分割及注册人员抽查，C 的历史和跨市场配对。</li><li>合并 PR-36 后接入 RV-02、R09、M02 与 A、C 的完整验收。真实模型比较、费用、用途选择和非千问复核模型由获准通道跑完后交 Lan 确认。当前生产模型配置仍沿原验收规则。</li></ul>
+<p>公开数据来源见 <a href="https://open.fda.gov/apis/device/510k/" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">FDA 510(k) API（外部链接）</a> 和 <a href="https://health-products.canada.ca/api/documentation/mdall-documentation-en.html" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">加拿大 MDALL API（外部链接）</a>。<a href="../数据与评测方案/AI原生器械认证板块_数据与评测方案_v0.1.html#9-v1前的第一批">回放范围</a></p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
