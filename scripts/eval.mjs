@@ -7,6 +7,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const suites = [
   'apps/backend/src/agent/evaluation/cert-line.test.ts',
   'apps/backend/src/agent/evaluation/cert-line-comparison.test.ts',
+  'apps/backend/src/agent/evaluation/l08-e07.test.ts',
   'apps/backend/src/agent/evaluation/r09-extraction.test.ts',
   'apps/backend/src/agent/evaluation/r09-l08.test.ts',
   'apps/backend/src/checks/quantities.test.ts',
