@@ -174,17 +174,22 @@ test('坏回复只报告格式类别并保留调用结果边界', async () => {
   expect(turn).toHaveBeenCalledOnce();
 });
 
-test('只读网关核实接收纯文本，仍拒绝结构化动作和超长回复', async () => {
+test('只读网关核实接收自己的文本和判断字段，仍拒绝动作和超长回复', async () => {
   const cursor = { executable: 'fixture', entrypoint: 'fixture', profileDirectory: 'fixture' };
   const model = cursorAcceptanceModels.find(({ purposes }) => purposes.includes('verification'))!;
   const reply = '[合成指南，第 3 页] 来源应含版本和页码，核查结果待确认。';
   const ask = { messages: request.messages, tool_choice: 'none' as const, max_tokens: 120 };
   const turn = vi.mocked(readCursorTurn);
-  turn.mockClear().mockResolvedValueOnce(reply);
+  const structured = JSON.stringify({ text: reply, claims: [] });
+  turn.mockClear().mockResolvedValueOnce(structured);
   await expect(sendCursorAcceptance(cursor, model, ask)).resolves.toMatchObject({
-    choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: reply } }],
+    choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: structured } }],
   });
   expect(turn).toHaveBeenCalledOnce();
+  turn.mockResolvedValueOnce(reply);
+  await expect(sendCursorAcceptance(cursor, model, ask)).resolves.toMatchObject({
+    choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: structured } }],
+  });
   turn.mockResolvedValueOnce('{"content":"确定","actions":[{"name":"doc_read","arguments":{}}]}');
   await expect(sendCursorAcceptance(cursor, model, ask)).rejects.toBeInstanceOf(CursorReplyFormatError);
   turn.mockResolvedValueOnce(reply.repeat(10));

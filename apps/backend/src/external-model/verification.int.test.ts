@@ -12,6 +12,8 @@ import { recoverAbandonedAgentRuns } from '../queue/agent-queue.js';
 import { reserveUsage, seedDevelopmentBudgetPolicy, settleUsage } from '../budget/service.js';
 import { createIntegrationContext } from '../test-support/context.js';
 import { verificationFixture } from '../test-support/verification-fixture.js';
+import { cursorAcceptanceModels, parseCursorModelTurn } from '../modelgw/cursor-acceptance.js';
+import { ModelGateway } from '../modelgw/service.js';
 import { createVerificationModerator } from './verification-moderator.js';
 import { ExternalModels } from './service.js';
 import { createVerificationSourceChecker } from './source-verification.js';
@@ -166,6 +168,39 @@ test('网关已结算但无可用回复时，在本月核实用量中计入实�
   expect(archived.rows).toEqual([
     { returned: { error: 'failed', gatewayCode: 'MODEL_CURSOR_REPLY_INVALID' } },
   ]);
+});
+
+test('只读 Cursor 网关把核实原回执交给主持人并保留未结算账目', async () => {
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const review = await context.run('MEMBER_A', 'read_only');
+  const room = (await detail(await start('合成的双通道回执验证。', context.projectId))).room;
+  const exchangeId = randomUUID();
+  const reply = { text: '两处写法有差异，证据不足，待核实。', claims: [] };
+  const gateway = new ModelGateway(
+    context.pool,
+    { version: 1, models: cursorAcceptanceModels },
+    {
+      kind: 'fixture',
+      async send(_model, request, _signal, beforeDispatch) {
+        await beforeDispatch?.();
+        expect(request.tool_choice).toBe('none');
+        return parseCursorModelTurn(JSON.stringify(reply), request, true);
+      },
+    },
+    { environment: 'test' },
+  );
+  const policy = new ExternalModels(context.pool, undefined, undefined, 20_000_000_000n);
+  const moderator = createVerificationModerator(context.pool, gateway, policy);
+  await expect(moderator.peer(
+    { room, ownerId: review.userId, exchangeId },
+    { instructions: '返回核实 JSON。', transcript: [{ role: 'human', text: '合成问题' }] },
+    'cursor-claude-opus-5.5',
+    async () => undefined,
+  )).resolves.toEqual({ ...reply, costNano: null });
+  const usage = await context.pool.query('SELECT status FROM usage_ledger WHERE request_key=$1', [
+    exchangeId,
+  ]);
+  expect(usage.rows).toEqual([{ status: 'unknown' }]);
 });
 
 test('按默认 7 轮和管理员设置的 3 轮调度，通道只记次数', async () => {

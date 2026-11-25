@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   chatRequestSchema,
   previewSlotForOrigin,
+  verificationReplySchema,
   upstreamAssistantResponseSchema,
   type CursorGatewayModel,
 } from '@cert-board/shared';
@@ -137,7 +138,7 @@ const turnContract = [
 
 const verificationContract = [
   channelBoundary,
-  'This request has no tools. Return only a concise plain-text verification reply within maximumResponseBytes UTF-8 bytes.',
+  'This verification request has no tools. Return the {"text":"reply","claims":[]} JSON object specified in the cert-board instructions directly, within maximumResponseBytes UTF-8 bytes.',
 ].join('\n');
 
 export class CursorOutputLimitError extends Error {
@@ -155,7 +156,7 @@ export class CursorReplyFormatError extends Error {
 export function parseCursorModelTurn(
   answer: string,
   request: z.infer<typeof chatRequestSchema>,
-  verificationTextOnly = false,
+  toolFreeVerification = false,
 ) {
   // ACP 不提供生成令牌上限。用 UTF-8 字节作为输出令牌数的保守上界。
   if (request.max_tokens !== undefined && Buffer.byteLength(answer, 'utf8') > request.max_tokens)
@@ -168,10 +169,15 @@ export function parseCursorModelTurn(
   try {
     payload = JSON.parse(body);
   } catch (error) {
-    if (!verificationTextOnly) throw error;
-    payload = { content: body, actions: [] };
+    if (!toolFreeVerification) throw error;
+    payload = { text: body, claims: [] };
   }
-  const result = modelTurn.parse(payload);
+  const verification = toolFreeVerification ? verificationReplySchema.safeParse(payload) : null;
+  const result = modelTurn.parse(
+    verification?.success
+      ? { content: JSON.stringify(verification.data), actions: [] }
+      : payload,
+  );
   const eligible = new Set(
     request.tool_choice === 'none' ? [] : request.tools?.map((tool) => tool.function.name),
   );
@@ -215,7 +221,7 @@ export async function sendCursorAcceptance(
   } catch {
     throw new VerificationChannelError('failed', true);
   }
-  const verificationTextOnly =
+  const toolFreeVerification =
     model.purposes.length === 1 &&
     model.purposes[0] === 'verification' &&
     request.tool_choice === 'none' &&
@@ -225,7 +231,7 @@ export async function sendCursorAcceptance(
       config,
       model.cursorModel,
       {
-        contract: verificationTextOnly ? verificationContract : turnContract,
+        contract: toolFreeVerification ? verificationContract : turnContract,
         maximumResponseBytes: request.max_tokens,
         request,
       },
@@ -240,7 +246,7 @@ export async function sendCursorAcceptance(
   });
   // ACP does not give this worker an invoiced model cost. The ModelGateway retains an unknown ledger entry.
   try {
-    return parseCursorModelTurn(answer, request, verificationTextOnly);
+    return parseCursorModelTurn(answer, request, toolFreeVerification);
   } catch (error) {
     if (error instanceof CursorOutputLimitError) throw error;
     throw new CursorReplyFormatError();
