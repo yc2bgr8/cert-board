@@ -23,6 +23,24 @@ const parsed = {
 
 afterEach(() => vi.unstubAllGlobals());
 
+test('从固定 Word 对比入口读取有顺序的段落并校验哈希', async () => {
+  const paragraphs = ['首段\n段内换行', '表格 | 行', '末段'];
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ sha256, pageCount: 1, paragraphs }))
+    .mockResolvedValueOnce(Response.json({ sha256: 'a'.repeat(64), pageCount: 1, paragraphs }));
+  vi.stubGlobal('fetch', fetch);
+  const client = new DocumentParserClient(address, 'host');
+  await expect(client.wordParagraphs(bytes, sha256)).resolves.toEqual(paragraphs);
+  expect(fetch).toHaveBeenCalledWith(
+    new URL('/text?kind=docx', address),
+    expect.objectContaining({ body: bytes }),
+  );
+  await expect(client.wordParagraphs(bytes, sha256)).rejects.toMatchObject({
+    code: 'DOC_RESPONSE_INVALID',
+  });
+});
+
 test('上传原件、校验返回哈希与页，并保留 OCR 置信度', async () => {
   const fetch = vi.fn().mockResolvedValue(Response.json(parsed));
   vi.stubGlobal('fetch', fetch);
@@ -115,17 +133,29 @@ test('eSTAR 规则提取同一原件的数据集和附件名，并拒绝不规�
     ...parsed,
     kind: 'estar',
     xfaDatasetsBase64: datasets.toString('base64'),
-    attachments: [{
-      name: 'Instructions.pdf', sourceNames: ['Instructions (original).pdf'],
-      sha256, byteSize: bytes.length, bodyBase64: bytes.toString('base64'),
-    }],
+    attachments: [
+      {
+        name: 'Instructions.pdf',
+        sourceNames: ['Instructions (original).pdf'],
+        sha256,
+        byteSize: bytes.length,
+        bodyBase64: bytes.toString('base64'),
+      },
+    ],
   };
-  vi.stubGlobal('fetch', vi.fn()
-    .mockResolvedValueOnce(Response.json(data))
-    .mockResolvedValueOnce(Response.json({ ...data, xfaDatasetsBase64: '@@' })));
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(data))
+      .mockResolvedValueOnce(Response.json({ ...data, xfaDatasetsBase64: '@@' })),
+  );
   const client = new DocumentParserClient(address, 'host');
   await expect(client.estarDatasets(bytes, sha256)).resolves.toEqual({
-    bytes: datasets, attachmentNames: ['Instructions.pdf', 'Instructions (original).pdf'],
+    bytes: datasets,
+    attachmentNames: ['Instructions.pdf', 'Instructions (original).pdf'],
   });
-  await expect(client.estarDatasets(bytes, sha256)).rejects.toMatchObject({ code: 'DOC_RESPONSE_INVALID' });
+  await expect(client.estarDatasets(bytes, sha256)).rejects.toMatchObject({
+    code: 'DOC_RESPONSE_INVALID',
+  });
 });

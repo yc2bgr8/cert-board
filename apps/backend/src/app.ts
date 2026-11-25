@@ -11,7 +11,7 @@ import { registerAuthRoutes } from './auth/routes.js';
 import { registerProjectRoutes } from './projects/routes.js';
 import { registerDocumentRoutes } from './documents/routes.js';
 import { BlobStore, type DocumentBlobStore } from './documents/blob-store.js';
-import { maximumDocumentBytes } from './documents/docsvc-client.js';
+import { maximumDocumentBytes, type DocumentParserClient } from './documents/docsvc-client.js';
 import { maximumIntakeBytes } from './intake/archive.js';
 import { registerIntakeRoutes } from './intake/routes.js';
 import { registerWorkspaceRoutes } from './workspace/routes.js';
@@ -33,6 +33,7 @@ export interface AppDependencies extends HealthDependencies {
   database?: pg.Pool;
   storage?: MinioClient;
   blobStore?: DocumentBlobStore;
+  wordRevisionParser?: Pick<DocumentParserClient, 'wordParagraphs'>;
   externalModelRuntime?: ExternalModelRuntime;
   verificationRuntime?: VerificationRuntime;
   verificationPolling?: boolean;
@@ -96,7 +97,13 @@ export function createApp(
     registerSkillRoutes(app, dependencies.database, config);
     registerGoalWakeupRoutes(app, dependencies.database, config);
     registerKnowledgeRoutes(app, dependencies.database, config);
-    registerWorkspaceRoutes(app, dependencies.database, config, blobStore);
+    registerWorkspaceRoutes(
+      app,
+      dependencies.database,
+      config,
+      blobStore,
+      dependencies.wordRevisionParser,
+    );
     registerExternalModelRoutes(
       app,
       dependencies.database,

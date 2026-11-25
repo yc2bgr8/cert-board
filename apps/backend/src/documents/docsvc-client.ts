@@ -6,6 +6,7 @@ import {
   documentLocatorKindSchema,
   documentPageMethodSchema,
   documentPageSourceSchema,
+  humanRevisionMaxBytes,
   isPdfReaderPlaceholder,
   sha256Schema,
   type BackendConfig,
@@ -92,7 +93,7 @@ export class DocumentParserClient {
   }
 
   async #request(
-    action: 'parse' | 'inspect',
+    action: 'parse' | 'inspect' | 'text',
     content: Buffer,
     sha256: string,
     format: DocumentFormat,
@@ -108,7 +109,7 @@ export class DocumentParserClient {
         'DOC_SOURCE_INTEGRITY',
         '资料原件大小或哈希不符合已登记版本，无法解析。',
       );
-    const deadline = AbortSignal.timeout(action === 'inspect' ? 40_000 : 400_000);
+    const deadline = AbortSignal.timeout(action === 'parse' ? 400_000 : 40_000);
     try {
       const url = new URL(action, this.#address);
       url.searchParams.set('kind', format);
@@ -121,7 +122,11 @@ export class DocumentParserClient {
       });
       const raw = await readJson(
         response,
-        response.ok && action === 'parse' ? maximumResponseBytes : 4_096,
+        response.ok && action !== 'inspect'
+          ? action === 'text'
+            ? 2 * 1024 * 1024
+            : maximumResponseBytes
+          : 4_096,
       );
       if (!response.ok) {
         const error = parserError.safeParse(raw);
@@ -164,6 +169,32 @@ export class DocumentParserClient {
     if (!result.success || result.data.sha256 !== sha256 || result.data.byteSize !== content.length)
       throw invalid();
     return result.data.kind;
+  }
+
+  async wordParagraphs(content: Buffer, sha256: string) {
+    const response = z
+      .object({
+        sha256: sha256Schema,
+        pageCount: z.literal(1),
+        paragraphs: z.array(z.string().max(1_000_000)).max(10_000),
+      })
+      .safeParse(await this.#request('text', content, sha256, 'docx'));
+    if (
+      !response.success ||
+      response.data.sha256 !== sha256 ||
+      response.data.paragraphs.some((text) => text.includes('\0'))
+    )
+      throw invalid();
+    const paragraphs = response.data.paragraphs.filter((text) => text.trim().length > 0);
+    if (
+      paragraphs.reduce((size, text) => size + Buffer.byteLength(text), 0) > humanRevisionMaxBytes
+    )
+      throw new AppError(
+        413,
+        'HUMAN_REVISION_DIFF_LIMIT',
+        'Word 正文超出段落对比上限。上传必须包含完整的替换稿。',
+      );
+    return paragraphs;
   }
 
   async parse(content: Buffer, sha256: string, format: DocumentFormat, signal?: AbortSignal) {
@@ -214,9 +245,15 @@ export class DocumentParserClient {
 
   async estarDatasets(content: Buffer, sha256: string, signal?: AbortSignal) {
     const { raw } = await this.#parsed(content, sha256, 'estar', signal);
-    const value = z.object({
-      xfaDatasetsBase64: z.string().max(Math.ceil(maximumXfaBytes / 3) * 4).nullable().optional(),
-    }).safeParse(raw);
+    const value = z
+      .object({
+        xfaDatasetsBase64: z
+          .string()
+          .max(Math.ceil(maximumXfaBytes / 3) * 4)
+          .nullable()
+          .optional(),
+      })
+      .safeParse(raw);
     if (!value.success) throw invalid();
     const base64 = value.data.xfaDatasetsBase64;
     if (!base64) return null;
@@ -224,9 +261,11 @@ export class DocumentParserClient {
     if (bytes.length > maximumXfaBytes || bytes.toString('base64') !== base64) throw invalid();
     const listing = attachmentResponse.safeParse(raw);
     if (!listing.success) throw invalid();
-    const attachmentNames = [...new Set(listing.data.attachments.flatMap(
-      ({ name, sourceNames }) => [name, ...sourceNames],
-    ))];
+    const attachmentNames = [
+      ...new Set(
+        listing.data.attachments.flatMap(({ name, sourceNames }) => [name, ...sourceNames]),
+      ),
+    ];
     if (attachmentNames.length > 256) return null;
     return { bytes, attachmentNames };
   }

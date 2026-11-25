@@ -292,6 +292,22 @@ def test_word_comparison_keeps_document_order_and_repeated_columns():
     document.save(output)
     result = upload(output.getvalue(), "docx", endpoint="text")
     assert result.json()["text"] == "前一段\n合格 | 合格 | 待确认\n后一段"
+    assert result.json()["paragraphs"] == ["前一段", '表格行 ["合格", "合格", "待确认"]', "后一段"]
+
+
+def test_word_comparison_disambiguates_table_cell_boundaries():
+    def compare(cells):
+        document = Document()
+        row = document.add_table(rows=1, cols=2).rows[0]
+        for cell, value in zip(row.cells, cells):
+            cell.text = value
+        output = io.BytesIO()
+        document.save(output)
+        return upload(output.getvalue(), "docx", endpoint="text").json()
+
+    before, after = compare(["5 | 10", "20"]), compare(["5", "10 | 20"])
+    assert before["text"] == after["text"]
+    assert before["paragraphs"] != after["paragraphs"]
 
 
 def test_spreadsheet_comparison_keeps_formulas_beyond_stale_dimensions():

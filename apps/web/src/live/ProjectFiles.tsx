@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
+import { humanRevisionPathPattern } from '@cert-board/shared';
 import { api, errorMessage } from './api.js';
+import { HumanRevision } from './HumanRevision.js';
 import type { WorkspaceDiffTarget, WorkspaceFileTarget } from './review-navigation.js';
 import { displayTime } from './WorkspacePages.js';
 
@@ -17,6 +19,9 @@ export function ProjectFiles({
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [from, setFrom] = useState('');
+  const [revisionTarget, setRevisionTarget] = useState<{ versionId: string; path: string }>();
+  const [revisionOpen, setRevisionOpen] = useState(false);
+  const [revisionPending, setRevisionPending] = useState(false);
   const workspace = useQuery({
     queryKey: ['live', 'workspace', userId, projectId],
     queryFn: ({ signal }) => api.workspace(projectId, signal),
@@ -24,6 +29,10 @@ export function ProjectFiles({
   });
   const workspaceId = workspace.data?.id;
   const versionId = selected ?? workspace.data?.currentVersionId;
+  const revisionSource = useMutation({
+    mutationFn: ({ id, versionId, path }: { id: string; versionId: string; path: string }) =>
+      api.humanRevisionSource(id, versionId, path),
+  });
   const versions = useInfiniteQuery({
     queryKey: ['live', 'workspace-versions', userId, workspaceId],
     queryFn: ({ pageParam, signal }) =>
@@ -58,7 +67,6 @@ export function ProjectFiles({
     <section className="live-workspace-page" aria-label="项目文件">
       <div className="live-page-toolbar">
         <h2>工作区文件</h2>
-        <span className="live-muted">版面预览与上传修改稿尚未接入。</span>
       </div>
       {workspace.isPending && <p role="status">正在加载工作区…</p>}
       {workspace.isError && (
@@ -158,22 +166,77 @@ export function ProjectFiles({
                 </button>
               </p>
             )}
-            {items.map((file) => (
-              <button
-                className="live-asset-row"
-                type="button"
-                key={file.path}
-                aria-label={`查看文件：${file.path}`}
-                onClick={() => versionId && onOpenFile({ projectId, versionId, path: file.path })}
+            {revisionTarget && (
+              <section
+                className="live-page-message"
+                aria-label="上传工作区修改稿"
+                hidden={!revisionOpen}
               >
-                <span>
-                  <span className="live-file-path">{file.path}</span>
-                  <small>
-                    {file.mediaType}，{file.byteSize.toLocaleString('zh-CN')} 字节
-                  </small>
-                </span>
-                <span className="live-row-action">查看文件</span>
-              </button>
+                <div className="live-human-feedback-actions">
+                  <strong>{revisionTarget.path}</strong>
+                  <button
+                    type="button"
+                    className="live-text-button"
+                    onClick={() => setRevisionOpen(false)}
+                  >
+                    关闭修改稿
+                  </button>
+                </div>
+                {revisionSource.isPending && <p role="status">正在查找对应的审核原稿…</p>}
+                {revisionSource.isError && <p role="alert">{errorMessage(revisionSource.error)}</p>}
+                {revisionSource.data?.source === null && (
+                  <p>这个文件的当前内容暂无对应的审核原稿。请核对工作区版本。</p>
+                )}
+                {revisionSource.data?.source && (
+                  <HumanRevision
+                    key={`${revisionSource.data.source.reviewId}:${revisionTarget.path}`}
+                    workspaceId={workspace.data.id}
+                    projectId={projectId}
+                    reviewId={revisionSource.data.source.reviewId}
+                    sourceVersionId={revisionSource.data.source.sourceVersionId}
+                    expectedCurrentVersionId={workspace.data.currentVersionId}
+                    paths={[revisionTarget.path]}
+                    current
+                    initiallyOpen
+                    onPendingChange={setRevisionPending}
+                  />
+                )}
+              </section>
+            )}
+            {items.map((file) => (
+              <div className="live-project-file-row" key={file.path}>
+                <button
+                  className="live-asset-row"
+                  type="button"
+                  aria-label={`查看文件：${file.path}`}
+                  onClick={() => versionId && onOpenFile({ projectId, versionId, path: file.path })}
+                >
+                  <span>
+                    <span className="live-file-path">{file.path}</span>
+                    <small>
+                      {file.mediaType}，{file.byteSize.toLocaleString('zh-CN')} 字节
+                    </small>
+                  </span>
+                  <span className="live-row-action">查看文件</span>
+                </button>
+                {workspaceId && versionId && humanRevisionPathPattern.test(file.path) && (
+                  <button
+                    type="button"
+                    className="live-text-button"
+                    aria-label={`上传修改稿：${file.path}`}
+                    disabled={revisionPending && revisionTarget?.path !== file.path}
+                    onClick={() => {
+                      if (!revisionPending) {
+                        setRevisionTarget({ versionId, path: file.path });
+                        revisionSource.mutate({ id: workspaceId, versionId, path: file.path });
+                      }
+                      setRevisionOpen(true);
+                    }}
+                  >
+                    上传修改稿
+                  </button>
+                )}
+              </div>
             ))}
             {!files.isPending && !files.isError && items.length === 0 && (
               <p className="live-empty live-assets-message">这个版本没有文件。</p>

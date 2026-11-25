@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import io
+import json
 import logging
 import os
 import re
@@ -359,12 +360,15 @@ def parse_docx(data, deadline, comparison=False):
     document = docx.Document(io.BytesIO(data))
     budget = TextBudget()
     parts = []
+    comparison_parts = []
     blocks = document.iter_inner_content() if comparison else [*document.paragraphs, *document.tables]
     for block in blocks:
         check_time(deadline)
         if isinstance(block, Paragraph):
             if block.text.strip():
-                parts.append(budget.add(block.text))
+                paragraph = budget.add(block.text)
+                parts.append(paragraph)
+                comparison_parts.append(paragraph)
         else:
             for row in block.rows:
                 check_time(deadline)
@@ -379,7 +383,12 @@ def parse_docx(data, deadline, comparison=False):
                     if comparison or not cells or cells[-1] != text:
                         cells.append(text)
                 parts.append(budget.add(" | ".join(cells)))
-    return [{"page": 1, "method": "docx", "locatorKind": "extraction_unit", "text": "\n".join(parts)}]
+                if comparison:
+                    comparison_parts.append("表格行 " + json.dumps(cells, ensure_ascii=False))
+    page = {"page": 1, "method": "docx", "locatorKind": "extraction_unit", "text": "\n".join(parts)}
+    if comparison:
+        page["paragraphs"] = comparison_parts
+    return [page]
 
 
 def spreadsheet_value(value):

@@ -79,8 +79,11 @@ import {
   type HumanFeedbackInput,
   type HumanFeedbackTarget,
   humanRevisionInputSchema,
+  humanRevisionCommandSchema,
+  humanRevisionSourceSchema,
   humanRevisionListSchema,
   humanRevisionViewSchema,
+  type HumanRevisionCommand,
   type HumanRevisionInput,
   skillPageSchema,
   skillVersionViewSchema,
@@ -603,6 +606,23 @@ export const api = {
       method: 'POST',
       body: checked(humanRevisionInputSchema, input),
     }),
+  saveWordRevision: (workspaceId: string, input: HumanRevisionCommand, file: Blob) =>
+    request(
+      `/api/workspaces/${identifier(workspaceId)}/human-revisions/word${search(checked(humanRevisionCommandSchema, input))}`,
+      humanRevisionViewSchema,
+      { method: 'POST', binary: file },
+    ),
+  humanRevisionSource: (
+    workspaceId: string,
+    versionId: string,
+    path: string,
+    signal?: AbortSignal,
+  ) =>
+    request(
+      `/api/workspaces/${identifier(workspaceId)}/human-revision-source${search({ versionId, path })}`,
+      humanRevisionSourceSchema,
+      signalOption(signal),
+    ),
   createConversation: (input: ConversationCreateInput, projectId?: string) =>
     request(
       projectId ? `/api/projects/${identifier(projectId)}/conversations` : '/api/conversations',

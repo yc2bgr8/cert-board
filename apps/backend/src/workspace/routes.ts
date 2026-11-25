@@ -1,6 +1,7 @@
 import type {
   FastifyInstance,
   FastifyBaseLogger,
+  FastifyRequest,
   RawServerDefault,
   RawRequestDefaultExpression,
   RawReplyDefaultExpression,
@@ -15,19 +16,27 @@ import {
   workspaceDiffQuerySchema,
   workspaceDiffResponseSchema,
   humanRevisionQuerySchema,
+  humanRevisionSourceQuerySchema,
+  humanRevisionInputSchema,
+  humanRevisionCommandSchema,
   humanRevisionMaxBytes,
+  humanRevisionMaxWordBytes,
   type BackendConfig,
   type BrowserIdentity,
+  type HumanRevisionCommand,
   type WorkspaceFileRecord,
 } from '@cert-board/shared';
 import { requireBrowserIdentity } from '../auth/session.js';
 import { AppError } from '../api/errors.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
+import { DocumentParserClient } from '../documents/docsvc-client.js';
 import {
   getWorkspaceByProject,
   listVersions,
   listVersionFiles,
   listHumanRevisions,
+  findHumanRevisionSource,
+  prepareHumanRevision,
   saveHumanRevision,
   readVersionFile,
 } from './service.js';
@@ -99,6 +108,9 @@ export function registerWorkspaceRoutes<Logger extends FastifyBaseLogger>(
   pool: Pool,
   config: BackendConfig,
   store?: DocumentBlobStore,
+  wordParser: Pick<DocumentParserClient, 'wordParagraphs'> | undefined = config.CERT_DOCSVC_URL
+    ? new DocumentParserClient(config.CERT_DOCSVC_URL, config.CONTAINER_RUNTIME)
+    : undefined,
 ) {
   app.get('/api/projects/:id/workspace', async (request, reply) => {
     const identity = await requireBrowserIdentity(request, pool, config);
@@ -125,35 +137,101 @@ export function registerWorkspaceRoutes<Logger extends FastifyBaseLogger>(
       query.data.cursor,
     );
   });
+  app.get('/api/workspaces/:id/human-revision-source', async (request, reply) => {
+    const identity = await requireBrowserIdentity(request, pool, config);
+    const query = humanRevisionSourceQuerySchema.safeParse(request.query);
+    if (!query.success) throw bad();
+    reply.header('cache-control', 'no-store');
+    return findHumanRevisionSource(
+      pool,
+      identity,
+      identifier(request.params),
+      query.data.versionId,
+      query.data.path,
+    );
+  });
+  const writeRevision = async (
+    request: FastifyRequest,
+    input: HumanRevisionCommand & ({ text: string } | { bytes: Buffer }),
+  ) => {
+    const storage = requireStore(store);
+    const workspaceId = identifier(request.params);
+    const initial = await requireBrowserIdentity(request, pool, config, { write: true });
+    const prepared = await prepareHumanRevision(
+      pool,
+      storage,
+      initial,
+      workspaceId,
+      input,
+      wordParser,
+    );
+    const tx = await pool.connect();
+    try {
+      await tx.query('BEGIN');
+      const actor = await requireBrowserIdentity(request, tx, config, { write: true });
+      const locked = await tx.query(
+        `SELECT s.id FROM web_session s JOIN app_user u ON u.id=s.user_id
+        WHERE s.id=$1 AND s.user_id=$2 AND s.revoked_at IS NULL
+          AND s.expires_at>clock_timestamp() AND u.status='active' FOR SHARE OF s,u`,
+        [actor.sessionId, actor.userId],
+      );
+      if (!locked.rowCount) throw new AppError(401, 'LOGIN_REQUIRED', '登录已失效，请重新登录。');
+      const verified = await requireBrowserIdentity(request, tx, config, { write: true });
+      if (verified.userId !== initial.userId || verified.sessionId !== initial.sessionId)
+        throw new AppError(401, 'LOGIN_REQUIRED', '登录已失效，请重新登录。');
+      const revision = await saveHumanRevision(tx, storage, verified, workspaceId, input, prepared);
+      await tx.query('COMMIT');
+      return revision;
+    } catch (err) {
+      await tx.query('ROLLBACK').catch(() => undefined);
+      throw err;
+    } finally {
+      tx.release();
+    }
+  };
   app.post(
     '/api/workspaces/:id/human-revisions',
     { bodyLimit: humanRevisionMaxBytes * 6 + 2048 },
     async (request, reply) => {
-      const storage = requireStore(store);
-      const workspaceId = identifier(request.params);
-      const tx = await pool.connect();
-      try {
-        await tx.query('BEGIN');
-        const actor = await requireBrowserIdentity(request, tx, config, { write: true });
-        const locked = await tx.query(
-          `SELECT s.id FROM web_session s JOIN app_user u ON u.id=s.user_id
-        WHERE s.id=$1 AND s.user_id=$2 AND s.revoked_at IS NULL
-          AND s.expires_at>clock_timestamp() AND u.status='active' FOR SHARE OF s,u`,
-          [actor.sessionId, actor.userId],
-        );
-        if (!locked.rowCount) throw new AppError(401, 'LOGIN_REQUIRED', '登录已失效，请重新登录。');
-        const verified = await requireBrowserIdentity(request, tx, config, { write: true });
-        const revision = await saveHumanRevision(tx, storage, verified, workspaceId, request.body);
-        await tx.query('COMMIT');
-        return reply.header('cache-control', 'no-store').send(revision);
-      } catch (err) {
-        await tx.query('ROLLBACK').catch(() => undefined);
-        throw err;
-      } finally {
-        tx.release();
-      }
+      const input = humanRevisionInputSchema.safeParse(request.body);
+      if (!input.success) throw bad();
+      reply.header('cache-control', 'no-store');
+      return writeRevision(request, input.data);
     },
   );
+  app.register(async (upload) => {
+    upload.addContentTypeParser(
+      'application/octet-stream',
+      { parseAs: 'buffer', bodyLimit: humanRevisionMaxWordBytes },
+      (_request, body, done) => done(null, body),
+    );
+    upload.post(
+      '/api/workspaces/:id/human-revisions/word',
+      {
+        bodyLimit: humanRevisionMaxWordBytes,
+        onRequest: async (request) => {
+          await requireBrowserIdentity(request, pool, config, { write: true });
+          if (!wordParser)
+            throw new AppError(
+              503,
+              'DOCUMENT_PARSER_DISABLED',
+              'Word 改稿对比需要本机解析服务，请联系维护人员启动。',
+            );
+        },
+      },
+      async (request, reply) => {
+        const input = humanRevisionCommandSchema.safeParse(request.query);
+        if (!input.success || !Buffer.isBuffer(request.body))
+          throw new AppError(
+            400,
+            'HUMAN_REVISION_INVALID',
+            '请选择对应的 Word（.docx）原稿和修改稿。',
+          );
+        reply.header('cache-control', 'no-store');
+        return writeRevision(request, { ...input.data, bytes: request.body });
+      },
+    );
+  });
   app.get('/api/workspaces/:id/files', async (request, reply) => {
     const identity = await requireBrowserIdentity(request, pool, config);
     reply.header('cache-control', 'no-store');

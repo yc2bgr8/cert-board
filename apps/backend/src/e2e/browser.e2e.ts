@@ -1382,18 +1382,62 @@ async function main() {
       '合成反馈，请补范围。',
     );
     await cardFeedback.getByRole('button', { name: '取消', exact: true }).click();
-    stage = '从审核卡上传人工修改稿并核对段落';
-    await humanReview.getByText('人工修改稿', { exact: true }).click();
-    await humanReview.getByLabel('修改稿（Markdown 或纯文本）', { exact: true }).setInputFiles({
+    stage = '从项目文件页打开审核原稿并上传修改稿';
+    await page.getByRole('button', { name: 'L08 510(k)', exact: true }).click();
+    await home.getByRole('button', { name: '全部文件', exact: true }).click();
+    await files
+      .getByRole('button', { name: `上传修改稿：${browserReviewPath}`, exact: true })
+      .click();
+    const upload = files.getByRole('region', { name: '上传工作区修改稿', exact: true });
+    const revisionFile = upload.getByLabel('修改稿（Markdown 或纯文本）', { exact: true });
+    await revisionFile.setInputFiles({
       name: '合成修改稿.md',
       mimeType: 'text/markdown',
       buffer: Buffer.from('合成修改后的范围\n\n合成修改后的结论\n\n核对原稿中的依据。'),
     });
-    await humanReview.getByRole('button', { name: '上传并保存新版本', exact: true }).click();
-    const humanVersion = humanReview.getByText(/人工修改第 \d+ 版/u);
+    const attempts: { requestKey: string; expectedCurrentVersionId: string }[] = [];
+    const observeRevisionRequest = (request: Request) => {
+      if (
+        request.method() !== 'POST' ||
+        !new URL(request.url()).pathname.endsWith('/human-revisions')
+      )
+        return;
+      const { requestKey, expectedCurrentVersionId } =
+        request.postDataJSON() as (typeof attempts)[number];
+      attempts.push({ requestKey, expectedCurrentVersionId });
+    };
+    page.on('request', observeRevisionRequest);
+    await page.evaluate(() => {
+      const original = window.fetch.bind(window);
+      window.fetch = async (...args) => {
+        const response = await original(...args);
+        if (
+          args[1]?.method === 'POST' &&
+          response.ok &&
+          new URL(response.url).pathname.endsWith('/human-revisions')
+        ) {
+          window.fetch = original;
+          throw new TypeError('合成改稿回执丢失');
+        }
+        return response;
+      };
+    });
+    await upload.getByRole('button', { name: '上传并保存新版本', exact: true }).click();
+    await upload.getByRole('alert').filter({ hasText: '网络连接中断' }).waitFor();
+    await upload.getByRole('button', { name: '关闭修改稿', exact: true }).click();
+    await upload.waitFor({ state: 'hidden' });
+    await files
+      .getByRole('button', { name: `上传修改稿：${browserReviewPath}`, exact: true })
+      .click();
+    await upload.getByRole('button', { name: '确认上次上传', exact: true }).click();
+    const humanVersion = upload.getByText(/人工修改第 \d+ 版/u);
     await humanVersion.waitFor();
+    await until(async () => (await revisionFile.inputValue()) === '');
+    page.off('request', observeRevisionRequest);
+    assert.equal(attempts.length, 2);
+    assert.deepEqual(attempts[1], attempts[0]);
     await humanVersion.click();
-    await humanReview.getByText('合成修改后的结论', { exact: true }).waitFor();
+    await upload.getByText('合成修改后的结论', { exact: true }).waitFor();
     await humanVersion.scrollIntoViewIfNeeded();
     await page.evaluate(async () => {
       await document.fonts.ready;
@@ -1508,6 +1552,7 @@ async function main() {
             'stopping_conversation_stops_linked_verification',
             'cursor_unavailable_reaches_review_uncertainty',
             'browser_feedback_and_human_revision',
+            'project_file_revision_recovers_lost_receipt',
             'width_1280',
           ],
           externalRequests,

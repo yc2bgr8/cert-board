@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   workspace: vi.fn(),
   workspaceVersions: vi.fn(),
   workspaceFiles: vi.fn(),
+  humanRevisionSource: vi.fn(),
+  humanRevisions: vi.fn(),
+  saveWordRevision: vi.fn(),
   documents: vi.fn(),
   startIntake: vi.fn(),
   intakeReport: vi.fn(),
@@ -35,6 +38,9 @@ function show(content: React.ReactNode) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.intakeHistory.mockResolvedValue({ items: [], nextCursor: null });
+  mocks.humanRevisionSource.mockResolvedValue({ source: null });
+  mocks.humanRevisions.mockResolvedValue({ items: [], nextCursor: null });
+  mocks.saveWordRevision.mockResolvedValue({});
   mocks.workspace.mockResolvedValue({ id: workspaceId, currentVersionId: currentId });
   mocks.workspaceVersions.mockResolvedValue({
     items: [
@@ -62,6 +68,56 @@ beforeEach(() => {
     hasMore: false,
     nextCursor: null,
   });
+});
+
+it('项目文件页关联原审核卡并用原始字节上传 Word 修改稿', async () => {
+  const path = '结果/核查.docx';
+  const mediaType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  mocks.workspaceFiles.mockResolvedValue({
+    items: [{ path, byteSize: 42, mediaType }],
+    nextCursor: null,
+  });
+  mocks.humanRevisionSource.mockResolvedValue({
+    source: { reviewId: documentId, sourceVersionId: oldId },
+  });
+  mocks.saveWordRevision.mockRejectedValueOnce(new Error('合成上传响应丢失'));
+  show(
+    <ProjectFiles
+      projectId={projectId}
+      userId="member"
+      onOpenFile={vi.fn()}
+      onOpenDiff={vi.fn()}
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: `上传修改稿：${path}` }));
+  const input = await screen.findByLabelText('修改稿（Word .docx）');
+  const file = new File(['合成修改稿字节'], '修改稿.docx', { type: mediaType });
+  fireEvent.change(input, { target: { files: [file] } });
+  fireEvent.click(screen.getByRole('button', { name: '上传并保存新版本' }));
+  fireEvent.click(await screen.findByRole('button', { name: '放弃重试' }));
+  fireEvent.click(screen.getByRole('button', { name: '关闭修改稿' }));
+  fireEvent.click(screen.getByRole('button', { name: `上传修改稿：${path}` }));
+  const reopened = await screen.findByLabelText('修改稿（Word .docx）');
+  fireEvent.change(reopened, { target: { files: [file] } });
+  fireEvent.click(screen.getByRole('button', { name: '上传并保存新版本' }));
+  await waitFor(() =>
+    expect(mocks.saveWordRevision).toHaveBeenNthCalledWith(
+      2,
+      workspaceId,
+      expect.objectContaining({
+        reviewId: documentId,
+        expectedCurrentVersionId: currentId,
+        sourceVersionId: oldId,
+        path,
+      }),
+      file,
+    ),
+  );
+  expect(mocks.humanRevisionSource).toHaveBeenCalledTimes(2);
+  expect(mocks.humanRevisionSource).toHaveBeenLastCalledWith(workspaceId, currentId, path);
+  expect(mocks.saveWordRevision.mock.calls[1]![1].requestKey).not.toBe(
+    mocks.saveWordRevision.mock.calls[0]![1].requestKey,
+  );
 });
 
 it('从资料页提交 ZIP 并展示导入报告', async () => {

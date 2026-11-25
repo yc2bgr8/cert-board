@@ -23,12 +23,15 @@ import {
   workspaceUndoOverlaySchema,
   workspaceUndoSnapshotSchema,
   workspaceToolUndoStateSchema,
-  humanRevisionInputSchema,
   humanRevisionListSchema,
+  humanRevisionSourceSchema,
   humanRevisionViewSchema,
   humanRevisionMaxBytes,
+  humanRevisionMaxWordBytes,
+  humanRevisionWordPathPattern,
   reviewDiffSchema,
   type BrowserIdentity,
+  type HumanRevisionCommand,
   type WorkspaceToolUndoState,
   type ServiceIdentity,
   type DataLevel,
@@ -36,9 +39,10 @@ import {
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
+import type { DocumentParserClient } from '../documents/docsvc-client.js';
 import { compareFileManifests } from './diff.js';
 import { decodeUtf8Text, sliceUnicodeText } from './text.js';
-import { compareHumanRevision } from './paragraph-diff.js';
+import { compareHumanRevision, compareRevisionParagraphs } from './paragraph-diff.js';
 
 type Executor = Pool | PoolClient;
 type Workspace = ReturnType<typeof workspaceRecordSchema.parse>;
@@ -1041,6 +1045,34 @@ async function revisionReview(client: Executor, workspace: Workspace, reviewId: 
   return row;
 }
 
+export async function findHumanRevisionSource(
+  pool: Pool,
+  identity: BrowserIdentity,
+  workspaceId: string,
+  versionId: string,
+  path: string,
+) {
+  const workspace = await workspaceAccess(pool, identity, workspaceId, true);
+  const {
+    rows: [source],
+  } = await pool.query(
+    `SELECT r.id AS "reviewId",v.id AS "sourceVersionId"
+     FROM review_card r
+     JOIN workspace_version v ON v.id=r.workspace_version_id AND v.workspace_id=$1 AND v.author_type='ai'
+     JOIN workspace_file original ON original.version_id=v.id AND original.path=$4
+     JOIN workspace_version chosen ON chosen.id=$2 AND chosen.workspace_id=v.workspace_id
+     JOIN workspace_file selected ON selected.version_id=chosen.id AND selected.path=original.path
+     JOIN workspace_file head_file ON head_file.version_id=$3 AND head_file.path=original.path
+     WHERE r.project_id=$5 AND v.number<=chosen.number
+       AND selected.sha256=original.sha256 AND head_file.sha256=original.sha256
+       AND head_file.byte_size=original.byte_size AND head_file.media_type=original.media_type
+       AND r.diff->'changes' @> jsonb_build_array(jsonb_build_object('path',original.path,'afterSha256',original.sha256))
+     ORDER BY v.number DESC,r.created_at DESC,r.id DESC LIMIT 1`,
+    [workspace.id, versionId, workspace.currentVersionId, path, workspace.projectId],
+  );
+  return humanRevisionSourceSchema.parse({ source: source ?? null });
+}
+
 export async function listHumanRevisions(
   pool: Pool,
   identity: BrowserIdentity,
@@ -1075,22 +1107,45 @@ export async function listHumanRevisions(
   });
 }
 
-export async function saveHumanRevision(
-  client: PoolClient,
+const staleHumanRevision = () =>
+  new AppError(
+    409,
+    'HUMAN_REVISION_CONFLICT',
+    '工作区或修改稿请求已经变化，请打开当前关联审核卡后重试。',
+  );
+
+async function priorHumanRevision(
+  database: Executor,
+  identity: BrowserIdentity,
+  requestKey: string,
+  fingerprint: string,
+) {
+  const {
+    rows: [prior],
+  } = await database.query(
+    `SELECT ${humanRevisionFields} FROM human_revision h JOIN workspace_version v ON v.id=h.new_version_id
+      WHERE h.author_id=$1 AND h.request_key=$2`,
+    [identity.userId, requestKey],
+  );
+  if (!prior) return undefined;
+  if (prior.fingerprint !== fingerprint) throw staleHumanRevision();
+  return revisionView(prior);
+}
+
+export async function prepareHumanRevision(
+  pool: Pool,
   store: DocumentBlobStore,
   identity: BrowserIdentity,
   workspaceId: string,
-  raw: unknown,
+  input: HumanRevisionCommand & ({ text: string } | { bytes: Buffer }),
+  parser?: Pick<DocumentParserClient, 'wordParagraphs'>,
 ) {
-  const parsed = humanRevisionInputSchema.safeParse(raw);
-  if (!parsed.success) throw invalid();
-  const input = parsed.data;
   const sourceId = input.sourceVersionId.toLowerCase();
   const expectedId = input.expectedCurrentVersionId.toLowerCase();
   const reviewId = input.reviewId.toLowerCase();
-  const workspace = await workspaceAccess(client, identity, workspaceId, true, true);
-  const review = await revisionReview(client, workspace, reviewId);
-  const encoded = Buffer.from(input.text, 'utf8');
+  const workspace = await workspaceAccess(pool, identity, workspaceId, true);
+  const review = await revisionReview(pool, workspace, reviewId);
+  const encoded = 'bytes' in input ? input.bytes : Buffer.from(input.text, 'utf8');
   const sha256 = createHash('sha256').update(encoded).digest('hex');
   const fingerprint = digest({
     workspaceId: workspace.id,
@@ -1101,28 +1156,18 @@ export async function saveHumanRevision(
     sha256,
     dataLevel: input.dataLevel,
   });
-  const stale = () =>
-    new AppError(
-      409,
-      'HUMAN_REVISION_CONFLICT',
-      '工作区或修改稿请求已经变化，请打开当前关联审核卡后重试。',
-    );
-  const {
-    rows: [prior],
-  } = await client.query(
-    `SELECT ${humanRevisionFields} FROM human_revision h JOIN workspace_version v ON v.id=h.new_version_id
-      WHERE h.author_id=$1 AND h.request_key=$2`,
-    [identity.userId, input.requestKey],
-  );
-  if (prior) {
-    if (prior.fingerprint !== fingerprint) throw stale();
-    return revisionView(prior);
+  const context = { sourceId, expectedId, reviewId, fingerprint };
+  const findPrior = () => priorHumanRevision(pool, identity, input.requestKey, fingerprint);
+  const prior = await findPrior();
+  if (prior) return { ...context, alreadySaved: true } as const;
+  if (workspace.currentVersionId !== expectedId || review.workspace_version_id !== sourceId) {
+    const saved = await findPrior();
+    if (saved) return { ...context, alreadySaved: true } as const;
+    throw staleHumanRevision();
   }
-  if (workspace.currentVersionId !== expectedId || review.workspace_version_id !== sourceId)
-    throw stale();
-  const source = await versionAccess(client, identity, sourceId);
-  const sourceFiles = await manifest(client, sourceId);
-  const before = expectedId === sourceId ? sourceFiles : await manifest(client, expectedId);
+  const source = await versionAccess(pool, identity, sourceId);
+  const sourceFiles = await manifest(pool, sourceId);
+  const before = expectedId === sourceId ? sourceFiles : await manifest(pool, expectedId);
   const original = sourceFiles.get(input.path);
   const changed = reviewDiffSchema
     .parse(review.diff)
@@ -1143,14 +1188,28 @@ export async function saveHumanRevision(
       'HUMAN_REVISION_FILE_CHANGED',
       '所选文件此后已有修改，请保留现有版本并重新核对。',
     );
+  const word = 'bytes' in input;
   const mediaType = original.mediaType.split(';', 1)[0]?.trim().toLowerCase();
-  if (
-    !/\.(md|txt)$/iu.test(input.path) ||
-    (mediaType !== 'text/plain' && mediaType !== 'text/markdown')
-  )
-    throw new AppError(415, 'HUMAN_REVISION_FORMAT', '当前支持 UTF-8 的 Markdown 和纯文本修改稿。');
-  if (original.byteSize > humanRevisionMaxBytes)
-    throw new AppError(413, 'HUMAN_REVISION_DIFF_LIMIT', '原稿超过当前对比大小上限。');
+  const supported = word
+    ? humanRevisionWordPathPattern.test(input.path) &&
+      mediaType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    : /\.(md|txt)$/iu.test(input.path) &&
+      (mediaType === 'text/plain' || mediaType === 'text/markdown');
+  if (!supported)
+    throw new AppError(
+      415,
+      'HUMAN_REVISION_FORMAT',
+      '请上传与原稿格式一致的 Word（.docx）、Markdown 或 UTF-8 纯文本。',
+    );
+  const maxBytes = word ? humanRevisionMaxWordBytes : humanRevisionMaxBytes;
+  if (encoded.length === 0 || encoded.length > maxBytes || original.byteSize > maxBytes)
+    throw new AppError(413, 'HUMAN_REVISION_DIFF_LIMIT', '原稿或修改稿超过当前对比大小上限。');
+  if (word && !parser)
+    throw new AppError(
+      503,
+      'DOCUMENT_PARSER_DISABLED',
+      'Word 改稿对比需要本机解析服务，请联系维护人员启动。',
+    );
   if (original.sha256 === sha256)
     throw new AppError(409, 'HUMAN_REVISION_UNCHANGED', '上传内容与原稿完全一致。');
   const rawBefore = await store.get(original.sha256);
@@ -1159,21 +1218,60 @@ export async function saveHumanRevision(
     createHash('sha256').update(rawBefore).digest('hex') !== original.sha256
   )
     throw new AppError(500, 'WORKSPACE_CONTENT_MISMATCH', '原稿与登记的版本不一致，请刷新后重试。');
-  const originalText = decodeUtf8Text(rawBefore);
-  if (originalText.includes('\0'))
-    throw new AppError(
-      415,
-      'HUMAN_REVISION_FORMAT',
-      '原稿含二进制字符，请保存为 UTF-8 文本后核对。',
-    );
-  const difference = compareHumanRevision(originalText, input.text);
+  let difference;
+  if ('text' in input) {
+    const originalText = decodeUtf8Text(rawBefore);
+    if (originalText.includes('\0'))
+      throw new AppError(
+        415,
+        'HUMAN_REVISION_FORMAT',
+        '原稿含二进制字符，请保存为 UTF-8 文本后核对。',
+      );
+    difference = compareHumanRevision(originalText, input.text);
+  } else {
+    const first = await parser!.wordParagraphs(rawBefore, original.sha256);
+    const next = await parser!.wordParagraphs(encoded, sha256);
+    difference = compareRevisionParagraphs(first, next);
+  }
+  return {
+    ...context,
+    alreadySaved: false,
+    encoded,
+    sha256,
+    difference,
+    before,
+    original,
+    currentFile,
+  } as const;
+}
+
+export async function saveHumanRevision(
+  client: PoolClient,
+  store: DocumentBlobStore,
+  identity: BrowserIdentity,
+  workspaceId: string,
+  input: HumanRevisionCommand,
+  prepared: Awaited<ReturnType<typeof prepareHumanRevision>>,
+) {
+  const { sourceId, expectedId, reviewId, fingerprint } = prepared;
+  const current = await workspaceAccess(client, identity, workspaceId, true, true);
+  const currentReview = await revisionReview(client, current, reviewId);
+  const replay = await priorHumanRevision(client, identity, input.requestKey, fingerprint);
+  if (replay) return replay;
+  if (
+    prepared.alreadySaved ||
+    current.currentVersionId !== expectedId ||
+    currentReview.workspace_version_id !== sourceId
+  )
+    throw staleHumanRevision();
+  const { encoded, sha256, difference, before, original, currentFile } = prepared;
   const blob = await store.put(encoded);
   if (blob.sha256 !== sha256)
     throw new AppError(500, 'WORKSPACE_CONTENT_MISMATCH', '修改稿写入后无法核对，请重试。');
   const level = highest(
-    workspace.dataLevel,
+    current.dataLevel,
     original.dataLevel,
-    review.data_level,
+    currentReview.data_level,
     input.dataLevel,
     ...[...before.values()].map(({ dataLevel }) => dataLevel),
   );
@@ -1183,7 +1281,7 @@ export async function saveHumanRevision(
   const { version } = await installWorkspaceVersion(
     client,
     identity,
-    workspace,
+    current,
     files,
     '上传人工修改稿',
     level,
@@ -1196,7 +1294,7 @@ export async function saveHumanRevision(
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)
       ON CONFLICT(author_id,request_key) DO NOTHING RETURNING id`,
     [
-      workspace.id,
+      current.id,
       reviewId,
       sourceId,
       version.id,
@@ -1205,12 +1303,12 @@ export async function saveHumanRevision(
       input.requestKey,
       fingerprint,
       input.path,
-      review.skill_id,
-      review.skill_version,
+      currentReview.skill_id,
+      currentReview.skill_version,
       JSON.stringify(difference),
     ],
   );
-  if (!saved) throw stale();
+  if (!saved) throw staleHumanRevision();
   await audit(
     client,
     identity,
@@ -1226,8 +1324,8 @@ export async function saveHumanRevision(
     sourceVersionId: sourceId,
     path: input.path,
     version,
-    skillId: review.skill_id,
-    skillVersion: review.skill_version,
+    skillId: currentReview.skill_id,
+    skillVersion: currentReview.skill_version,
     difference,
   });
 }

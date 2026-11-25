@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DocumentCitation, ReviewCardView, ReviewDecisionInput } from '@cert-board/shared';
+import { humanRevisionPathPattern } from '@cert-board/shared';
 import { SafeMarkdown } from '../SafeMarkdown.js';
 import { useBrowserCommand } from './ApprovalCard.js';
 import { api, errorMessage, isStaleError } from './api.js';
@@ -424,7 +425,7 @@ function ReviewCardContent({
           )}
           {workspace.data &&
             card.diff.changes.some(
-              ({ path, afterSha256 }) => afterSha256 && /\.(md|txt)$/iu.test(path),
+              ({ path, afterSha256 }) => afterSha256 && humanRevisionPathPattern.test(path),
             ) && (
               <HumanRevision
                 workspaceId={workspace.data.id}
@@ -434,7 +435,9 @@ function ReviewCardContent({
                 expectedCurrentVersionId={workspace.data.currentVersionId}
                 current={version?.authorType === 'ai'}
                 paths={card.diff.changes
-                  .filter(({ path, afterSha256 }) => afterSha256 && /\.(md|txt)$/iu.test(path))
+                  .filter(
+                    ({ path, afterSha256 }) => afterSha256 && humanRevisionPathPattern.test(path),
+                  )
                   .map(({ path }) => path)}
               />
             )}

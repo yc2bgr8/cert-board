@@ -150,6 +150,13 @@
 .live-documents-page .live-asset-row:disabled {
   opacity: 1;
 }
+
+.live-project-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
 .live-intake-actions,
 .live-intake-report dl {
   display: flex;

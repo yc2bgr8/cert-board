@@ -20,8 +20,11 @@ def perform(action, kind, arguments, source):
         return serialize(inspect_pdf(source))
     result = parse_document(source, kind, LocalOCR(), comparison=action == "text")
     if action == "text":
-        return serialize({"sha256": result["sha256"], "pageCount": result["pageCount"],
-                          "text": "\n\n".join(page["text"] for page in result["pages"])})
+        text = {"sha256": result["sha256"], "pageCount": result["pageCount"],
+                "text": "\n\n".join(page["text"] for page in result["pages"])}
+        if kind == "docx":
+            text["paragraphs"] = result["pages"][0]["paragraphs"]
+        return serialize(text)
     return serialize(result)
 
 

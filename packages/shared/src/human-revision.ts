@@ -3,6 +3,9 @@ import { workspaceDataLevelSchema, workspaceVersionRecordSchema } from './worksp
 import { workspacePathSchema } from './workspace-path.js';
 
 export const humanRevisionMaxBytes = 128 * 1024;
+export const humanRevisionMaxWordBytes = 16 * 1024 * 1024;
+export const humanRevisionPathPattern = /\.(md|txt|docx)$/iu;
+export const humanRevisionWordPathPattern = /\.docx$/iu;
 const reviewId = z.uuid();
 const revisionText = z
   .string()
@@ -27,16 +30,23 @@ export const humanRevisionDifferenceSchema = z.strictObject({
   paragraphs: paragraph.array().max(80),
   truncated: z.boolean(),
 });
-export const humanRevisionInputSchema = z.strictObject({
+export const humanRevisionCommandSchema = z.strictObject({
   reviewId,
   sourceVersionId: z.uuid(),
   expectedCurrentVersionId: z.uuid(),
   requestKey: z.uuid(),
   path: workspacePathSchema,
-  text: revisionText,
   dataLevel: workspaceDataLevelSchema,
 });
+export const humanRevisionInputSchema = humanRevisionCommandSchema.extend({ text: revisionText });
 export const humanRevisionQuerySchema = z.strictObject({ reviewId, cursor: z.uuid().optional() });
+export const humanRevisionSourceQuerySchema = z.strictObject({
+  versionId: z.uuid(),
+  path: workspacePathSchema,
+});
+export const humanRevisionSourceSchema = z.strictObject({
+  source: z.strictObject({ reviewId, sourceVersionId: z.uuid() }).nullable(),
+});
 export const humanRevisionViewSchema = z.strictObject({
   id: z.uuid(),
   reviewId,
@@ -52,4 +62,5 @@ export const humanRevisionListSchema = z.strictObject({
   nextCursor: z.uuid().nullable(),
 });
 export type HumanRevisionInput = z.infer<typeof humanRevisionInputSchema>;
+export type HumanRevisionCommand = z.infer<typeof humanRevisionCommandSchema>;
 export type HumanRevisionDifference = z.infer<typeof humanRevisionDifferenceSchema>;
