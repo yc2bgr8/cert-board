@@ -1,0 +1,37 @@
+{
+  "members": [
+    {
+      "id": "43000000-0000-4000-8000-000000000001",
+      "username": "synth_owner",
+      "displayName": "合成负责人"
+    }
+  ],
+  "existing": [
+    {
+      "type": "代理合同",
+      "number": "SYNTH-KEEP",
+      "holder": "合成机构",
+      "model": null,
+      "market": null,
+      "authorization": null,
+      "startsOn": "2027-01-01",
+      "expiresOn": "2027-06-30",
+      "fee": "152",
+      "currency": "USD",
+      "ownerId": "43000000-0000-4000-8000-000000000001"
+    },
+    {
+      "type": "代理合同",
+      "number": "SYNTH-CONFLICT",
+      "holder": "合成机构",
+      "model": null,
+      "market": null,
+      "authorization": null,
+      "startsOn": "2027-01-01",
+      "expiresOn": "2027-06-30",
+      "fee": "20",
+      "currency": "CAD",
+      "ownerId": "43000000-0000-4000-8000-000000000001"
+    }
+  ]
+}
