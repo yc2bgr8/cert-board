@@ -278,7 +278,7 @@ async function main() {
       assert.equal(requestKeys[0], requestKeys[2]);
       assert.equal((await harness.pool.query('SELECT 1 FROM knowledge_review')).rowCount, 2);
 
-      stage = '浏览器复制接近大小上限的已发布规则包';
+      stage = '准备接近大小上限的合成规则包';
       const nearLimit = {
         code: 'synthetic_near_limit',
         title: '合成边界规则包',
@@ -303,21 +303,25 @@ async function main() {
       const draft = JSON.stringify(nearLimit);
       assert.ok(Buffer.byteLength(draft) < 32_000);
       assert.ok(Buffer.byteLength(JSON.stringify(nearLimit, null, 2)) > 32_000);
+      stage = '浏览器登记接近大小上限的规则包';
       await panel.getByText('登记草稿', { exact: true }).click();
       await type.selectOption('rule_pack');
       await yaml.fill(draft);
       await submit.click();
       const card = panel.getByRole('article', { name: '知识审核卡', exact: true });
       await card.getByText('synthetic_near_limit · 待审阅', { exact: true }).waitFor();
+      stage = '浏览器发布接近大小上限的规则包';
       await card.getByRole('button', { name: '通过并发布', exact: true }).click();
       await card.getByText('synthetic_near_limit · 已发布', { exact: true }).waitFor();
+      stage = '浏览器复制接近大小上限的已发布规则包';
       await card.getByRole('button', { name: '以此版起草', exact: true }).click();
       const copied = await yaml.inputValue();
-      assert.ok(Buffer.byteLength(copied) < 32_000, 'BROWSER_KNOWLEDGE_DRAFT_UTF8_LIMIT');
+      assert.ok(Buffer.byteLength(copied) < 32_000, 'BROWSER_KNOWLEDGE_DRAFT_BYTE_LIMIT');
       assert.deepEqual(JSON.parse(copied), { ...nearLimit, version: '' });
       const next = copied.replace('"version":""', '"version":"1.0.1"');
       const oversized = next.replace('核'.repeat(60), '核'.repeat(180));
       assert.ok(Buffer.byteLength(oversized) > 32_000);
+      stage = '浏览器阻止超限草稿并提交改正版本';
       await yaml.fill(oversized);
       await panel.getByRole('alert').filter({ hasText: '32,000' }).waitFor();
       assert.equal(await submit.isDisabled(), true);
@@ -346,6 +350,7 @@ async function main() {
       );
       const exactDraft = JSON.stringify(exactLimit);
       assert.equal(Buffer.byteLength(exactDraft), 32_000);
+      stage = '浏览器登记并发布达到大小上限的规则包';
       await panel.getByText('登记草稿', { exact: true }).click();
       await type.selectOption('rule_pack');
       await yaml.fill(exactDraft);
@@ -353,6 +358,7 @@ async function main() {
       await card.getByText('synthetic_exact_limit · 待审阅', { exact: true }).waitFor();
       await card.getByRole('button', { name: '通过并发布', exact: true }).click();
       await card.getByText('synthetic_exact_limit · 已发布', { exact: true }).waitFor();
+      stage = '浏览器保留原内容及密级并提交最长新版本号';
       await card.getByRole('button', { name: '以此版起草', exact: true }).click();
       assert.equal(await yaml.isVisible(), false);
       const version = '9999.9999.9999';
