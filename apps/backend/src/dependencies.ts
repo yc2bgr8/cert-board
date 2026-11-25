@@ -21,7 +21,8 @@ export function createDependencies(config: BackendConfig) {
     statement_timeout: 5_000,
     application_name: 'cert-board',
   });
-  // 空闲连接断开不应触发未处理异常；健康检查负责报告依赖不可用。
+  // pg-pool 只代理池内空闲连接的错误。租出的连接在两条查询之间也可能断开。
+  database.on('connect', (client) => client.on('error', () => undefined));
   database.on('error', () => undefined);
   const transportAgent = config.MINIO_USE_SSL
     ? new HttpsAgent({ keepAlive: true, timeout: 5_000 })
