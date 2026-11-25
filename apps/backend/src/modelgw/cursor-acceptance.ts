@@ -120,6 +120,12 @@ export class CursorOutputLimitError extends Error {
   }
 }
 
+export class CursorReplyFormatError extends Error {
+  constructor() {
+    super('Cursor 未返回有效的 cert-board 工具回合。实际调用已登记，未执行这次回复中的动作。');
+  }
+}
+
 export function parseCursorModelTurn(answer: string, request: z.infer<typeof chatRequestSchema>) {
   // ACP 不提供生成令牌上限。用 UTF-8 字节作为输出令牌数的保守上界。
   if (request.max_tokens !== undefined && Buffer.byteLength(answer, 'utf8') > request.max_tokens)
@@ -195,6 +201,6 @@ export async function sendCursorAcceptance(
     return parseCursorModelTurn(answer, request);
   } catch (error) {
     if (error instanceof CursorOutputLimitError) throw error;
-    throw new VerificationChannelError('failed');
+    throw new CursorReplyFormatError();
   }
 }

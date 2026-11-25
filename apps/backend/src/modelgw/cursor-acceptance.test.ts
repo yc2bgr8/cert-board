@@ -4,6 +4,7 @@ import { CursorAcpStartupError, readCursorTurn } from '../external-model/cursor-
 import { VerificationChannelError } from '../external-model/verification-runtime.js';
 import {
   cursorAcceptanceModels,
+  CursorReplyFormatError,
   parseCursorModelTurn,
   readCursorAcceptanceConfig,
   sendCursorAcceptance,
@@ -143,4 +144,16 @@ test('只重建明确未派发的 ACP 启动握手，普通派发拒绝或发送
     });
     expect(turn).toHaveBeenCalledOnce();
   }
+});
+
+test('坏回复只报告格式类别并保留调用结果边界', async () => {
+  const cursor = { executable: 'fixture', entrypoint: 'fixture', profileDirectory: 'fixture' };
+  const turn = vi.mocked(readCursorTurn);
+  turn.mockClear().mockResolvedValueOnce('合成未结构化文本');
+  const error = await sendCursorAcceptance(cursor, cursorAcceptanceModels[0]!, request).catch(
+    (error: unknown) => error,
+  );
+  expect(error).toBeInstanceOf(CursorReplyFormatError);
+  expect(String(error)).not.toContain('合成未结构化文本');
+  expect(turn).toHaveBeenCalledOnce();
 });

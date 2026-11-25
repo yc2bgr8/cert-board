@@ -60,6 +60,12 @@ export class CursorAcpStartupError extends VerificationChannelError {
   }
 }
 
+export class CursorAcpNativeToolError extends VerificationChannelError {
+  constructor(confirmedNotSent = false) {
+    super('failed', confirmedNotSent);
+  }
+}
+
 async function verifiedProfile(directory: string) {
   try {
     const [config, mcp, entries] = await Promise.all([
@@ -223,7 +229,7 @@ export async function readCursorTurn(
         if (packet.method === 'session/request_permission')
           write({ id: packet.id, result: { outcome: { outcome: 'cancelled' } } });
         else write({ id: packet.id, error: { code: -32601, message: 'Unavailable' } });
-        abort(new VerificationChannelError('failed'));
+        abort(new CursorAcpNativeToolError());
       } else if (packet.method === 'session/update' && packet.params?.sessionId === sessionId) {
         const update = object.parse(packet.params.update);
         if (update.sessionUpdate === 'agent_message_chunk') {
@@ -234,7 +240,7 @@ export async function readCursorTurn(
           update.sessionUpdate === 'tool_call' ||
           update.sessionUpdate === 'tool_call_update'
         ) {
-          abort(new VerificationChannelError('failed'));
+          abort(new CursorAcpNativeToolError());
         }
       }
     } catch {
@@ -277,13 +283,12 @@ export async function readCursorTurn(
       prompt: [{ type: 'text', text: JSON.stringify(prompt) }],
     });
     if (error) throw error;
-    if (
-      !z.object({ stopReason: z.literal('end_turn') }).safeParse(completed).success ||
-      !answer.trim()
-    )
+    if (!z.object({ stopReason: z.literal('end_turn') }).safeParse(completed).success)
       throw new VerificationChannelError('failed');
     return answer;
   } catch (cause) {
+    if (cause instanceof CursorAcpNativeToolError)
+      throw new CursorAcpNativeToolError(!promptAttempted);
     if (
       !dispatchGuardStarted &&
       !signal?.aborted &&
@@ -315,6 +320,7 @@ export async function callCursorAcp(
   beforeDispatch: (processClosed: AbortSignal) => Promise<void>,
 ) {
   const answer = await readCursorTurn(config, modelId, prompt, beforeDispatch);
+  if (!answer.trim()) throw new VerificationChannelError('failed');
   const reply = answer
     .trim()
     .replace(/^\x60\x60\x60(?:json)?\s*/iu, '')

@@ -15,6 +15,8 @@ import { seedDevelopmentBudgetPolicy } from '../budget/service.js';
 import { appendConversationMessage } from '../conversations/storage.js';
 import * as conversationStorage from '../conversations/storage.js';
 import { ModelGateway, type GatewayTransport } from '../modelgw/service.js';
+import { cursorAcceptanceModels, CursorReplyFormatError } from '../modelgw/cursor-acceptance.js';
+import { CursorAcpNativeToolError } from '../external-model/cursor-acp.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { ingestParsedDocument } from '../documents/service.js';
 import type { ToolDefinition } from '../tools/registry.js';
@@ -104,6 +106,61 @@ afterEach(async () => {
   vi.restoreAllMocks();
   await close?.();
   close = undefined;
+});
+
+test.each([
+  { label: '格式恢复', errors: [new CursorReplyFormatError()], calls: 2, done: true },
+  {
+    label: '两次格式失败',
+    errors: [new CursorReplyFormatError(), new CursorReplyFormatError()],
+    calls: 2,
+    done: false,
+  },
+  { label: '原生工具被阻止', errors: [new CursorAcpNativeToolError()], calls: 1, done: false },
+  { label: '其他派发后失败', errors: [new Error('合成上游连接中断')], calls: 1, done: false },
+])('Cursor 主模型回合单独计量并限制复试（$label）', async ({ errors, calls, done }) => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const target = await queued(context, 'read_only');
+  const models: ModelGatewayConfig = { version: 1, models: cursorAcceptanceModels };
+  const corrections: boolean[] = [];
+  const gateway = new ModelGateway(
+    context.pool,
+    models,
+    {
+      kind: 'fixture',
+      async send(_model, request) {
+        corrections.push(
+          request.messages[0]?.content?.includes('上一次返回未通过回合结构校验') ?? false,
+        );
+        const error = errors[corrections.length - 1];
+        if (error) throw error;
+        const reply = result({ role: 'assistant', content: '合成核查完成。' });
+        return { id: reply.id, object: reply.object, choices: reply.choices };
+      },
+    },
+    { environment: 'test' },
+  );
+  const outcome = await executeAgentRun(
+    { pool: context.pool, store, gateway, models, definitions: [] },
+    target.runId,
+  );
+  expect(outcome.status).toBe(done ? 'completed' : 'failed');
+  expect(corrections).toEqual(calls === 2 ? [false, true] : [false]);
+  const { rows } = await context.pool.query<{ request_key: string; status: string }>(
+    'SELECT request_key,status FROM usage_ledger WHERE run_id=$1 ORDER BY created_at',
+    [target.runId],
+  );
+  expect(rows.map(({ status }) => status)).toEqual(Array.from({ length: calls }, () => 'unknown'));
+  expect(new Set(rows.map(({ request_key }) => request_key)).size).toBe(calls);
+  const completed = await context.pool.query<{ request_id: string }>(
+    "SELECT request_id FROM run_event WHERE run_id=$1 AND type='model_completed'",
+    [target.runId],
+  );
+  expect(completed.rows).toEqual(done ? [{ request_id: rows[1]?.request_key }] : []);
 });
 
 test('Agent 剧本在容器模式收不到核实工具，宿主模式仍能使用', async () => {

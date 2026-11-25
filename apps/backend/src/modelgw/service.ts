@@ -26,7 +26,8 @@ import {
   markUsageNotDispatched,
   meteringCanResume,
 } from '../budget/service.js';
-import { CursorOutputLimitError } from './cursor-acceptance.js';
+import { CursorOutputLimitError, CursorReplyFormatError } from './cursor-acceptance.js';
+import { CursorAcpNativeToolError } from '../external-model/cursor-acp.js';
 
 export type UpstreamChatRequest = Omit<ChatRequest, 'model' | 'stream'> & {
   model: string;
@@ -461,6 +462,18 @@ export class ModelGateway {
         throw rejected(
           'MODEL_DISPATCH_BLOCKED',
           'Cursor 尚未发送模型请求。请核对验收配置、数据级别和运行状态。',
+          502,
+        );
+      }
+      if (model.transport === 'cursor-acp' && error instanceof CursorReplyFormatError) {
+        await this.incomplete(context, 'request_uncertain');
+        throw rejected('MODEL_CURSOR_REPLY_INVALID', error.message, 502);
+      }
+      if (model.transport === 'cursor-acp' && error instanceof CursorAcpNativeToolError) {
+        await this.incomplete(context, 'request_uncertain');
+        throw rejected(
+          'MODEL_CURSOR_NATIVE_TOOL_BLOCKED',
+          'Cursor 请求了自身工具，已阻止本轮继续。',
           502,
         );
       }

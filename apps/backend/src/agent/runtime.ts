@@ -684,6 +684,7 @@ export async function executeAgentRun(
       )
         readyHistory = [...readyHistory, reference];
     }
+    let retriedCursorReply = false;
     const completeModel = async (
       purpose: string,
       request: ChatRequest,
@@ -706,24 +707,63 @@ export async function executeAgentRun(
             userId: context.userId,
             event: { type: 'model_started' },
           });
-        const response = await gateway.complete(
-          request,
-          {
-            requestKey,
+        const attempt = (input: ChatRequest, key: string) =>
+          gateway.complete(
+            input,
+            {
+              requestKey: key,
+              runId,
+              conversationId: context.conversationId,
+              userId: context.userId,
+              purpose,
+            },
+            signal,
+            ensureActive,
+          );
+        let acceptedKey = requestKey;
+        const response = await attempt(request, requestKey).catch(async (error: unknown) => {
+          if (
+            !(error instanceof AppError) ||
+            error.code !== 'MODEL_CURSOR_REPLY_INVALID' ||
+            model.transport !== 'cursor-acp' ||
+            purpose !== 'agent' ||
+            retriedCursorReply ||
+            request.messages.length >= 256
+          )
+            throw error;
+          await ensureActive();
+          retriedCursorReply = true;
+          await appendRunEvent(pool, {
             runId,
-            conversationId: context.conversationId,
             userId: context.userId,
-            purpose,
-          },
-          signal,
-          ensureActive,
-        );
+            event: { type: 'model_started' },
+          });
+          acceptedKey = randomUUID();
+          return attempt(
+            {
+              ...request,
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    '上一次返回未通过回合结构校验。请重新根据本轮请求返回一个完整的 JSON 回合，并在 actions 中声明下一步所需的已登记工具。',
+                },
+                ...request.messages,
+              ],
+            },
+            acceptedKey,
+          );
+        });
+        if (response.requestKey !== acceptedKey)
+          throw new KernelToolError('MODEL_RESPONSE_INVALID', '模型回执的请求编号不匹配。', {
+            recoverable: false,
+          });
         await appendRunEvent(pool, {
           runId,
           userId: context.userId,
           event: {
             type: 'model_completed',
-            requestId: requestKey,
+            requestId: response.requestKey,
             ...(response.usage
               ? {
                   inputTokens: response.usage.inputTokens,
@@ -735,7 +775,7 @@ export async function executeAgentRun(
             dataLevel: response.dataLevel,
           },
         });
-        return response;
+        return acceptedKey === requestKey ? response : { ...response, requestKey };
       } catch (error) {
         throw new KernelToolError(
           error instanceof AppError || error instanceof KernelToolError
