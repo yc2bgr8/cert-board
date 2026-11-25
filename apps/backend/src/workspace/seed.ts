@@ -46,6 +46,55 @@ export function initialWorkspaceTexts(
   ];
 }
 
+export async function initializeDevelopmentWorkspace(
+  client: pg.PoolClient,
+  store: DocumentBlobStore,
+  seed: {
+    projectId: string;
+    workspaceId: string;
+    versionId: string;
+    level: DataLevel;
+    summary: string;
+    files: readonly { path: string; content: string; mediaType?: string }[];
+  },
+) {
+  const { projectId, workspaceId, versionId, level, summary } = seed;
+  await client.query('INSERT INTO workspace(id,project_id,data_level) VALUES ($1,$2,$3)', [
+    workspaceId,
+    projectId,
+    level,
+  ]);
+  await client.query(
+    "INSERT INTO workspace_version(id,workspace_id,project_id,number,author_type,summary,data_level) VALUES ($1,$2,$3,1,'system',$4,$5)",
+    [versionId, workspaceId, projectId, summary, level],
+  );
+  const manifest = [];
+  for (const file of seed.files) {
+    const stored = await store.put(Buffer.from(file.content, 'utf8'));
+    await client.query(
+      'INSERT INTO workspace_file(version_id,path,sha256,byte_size,data_level,media_type) VALUES ($1,$2,$3,$4,$5,$6)',
+      [
+        versionId,
+        file.path,
+        stored.sha256,
+        stored.byteSize,
+        level,
+        file.mediaType ?? 'text/markdown',
+      ],
+    );
+    manifest.push({ path: file.path, ...stored });
+  }
+  await client.query('UPDATE workspace SET current_version_id=$1 WHERE id=$2', [
+    versionId,
+    workspaceId,
+  ]);
+  const digest = createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
+  await client.query(
+    "INSERT INTO audit_log(actor_kind,action,target_type,target_id,after_hash) VALUES ('system','workspace.seeded','workspace',$1,$2)",
+    [workspaceId, digest],
+  );
+}
+
 export async function seedDevelopmentWorkspace(
   pool: pg.Pool,
   store: DocumentBlobStore,
@@ -93,33 +142,14 @@ export async function seedDevelopmentWorkspace(
       [developmentProjectId],
     );
     const level = levelResult.rows[0]?.data_level === 'confidential' ? 'confidential' : 'internal';
-    await client.query('INSERT INTO workspace(id,project_id,data_level) VALUES ($1,$2,$3)', [
-      developmentWorkspaceId,
-      developmentProjectId,
+    await initializeDevelopmentWorkspace(client, store, {
+      projectId: developmentProjectId,
+      workspaceId: developmentWorkspaceId,
+      versionId: initialVersionId,
       level,
-    ]);
-    await client.query(
-      `INSERT INTO workspace_version(id,workspace_id,project_id,number,author_type,summary,data_level) VALUES ($1,$2,$3,1,'system','建立L08开发工作区：项目说明与资料引用清单',$4)`,
-      [initialVersionId, developmentWorkspaceId, developmentProjectId, level],
-    );
-    const manifest = [];
-    for (const file of initialWorkspaceTexts(references.rows)) {
-      const stored = await store.put(Buffer.from(file.content, 'utf8'));
-      await client.query(
-        'INSERT INTO workspace_file(version_id,path,sha256,byte_size,data_level,media_type) VALUES ($1,$2,$3,$4,$5,$6)',
-        [initialVersionId, file.path, stored.sha256, stored.byteSize, level, 'text/markdown'],
-      );
-      manifest.push({ path: file.path, ...stored });
-    }
-    await client.query('UPDATE workspace SET current_version_id=$1 WHERE id=$2', [
-      initialVersionId,
-      developmentWorkspaceId,
-    ]);
-    const digest = createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
-    await client.query(
-      "INSERT INTO audit_log(actor_kind,action,target_type,target_id,after_hash) VALUES ('system','workspace.seeded','workspace',$1,$2)",
-      [developmentWorkspaceId, digest],
-    );
+      summary: '建立L08开发工作区：项目说明与资料引用清单',
+      files: initialWorkspaceTexts(references.rows),
+    });
     await client.query('COMMIT');
     return { workspaceId: developmentWorkspaceId, created: true };
   } catch (error) {

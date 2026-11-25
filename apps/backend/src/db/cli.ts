@@ -4,6 +4,7 @@ import { ConfigurationError, parseBackendConfig, SeedConfigurationError } from '
 import { migrateDatabase, MigrationError } from './migrate.js';
 import { DevelopmentSeedError, seedDevelopmentAccounts } from './seed.js';
 import { seedDevelopmentProject } from '../projects/seed.js';
+import { seedInFlightDevelopment } from '../projects/in-flight-seed.js';
 import { seedT1Documents } from '../documents/t1-seed.js';
 import { BlobStore } from '../documents/blob-store.js';
 import { createDependencies } from '../dependencies.js';
@@ -14,7 +15,7 @@ import { seedDevelopmentRulePack } from '../knowledge/rule-packs.js';
 
 async function main() {
   const action = process.argv[2];
-  if (!['migrate', 'seed', 'setup', 'isolated-accounts'].includes(action ?? ''))
+  if (!['migrate', 'seed', 'setup', 'isolated-accounts', 'seed-in-flight'].includes(action ?? ''))
     throw new Error('unknown_action');
   const config = parseBackendConfig(process.env);
   if (
@@ -42,6 +43,18 @@ async function main() {
     if (action === 'migrate' || action === 'setup') {
       const result = await migrateDatabase(pool);
       console.log(`数据库迁移完成：本次应用${result.applied.length}个版本。`);
+    }
+    if (action === 'seed-in-flight') {
+      const dependencies = createDependencies(config);
+      try {
+        const store = new BlobStore(dependencies.storage, config.MINIO_BUCKET);
+        const projects = await seedInFlightDevelopment(pool, store, process.env);
+        console.log(
+          `合成在途项目已就绪，新建 ${projects.filter(({ created }) => created).length} 个，合计 ${projects.length} 个。`,
+        );
+      } finally {
+        await dependencies.close();
+      }
     }
     if (action === 'seed' || action === 'setup') {
       const result = await seedDevelopmentAccounts(pool, process.env);
