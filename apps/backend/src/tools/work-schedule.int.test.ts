@@ -8,7 +8,24 @@ test('注册项目的只读对话可计算计划，不产生撤销记录或项�
   const context = await createIntegrationContext();
   try {
     const run = await context.run('MEMBER_A', 'read_only');
-    const maintenance = await context.run('MEMBER_A', 'read_only', 'maintenance');
+    const maintenanceProject = (
+      await context.pool.query<{ id: string }>(
+        "INSERT INTO cert_project(name,project_type,market,pathway,owner_user_id) VALUES('合成维护项目','maintenance','US','annual',$1) RETURNING id",
+        [run.userId],
+      )
+    ).rows[0]!.id;
+    const maintenanceConversation = (
+      await context.pool.query<{ id: string }>(
+        "INSERT INTO conversation(project_id,user_id,title,agent_code,permission_mode) VALUES($1,$2,'合成维护对话','maintenance','read_only') RETURNING id",
+        [maintenanceProject, run.userId],
+      )
+    ).rows[0]!.id;
+    const maintenanceRun = (
+      await context.pool.query<{ id: string }>(
+        "INSERT INTO run(conversation_id,user_id,project_id,status) VALUES($1,$2,$3,'running') RETURNING id",
+        [maintenanceConversation, run.userId, maintenanceProject],
+      )
+    ).rows[0]!.id;
     const storage = {
       get: vi.fn(async () => {
         throw new Error('不应读取文件');
@@ -44,9 +61,9 @@ test('注册项目的只读对话可计算计划，不产生撤销记录或项�
       expect.objectContaining({ name, effect: 'read' }),
     );
     expect(
-      (
-        await maintenanceRegistry.catalog({ runId: maintenance.runId, userId: maintenance.userId })
-      ).some((entry) => entry.name === name),
+      (await maintenanceRegistry.catalog({ runId: maintenanceRun, userId: run.userId })).some(
+        (entry) => entry.name === name,
+      ),
     ).toBe(false);
     const nodes = [
       { id: 'review', name: '合成报告审核', owner: '合成负责人', durationDays: 2, dependsOn: [] },
