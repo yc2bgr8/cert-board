@@ -29,6 +29,8 @@
     "test:network": "node scripts/test-isolated-network.mjs",
     "eval": "node scripts/placeholder.mjs eval",
     "eval:agent": "node scripts/eval-agent.mjs",
+    "measure:v1": "node --import tsx apps/backend/src/agent/evaluation/v1-measurement-cli.ts",
+    "test:v1-measure": "node --import tsx apps/backend/src/agent/evaluation/v1-measurement-cli.ts --synthetic",
     "eval:agent:baseline": "node --import tsx apps/backend/src/agent/evaluation/baseline.ts",
     "eval:r09": "vitest run apps/backend/src/agent/evaluation/r09-extraction.test.ts apps/backend/src/agent/evaluation/r09-l08.test.ts apps/backend/src/rules/rv05.test.ts",
     "docs:html": "node scripts/docs-html.mjs",

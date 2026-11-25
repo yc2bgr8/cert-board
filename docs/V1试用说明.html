@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>V1 影子试用说明</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#开始前">开始前</a><a class="level-2" href="#两个工作日的体验">两个工作日的体验</a><a class="level-2" href="#指标与反馈">指标与反馈</a></nav><main><h1 id="v1-影子试用说明">V1 影子试用说明</h1>
+<h2 id="开始前">开始前</h2>
+<p>以 PR-52 的正式验收记录确认候选版本、独立虚拟机报告和复审。开始两天体验前，确认稳定预览已部署该候选对应的已合并版本。D20 确定了需求 8.7 的固定指标，表中标「基线」的指标以 PR-52 试测结果为准。CPAP 研发设计资料按 D19 作为内部资料，其他原件采用已登记的数据级别和模型通道。</p>
+<p>稳定预览的本机地址为 <a href="http://127.0.0.1:28380" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">稳定预览（外部链接）</a>，日常工作台为 <a href="http://127.0.0.1:28080" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">开发工作台（外部链接）</a>。按项目提供的开发账号 <code>zhangsan</code> 登录，密码查本机 <code>.env.local</code> 的 <code>DEV_ZHANGSAN_PASSWORD</code>。审批从浏览器审核卡提交。</p>
+<h2 id="两个工作日的体验">两个工作日的体验</h2>
+<ol><li>在 L08 510(k) 项目进入注册对话，选择「请求批准」，输入「检查L08申报资料中对比器械K号的写法」。展开读取资料和工具过程，点开引用核对原页。进入审核卡检查差异、过程判断和待确认事项，再按实际情况批准或退回。退回时给出具体原文和需改位置，检查重提是否保留未改内容。</li><li>进入维护项目检查证照和到期提醒。随机对照几条原表、型号、证照和提醒对象，记录有来源、缺失及边界问题。使用已启用的台账问答，再问一项未启用的口径，核对系统是否告知无法回答。</li><li>由注册人员代销售提出一条 S01 请求。检查草稿的事实、附件用途、版本与出处，再核对准备耗时。对照 CPAP 注册立项、分类、路径和证据计划，将 Agent 的候选与注册人员独立判断一起记下。</li><li>每天记录所处版本、是否实际使用、完成用时、问题及反馈。报告只写匿名类别、编号和判断结果，原始工作材料与本机证据留在授权位置。接触到严重问题时保留证据、停止相关试用并把具体情形交负责人员核查。</li></ol>
+<p>软件验证完成前，AI 的结果只作参考。正式记录、签字、对外提交与付款由人按现行流程完成和核对。依据 v7 D20、需求 NF09 和执行方案 6.2。<a href="变更单/需求变更单_2026-11-20_待确认事项的决定.html">已确认决定</a></p>
+<h2 id="指标与反馈">指标与反馈</h2>
+<p>从同一版本收集运行、浏览器、主数据抽查、安全检查和人员记录的脱敏摘要。使用 <code>pnpm measure:v1 &lt;脱敏测量JSON&gt;</code> 汇总，指标与证据字段见 PR-52。遇到缺证据则记录待测原因。两天体验后收集评审意见，按需求 8.6、8.7 汇总问题并逐项修复复验。<a href="pr/PR-52.html">指标记录</a></p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

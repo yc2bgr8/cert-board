@@ -117,13 +117,14 @@ async function createConversation(
   assert.equal(value.conversation.permissionMode, mode ?? 'full');
   return value.conversation.id;
 }
-async function send(page: Page, text: string, action = '发送') {
+async function send(page: Page, text: string, action = '发送', beforeSend?: () => void) {
   await page.getByRole('textbox', { name: '消息', exact: true }).fill(text);
   const request = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
       /\/messages$/.test(new URL(response.url()).pathname),
   );
+  beforeSend?.();
   await page.getByRole('button', { name: action, exact: true }).click();
   const response = await request;
   assert.equal(response.status(), 200);
@@ -137,6 +138,8 @@ async function main() {
   let page: Page | undefined;
   let authenticated = false;
   const output = path.resolve('.local', 'e2e');
+  const firstWorkMs: number[] = [];
+  const uiActionMs: number[] = [];
   try {
     browser = await chromium.launch({ executablePath: await browserPath(), headless: true });
     context = await browser.newContext({
@@ -242,8 +245,11 @@ async function main() {
     assert.equal(await page.getByRole('button', { name: 'L08 510(k)', exact: true }).count(), 0);
     assert.equal(await page.getByRole('button', { name: '外部模型', exact: true }).count(), 1);
     await page.getByRole('button', { name: '注册Agent', exact: true }).click();
+    const openConversationAt = performance.now();
     await page.getByRole('button', { name: '新对话', exact: true }).click();
     const newDialog = page.getByRole('dialog', { name: '新对话', exact: true });
+    await newDialog.waitFor({ state: 'visible' });
+    uiActionMs.push(Math.ceil(performance.now() - openConversationAt));
     await newDialog
       .getByRole('textbox', { name: '对话标题', exact: true })
       .fill('检查L08申报包，列出缺件和前后不一致的地方，各附两处原文');
@@ -286,9 +292,12 @@ async function main() {
     );
     await page.getByRole('textbox', { name: '消息', exact: true }).fill(editedDraft);
     stage = '新版搜索';
+    const openSearchAt = performance.now();
     await page.getByRole('button', { name: '搜索', exact: true }).click();
     const searchDialog = page.getByRole('dialog', { name: '搜索项目或对话', exact: true });
     const searchBox = searchDialog.getByRole('combobox', { name: '搜索项目或对话', exact: true });
+    await searchBox.waitFor({ state: 'visible' });
+    uiActionMs.push(Math.ceil(performance.now() - openSearchAt));
     await searchBox.fill('K123465');
     await searchDialog.getByRole('option', { name: /K123465.*写法检查/ }).waitFor();
     await captureWorkbench(page, output, 'pr-u1-13-search.png');
@@ -391,10 +400,15 @@ async function main() {
     stage = '权限模式从下一轮目录生效';
     await createConversation(page, harness.projectId, 'ask');
     const mode = harness.plan('mode');
-    await send(page, '核对资料后准备说明。');
-    await bounded(mode.reached);
+    let sentAt = Number.NaN;
+    await send(page, '核对资料后准备说明。', '发送', () => {
+      sentAt = performance.now();
+    });
     const planSummary = page.locator('summary').filter({ hasText: '先定位资料，再逐条核对原文。' });
     await planSummary.waitFor();
+    assert.ok(Number.isFinite(sentAt));
+    firstWorkMs.push(Math.ceil(performance.now() - sentAt));
+    await bounded(mode.reached);
     assert.ok((await planSummary.textContent())?.includes('第 1 步，共 2 步'));
     if ((await planSummary.locator('..').getAttribute('open')) === null) await planSummary.click();
     assert.equal(await planSummary.locator('..').locator('ol > li').count(), 2);
@@ -1409,6 +1423,7 @@ async function main() {
         {
           completedAt: new Date().toISOString(),
           environment: 'isolated_test_database',
+          timing: { scope: 'scripted-browser', firstWorkMs, uiActionMs },
           checks: [
             'browser_login_cookie_csrf',
             'redesigned_login_and_logo',

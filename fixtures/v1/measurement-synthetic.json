@@ -1,0 +1,79 @@
+{
+  "scope": "synthetic",
+  "head": "1111111111111111111111111111111111111111",
+  "main": "2222222222222222222222222222222222222222",
+  "tree": "3333333333333333333333333333333333333333",
+  "observations": {
+    "r09Known": { "evidence": ["synthetic-r09"], "data": { "matched": 7, "total": 8 } },
+    "r09Injected": { "evidence": ["synthetic-injected"], "data": { "matched": 3, "total": 3 } },
+    "r09Verbatim": { "evidence": ["synthetic-verbatim"], "data": { "matched": 4, "total": 4 } },
+    "r09FalsePositives": {
+      "evidence": ["synthetic-false-positives"],
+      "data": { "matched": 1, "total": 10 }
+    },
+    "m02Public": {
+      "evidence": ["synthetic-m02"],
+      "data": {
+        "decision": "pending_confirmation",
+        "listing": "pending_confirmation",
+        "establishment": "pending_confirmation",
+        "us_agent": "pending_confirmation",
+        "applicant_registration": "pending_confirmation",
+        "brands": "pending_confirmation",
+        "udi": "pending_confirmation"
+      }
+    },
+    "m01Import": {
+      "evidence": ["synthetic-import"],
+      "data": { "rows": { "matched": 2, "total": 2 }, "staffSampleConfirmed": true }
+    },
+    "m01Reminders": {
+      "evidence": ["synthetic-reminders"],
+      "data": {
+        "due": { "matched": 2, "total": 2 },
+        "deadlineTests": { "matched": 8, "total": 8 }
+      }
+    },
+    "ledger": {
+      "evidence": ["synthetic-ledger"],
+      "data": {
+        "enabled": ["due_licenses", "market_status"],
+        "matches": { "due_licenses": "pass", "market_status": "pass" },
+        "outOfScope": { "matched": 2, "total": 2 }
+      }
+    },
+    "s01Trace": { "evidence": ["synthetic-s01"], "data": { "matched": 4, "total": 4 } },
+    "s01FirstPass": { "evidence": ["synthetic-s01-staff"], "data": { "matched": 1, "total": 2 } },
+    "l08Agreement": {
+      "evidence": ["synthetic-l08"],
+      "data": { "E01": "pass", "E02": "pass", "E03": "pass", "E04": "pass", "E23": "pass" }
+    },
+    "cpapStaffAgreement": { "evidence": ["synthetic-cpap"], "data": { "matched": 1, "total": 2 } },
+    "nonModelFailures": { "evidence": ["synthetic-system"], "data": { "matched": 1, "total": 50 } },
+    "firstWorkMs": {
+      "evidence": ["synthetic-first-work"],
+      "data": [10000, 5000, 4000, 3500, 4500, 4900, 200, 2000, 2400, 3000]
+    },
+    "uiActionMs": {
+      "evidence": ["synthetic-ui"],
+      "data": [100, 1000, 2000, 400, 350, 500, 850, 980, 150, 100]
+    },
+    "safetyChecks": {
+      "evidence": ["synthetic-safety"],
+      "data": {
+        "sandbox": "pass",
+        "business_authorization": "pass",
+        "web_archive": "pass",
+        "model_gateway": "pass",
+        "egress_and_telemetry": "pass",
+        "isolation_and_releases": "pass"
+      }
+    },
+    "severeReview": { "evidence": ["synthetic-severe-review"], "data": [] },
+    "staffFeedback": {
+      "evidence": ["synthetic-feedback"],
+      "data": { "favorable": 3, "mixed": 1, "unfavorable": 0 }
+    },
+    "staffWeeklyUse": { "evidence": ["synthetic-weekly-use"], "data": [2, 4] }
+  }
+}
