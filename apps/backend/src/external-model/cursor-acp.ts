@@ -52,6 +52,7 @@ export type CursorAcpConfig = {
   entrypoint: string;
   profileDirectory: string;
   timeoutMs?: number;
+  verifyAcceptanceScope?: () => Promise<void>;
 };
 
 export class CursorAcpStartupError extends VerificationChannelError {

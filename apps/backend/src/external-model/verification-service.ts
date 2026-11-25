@@ -23,7 +23,7 @@ import {
   type VerificationRoom,
   type VerificationSettingsInput,
 } from '@cert-board/shared';
-import { AppError } from '../api/errors.js';
+import { AppError, ModelNotDispatchedError } from '../api/errors.js';
 import { pickBeijingMonth } from '../budget/meter.js';
 import { sendConversationMessageTx } from '../conversations/commands.js';
 import { getProject } from '../projects/service.js';
@@ -309,7 +309,7 @@ export class VerificationRooms {
       `SELECT e.model,COALESCE(sum(COALESCE(u.actual_nano,e.actual_nano)),0)::text AS "actualNano",
         count(*) FILTER(WHERE e.status='unknown' AND u.actual_nano IS NULL)::int AS unknown
         FROM external_model_exchange e LEFT JOIN usage_ledger u ON u.request_key=e.request_key
-        WHERE e.channel='gateway' AND e.dispatched_at IS NOT NULL
+        WHERE e.channel='gateway' AND e.dispatched_at IS NOT NULL AND e.status<>'not_sent'
         AND date_trunc('month',e.dispatched_at AT TIME ZONE 'Asia/Shanghai')=date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Shanghai')
         GROUP BY e.model ORDER BY e.model`,
     );
@@ -1384,7 +1384,10 @@ export class VerificationRooms {
           : state === 'failed'
             ? '派发许可或通道暂不可用。'
             : channelFailureText[state];
-      if (error instanceof VerificationChannelError && error.confirmedNotSent) dispatched = false;
+      if (
+        error instanceof ModelNotDispatchedError ||
+        (error instanceof VerificationChannelError && error.confirmedNotSent)
+      ) dispatched = false;
       if (!dispatched) raw = null;
       else if (!raw) {
         const gatewayCode = error instanceof AppError && [

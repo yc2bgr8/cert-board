@@ -162,6 +162,28 @@ test('只重建明确未派发的 ACP 启动握手，普通派发拒绝或发送
   }
 });
 
+test.each([false, true])('验收报告失效后拒绝上游发送（派发复核期间发生变化 %s）', async (duringDispatch) => {
+  const verifyAcceptanceScope = vi.fn(async () => undefined);
+  if (duringDispatch) verifyAcceptanceScope.mockResolvedValueOnce(undefined);
+  verifyAcceptanceScope.mockRejectedValueOnce(new Error('CURSOR_ACCEPTANCE_SCOPE_REQUIRED'));
+  const cursor = {
+    executable: 'fixture', entrypoint: 'fixture', profileDirectory: 'fixture',
+    verifyAcceptanceScope,
+  };
+  const beforeDispatch = vi.fn(async () => undefined);
+  const sent = vi.fn();
+  vi.mocked(readCursorTurn).mockImplementationOnce(async (_config, _model, _prompt, authorize) => {
+    await authorize(new AbortController().signal);
+    sent();
+    return '{"content":"完成","actions":[]}';
+  });
+  await expect(sendCursorAcceptance(cursor, cursorAcceptanceModels[0]!, request, undefined, beforeDispatch))
+    .rejects.toThrow('CURSOR_ACCEPTANCE_SCOPE_REQUIRED');
+  expect(verifyAcceptanceScope).toHaveBeenCalledTimes(duringDispatch ? 2 : 1);
+  expect(beforeDispatch).toHaveBeenCalledTimes(duringDispatch ? 1 : 0);
+  expect(sent).not.toHaveBeenCalled();
+});
+
 test('坏回复只报告格式类别并保留调用结果边界', async () => {
   const cursor = { executable: 'fixture', entrypoint: 'fixture', profileDirectory: 'fixture' };
   const turn = vi.mocked(readCursorTurn);

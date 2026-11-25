@@ -6,6 +6,7 @@ import type { Page } from 'playwright-core';
 import {
   officialLookupResultSchema,
   reviewEvidenceRefSchema,
+  rulePackSeedSchema,
   structuredSubmissionSchema,
 } from '@cert-board/shared';
 import { l08PublicCriteria as input } from '../../../../evals/m02/l08-public.js';
@@ -13,6 +14,14 @@ import { nanoToUsd } from '../budget/meter.js';
 import type { BlobStore } from '../documents/blob-store.js';
 import { ingestParsedDocument } from '../documents/service.js';
 import { officialRequestUrl } from '../official/providers.js';
+
+const listingFields = {
+  company: '列名机构',
+  number: '登记号',
+  year: '到期年份',
+  agent: '美国代理人企业',
+  name: '公开列名商品名',
+};
 
 const publicQueries = {
   registration: officialRequestUrl({
@@ -43,7 +52,7 @@ export async function prepareM02Walkthrough(pool: pg.Pool, blobs: BlobStore) {
   const name = `L08 公开资料定时核查 ${project.slice(0, 6)}`;
   const brief = await blobs.put(
     Buffer.from(
-      `# L08 公开资料核查\n这是独立验收项目。输入只包含公开的检索条件和合成归档提示。使用 M02。三项查询分别是：fda_registration 同时填写登记号、LRK 与 K 号；fda_registration_company 按申请人全名；fda_gudid_search 填写 LRK、K 号和四个商品全名（按资料列出的顺序）。记录列名机构、登记号、到期年份、美国代理人企业、四个名称、申请人登记和 UDI，每项待核实。成功记录需留官方档案，查询不成功如实列项。送审 claims 中，申请人登记用 id=applicant_lookup，公开 UDI 用 id=udi_lookup，两项都引用各自档案，状态用 unverified。观察到成功零条时，该项 value 写“本次查询条件下未查到”；成功返回记录时写“本次查询首批匹配 N 条”，N 按实际首批记录数。登记一项合并的待核实站内提醒，标题包含“年度注册”和“年费”，然后提交审核。`,
+      `# L08 公开资料核查\n这是独立验收项目。输入只包含公开的检索条件和合成归档提示。使用 M02。三项查询分别是：fda_registration 同时填写登记号、LRK 与 K 号；fda_registration_company 按申请人全名；fda_gudid_search 填写 LRK、K 号和四个商品全名（按资料列出的顺序）。列名机构、登记号、到期年份、美国代理人企业和每个商品名称分别用一条 unverified claim。field 依次使用“${Object.values(listingFields).join('”“')}”，value 只写回执中的字段原值，并引用本次列名档案。成功记录需留官方档案，查询不成功如实列项。送审 claims 中，申请人登记用 id=applicant_lookup，公开 UDI 用 id=udi_lookup，两项都引用各自档案，状态用 unverified。观察到成功零条时，该项 value 写“本次查询条件下未查到”；成功返回记录时写“本次查询首批匹配 N 条”，N 按实际首批记录数。登记一项合并的待核实站内提醒，标题包含“年度注册”和“年费”，然后提交审核。`,
     ),
   );
   const db = await pool.connect();
@@ -207,6 +216,7 @@ export async function inspectM02Walkthrough(
     }
     return {
       kind,
+      documentId: receipt.evidence.documentId,
       fetchedAt: receipt.fetchedAt,
       matches: receipt.records.length,
       records: receipt.records,
@@ -223,29 +233,49 @@ export async function inspectM02Walkthrough(
       ),
   );
   assert.ok(listing, '列名回执缺少用例所需的登记字段或完整商品名；请核对新公开记录');
-  for (const value of [
-    listing.company,
-    listing.identifier,
-    `${listing.registrationExpiryYear}`,
-    listing.usAgentBusiness,
-    ...input.brandNames,
+  const listingClaims = submission.claims.filter((claim) =>
+      claim.status === 'unverified' &&
+      claim.sources.some(({ documentId }) => documentId === official[0]?.documentId),
+  );
+  for (const [field, value] of [
+    [listingFields.company, listing.company],
+    [listingFields.number, listing.identifier],
+    [listingFields.year, String(listing.registrationExpiryYear)],
+    [listingFields.agent, listing.usAgentBusiness],
+    ...input.brandNames.map((name) => [listingFields.name, name] as const),
   ])
     assert.ok(
-      value && report.toLowerCase().includes(value.toLowerCase()),
-      '审核卡未列出官方回执中的列名证据',
+      value && listingClaims.some((claim) => claim.field === field &&
+        String(claim.value).trim().toLowerCase() === value.trim().toLowerCase()),
+      '审核卡必须逐项引用列名档案并标为待核实',
     );
   assert.match(report, /(?:申请人|申请企业|Ram\.Shaw)/iu);
   assert.match(report, /GUDID|UDI/iu);
   assert.ok(submission.uncertain.length > 0, '审核卡必须列出本次核查的不确定事项');
-  const { rows: reminders } = await pool.query<{ due: string; title: string; jurisdiction_tz: string }>(
-    `SELECT to_char(due_on,'MM-DD') AS due,title,jurisdiction_tz FROM timer t JOIN run r ON r.conversation_id=t.conversation_id
+  const { rows: [pinned] } = await pool.query<{ year: string; zone: string; content: unknown }>(
+    `SELECT to_char(r.created_at AT TIME ZONE p.jurisdiction_tz,'YYYY') AS year,
+       p.jurisdiction_tz AS zone,v.content
+     FROM run r JOIN cert_project p ON p.id=r.project_id
+     JOIN run_rule_pack used ON used.run_id=r.id
+     JOIN rule_pack_version v ON v.id=used.version_id AND v.pack_id=used.pack_id
+     JOIN rule_pack pack ON pack.id=used.pack_id AND pack.code='us_fda_m02' WHERE r.id=$1`,
+    [run],
+  );
+  assert.ok(pinned, '定时核查须固定使用本次规则包');
+  const end = rulePackSeedSchema.parse(pinned.content).rules
+    .find(({ id }) => id === 'annual_registration_window')?.parameters?.window_end;
+  assert.ok(end, '本次规则包缺少年度窗口结束日');
+  const { rows: reminders } = await pool.query<{ due: string; due_date: string; title: string; jurisdiction_tz: string }>(
+    `SELECT to_char(due_on,'MM-DD') AS due,to_char(due_on,'YYYY-MM-DD') AS due_date,title,jurisdiction_tz
+      FROM timer t JOIN run r ON r.conversation_id=t.conversation_id
       WHERE t.goal_id=$1 AND r.id=$2 AND t.state='active'`,
     [goal, run],
   );
   assert.equal(reminders.length, 1, '应登记一项合并的站内提醒');
   const [reminder] = reminders;
   assert.ok(
-    reminder && reminder.due === '12-31' && reminder.jurisdiction_tz === input.jurisdictionTz,
+    reminder && reminder.due_date === `${pinned.year}-${end}` &&
+      pinned.zone === input.jurisdictionTz && reminder.jurisdiction_tz === pinned.zone,
     '未成功登记基于规则包的站内提醒',
   );
   assert.match(reminder.title, /年度注册/u);

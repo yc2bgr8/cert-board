@@ -17,7 +17,7 @@ import {
   type UpstreamUsage,
   type BudgetIncomplete,
 } from '@cert-board/shared';
-import { AppError } from '../api/errors.js';
+import { AppError, ModelNotDispatchedError } from '../api/errors.js';
 import { enforceCostLimits } from '../budget/cost-policy.js';
 import {
   reserveUsage,
@@ -463,11 +463,7 @@ export class ModelGateway {
       }
       if (model.transport === 'cursor-acp' && object(error)?.confirmedNotSent === true) {
         await this.releaseUnsent(context, signal);
-        throw rejected(
-          'MODEL_DISPATCH_BLOCKED',
-          'Cursor 尚未发送模型请求。请核对验收配置、数据级别和运行状态。',
-          502,
-        );
+        throw new ModelNotDispatchedError();
       }
       if (model.transport === 'cursor-acp' && error instanceof CursorReplyFormatError) {
         await this.incomplete(context, 'request_uncertain');

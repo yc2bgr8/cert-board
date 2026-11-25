@@ -93,8 +93,9 @@ export async function readCursorAcceptanceConfig(
     (await readFile(marker, 'utf8')).trim() !== 'cert-board-acceptance'
   )
     throw new Error('CURSOR_ACCEPTANCE_VM_REQUIRED');
-  await confirmCursorAcceptanceScope(
-    process.cwd(),
+  const source = process.cwd();
+  const scope = await confirmCursorAcceptanceScope(
+    source,
     env.CERT_CURSOR_ACCEPTANCE_WORKER,
     env.CERT_CURSOR_ACCEPTANCE_HEAD,
   );
@@ -103,6 +104,9 @@ export async function readCursorAcceptanceConfig(
     entrypoint: path.join(bundle, 'index.js'),
     profileDirectory,
     timeoutMs: 120_000,
+    async verifyAcceptanceScope() {
+      await confirmCursorAcceptanceScope(source, scope.pr, scope.head);
+    },
   };
 }
 
@@ -230,7 +234,9 @@ export async function sendCursorAcceptance(
         request,
       },
       async () => {
+        await config.verifyAcceptanceScope?.();
         await beforeDispatch?.();
+        await config.verifyAcceptanceScope?.();
       },
       signal,
     );
