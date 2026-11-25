@@ -164,12 +164,14 @@ export function parseCursorModelTurn(
     .trim()
     .replace(/^\x60\x60\x60(?:json)?\s*/iu, '')
     .replace(/\s*\x60\x60\x60$/u, '');
-  const structured = ['{', '[', '"', '\x60'].includes(body.charAt(0));
-  const result = modelTurn.parse(
-    verificationTextOnly && !structured
-      ? { content: body, actions: [] }
-      : JSON.parse(body),
-  );
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body);
+  } catch (error) {
+    if (!verificationTextOnly) throw error;
+    payload = { content: body, actions: [] };
+  }
+  const result = modelTurn.parse(payload);
   const eligible = new Set(
     request.tool_choice === 'none' ? [] : request.tools?.map((tool) => tool.function.name),
   );

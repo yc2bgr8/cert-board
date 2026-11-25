@@ -177,7 +177,7 @@ test('坏回复只报告格式类别并保留调用结果边界', async () => {
 test('只读网关核实接收纯文本，仍拒绝结构化动作和超长回复', async () => {
   const cursor = { executable: 'fixture', entrypoint: 'fixture', profileDirectory: 'fixture' };
   const model = cursorAcceptanceModels.find(({ purposes }) => purposes.includes('verification'))!;
-  const reply = '来源应含版本和页码。没有原文时列为待核实。';
+  const reply = '[合成指南，第 3 页] 来源应含版本和页码，核查结果待确认。';
   const ask = { messages: request.messages, tool_choice: 'none' as const, max_tokens: 120 };
   const turn = vi.mocked(readCursorTurn);
   turn.mockClear().mockResolvedValueOnce(reply);
