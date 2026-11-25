@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { parseBackendConfig, type PermissionMode } from '@cert-board/shared';
+import { parseBackendConfig, type AgentCode, type PermissionMode } from '@cert-board/shared';
 import { createTestDatabase } from '../db/test-database.js';
 import { migrateDatabase } from '../db/migrate.js';
 import { seedDevelopmentAccounts } from '../db/seed.js';
@@ -79,10 +79,21 @@ export async function createIntegrationContext() {
           },
         };
       },
-      async run(member: MemberKey = 'MEMBER_A', permissionMode: PermissionMode = 'ask') {
+      async run(
+        member: MemberKey = 'MEMBER_A',
+        permissionMode: PermissionMode = 'ask',
+        agentCode: AgentCode = 'registration',
+      ) {
         const conversation = await database.pool.query<{ id: string }>(
-          "INSERT INTO conversation(project_id,user_id,goal_id,title,permission_mode,agent_code) VALUES ($1,$2,$3,$4,$5,'registration') RETURNING id",
-          [developmentProjectId, userId(member), developmentGoalId, '独立集成测试', permissionMode],
+          'INSERT INTO conversation(project_id,user_id,goal_id,title,permission_mode,agent_code) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+          [
+            developmentProjectId,
+            userId(member),
+            developmentGoalId,
+            '独立集成测试',
+            permissionMode,
+            agentCode,
+          ],
         );
         const conversationId = conversation.rows[0]!.id;
         const run = await database.pool.query<{ id: string }>(
