@@ -112,8 +112,19 @@ export const budgetReconcileSchema = z
     '缓存 token 不能多于输入 token。',
   );
 export type BudgetReconciliationInput = z.infer<typeof budgetReconcileSchema>;
+export const cursorReplyFailureSchema = z.enum([
+  'empty',
+  'invalid_json',
+  'invalid_envelope',
+  'unavailable_action',
+]);
+export type CursorReplyFailure = z.infer<typeof cursorReplyFailureSchema>;
 export const budgetIncompleteSchema = z
-  .object({ ...requestIdentity, reasonCode: budgetIncompleteReasonSchema })
+  .object({
+    ...requestIdentity,
+    reasonCode: budgetIncompleteReasonSchema,
+    cursorReplyFailure: cursorReplyFailureSchema.optional(),
+  })
   .strict();
 export type BudgetIncomplete = z.infer<typeof budgetIncompleteSchema>;
 export const budgetReservationSchema = z

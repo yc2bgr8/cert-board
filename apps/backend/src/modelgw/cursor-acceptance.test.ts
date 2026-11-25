@@ -184,14 +184,23 @@ test.each([false, true])('验收报告失效后拒绝上游发送（派发复核
   expect(sent).not.toHaveBeenCalled();
 });
 
-test('坏回复只报告格式类别并保留调用结果边界', async () => {
+test.each([
+  { reply: ' \n ', failure: 'empty' },
+  { reply: '合成未结构化文本', failure: 'invalid_json' },
+  { reply: '{"content":"合成未结构化文本"}', failure: 'invalid_envelope' },
+  {
+    reply: '{"content":"合成未结构化文本","actions":[{"name":"not_offered","arguments":{}}]}',
+    failure: 'unavailable_action',
+  },
+])('坏回复按固定类别拒绝且不保留正文（$failure）', async ({ reply, failure }) => {
   const cursor = { executable: 'fixture', entrypoint: 'fixture', profileDirectory: 'fixture' };
   const turn = vi.mocked(readCursorTurn);
-  turn.mockClear().mockResolvedValueOnce('合成未结构化文本');
+  turn.mockClear().mockResolvedValueOnce(reply);
   const error = await sendCursorAcceptance(cursor, cursorAcceptanceModels[0]!, request).catch(
     (error: unknown) => error,
   );
   expect(error).toBeInstanceOf(CursorReplyFormatError);
+  expect(error).toMatchObject({ failure });
   expect(String(error)).not.toContain('合成未结构化文本');
   expect(turn).toHaveBeenCalledOnce();
 });

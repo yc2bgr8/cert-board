@@ -704,17 +704,25 @@ export async function markUsageIncomplete(pool: Pool, input: unknown) {
   const parsed = budgetIncompleteSchema.safeParse(input);
   if (!parsed.success) throw invalid();
   const data = parsed.data;
+  if (data.cursorReplyFailure && data.reasonCode !== 'request_uncertain') throw invalid();
   return transaction(pool, async (tx) => {
     const configured = await policy(tx);
     await runContext(tx, data, false);
     const row = await ledger(tx, data);
+    if (data.cursorReplyFailure && !row.model_id.startsWith('cursor/')) throw invalid();
     if (row.status === 'settled' || row.status === 'not_sent')
       throw fail(409, 'BUDGET_STATE_CONFLICT', '已完成的计量不能改为未知，请核对对应请求编号。');
-    if (row.status !== 'unknown')
+    if (row.status !== 'unknown') {
       await tx.query(
         "UPDATE usage_ledger SET status='unknown',reason_code=$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2",
         [data.reasonCode, row.id],
       );
+      if (data.cursorReplyFailure)
+        await tx.query(
+          "INSERT INTO audit_log(actor_kind,action,target_type,target_id) VALUES('system',$1,'usage_ledger',$2)",
+          [`model.cursor_reply.${data.cursorReplyFailure}`, row.id],
+        );
+    }
     if (enforceCostLimits(configured.environment))
       await stop(tx, row.run_id, 'metering_incomplete', true);
     else if (row.status !== 'unknown')

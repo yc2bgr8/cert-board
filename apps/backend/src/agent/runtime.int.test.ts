@@ -110,10 +110,10 @@ afterEach(async () => {
 });
 
 test.each([
-  { label: '格式恢复', errors: [new CursorReplyFormatError()], calls: 2, done: true },
+  { label: '格式恢复', errors: [new CursorReplyFormatError('invalid_json')], calls: 2, done: true },
   {
     label: '两次格式失败',
-    errors: [new CursorReplyFormatError(), new CursorReplyFormatError()],
+    errors: [new CursorReplyFormatError('empty'), new CursorReplyFormatError('invalid_envelope')],
     calls: 2,
     done: false,
   },
@@ -151,11 +151,28 @@ test.each([
   );
   expect(outcome.status).toBe(done ? 'completed' : 'failed');
   expect(corrections).toEqual(calls === 2 ? [false, true] : [false]);
-  const { rows } = await context.pool.query<{ request_key: string; status: string }>(
-    'SELECT request_key,status FROM usage_ledger WHERE run_id=$1 ORDER BY created_at',
+  const { rows } = await context.pool.query<{
+    request_key: string;
+    status: string;
+    reason_code: string;
+    reply_action: string | null;
+  }>(
+    `SELECT u.request_key,u.status,u.reason_code,a.action AS reply_action
+     FROM usage_ledger u LEFT JOIN audit_log a ON a.target_type='usage_ledger'
+       AND a.target_id=u.id::text AND a.action LIKE 'model.cursor_reply.%'
+     WHERE u.run_id=$1 ORDER BY u.created_at`,
     [target.runId],
   );
   expect(rows.map(({ status }) => status)).toEqual(Array.from({ length: calls }, () => 'unknown'));
+  expect(rows.map(({ reply_action }) => reply_action)).toEqual(
+    Array.from({ length: calls }, (_, i) => {
+      const error = errors[i];
+      return error instanceof CursorReplyFormatError ? `model.cursor_reply.${error.failure}` : null;
+    }),
+  );
+  expect(rows.filter(({ reply_action }) => reply_action).every(
+    ({ reason_code }) => reason_code === 'request_uncertain',
+  )).toBe(true);
   expect(new Set(rows.map(({ request_key }) => request_key)).size).toBe(calls);
   const completed = await context.pool.query<{ request_id: string }>(
     "SELECT request_id FROM run_event WHERE run_id=$1 AND type='model_completed'",

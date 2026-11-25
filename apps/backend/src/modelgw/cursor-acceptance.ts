@@ -8,6 +8,7 @@ import {
   verificationReplySchema,
   upstreamAssistantResponseSchema,
   type CursorGatewayModel,
+  type CursorReplyFailure,
 } from '@cert-board/shared';
 import {
   CursorAcpStartupError,
@@ -152,7 +153,7 @@ export class CursorOutputLimitError extends Error {
 }
 
 export class CursorReplyFormatError extends Error {
-  constructor() {
+  constructor(readonly failure: CursorReplyFailure) {
     super('Cursor 未返回有效的 cert-board 工具回合。实际调用已登记，未执行这次回复中的动作。');
   }
 }
@@ -169,18 +170,26 @@ export function parseCursorModelTurn(
     .trim()
     .replace(/^\x60\x60\x60(?:json)?\s*/iu, '')
     .replace(/\s*\x60\x60\x60$/u, '');
-  const payload: unknown = JSON.parse(body);
+  if (!body) throw new CursorReplyFormatError('empty');
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    throw new CursorReplyFormatError('invalid_json');
+  }
   const verification = toolFreeVerification ? verificationReplySchema.safeParse(payload) : null;
-  const result = modelTurn.parse(
+  const turn = modelTurn.safeParse(
     verification?.success
       ? { content: JSON.stringify(verification.data), actions: [] }
       : payload,
   );
+  if (!turn.success) throw new CursorReplyFormatError('invalid_envelope');
+  const result = turn.data;
   const eligible = new Set(
     request.tool_choice === 'none' ? [] : request.tools?.map((tool) => tool.function.name),
   );
   if (result.actions.some(({ name }) => !eligible.has(name)))
-    throw new Error('CURSOR_ACTION_NOT_REGISTERED');
+    throw new CursorReplyFormatError('unavailable_action');
   return upstreamAssistantResponseSchema.parse({
     id: randomUUID(),
     choices: [
@@ -248,7 +257,8 @@ export async function sendCursorAcceptance(
   try {
     return parseCursorModelTurn(answer, request, toolFreeVerification);
   } catch (error) {
-    if (error instanceof CursorOutputLimitError) throw error;
-    throw new CursorReplyFormatError();
+    if (error instanceof CursorOutputLimitError || error instanceof CursorReplyFormatError)
+      throw error;
+    throw new CursorReplyFormatError('invalid_envelope');
   }
 }
