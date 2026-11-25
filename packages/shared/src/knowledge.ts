@@ -167,11 +167,19 @@ export const knowledgeDraftSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('template'), content: templateSeedSchema }),
 ]);
 export type KnowledgeDraft = z.infer<typeof knowledgeDraftSchema>;
-export const knowledgeReviewCreateSchema = z.strictObject({
+export const knowledgeDraftMaxBytes = 32_000;
+const knowledgeReviewCreateFields = {
   kind: z.enum(['rule_pack', 'template']),
-  yaml: text(32_000),
   requestKey: z.uuid(),
-});
+};
+export const knowledgeReviewCreateSchema = z.union([
+  z.strictObject({ ...knowledgeReviewCreateFields, yaml: text(knowledgeDraftMaxBytes) }),
+  z.strictObject({
+    ...knowledgeReviewCreateFields,
+    sourceReviewId: z.uuid(),
+    version: releaseVersion,
+  }),
+]);
 export type KnowledgeReviewCreateInput = z.infer<typeof knowledgeReviewCreateSchema>;
 const contentSha256 = z.string().regex(/^[0-9a-f]{64}$/u);
 const reviewDecisionFields = {

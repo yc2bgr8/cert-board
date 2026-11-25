@@ -2,12 +2,13 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { Pool } from 'pg';
 import { isAlias, isNode, parseAllDocuments, visit } from 'yaml';
-import { rulePackSeedSchema, type RulePackSeed } from '@cert-board/shared';
+import { knowledgeDraftMaxBytes, rulePackSeedSchema, type RulePackSeed } from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import type { ToolExecutionContext } from '../tools/registry.js';
 
 export function parseKnowledgeSeedYaml(text: string, label = '规则包') {
-  if (Buffer.byteLength(text, 'utf8') > 32_000) throw new Error(`${label}超过 32 KiB。`);
+  if (Buffer.byteLength(text, 'utf8') > knowledgeDraftMaxBytes)
+    throw new Error(`${label}超过 ${knowledgeDraftMaxBytes} 字节。`);
   const [draft, extra] = parseAllDocuments(text, {
     version: '1.2',
     strict: true,

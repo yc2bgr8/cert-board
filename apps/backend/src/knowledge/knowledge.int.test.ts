@@ -556,6 +556,14 @@ test('模板审核需浏览器，退回版本与草稿都不会进入 Agent 工�
   ).toMatchObject({ items: [pending], nextAfterId: null });
   expect((await read()).data).toEqual({ kind: 'template', template: null });
 
+  const copy = {
+    kind: 'template' as const,
+    sourceReviewId: pending.id,
+    version: '9999.9999.9999',
+    requestKey: randomUUID(),
+  };
+  expect((await stageReview(admin.headers, copy)).statusCode).toBe(409);
+
   const approval = {
     action: 'publish' as const,
     contentSha256: pending.contentSha256,
@@ -587,6 +595,24 @@ test('模板审核需浏览器，退回版本与草稿都不会进入 Agent 工�
     result.json(),
   );
   expect((await decideReview(admin.headers, pending.id, approval)).statusCode).toBe(409);
+  expect((await stageReview(reviewer.headers, copy)).statusCode).toBe(403);
+  const { 'x-csrf-token': _adminToken, ...adminNoToken } = admin.headers;
+  expect((await stageReview(adminNoToken, copy)).statusCode).toBe(403);
+  expect((await stageReview(admin.headers, { ...copy, kind: 'rule_pack' })).statusCode).toBe(409);
+  const cloned = await stageReview(admin.headers, copy);
+  expect(cloned.statusCode).toBe(200);
+  const copied = knowledgeReviewSummarySchema.parse(cloned.json());
+  expect(copied).toMatchObject({ status: 'pending', version: copy.version });
+  expect((await stageReview(admin.headers, copy)).json()).toEqual(copied);
+  expect((await stageReview(admin.headers, { ...copy, version: '3.0.0' })).statusCode).toBe(409);
+  expect(
+    (
+      await context.app.inject({
+        url: `${knowledgeReviewsUrl}/${copied.id}`,
+        headers: reviewer.headers,
+      })
+    ).json(),
+  ).toMatchObject({ draft: { kind: 'template', content: { ...draft, version: copy.version } } });
   const sameCall = fresh(reader);
   for (const readResult of [await read(sameCall), await read(sameCall)]) {
     expect(readResult).toMatchObject({ dataLevel: 'confidential', data: { template: draft } });

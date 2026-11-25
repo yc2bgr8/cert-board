@@ -1,10 +1,18 @@
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { KnowledgeReviewCreateInput, KnowledgeReviewDecisionInput } from '@cert-board/shared';
+import {
+  knowledgeDraftMaxBytes,
+  type KnowledgeReviewCreateInput,
+  type KnowledgeReviewDecisionInput,
+} from '@cert-board/shared';
 import { api, createRequestKey, errorMessage } from './api.js';
 
 const kindNames = { rule_pack: '规则包', template: '模板' };
 const statusNames = { pending: '待审阅', published: '已发布', rejected: '已退回' };
+const utf8 = new TextEncoder();
+const maxReleaseVersionBytes = '9999.9999.9999'.length;
+const fitsWithReleaseVersion = (draft: string) =>
+  utf8.encode(draft).length + maxReleaseVersionBytes <= knowledgeDraftMaxBytes;
 const categories = {
   classification: '分类',
   pathway: '申报路径',
@@ -31,6 +39,12 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
   const [kind, setKind] = useState<KnowledgeReviewCreateInput['kind']>('rule_pack');
   const [formOpen, setFormOpen] = useState(false);
   const [yaml, setYaml] = useState('');
+  const [copySource, setCopySource] = useState<{
+    id: string;
+    title: string;
+    version: string;
+  } | null>(null);
+  const [copyVersion, setCopyVersion] = useState('');
   const [reason, setReason] = useState('');
   const [notice, setNotice] = useState('');
   const stageAttempts = useRef(new Map<string, string>());
@@ -58,6 +72,8 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
     onSuccess: async (created, { fingerprint }) => {
       stageAttempts.current.delete(fingerprint);
       setYaml('');
+      setCopySource(null);
+      setCopyVersion('');
       setReason('');
       setPage([null]);
       setSelection(created.id);
@@ -83,6 +99,8 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
   });
   const selected = detail.data;
   const busy = stage.isPending || decide.isPending;
+  const draftTooLarge = utf8.encode(yaml).length > knowledgeDraftMaxBytes;
+  const draftIncomplete = copySource ? !copyVersion.trim() : !yaml.trim() || draftTooLarge;
   const next = list.data?.nextAfterId;
   const move = (newPage: (string | null)[]) => {
     setPage(newPage);
@@ -221,11 +239,25 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
                 <button
                   className="live-text-button"
                   type="button"
-                  disabled={busy || Boolean(yaml.trim())}
+                  disabled={busy || Boolean(yaml.trim()) || copySource !== null}
                   onClick={() => {
                     setKind(selected.kind);
-                    setYaml(JSON.stringify({ ...selected.draft.content, version: '' }, null, 2));
-                    setNotice('已复制此版本。填写新的版本号后提交审阅。');
+                    const copy = { ...selected.draft.content, version: '' };
+                    const formatted = JSON.stringify(copy, null, 2);
+                    const editable = fitsWithReleaseVersion(formatted)
+                      ? formatted
+                      : JSON.stringify(copy);
+                    if (fitsWithReleaseVersion(editable)) {
+                      setYaml(editable);
+                      setNotice('已复制此版本。填写新的版本号后提交审阅。');
+                    } else {
+                      setCopySource({
+                        id: selected.id,
+                        title: selected.title,
+                        version: selected.version,
+                      });
+                      setNotice('');
+                    }
                     setFormOpen(true);
                   }}
                 >
@@ -279,41 +311,87 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
               <form
                 onSubmit={(event) => {
                   event.preventDefault();
+                  if (draftIncomplete) return;
                   setNotice('');
-                  const fingerprint = JSON.stringify([kind, yaml]);
+                  const draft = copySource
+                    ? { kind, sourceReviewId: copySource.id, version: copyVersion.trim() }
+                    : { kind, yaml };
+                  const fingerprint = JSON.stringify(draft);
                   stage.mutate({
-                    input: { kind, yaml, requestKey: retryKey(stageAttempts.current, fingerprint) },
+                    input: { ...draft, requestKey: retryKey(stageAttempts.current, fingerprint) },
                     fingerprint,
                   });
                 }}
               >
-                <div className="live-skill-selectors">
-                  <label>
-                    类型{' '}
-                    <select
-                      value={kind}
-                      disabled={busy}
-                      onChange={(event) =>
-                        setKind(event.currentTarget.value === 'template' ? 'template' : 'rule_pack')
-                      }
-                    >
-                      <option value="rule_pack">规则包</option>
-                      <option value="template">模板</option>
-                    </select>
-                  </label>
-                </div>
-                <label className="live-knowledge-yaml">
-                  草稿 YAML
-                  <textarea
-                    required
-                    rows={8}
-                    maxLength={32000}
-                    value={yaml}
-                    disabled={busy}
-                    onChange={(event) => setYaml(event.currentTarget.value)}
-                  />
-                </label>
-                <button className="live-secondary" type="submit" disabled={busy || !yaml.trim()}>
+                {copySource ? (
+                  <>
+                    <p>
+                      从「{copySource.title} {copySource.version}」复制原有内容。
+                    </p>
+                    <div className="live-skill-selectors">
+                      <label>
+                        新版本号{' '}
+                        <input
+                          required
+                          maxLength={maxReleaseVersionBytes}
+                          value={copyVersion}
+                          disabled={busy}
+                          onChange={(event) => setCopyVersion(event.currentTarget.value)}
+                        />
+                      </label>
+                      <button
+                        className="live-text-button"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setCopySource(null);
+                          setCopyVersion('');
+                        }}
+                      >
+                        取消复制
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="live-skill-selectors">
+                      <label>
+                        类型{' '}
+                        <select
+                          value={kind}
+                          disabled={busy}
+                          onChange={(event) =>
+                            setKind(
+                              event.currentTarget.value === 'template' ? 'template' : 'rule_pack',
+                            )
+                          }
+                        >
+                          <option value="rule_pack">规则包</option>
+                          <option value="template">模板</option>
+                        </select>
+                      </label>
+                    </div>
+                    <label className="live-knowledge-yaml">
+                      草稿 YAML
+                      <textarea
+                        required
+                        rows={8}
+                        maxLength={knowledgeDraftMaxBytes}
+                        value={yaml}
+                        disabled={busy}
+                        aria-invalid={draftTooLarge}
+                        onChange={(event) => setYaml(event.currentTarget.value)}
+                      />
+                    </label>
+                    {draftTooLarge && (
+                      <p role="alert" className="live-error">
+                        草稿超过 {knowledgeDraftMaxBytes.toLocaleString('en-US')} 个 UTF-8
+                        字节。请压缩格式或缩短正文。
+                      </p>
+                    )}
+                  </>
+                )}
+                <button className="live-secondary" type="submit" disabled={busy || draftIncomplete}>
                   提交审阅
                 </button>
               </form>

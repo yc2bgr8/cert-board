@@ -277,6 +277,97 @@ async function main() {
       assert.notEqual(requestKeys[0], requestKeys[1]);
       assert.equal(requestKeys[0], requestKeys[2]);
       assert.equal((await harness.pool.query('SELECT 1 FROM knowledge_review')).rowCount, 2);
+
+      stage = '浏览器复制接近大小上限的已发布规则包';
+      const nearLimit = {
+        code: 'synthetic_near_limit',
+        title: '合成边界规则包',
+        jurisdiction: 'US',
+        version: '1.0.0',
+        dataLevel: 'internal',
+        rules: Array.from({ length: 12 }, (_unused, index) => ({
+          id: `near_limit_${index + 1}`,
+          statement: '验'.repeat(690),
+          status: 'confirmed',
+          category: 'maintenance',
+          source: {
+            url: 'https://www.ecfr.gov/current/title-21/chapter-I/subchapter-H/part-807/subpart-B/section-807.22',
+            archiveUrl:
+              'https://www.govinfo.gov/content/pkg/CFR-2025-title21-vol8/pdf/CFR-2025-title21-vol8-sec807-22.pdf',
+            section: '合成场景标识',
+            checkedOn: '2026-11-24',
+          },
+          parameters: { notes: '核'.repeat(60) },
+        })),
+      };
+      const draft = JSON.stringify(nearLimit);
+      assert.ok(Buffer.byteLength(draft) < 32_000);
+      assert.ok(Buffer.byteLength(JSON.stringify(nearLimit, null, 2)) > 32_000);
+      await panel.getByText('登记草稿', { exact: true }).click();
+      await type.selectOption('rule_pack');
+      await yaml.fill(draft);
+      await submit.click();
+      const card = panel.getByRole('article', { name: '知识审核卡', exact: true });
+      await card.getByText('synthetic_near_limit · 待审阅', { exact: true }).waitFor();
+      await card.getByRole('button', { name: '通过并发布', exact: true }).click();
+      await card.getByText('synthetic_near_limit · 已发布', { exact: true }).waitFor();
+      await card.getByRole('button', { name: '以此版起草', exact: true }).click();
+      const copied = await yaml.inputValue();
+      assert.ok(Buffer.byteLength(copied) < 32_000, 'BROWSER_KNOWLEDGE_DRAFT_UTF8_LIMIT');
+      assert.deepEqual(JSON.parse(copied), { ...nearLimit, version: '' });
+      const next = copied.replace('"version":""', '"version":"1.0.1"');
+      const oversized = next.replace('核'.repeat(60), '核'.repeat(180));
+      assert.ok(Buffer.byteLength(oversized) > 32_000);
+      await yaml.fill(oversized);
+      await panel.getByRole('alert').filter({ hasText: '32,000' }).waitFor();
+      assert.equal(await submit.isDisabled(), true);
+      await yaml.fill(next);
+      await submit.click();
+      await card.getByRole('heading', { name: '合成边界规则包 1.0.1', exact: true }).waitFor();
+      assert.deepEqual(
+        (
+          await harness.pool.query(
+            'SELECT content FROM knowledge_review WHERE code=$1 AND version=$2 AND status=$3',
+            [nearLimit.code, '1.0.1', 'pending'],
+          )
+        ).rows,
+        [{ content: { ...nearLimit, version: '1.0.1' } }],
+      );
+
+      const exactLimit = {
+        ...nearLimit,
+        code: 'synthetic_exact_limit',
+        title: '合成极限规则包',
+        dataLevel: 'confidential',
+        rules: nearLimit.rules.map((rule) => ({ ...rule, parameters: { ...rule.parameters } })),
+      };
+      exactLimit.rules[0]!.parameters.notes += 'x'.repeat(
+        32_000 - Buffer.byteLength(JSON.stringify(exactLimit)),
+      );
+      const exactDraft = JSON.stringify(exactLimit);
+      assert.equal(Buffer.byteLength(exactDraft), 32_000);
+      await panel.getByText('登记草稿', { exact: true }).click();
+      await type.selectOption('rule_pack');
+      await yaml.fill(exactDraft);
+      await submit.click();
+      await card.getByText('synthetic_exact_limit · 待审阅', { exact: true }).waitFor();
+      await card.getByRole('button', { name: '通过并发布', exact: true }).click();
+      await card.getByText('synthetic_exact_limit · 已发布', { exact: true }).waitFor();
+      await card.getByRole('button', { name: '以此版起草', exact: true }).click();
+      assert.equal(await yaml.isVisible(), false);
+      const version = '9999.9999.9999';
+      await panel.getByRole('textbox', { name: '新版本号', exact: true }).fill(version);
+      await submit.click();
+      await card.getByRole('heading', { name: `合成极限规则包 ${version}`, exact: true }).waitFor();
+      assert.deepEqual(
+        (
+          await harness.pool.query(
+            'SELECT content FROM knowledge_review WHERE code=$1 AND version=$2 AND status=$3',
+            [exactLimit.code, version, 'pending'],
+          )
+        ).rows,
+        [{ content: { ...exactLimit, version } }],
+      );
     } finally {
       await authorContext.close();
     }
@@ -1610,6 +1701,7 @@ async function main() {
             'browser_review_decision_resumes_original_conversation',
             'skill_rollback_from_inbox_with_browser_approval',
             'knowledge_template_publish_requires_browser_review',
+            'knowledge_rule_pack_copy_respects_utf8_limit',
             'agent_verification_waits_and_resumes_with_human_input',
             'stopping_conversation_stops_linked_verification',
             'cursor_unavailable_reaches_review_uncertainty',

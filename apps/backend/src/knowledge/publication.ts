@@ -104,13 +104,22 @@ export async function stageKnowledgeReview(
   if (!actor.isManagement)
     throw new AppError(403, 'MANAGEMENT_REQUIRED', '请由系统维护人员登记规则包或模板草稿。');
   let draft: KnowledgeDraft;
-  try {
+  if ('sourceReviewId' in input) {
+    const source = await getKnowledgeReview(db, input.sourceReviewId);
+    if (source.status !== 'published' || source.kind !== input.kind) throw conflict();
     draft = knowledgeDraftSchema.parse({
-      kind: input.kind,
-      content: parseKnowledgeSeedYaml(input.yaml, '知识草稿'),
+      kind: source.kind,
+      content: { ...source.draft.content, version: input.version },
     });
-  } catch {
-    throw invalidDraft();
+  } else {
+    try {
+      draft = knowledgeDraftSchema.parse({
+        kind: input.kind,
+        content: parseKnowledgeSeedYaml(input.yaml, '知识草稿'),
+      });
+    } catch {
+      throw invalidDraft();
+    }
   }
   const { code, version } = draft.content;
   const encoded = JSON.stringify(draft.content);
