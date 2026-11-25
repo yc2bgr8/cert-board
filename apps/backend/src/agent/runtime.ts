@@ -582,7 +582,23 @@ export async function executeAgentRun(
       if (resumedTerminal === 'review')
         reviewId = reviewSubmitResultSchema.parse(resolved.result.data).reviewId;
     }
-    let planIncomplete = false;
+    const cursorResume =
+      model.transport === 'cursor-acp' && (ticket || verification?.callId)
+        ? (
+            await pool.query<{ plan: unknown; corrected: boolean }>(
+              `SELECT (SELECT payload_json FROM conversation_event
+                WHERE run_id=$1 AND type='plan_updated' ORDER BY seq DESC LIMIT 1) AS plan,
+                EXISTS (SELECT 1 FROM run_event WHERE run_id=$1 AND type='model_started'
+                  AND reason_code='validation_failed') AS corrected`,
+              [runId],
+            )
+          ).rows[0]
+        : undefined;
+    const planHasPendingSteps = (plan: z.infer<typeof agentPlanSchema>) =>
+      plan.steps.some(({ status }) => status !== 'completed');
+    let planIncomplete = cursorResume?.plan
+      ? planHasPendingSteps(agentPlanSchema.parse(cursorResume.plan))
+      : false;
     const onEvent = async (event: KernelEvent) => {
       if (event.type === 'message') {
         const saved = await appendConversationMessage(pool, {
@@ -631,7 +647,7 @@ export async function executeAgentRun(
         });
         if (!event.isError && event.name === 'plan_update') {
           const plan = agentPlanSchema.parse(event.data);
-          planIncomplete = plan.steps.some(({ status }) => status !== 'completed');
+          planIncomplete = planHasPendingSteps(plan);
           await emit({ type: 'plan_updated', payload: plan });
         }
         if (!event.isError && event.name === 'ask_user')
@@ -688,7 +704,7 @@ export async function executeAgentRun(
       )
         readyHistory = [...readyHistory, reference];
     }
-    let retriedCursorReply = false;
+    let retriedCursorReply = cursorResume?.corrected ?? false;
     const completeModel = async (
       purpose: string,
       request: ChatRequest,
@@ -759,7 +775,7 @@ export async function executeAgentRun(
           await appendRunEvent(pool, {
             runId,
             userId: context.userId,
-            event: { type: 'model_started' },
+            event: { type: 'model_started', reasonCode: 'validation_failed' },
           });
           acceptedKey = randomUUID();
           return attempt(

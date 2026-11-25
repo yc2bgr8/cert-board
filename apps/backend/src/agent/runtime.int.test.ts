@@ -22,6 +22,7 @@ import { ingestParsedDocument } from '../documents/service.js';
 import type { ToolDefinition } from '../tools/registry.js';
 import { executeAgentRun } from './runtime.js';
 import { buildAgentTools } from './default-tools.js';
+import { appendRunEvent } from '../runs/events.js';
 import * as leaseService from '../runs/lease.js';
 import { queueInternalMessageTool } from '../tools/queue-internal-message.js';
 import { agentInteractionTools } from '../tools/agent-interaction.js';
@@ -1908,9 +1909,14 @@ test('模型文字声称已提交不能伪造审核成功', async () => {
   ).toBe(0);
 });
 
-test.each(['allow_once', 'reject'] as const)(
-  'ask经%s的浏览器决定继续原运行，使用真实回执并保留原消息',
-  async (action) => {
+test.each([
+  { action: 'allow_once', cursor: 'off' },
+  { action: 'reject', cursor: 'off' },
+  { action: 'reject', cursor: 'unused' },
+  { action: 'reject', cursor: 'used' },
+] as const)(
+  '浏览器决定继续原运行并保留真实回执 ($action / Cursor $cursor)',
+  async ({ action, cursor }) => {
     const context = await createIntegrationContext();
     close = () => context.close();
     await setTestReminderClock(context.pool);
@@ -1924,6 +1930,9 @@ test.each(['allow_once', 'reject'] as const)(
         [context.projectId, context.userId('MEMBER_B')],
       )
     ).rows[0]!.id;
+    const gatewayModels = cursor === 'off' ? config : { version: 1 as const, models: cursorAcceptanceModels };
+    const approvalTurn = cursor === 'off' ? 1 : 2;
+    const expectedCalls = approvalTurn + (cursor === 'unused' ? 2 : 1);
     let models = 0,
       lateReads = 0;
     const late: ToolDefinition = {
@@ -1953,12 +1962,21 @@ test.each(['allow_once', 'reject'] as const)(
     };
     const gateway = new ModelGateway(
       context.pool,
-      config,
+      gatewayModels,
       {
         kind: 'fixture',
         async send(_model, request) {
           models++;
-          if (models === 2) {
+          if (cursor !== 'off' && models === 1)
+            return call('plan_update', {
+              steps: [{ title: '核实后提交人工审核', status: 'running' }],
+              progress: '已开始核对。',
+            });
+          if (models > approvalTurn + 1) {
+            expect(request.messages[0]?.content).toContain('已登记的计划仍有未完成步骤');
+            return result({ role: 'assistant', content: '需补充证据。' });
+          }
+          if (models === approvalTurn + 1) {
             const response = request.messages.filter((message) => message.role === 'tool').at(-2);
             expect(response?.role).toBe('tool');
             if (response?.role !== 'tool') throw new Error('原调用回执缺失');
@@ -2003,8 +2021,16 @@ test.each(['allow_once', 'reject'] as const)(
       pool: context.pool,
       store,
       gateway,
-      models: config,
-      definitions: [queueInternalMessageTool(), late],
+      models: gatewayModels,
+      definitions: async (code: 'registration' | 'maintenance') => [
+        ...(cursor === 'off'
+          ? []
+          : (await buildAgentTools(store, code, context.pool)).filter(
+              ({ metadata }) => ['plan_update', 'submit_for_review'].includes(metadata.name),
+            )),
+        queueInternalMessageTool(),
+        late,
+      ],
     };
     const done = await executeAgentRun(dependencies, target.runId);
     expect(done.status).toBe('waiting');
@@ -2015,7 +2041,7 @@ test.each(['allow_once', 'reject'] as const)(
       [target.runId],
     );
     expect(waitingTool.rows).toMatchObject([{ payload_json: { awaitingApproval: true } }]);
-    expect(models).toBe(1);
+    expect(models).toBe(approvalTurn);
     expect(lateReads).toBe(0);
     expect(
       (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
@@ -2050,8 +2076,14 @@ test.each(['allow_once', 'reject'] as const)(
       (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
         .n,
     ).toBe(0);
-    expect(models).toBe(1);
+    expect(models).toBe(approvalTurn);
     const ticketId = String(decision.json().continuationId);
+    if (cursor === 'used')
+      await appendRunEvent(context.pool, {
+        runId: target.runId,
+        userId: target.userId,
+        event: { type: 'model_started', reasonCode: 'validation_failed' },
+      });
     const savedHistory = (
       await context.pool.query<{ id: string; message_json: unknown }>(
         'SELECT id,message_json FROM conversation_message WHERE run_id=$1 ORDER BY seq',
@@ -2063,9 +2095,9 @@ test.each(['allow_once', 'reject'] as const)(
     expect(resumed).toMatchObject({
       status: 'stopped',
       reasonCode: 'REVIEW_NOT_SUBMITTED',
-      usage: { steps: 2 },
+      usage: { steps: expectedCalls },
     });
-    expect(models).toBe(2);
+    expect(models).toBe(expectedCalls);
     expect(lateReads).toBe(0);
     expect(
       (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
@@ -2083,7 +2115,7 @@ test.each(['allow_once', 'reject'] as const)(
     ).rows;
     expect(after).toEqual(savedHistory);
     expect((await executeAgentRun(dependencies, target.runId, { ticketId })).skipped).toBe(true);
-    expect(models).toBe(2);
+    expect(models).toBe(expectedCalls);
   },
 );
 
