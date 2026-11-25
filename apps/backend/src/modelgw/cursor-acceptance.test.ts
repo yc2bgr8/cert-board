@@ -127,16 +127,11 @@ test('未指定单次上限时，将同一个模型默认值用于提示与接�
   await expect(sendCursorAcceptance(cursor, model, request)).rejects.toThrow(
     '输出超过本次请求上限',
   );
-  expect(readCursorTurn).toHaveBeenCalledWith(
-    cursor,
-    model.cursorModel,
-    expect.objectContaining({
-      maximumResponseBytes: 50,
-      request: expect.objectContaining({ max_tokens: 50 }),
-    }),
-    expect.any(Function),
-    undefined,
-  );
+  const [, , prompt] = vi.mocked(readCursorTurn).mock.lastCall!;
+  expect(typeof prompt).toBe('string');
+  const [contract, body] = (prompt as string).split('\n\nRequest JSON:\n');
+  expect(contract).toContain('50 UTF-8 bytes');
+  expect(JSON.parse(body!)).toMatchObject({ ...request, max_tokens: 50 });
 });
 
 test('只重建明确未派发的 ACP 启动握手，普通派发拒绝或发送失败不重试', async () => {
@@ -217,6 +212,7 @@ test('只读网关核实接收自己的文本和判断字段，仍拒绝动作�
     choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: structured } }],
   });
   expect(turn).toHaveBeenCalledOnce();
+  expect(turn.mock.lastCall?.[2]).toMatchObject({ maximumResponseBytes: 120, request: ask });
   for (const malformed of [reply, structured.slice(0, -1)]) {
     turn.mockResolvedValueOnce(malformed);
     await expect(sendCursorAcceptance(cursor, model, ask)).rejects.toBeInstanceOf(CursorReplyFormatError);

@@ -281,7 +281,7 @@ export async function readCursorTurn(
     promptAttempted = true;
     const completed = await rpc('session/prompt', {
       sessionId,
-      prompt: [{ type: 'text', text: JSON.stringify(prompt) }],
+      prompt: [{ type: 'text', text: typeof prompt === 'string' ? prompt : JSON.stringify(prompt) }],
     });
     if (error) throw error;
     if (!z.object({ stopReason: z.literal('end_turn') }).safeParse(completed).success)

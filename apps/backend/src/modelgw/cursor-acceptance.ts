@@ -132,11 +132,12 @@ const channelBoundary = [
 ].join('\n');
 
 const turnContract = [
+  'Return exactly one JSON object and no other text. Omit Markdown fences and any preface.',
   channelBoundary,
   'To use a cert-board tool, describe it as an action in your response.',
-  'Respond with only one JSON object: {"content":"assistant progress or final reply, or null","actions":[{"name":"tool_name","arguments":{}}]}.',
+  'Use the shape {"content":null,"actions":[{"name":"tool_name","arguments":{}}]}. Set content to a string when reporting progress or a final answer.',
   'If the requested answer itself is a JSON object, put that object as a JSON-encoded string in the content field, and still return the outer envelope.',
-  'Keep the entire response, including the JSON envelope and all tool arguments, within maximumResponseBytes UTF-8 bytes.',
+  'Count the entire reply, including the JSON envelope and tool arguments, toward the byte limit.',
   'Use exact tool names and their parameter schemas. When the user requests a workflow and the next required action is available, put that action in actions now. Progress text alone does not execute an action.',
   'Return an empty actions array only when the requested work is complete, no available tool can advance it, or the user requests only a text answer. In a single turn, request independent actions and wait for client results before dependent actions.',
 ].join('\n');
@@ -233,15 +234,18 @@ export async function sendCursorAcceptance(
     model.purposes[0] === 'verification' &&
     request.tool_choice === 'none' &&
     !request.tools?.length;
+  const prompt = toolFreeVerification
+    ? { contract: verificationContract, maximumResponseBytes: request.max_tokens, request }
+    : [
+        turnContract,
+        `Reply limit: ${request.max_tokens} UTF-8 bytes. Use the labelled messages and tool definitions in the request below.`,
+        `Request JSON:\n${JSON.stringify(request)}`,
+      ].join('\n\n');
   const readTurn = () =>
     readCursorTurn(
       config,
       model.cursorModel,
-      {
-        contract: toolFreeVerification ? verificationContract : turnContract,
-        maximumResponseBytes: request.max_tokens,
-        request,
-      },
+      prompt,
       async () => {
         await config.verifyAcceptanceScope?.();
         await beforeDispatch?.();
