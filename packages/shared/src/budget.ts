@@ -115,6 +115,8 @@ export type BudgetReconciliationInput = z.infer<typeof budgetReconcileSchema>;
 export const cursorReplyFailureSchema = z.enum([
   'empty',
   'invalid_json',
+  'unframed_text',
+  'invalid_frame',
   'invalid_envelope',
   'unavailable_action',
 ]);

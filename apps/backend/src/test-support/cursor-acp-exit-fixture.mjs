@@ -22,15 +22,19 @@ input.on('line', (line) => {
       const [instructions, body] = params.prompt[0].text.split('\n\nRequest JSON:\n');
       if (instructions.startsWith('Return exactly one JSON object') && body) {
         const request = JSON.parse(body);
+        const tag = /CERT_BOARD_TURN_START ([a-f0-9-]{36})/u.exec(instructions)?.[1];
         if (
           instructions.includes('256 UTF-8 bytes') && request.max_tokens === 256 &&
           request.messages[0]?.role === 'user' && request.messages[0]?.content === '合成验收' &&
-          request.tools[0]?.function.name === 'read_example'
+          request.tools[0]?.function.name === 'read_example' &&
+          tag && instructions.includes('CERT_BOARD_TURN_END ' + tag)
         ) {
-          update({
-            sessionUpdate: 'agent_message_chunk',
-            content: { type: 'text', text: '{"content":null,"actions":[{"name":"read_example","arguments":{}}]}' },
-          });
+          for (const text of [
+            '正在核对合成资料。\n',
+            'CERT_BOARD_TURN_START ' + tag + '\n',
+            '{"content":null,"actions":[{"name":"read_example","arguments":{}}]}\n',
+            'CERT_BOARD_TURN_END ' + tag,
+          ]) update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text } });
         }
       }
       reply({ stopReason: 'end_turn' });

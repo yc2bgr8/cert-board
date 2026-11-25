@@ -36,7 +36,7 @@ test('ACP 主 Agent 将回复格式直接放在派发文本开头，按原样附
       }],
     }, undefined, sent)).resolves.toMatchObject({ choices: [{
       finish_reason: 'tool_calls',
-      message: { tool_calls: [{ function: { name: 'read_example', arguments: '{}' } }] },
+      message: { content: null, tool_calls: [{ function: { name: 'read_example', arguments: '{}' } }] },
     }] });
     expect(sent).toHaveBeenCalledOnce();
   } finally {

@@ -91,6 +91,9 @@ describe('预算计量边界', () => {
       ...request, reasonCode: 'request_uncertain', cursorReplyFailure: 'invalid_json',
     }).success).toBe(true);
     expect(budgetIncompleteSchema.safeParse({
+      ...request, reasonCode: 'request_uncertain', cursorReplyFailure: 'invalid_frame',
+    }).success).toBe(true);
+    expect(budgetIncompleteSchema.safeParse({
       ...request, reasonCode: 'request_uncertain', cursorReplyFailure: '原始响应正文或凭据',
     }).success).toBe(false);
   });

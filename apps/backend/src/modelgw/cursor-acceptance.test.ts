@@ -181,7 +181,8 @@ test.each([false, true])('验收报告失效后拒绝上游发送（派发复核
 
 test.each([
   { reply: ' \n ', failure: 'empty' },
-  { reply: '合成未结构化文本', failure: 'invalid_json' },
+  { reply: '合成未结构化文本', failure: 'unframed_text' },
+  { reply: '{"content":', failure: 'invalid_json' },
   { reply: '{"content":"合成未结构化文本"}', failure: 'invalid_envelope' },
   {
     reply: '{"content":"合成未结构化文本","actions":[{"name":"not_offered","arguments":{}}]}',
@@ -198,6 +199,68 @@ test.each([
   expect(error).toMatchObject({ failure });
   expect(String(error)).not.toContain('合成未结构化文本');
   expect(turn).toHaveBeenCalledOnce();
+});
+
+const framed = (id: string, body: string) =>
+  `CERT_BOARD_TURN_START ${id}\n${body}\nCERT_BOARD_TURN_END ${id}`;
+const action = '{"content":null,"actions":[{"name":"doc_read","arguments":{"page":3}}]}';
+
+test('仅转发当前回合终止帧内的动作，忽略前置进度文字', () => {
+  const answer = '正在核对合成资料。\r\n' + framed('this-turn', action).replaceAll('\n', '\r\n');
+  const turn = parseCursorModelTurn(answer, request, false, 'this-turn').choices[0]!;
+  expect(turn.message).toMatchObject({
+    content: null,
+    tool_calls: [{ function: { name: 'doc_read', arguments: '{"page":3}' } }],
+  });
+  expect(() => parseCursorModelTurn(answer, request, true, 'this-turn'))
+    .toThrow(CursorReplyFormatError);
+  expect(() => parseCursorModelTurn(answer, { ...request, tool_choice: 'none' }, false, 'this-turn'))
+    .toThrow(CursorReplyFormatError);
+  expect(() => parseCursorModelTurn(answer, { ...request, max_tokens: 50 }, false, 'this-turn'))
+    .toThrow('输出超过本次请求上限');
+});
+
+test.each([
+  framed('previous-turn', action),
+  framed('this-turn', action) + '\n' + framed('this-turn', action),
+  'CERT_BOARD_TURN_START this-turn\n' + action,
+  framed('this-turn', action) + '\n帧后文字',
+  action + '\n' + framed('this-turn', action),
+])('歧义或跨回合的帧整体拒绝', (answer) => {
+  try {
+    parseCursorModelTurn(answer, request, false, 'this-turn');
+    expect.unreachable('已接受误配或歧义帧。');
+  } catch (error) {
+    expect(error).toMatchObject({ failure: 'invalid_frame' });
+  }
+});
+
+test('每个 ACP 派发独立生成回合边界，转发上轮回执无效', async () => {
+  const cursor = { executable: 'fixture', entrypoint: 'fixture', profileDirectory: 'fixture' };
+  const model = cursorAcceptanceModels[0]!;
+  const ids: string[] = [];
+  const turn = vi.mocked(readCursorTurn);
+  const idFromPrompt = (prompt: unknown) => {
+    const id = /CERT_BOARD_TURN_START ([a-f0-9-]{36})/u.exec(String(prompt))?.[1];
+    if (!id) throw new Error('未生成回合编号。');
+    ids.push(id);
+    return id;
+  };
+  turn.mockImplementationOnce(async (_config, _model, prompt) =>
+    framed(idFromPrompt(prompt), action),
+  );
+  await expect(sendCursorAcceptance(cursor, model, request)).resolves.toMatchObject({
+    choices: [{ finish_reason: 'tool_calls' }],
+  });
+  turn.mockImplementationOnce(async (_config, _model, prompt) => {
+    idFromPrompt(prompt);
+    return framed(ids[0]!, action);
+  });
+  await expect(sendCursorAcceptance(cursor, model, request)).rejects.toMatchObject({
+    failure: 'invalid_frame',
+  });
+  expect(ids).toHaveLength(2);
+  expect(new Set(ids).size).toBe(2);
 });
 
 test('只读网关核实接收自己的文本和判断字段，仍拒绝动作和超长回复', async () => {
