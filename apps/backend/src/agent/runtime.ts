@@ -736,6 +736,7 @@ export async function executeAgentRun(
               conversationId: context.conversationId,
               userId: context.userId,
               purpose,
+              lease: { ownerId: leaseIdentity.ownerId, generation: leaseIdentity.generation },
             },
             signal,
             ensureActive,

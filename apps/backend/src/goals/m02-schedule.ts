@@ -280,6 +280,14 @@ export async function scanM02Schedules(pool: Pool, environment: string, now = ne
   const pack = await availableM02Pack(pool, environment);
   if (!pack) return 0;
   let dispatched = 0;
-  for (const { goal_id } of rows) if (await enqueueM02(pool, goal_id, pack, now)) dispatched++;
+  const failures: unknown[] = [];
+  for (const { goal_id } of rows) {
+    try {
+      if (await enqueueM02(pool, goal_id, pack, now)) dispatched++;
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length) throw new AggregateError(failures, '部分 M02 目标未完成核查扫描。');
   return dispatched;
 }

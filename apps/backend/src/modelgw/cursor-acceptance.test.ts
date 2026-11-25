@@ -4,6 +4,7 @@ import { CursorAcpStartupError, readCursorTurn } from '../external-model/cursor-
 import { VerificationChannelError } from '../external-model/verification-runtime.js';
 import {
   cursorAcceptanceModels,
+  cursorUsesWalkthroughDatabase,
   CursorReplyFormatError,
   parseCursorModelTurn,
   readCursorAcceptanceConfig,
@@ -88,6 +89,21 @@ test('验收路由不处理保密资料，缺专用开关、隐私凭证或开�
   await expect(
     readCursorAcceptanceConfig('production', { CERT_CURSOR_ACCEPTANCE_WORKER: '1' }),
   ).rejects.toThrow();
+});
+
+test('验收账号仅可从专用走查网页和本地走查库启用', () => {
+  const origin = 'http://127.0.0.1:28280';
+  const database = 'postgresql://cert_board@127.0.0.1:25435/cert_board_walkthrough';
+  expect(cursorUsesWalkthroughDatabase({ WEB_ORIGIN: origin, DATABASE_URL: database })).toBe(true);
+  expect(cursorUsesWalkthroughDatabase({ WEB_ORIGIN: 'http://127.0.0.1:28380', DATABASE_URL: database })).toBe(false);
+  for (const DATABASE_URL of [
+    undefined,
+    database.replace('25435', '25432'),
+    database.replace('cert_board_walkthrough', 'cert_board_lan'),
+    database.replace('127.0.0.1', 'localhost'),
+    `${database}?host=fixture.invalid`,
+  ])
+    expect(cursorUsesWalkthroughDatabase({ WEB_ORIGIN: origin, DATABASE_URL })).toBe(false);
 });
 
 test('按单次上限检查完整 UTF-8 输出，包括工具参数', () => {

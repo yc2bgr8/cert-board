@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as wait } from 'node:timers/promises';
+import { Pool } from 'pg';
 import { afterEach, expect, test } from 'vitest';
 import { createApp } from '../app.js';
 import { seedDevelopmentRulePack } from '../knowledge/rule-packs.js';
@@ -256,3 +257,35 @@ test.each(['workspace', 'project'] as const)(
     }
   },
 );
+
+test('一个 M02 目标的锁等待超时，随后目标仍生成自己的唤醒', async () => {
+  const { pool, project, owner, goal } = await setup();
+  const other = randomUUID();
+  await pool.query(
+    "INSERT INTO goal(id,project_id,owner_user_id,title,acceptance_criteria) VALUES($1,$2,$3,'另一合成维护目标','同批核查')",
+    [other, project, owner],
+  );
+  await pool.query(
+    'INSERT INTO m02_schedule(goal_id,enabled,enabled_by) VALUES($1,true,$3),($2,true,$3)',
+    [goal, other, owner],
+  );
+  const [blocked, available] = [goal, other].sort();
+  const locker = await pool.connect();
+  const scanner = new Pool({ ...pool.options, lock_timeout: 100 });
+  try {
+    await locker.query('BEGIN');
+    await locker.query('SELECT id FROM goal WHERE id=$1 FOR UPDATE', [blocked]);
+    const now = new Date('2027-11-02T15:00Z');
+    await expect(scanM02Schedules(scanner, 'test', now)).rejects.toBeInstanceOf(AggregateError);
+    const found = await pool.query('SELECT goal_id FROM run WHERE goal_id=ANY($1::uuid[])', [
+      [blocked, available],
+    ]);
+    expect(found.rows).toEqual([{ goal_id: available }]);
+    await locker.query('ROLLBACK');
+    expect(await scanM02Schedules(scanner, 'test', now)).toBe(1);
+  } finally {
+    await locker.query('ROLLBACK');
+    locker.release();
+    await scanner.end();
+  }
+});

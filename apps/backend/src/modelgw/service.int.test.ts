@@ -183,6 +183,43 @@ test('Cursor 验收模型与其他外部模型一样禁止发送保密请求', a
   expect(fixture.calls()).toBe(0);
 });
 
+test('Cursor 最终路由拒绝已换代的执行租约，账本记录未发送', async () => {
+  const ownerId = randomUUID();
+  await context.pool.query(
+    "UPDATE run SET lease_owner=$1,lease_generation=1,lease_expires_at=clock_timestamp()+interval '1 minute' WHERE id=$2",
+    [ownerId, caller.runId],
+  );
+  const paidSend = vi.fn(() => response());
+  const remote: GatewayTransport = {
+    kind: 'fixture',
+    async send(_model, _body, _signal, guard) {
+      try {
+        await guard?.();
+      } catch {
+        throw new VerificationChannelError('failed', true);
+      }
+      return paidSend();
+    },
+  };
+  const gateway = new ModelGateway(
+    context.pool,
+    { version: 1, models: cursorAcceptanceModels },
+    remote,
+    { environment: 'test' },
+  );
+  await expect(
+    gateway.complete(request, { ...caller, lease: { ownerId, generation: 1 } }, undefined, async () => {
+      await context.pool.query('UPDATE run SET lease_generation=2 WHERE id=$1', [caller.runId]);
+    }),
+  ).rejects.toMatchObject({ code: 'MODEL_DISPATCH_BLOCKED' });
+  expect(paidSend).not.toHaveBeenCalled();
+  const ledger = await context.pool.query<{ status: string }>(
+    'SELECT status FROM usage_ledger WHERE request_key=$1',
+    [caller.requestKey],
+  );
+  expect(ledger.rows).toEqual([{ status: 'not_sent' }]);
+});
+
 test.each([
   { confirmedNotSent: true, state: 'not_sent', code: 'MODEL_DISPATCH_BLOCKED' },
   { confirmedNotSent: false, state: 'unknown', code: 'MODEL_UPSTREAM_FAILED' },

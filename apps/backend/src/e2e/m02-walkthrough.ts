@@ -43,7 +43,7 @@ export async function prepareM02Walkthrough(pool: pg.Pool, blobs: BlobStore) {
   const name = `L08 公开资料定时核查 ${project.slice(0, 6)}`;
   const brief = await blobs.put(
     Buffer.from(
-      `# L08 公开资料核查\n这是独立验收项目。输入只包含公开的检索条件和合成归档提示。使用 M02。三项查询分别是：fda_registration 同时填写登记号、LRK 与 K 号；fda_registration_company 按申请人全名；fda_gudid_search 填写 LRK、K 号和四个商品全名（按资料列出的顺序）。记录列名机构、登记号、到期年份、美国代理人企业、四个名称、申请人登记和 UDI，每项待核实。成功记录需留官方档案，查询不成功如实列项。送审 claims 中，申请人登记用 id=applicant_lookup，公开 UDI 用 id=udi_lookup，两项都引用各自档案，状态用 unverified。观察到成功零条时，该项 value 写“本次查询条件下未查到”；成功返回记录时写“本次查询首批匹配 N 条”，N 按实际首批记录数。完成待核实的年度注册和年费站内提醒，提交审核。`,
+      `# L08 公开资料核查\n这是独立验收项目。输入只包含公开的检索条件和合成归档提示。使用 M02。三项查询分别是：fda_registration 同时填写登记号、LRK 与 K 号；fda_registration_company 按申请人全名；fda_gudid_search 填写 LRK、K 号和四个商品全名（按资料列出的顺序）。记录列名机构、登记号、到期年份、美国代理人企业、四个名称、申请人登记和 UDI，每项待核实。成功记录需留官方档案，查询不成功如实列项。送审 claims 中，申请人登记用 id=applicant_lookup，公开 UDI 用 id=udi_lookup，两项都引用各自档案，状态用 unverified。观察到成功零条时，该项 value 写“本次查询条件下未查到”；成功返回记录时写“本次查询首批匹配 N 条”，N 按实际首批记录数。登记一项合并的待核实站内提醒，标题包含“年度注册”和“年费”，然后提交审核。`,
     ),
   );
   const db = await pool.connect();
@@ -237,17 +237,25 @@ export async function inspectM02Walkthrough(
   assert.match(report, /(?:申请人|申请企业|Ram\.Shaw)/iu);
   assert.match(report, /GUDID|UDI/iu);
   assert.match(report, /待核实|待确认/u);
-  const {
-    rows: [reminder],
-  } = await pool.query<{ due: string; title: string; jurisdiction_tz: string }>(
+  const { rows: reminders } = await pool.query<{ due: string; title: string; jurisdiction_tz: string }>(
     `SELECT to_char(due_on,'MM-DD') AS due,title,jurisdiction_tz FROM timer t JOIN run r ON r.conversation_id=t.conversation_id
       WHERE t.goal_id=$1 AND r.id=$2 AND t.state='active'`,
     [goal, run],
   );
+  assert.equal(reminders.length, 1, '应登记一项合并的站内提醒');
+  const [reminder] = reminders;
   assert.ok(
     reminder && reminder.due === '12-31' && reminder.jurisdiction_tz === input.jurisdictionTz,
     '未成功登记基于规则包的站内提醒',
   );
+  assert.match(reminder.title, /年度注册/u);
+  assert.match(reminder.title, /年费/u);
+  const outbound = await pool.query(
+    `SELECT 1 FROM tool_invocation WHERE run_id=$1
+      AND tool_name IN ('queue_internal_message', 'propose_external') LIMIT 1`,
+    [run],
+  );
+  assert.equal(outbound.rowCount, 0, '定时走查只登记站内提醒，无消息或外发提案');
   await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
   const card = page.getByRole('article', { name: '审核结果', exact: true });
   await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();

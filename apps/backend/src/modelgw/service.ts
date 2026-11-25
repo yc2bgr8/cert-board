@@ -176,15 +176,17 @@ export class ModelGateway {
       conversation_status: string;
       user_status: string;
       data_level: DataLevel;
+      lease_current: boolean | null;
     }>(
       `SELECT r.conversation_id,r.user_id,r.project_id,r.goal_id,r.status,c.user_id AS conversation_user,
       c.project_id AS conversation_project,c.goal_id AS conversation_goal,c.status AS conversation_status,u.status AS user_status,
+      (r.lease_owner=$2::uuid AND r.lease_generation=$3::bigint AND r.lease_expires_at>clock_timestamp()) AS lease_current,
       GREATEST(r.max_data_level,c.max_data_level,COALESCE(w.data_level,'internal'::document_data_level),
         COALESCE((SELECT wd.data_level FROM workspace_draft wd WHERE wd.conversation_id=c.id),'internal'::document_data_level),
         COALESCE((SELECT v.data_level FROM document d JOIN document_version v ON v.document_id=d.id WHERE d.project_id=r.project_id ORDER BY v.data_level DESC LIMIT 1),'internal'::document_data_level)) AS data_level
       FROM run r JOIN conversation c ON c.id=r.conversation_id JOIN app_user u ON u.id=r.user_id
       LEFT JOIN workspace w ON w.project_id=r.project_id WHERE r.id=$1`,
-      [context.runId],
+      [context.runId, context.lease?.ownerId ?? null, context.lease?.generation ?? null],
     );
     const row = result.rows[0];
     if (
@@ -196,6 +198,8 @@ export class ModelGateway {
       row.goal_id !== row.conversation_goal
     )
       throw rejected('MODEL_CONTEXT_FORBIDDEN', '模型请求的运行、对话或用户归属不一致。');
+    if (context.lease && !row.lease_current)
+      throw rejected('MODEL_RUN_LEASE_LOST', '当前执行租约已变化，已停止模型派发。');
     if (
       row.status !== 'running' ||
       row.conversation_status !== 'active' ||

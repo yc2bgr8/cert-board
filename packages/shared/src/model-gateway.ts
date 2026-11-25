@@ -248,7 +248,14 @@ export const chatRequestSchema = z
   );
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export const gatewayContextSchema = z
-  .object({ requestKey: id, runId: id, conversationId: id, userId: id, purpose })
+  .object({
+    requestKey: id,
+    runId: id,
+    conversationId: id,
+    userId: id,
+    purpose,
+    lease: z.strictObject({ ownerId: id, generation: count.positive() }).optional(),
+  })
   .strict();
 export type GatewayContext = z.infer<typeof gatewayContextSchema>;
 

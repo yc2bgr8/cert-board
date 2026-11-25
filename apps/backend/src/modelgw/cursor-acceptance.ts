@@ -4,6 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import {
   chatRequestSchema,
+  previewSlotForOrigin,
   upstreamAssistantResponseSchema,
   type CursorGatewayModel,
 } from '@cert-board/shared';
@@ -50,6 +51,20 @@ export const cursorAcceptanceModels = profiles.map((model): CursorGatewayModel =
   prices: { inputUsdPerMillion: '0', cacheReadUsdPerMillion: '0', outputUsdPerMillion: '0' },
 }));
 
+export function cursorUsesWalkthroughDatabase(env: NodeJS.ProcessEnv) {
+  const matched = previewSlotForOrigin(env.WEB_ORIGIN ?? '');
+  const database = URL.parse(env.DATABASE_URL ?? '');
+  return Boolean(
+    matched?.[0] === 'walkthrough' &&
+    database?.protocol === 'postgresql:' &&
+    database.hostname === '127.0.0.1' &&
+    database.port === '25435' &&
+    database.pathname === `/${matched[1].database}` &&
+    !database.search &&
+    !database.hash,
+  );
+}
+
 export async function readCursorAcceptanceConfig(
   environment: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -61,6 +76,7 @@ export async function readCursorAcceptanceConfig(
     environment !== 'development' ||
     process.env.NODE_ENV === 'production' ||
     process.platform !== 'linux' ||
+    !cursorUsesWalkthroughDatabase(env) ||
     env.CERT_CURSOR_PRIVACY_CONFIRMED !== '1' ||
     !bundle ||
     !path.isAbsolute(bundle) ||
