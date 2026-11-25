@@ -98,6 +98,7 @@ export function createVerificationModerator(
           conversationId: context.id,
           userId: context.user_id,
           purpose: peer ? 'verification' : 'agent',
+          lease: { ownerId: lease.ownerId, generation: lease.generation },
         },
         AbortSignal.timeout(localReviewModel ? 20000 : 60000),
         peer?.beforeDispatch,

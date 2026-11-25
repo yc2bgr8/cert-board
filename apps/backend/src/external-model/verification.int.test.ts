@@ -149,7 +149,7 @@ test('网关已结算但无可用回复时，在本月核实用量中计入实�
       outputTokens: 10,
       actualCostNano: '240000',
     });
-    throw new VerificationChannelError('failed');
+    throw new AppError(502, 'MODEL_CURSOR_REPLY_INVALID', '合成上游错误细节');
   };
   const roomId = await start('模拟已计费的网关失败。', context.projectId);
   await expect.poll(async () => (await detail(roomId)).room.status).toBe('completed');
@@ -158,6 +158,13 @@ test('网关已结算但无可用回复时，在本月核实用量中计入实�
   );
   expect(result.gatewayUsage).toEqual([
     { model: gatewayPeer.id, actualNano: '240000', unknown: 0 },
+  ]);
+  const archived = await context.pool.query<{ returned: unknown }>(
+    'SELECT returned FROM external_model_exchange WHERE conversation_id=$1 AND channel=$2',
+    [roomId, 'gateway'],
+  );
+  expect(archived.rows).toEqual([
+    { returned: { error: 'failed', gatewayCode: 'MODEL_CURSOR_REPLY_INVALID' } },
   ]);
 });
 

@@ -1386,7 +1386,16 @@ export class VerificationRooms {
             : channelFailureText[state];
       if (error instanceof VerificationChannelError && error.confirmedNotSent) dispatched = false;
       if (!dispatched) raw = null;
-      else if (!raw) raw = { error: state };
+      else if (!raw) {
+        const gatewayCode = error instanceof AppError && [
+          'MODEL_CURSOR_REPLY_INVALID',
+          'MODEL_CURSOR_NATIVE_TOOL_BLOCKED',
+          'MODEL_OUTPUT_LIMIT',
+          'MODEL_RUN_LEASE_LOST',
+          'MODEL_UPSTREAM_FAILED',
+        ].includes(error.code) ? error.code : undefined;
+        raw = { error: state, ...(gatewayCode ? { gatewayCode } : {}) };
+      }
       post = {
         type: 'system',
         author: '系统',
@@ -1394,7 +1403,7 @@ export class VerificationRooms {
         round,
         ...(dispatched ? { archiveId: sent.archiveId } : {}),
         text: dispatched
-          ? `${model.label} 没有返回可展示的回复。${model.channel === 'cursor' ? channelFailureText[state] : '请检查 OpenRouter 通道后重试。'}`
+          ? `${model.label} 没有返回可展示的回复。${model.channel === 'cursor' ? channelFailureText[state] : '请检查模型网关后重试。'}`
           : `${model.label} 的请求未发出。${reason}`,
       };
     }
