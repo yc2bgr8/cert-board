@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { goalStatusSchema } from './projects.js';
 
 const uid = z.string().uuid();
 const reference = z
@@ -53,4 +54,20 @@ export const goalControlInputSchema = z
     note: text(4000),
   })
   .strict();
+export type GoalControlInput = z.infer<typeof goalControlInputSchema>;
+export const goalTakeoverStatuses = [
+  'active',
+  'waiting_external',
+  'waiting_materials',
+  'waiting_decision',
+  'pending_review',
+] as const satisfies readonly z.infer<typeof goalStatusSchema>[];
+
+export const goalControlResultSchema = z.strictObject({
+  goalId: uid,
+  status: goalStatusSchema,
+  version: z.number().int().positive(),
+  directionVersion: z.number().int().positive(),
+});
+export type GoalControlResult = z.infer<typeof goalControlResultSchema>;
 export const goalArrivalInputSchema = z.object({ sourceKey: reference }).strict();

@@ -224,6 +224,25 @@
 .live-page-goals .live-goal-row {
   padding-inline: 16px;
 }
+.live-goal-controls {
+  display: grid;
+  justify-items: end;
+  flex-shrink: 0;
+  gap: 4px;
+  font-size: 13px;
+}
+.live-goal-control-form {
+  display: grid;
+  gap: 8px;
+}
+.live-goal-control-form textarea {
+  resize: vertical;
+}
+.live-goal-control-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .live-version-timeline {
   margin: 14px 16px;
   padding-left: 14px;

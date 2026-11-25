@@ -589,10 +589,6 @@ body {
   color: var(--muted);
   font-size: 13px;
 }
-.live-goal-row > span {
-  flex-shrink: 0;
-  font-size: 13px;
-}
 .live-thread-filter {
   display: flex;
   gap: 20px;

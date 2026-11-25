@@ -5,6 +5,8 @@ import {
   projectListSchema,
   projectRecordSchema,
   goalListSchema,
+  goalControlInputSchema,
+  goalControlResultSchema,
   projectListOptionsSchema,
   projectIdSchema,
   conversationListQuerySchema,
@@ -83,6 +85,7 @@ import {
   skillRollbackDecisionInputSchema,
   skillRollbackDecisionResultSchema,
   type AuthResponse,
+  type GoalControlInput,
   type DataLevel,
   type IntakeCategory,
   type ConversationCreateInput,
@@ -545,6 +548,11 @@ export const api = {
       goalListSchema,
       signalOption(signal),
     ),
+  controlGoal: (id: string, input: GoalControlInput) =>
+    request(`/api/goals/${identifier(id)}/control`, goalControlResultSchema, {
+      method: 'POST',
+      body: checked(goalControlInputSchema, input),
+    }),
   conversations: (
     options: {
       projectId?: string;

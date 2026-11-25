@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import type { GoalControlInput } from '@cert-board/shared';
 import {
   chromium,
   type Browser,
@@ -138,14 +139,17 @@ async function exerciseGoalHandoff(
   page: Page,
   harness: Awaited<ReturnType<typeof startBrowserHarness>>,
   beforeReload: () => Promise<void>,
+  output: string,
 ) {
   const { rows: [goal] } = await harness.pool.query<{ id: string }>(
     `INSERT INTO goal(project_id,owner_user_id,title,acceptance_criteria)
-     SELECT id,owner_user_id,'合成资料到达验收','确认资料到达后在新对话继续。'
-     FROM cert_project WHERE id=$1 RETURNING id`,
-    [harness.projectId],
+     SELECT p.id,u.id,'合成资料到达验收','确认资料到达后在新对话继续。'
+     FROM cert_project p JOIN app_user u ON u.username=$2 WHERE p.id=$1 RETURNING id`,
+    [harness.projectId, harness.managementCredentials.username],
   );
   assert.ok(goal);
+  await beforeReload();
+  await page.reload();
   const previous = await createConversation(page, harness.projectId, 'full', '接管前核查', undefined, goal.id);
   const waitModel = harness.plan('manual_goal_wait');
   const { runId } = await send(page, '请等待我确认合成资料到达。');
@@ -172,13 +176,56 @@ async function exerciseGoalHandoff(
     }, { endpoint, payload, authorized, id: goal.id });
   const before = await currentGoal();
   assert.equal(before.status, 'waiting_decision');
-  const takeover = { action: 'takeover', expectedVersion: before.version, note: '人工先核对合成资料。' };
+  const takeover: GoalControlInput = { action: 'takeover', expectedVersion: before.version, note: '人工先核对合成资料。' };
   assert.equal(await post('control', takeover, false), 403);
   assert.deepEqual(await currentGoal(), before);
-  assert.equal(await post('control', takeover), 200);
+  await page.getByRole('button', { name: '注册Agent', exact: true }).click();
+  await page.getByRole('button', { name: 'L08 510(k)', exact: true }).click();
+  stage = '项目首页读取目标当前状态';
+  const row = page.getByRole('group', { name: '合成资料到达验收', exact: true });
+  await row.getByText('等待决定', { exact: true }).waitFor();
+  const controlResponse = () => page.waitForResponse(
+    (response) => response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === `/api/goals/${goal.id}/control`,
+  );
+  await row.getByRole('button', { name: '接管', exact: true }).click();
+  stage = '接管提交前目标版本已变';
+  const staleDialog = page.getByRole('dialog', { name: '接管目标', exact: true });
+  const staleInput = staleDialog.getByLabel('接管说明', { exact: true });
+  await staleInput.fill(takeover.note);
+  await harness.pool.query('UPDATE goal SET version=version+1 WHERE id=$1', [goal.id]);
+  const conflict = controlResponse();
+  await staleDialog.getByRole('button', { name: '接管目标', exact: true }).click();
+  assert.equal((await conflict).status(), 409);
+  await staleDialog.getByText('目标已更新。请核对状态后重新打开操作。', { exact: true }).waitFor();
+  assert.equal(await staleInput.inputValue(), takeover.note);
+  assert.equal(await staleDialog.getByRole('button', { name: '接管目标', exact: true }).isDisabled(), true);
+  await staleDialog.getByRole('button', { name: '取消', exact: true }).click();
+  const useControl = async (label: '接管' | '交还', inputLabel: string, command: GoalControlInput, screenshot: string) => {
+    const title = `${label}目标`;
+    await row.getByRole('button', { name: label, exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: title, exact: true });
+    const confirm = dialog.getByRole('button', { name: title, exact: true });
+    assert.equal(await confirm.isDisabled(), true);
+    await dialog.getByLabel(inputLabel, { exact: true }).fill(command.note);
+    await page.evaluate(async () => { await document.fonts.ready; });
+    await page.screenshot({ path: path.join(output, screenshot) });
+    const sent = controlResponse();
+    await confirm.click();
+    const response = await sent;
+    assert.equal(response.status(), 200);
+    assert.deepEqual(response.request().postDataJSON(), command);
+    await dialog.waitFor({ state: 'hidden' });
+  };
+  stage = '浏览器接管目标';
+  await useControl(
+    '接管', '接管说明', { ...takeover, expectedVersion: (await currentGoal()).version },
+    'pr38-goal-takeover-1440x900.png',
+  );
+  await row.getByText('由人处理', { exact: true }).waitFor();
   const controlled = await currentGoal();
   assert.equal(controlled.status, 'human_controlled');
-  const handoff = { action: 'handoff', expectedVersion: controlled.version, note: browserHandoffNote };
+  const handoff: GoalControlInput = { action: 'handoff', expectedVersion: controlled.version, note: browserHandoffNote };
   assert.equal(await post('control', { ...handoff, expectedVersion: before.version }), 409);
   assert.equal(await post('arrival', { sourceKey: 'pr38-browser-arrival' }), 200);
   await scanGoalEvents(harness.pool);
@@ -188,7 +235,8 @@ async function exerciseGoalHandoff(
   )).rows;
   assert.deepEqual(await wakeups(), []);
   const resumeModel = harness.plan('manual_goal_resume');
-  assert.equal(await post('control', handoff), 200);
+  stage = '浏览器交还目标并唤醒';
+  await useControl('交还', '处理结果', handoff, 'pr38-goal-handoff-1440x900.png');
   await until(async () => (await wakeups()).length > 0);
   const resumed = await wakeups();
   assert.equal(resumed.length, 1);
@@ -1435,7 +1483,7 @@ async function main() {
       harness.verification.runtime.status = savedStatus;
     }
     stage = '浏览器接管、交还与新对话唤醒';
-    await exerciseGoalHandoff(page, harness, rememberCsp);
+    await exerciseGoalHandoff(page, harness, rememberCsp, output);
     stage = 'CSP与零外网检查';
     const cspState = await page.evaluate(() => {
       const state = globalThis as typeof globalThis & {
@@ -1589,6 +1637,8 @@ async function main() {
             'pr-d4-04-agent-verification.png',
             'pr-d5-05-review-verification.png',
             'pr-d5-06-source-evidence.png',
+            'pr38-goal-takeover-1440x900.png',
+            'pr38-goal-handoff-1440x900.png',
           ],
         },
         null,

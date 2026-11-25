@@ -97,6 +97,79 @@ function transport(result: unknown) {
   };
   return { handler, calls: () => calls, body: () => body };
 }
+test.each([false, true])('已预占的请求在目标接管后不能派发（已交还=%s）', async (handedBack) => {
+  const source = transport(response());
+  const gateway = new ModelGateway(context.pool, configuration, source.handler, { environment: 'test' });
+  const owner = await context.login('MEMBER_A');
+  const { rows: [goal] } = await context.pool.query<{ version: number }>(
+    'SELECT version FROM goal WHERE id=$1',
+    [context.goalId],
+  );
+  expect(goal).toBeDefined();
+  await expect(gateway.complete(request, caller, undefined, async () => {
+    const taken = await context.app.inject({
+      method: 'POST',
+      url: `/api/goals/${context.goalId}/control`,
+      headers: owner.headers,
+      payload: { action: 'takeover', expectedVersion: goal!.version, note: '派发前由人接管。' },
+    });
+    expect(taken.statusCode).toBe(200);
+    expect(taken.json().status).toBe('human_controlled');
+    if (handedBack) {
+      const returned = await context.app.inject({
+        method: 'POST',
+        url: `/api/goals/${context.goalId}/control`,
+        headers: owner.headers,
+        payload: { action: 'handoff', expectedVersion: taken.json().version, note: '按新方向继续。' },
+      });
+      expect(returned.statusCode).toBe(200);
+      expect(returned.json().status).toBe('active');
+    }
+  })).rejects.toMatchObject({ code: 'MODEL_DISPATCH_BLOCKED' });
+  expect(source.calls()).toBe(0);
+  const { rows } = await context.pool.query<{ actual: string; status: string }>(
+    'SELECT actual_nano::text AS actual,status FROM usage_ledger WHERE request_key=$1',
+    [caller.requestKey],
+  );
+  expect(rows).toEqual([{ actual: '0', status: 'settled' }]);
+});
+
+test('最终路由已取旧快照后发生接管，锁内复核仍阻止请求交给传输器', async () => {
+  const source = transport(response());
+  const gateway = new ModelGateway(context.pool, configuration, source.handler, { environment: 'test' });
+  const owner = await context.login('MEMBER_A');
+  const { rows: [goal] } = await context.pool.query<{ version: number }>(
+    'SELECT version FROM goal WHERE id=$1', [context.goalId],
+  );
+  const original = context.pool.query;
+  let checks = 0;
+  context.pool.query = (async (...args: unknown[]) => {
+    const result: unknown = await Reflect.apply(original, context.pool, args);
+    if (typeof args[0] === 'string' && args[0].includes('AS data_level') && ++checks === 3) {
+      const taken = await context.app.inject({
+        method: 'POST',
+        url: `/api/goals/${context.goalId}/control`,
+        headers: owner.headers,
+        payload: { action: 'takeover', expectedVersion: goal!.version, note: '当前方向已交给人工。' },
+      });
+      expect(taken.statusCode).toBe(200);
+    }
+    return result;
+  }) as typeof context.pool.query;
+  try {
+    await expect(gateway.complete(request, caller, undefined, async () => undefined))
+      .rejects.toMatchObject({ code: 'MODEL_DISPATCH_BLOCKED' });
+    expect(checks).toBe(3);
+    expect(source.calls()).toBe(0);
+  } finally {
+    context.pool.query = original;
+  }
+  const { rows } = await context.pool.query<{ actual: string; status: string }>(
+    'SELECT actual_nano::text AS actual,status FROM usage_ledger WHERE request_key=$1',
+    [caller.requestKey],
+  );
+  expect(rows).toEqual([{ actual: '0', status: 'not_sent' }]);
+});
 beforeEach(async () => {
   vi.stubEnv('CERT_TEST_SHADOW_BUDGET', '1');
   context = await createIntegrationContext();

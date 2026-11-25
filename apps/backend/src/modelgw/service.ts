@@ -47,6 +47,8 @@ export interface GatewayTransport {
 type GatewayOptions = { environment?: 'development' | 'test' | 'production' };
 const rejected = (code: string, message: string, status = 403) =>
   new AppError(status, code, message);
+
+class DispatchNotStarted extends Error {}
 function frozen<T>(value: T): T {
   if (value !== null && typeof value === 'object') {
     for (const item of Object.values(value)) frozen(item);
@@ -173,13 +175,16 @@ export class ModelGateway {
       conversation_status: string;
       user_status: string;
       data_level: DataLevel;
+      goal_dispatchable: boolean;
     }>(
       `SELECT r.conversation_id,r.user_id,r.project_id,r.goal_id,r.status,c.user_id AS conversation_user,
       c.project_id AS conversation_project,c.goal_id AS conversation_goal,c.status AS conversation_status,u.status AS user_status,
+      COALESCE(g.status='active' AND g.direction_version=r.direction_version, false) AS goal_dispatchable,
       GREATEST(r.max_data_level,c.max_data_level,COALESCE(w.data_level,'internal'::document_data_level),
         COALESCE((SELECT wd.data_level FROM workspace_draft wd WHERE wd.conversation_id=c.id),'internal'::document_data_level),
         COALESCE((SELECT v.data_level FROM document d JOIN document_version v ON v.document_id=d.id WHERE d.project_id=r.project_id ORDER BY v.data_level DESC LIMIT 1),'internal'::document_data_level)) AS data_level
       FROM run r JOIN conversation c ON c.id=r.conversation_id JOIN app_user u ON u.id=r.user_id
+      LEFT JOIN goal g ON g.id=r.goal_id AND g.project_id=r.project_id
       LEFT JOIN workspace w ON w.project_id=r.project_id WHERE r.id=$1`,
       [context.runId],
     );
@@ -199,12 +204,49 @@ export class ModelGateway {
       row.user_status !== 'active'
     )
       throw rejected('MODEL_RUN_INACTIVE', '运行、对话或用户已停止，不能继续调用模型。', 409);
+    if (row.goal_id && !row.goal_dispatchable)
+      throw rejected('MODEL_GOAL_INACTIVE', '目标已暂停或方向已变，不能继续派发模型请求。', 409);
     if (row.data_level === 'confidential' && model.transport !== 'local')
       throw rejected(
         'MODEL_LOCAL_REQUIRED',
         '当前项目或对话涉及保密资料，尚未配置可用的本地模型；已拒绝向远端发送。',
       );
     return row.data_level === 'confidential' ? 'confidential' : 'internal';
+  }
+
+  private async dispatchWithGoal(
+    context: GatewayContext,
+    model: GatewayModelConfig,
+    body: UpstreamChatRequest,
+    signal?: AbortSignal,
+  ) {
+    const db = await this.pool.connect().catch(() => {
+      throw new DispatchNotStarted();
+    });
+    let handedOff = false;
+    try {
+      await db.query('BEGIN');
+      // 与接管更新串行化。锁只覆盖请求交给传输器的瞬间。
+      const status = await db.query<{ dispatchable: boolean }>(
+        `SELECT g.status='active' AND g.direction_version=r.direction_version AS dispatchable
+         FROM run r JOIN goal g ON g.id=r.goal_id AND g.project_id=r.project_id
+         WHERE r.id=$1 AND r.user_id=$2 AND r.status='running'
+         FOR SHARE OF g`,
+        [context.runId, context.userId],
+      );
+      if (!status.rows[0]?.dispatchable || this.meteringBlocks.size || signal?.aborted)
+        throw new DispatchNotStarted();
+      handedOff = true;
+      const result = this.transport.send(model, body, signal);
+      void result.catch(() => undefined);
+      return result;
+    } catch (error) {
+      if (!handedOff) throw new DispatchNotStarted();
+      throw error;
+    } finally {
+      const released = await db.query('ROLLBACK').then(() => true, () => false);
+      db.release(!released);
+    }
   }
 
   private usage(raw: unknown): UpstreamUsage | null {
@@ -437,8 +479,16 @@ export class ModelGateway {
       completion_tokens: maxOutputTokens,
     };
     try {
-      raw = await this.transport.send(model, body, signal);
+      raw = await this.dispatchWithGoal(context, model, body, signal);
     } catch (error) {
+      if (error instanceof DispatchNotStarted) {
+        await this.releaseUnsent(context, signal);
+        throw rejected(
+          'MODEL_DISPATCH_BLOCKED',
+          '发送前目标、运行或计量状态已变化，模型请求未发出。',
+          409,
+        );
+      }
       const rawUsage = object(error)?.usage,
         usage = this.usage(rawUsage);
       if (usage || local)

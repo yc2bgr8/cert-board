@@ -15,6 +15,7 @@ import { Logo } from './live/Logo.js';
 import { Sidebar } from './live/Sidebar.js';
 import { ShellIcon } from './live/ShellIcon.js';
 import { ProjectShell } from './live/ProjectShell.js';
+import { GoalControl } from './live/GoalControl.js';
 import { NewConversation } from './live/NewConversation.js';
 import { Search } from './live/Search.js';
 import { Settings } from './live/Settings.js';
@@ -174,15 +175,16 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     staleTime: 30_000,
   });
   const selectedProject = projectQuery.data ?? projects.find((project) => project.id === projectId);
+  const goalsKey = ['live', 'goals', userId, projectId] as const;
   const goalsQuery = useInfiniteQuery({
-    queryKey: ['live', 'goals', userId, projectId],
+    queryKey: goalsKey,
     queryFn: ({ pageParam, signal }) =>
       api.goals(projectId!, { limit: 50, ...(pageParam ? { cursor: pageParam } : {}) }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => (last.hasMore ? (last.nextCursor ?? undefined) : undefined),
     enabled: Boolean(projectId) && view === 'project',
     retry: false,
-    staleTime: 15_000,
+    staleTime: 0,
   });
   const conversationsQuery = useInfiniteQuery({
     queryKey: ['live', 'conversations', userId, projectId],
@@ -819,12 +821,33 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
                     {goalsQuery.data?.pages
                       .flatMap((page) => page.items)
                       .map((goal) => (
-                        <div className="live-goal-row" key={goal.id}>
+                        <div className="live-goal-row" key={goal.id} role="group" aria-label={goal.title}>
                           <p>
                             {goal.title}
                             {goal.dueAt && <small>目标时间：{displayTime(goal.dueAt)}</small>}
                           </p>
-                          <span className="live-muted">{goalStatuses[goal.status]}</span>
+                          <div className="live-goal-controls">
+                            <span className="live-muted">{goalStatuses[goal.status]}</span>
+                            <GoalControl
+                              goal={goal}
+                              userId={userId}
+                              onRefresh={() => void queryClient.invalidateQueries({ queryKey: goalsKey })}
+                              onChanged={({ goalId, status, version, directionVersion }) => {
+                                queryClient.setQueryData<typeof goalsQuery.data>(goalsKey, (cached) =>
+                                  cached && {
+                                    ...cached,
+                                    pages: cached.pages.map((page) => ({
+                                      ...page,
+                                      items: page.items.map((item) => item.id === goalId && item.version <= version
+                                        ? { ...item, status, version, directionVersion }
+                                        : item),
+                                    })),
+                                  },
+                                );
+                                void queryClient.invalidateQueries({ queryKey: goalsKey });
+                              }}
+                            />
+                          </div>
                         </div>
                       ))}
                     {!goalsQuery.isPending &&

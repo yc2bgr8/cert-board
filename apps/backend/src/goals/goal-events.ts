@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
-import { goalControlInputSchema, type BrowserIdentity } from '@cert-board/shared';
+import {
+  goalControlInputSchema,
+  goalControlResultSchema,
+  goalTakeoverStatuses,
+  type BrowserIdentity,
+  type GoalRecord,
+} from '@cert-board/shared';
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
 import {
@@ -401,11 +407,12 @@ export async function controlGoal(
       await db.query<{
         project_id: string;
         owner_user_id: string;
-        status: string;
+        project_owner: string;
+        status: GoalRecord['status'];
         version: number;
         direction_version: number;
       }>(
-        `SELECT g.project_id,p.owner_user_id,g.status,g.version,g.direction_version FROM goal g JOIN cert_project p ON p.id=g.project_id
+        `SELECT g.project_id,g.owner_user_id,p.owner_user_id AS project_owner,g.status,g.version,g.direction_version FROM goal g JOIN cert_project p ON p.id=g.project_id
        WHERE g.id=$1 FOR UPDATE OF g`,
         [goalId],
       )
@@ -414,20 +421,16 @@ export async function controlGoal(
       !current ||
       !authorize(actor, 'project.write', {
         projectId: current.project_id,
-        ownerUserId: current.owner_user_id,
+        ownerUserId: current.project_owner,
       })
     )
       throw unavailable();
+    if (actor.userId !== current.owner_user_id)
+      throw new AppError(403, 'GOAL_CONTROL_FORBIDDEN', '只有目标负责人可以接管或交还。');
     if (current.version !== command.data.expectedVersion) throw unavailable();
     if (
       command.data.action === 'takeover' &&
-      ![
-        'active',
-        'waiting_external',
-        'waiting_materials',
-        'waiting_decision',
-        'pending_review',
-      ].includes(current.status)
+      !goalTakeoverStatuses.some((status) => status === current.status)
     )
       throw unavailable();
     if (command.data.action === 'handoff' && current.status !== 'human_controlled')
@@ -457,6 +460,8 @@ export async function controlGoal(
       "INSERT INTO audit_log(actor_user_id,actor_kind,action,target_type,target_id) VALUES($1,'browser',$2,'goal',$3)",
       [actor.userId, `goal.${command.data.action}`, goalId],
     );
-    return { goalId, status: next, version: current.version + 1, directionVersion: direction };
+    return goalControlResultSchema.parse({
+      goalId, status: next, version: current.version + 1, directionVersion: direction,
+    });
   });
 }

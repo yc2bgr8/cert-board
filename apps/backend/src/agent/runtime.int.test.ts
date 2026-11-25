@@ -1054,6 +1054,16 @@ test('负责人离线时，接管阻止事件唤醒，交还后只建立一条�
       })
     ).statusCode,
   ).toBe(401);
+  const colleague = await context.login('MEMBER_B');
+  expect((
+    await context.app.inject({
+      method: 'POST',
+      url: `${base}/control`,
+      headers: colleague.headers,
+      payload: { action: 'takeover', expectedVersion: initial.version, note: '同事的接管请求。' },
+    })
+  ).statusCode).toBe(403);
+  expect(await goal()).toEqual(initial);
   expect((await command('takeover', initial.version, '由人先核对。')).statusCode).toBe(200);
   expect((await command('handoff', initial.version, '旧版本交还。')).statusCode).toBe(409);
   const arrive = () =>
