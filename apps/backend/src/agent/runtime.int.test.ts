@@ -163,6 +163,71 @@ test.each([
   expect(completed.rows).toEqual(done ? [{ request_id: rows[1]?.request_key }] : []);
 });
 
+test.each([
+  { plan: 'running', canReview: true, finishes: true, retries: true, status: 'waiting' },
+  { plan: 'running', canReview: true, finishes: false, retries: true, status: 'stopped' },
+  { plan: 'completed', canReview: true, finishes: false, retries: false, status: 'stopped' },
+  { plan: 'running', canReview: false, finishes: false, retries: false, status: 'stopped' },
+])('Cursor 主模型只在有未完计划和送审工具时续做一次（$plan / $canReview / $finishes）', async (fixture) => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const target = await queued(context, 'ask');
+  const models: ModelGatewayConfig = { version: 1, models: cursorAcceptanceModels };
+  const corrections: boolean[] = [];
+  const text = () => result({ role: 'assistant', content: '已读资料。' });
+  const gateway = new ModelGateway(
+    context.pool,
+    models,
+    {
+      kind: 'fixture',
+      async send(_model, request) {
+        const correction = request.messages[0]?.content?.includes('已登记的计划仍有未完成步骤') ?? false;
+        corrections.push(correction);
+        let reply = text();
+        if (corrections.length === 1) {
+          reply = call('plan_update', {
+            steps: [{ title: '核对资料并提交人工审核', status: fixture.plan }],
+            progress: '核对资料。',
+          });
+        } else if (correction && fixture.finishes) {
+          reply = call('ask_user', { question: '请确认合成证据冲突。', options: [] });
+        }
+        return { id: reply.id, object: reply.object, choices: reply.choices };
+      },
+    },
+    { environment: 'test' },
+  );
+  const outcome = await executeAgentRun(
+    {
+      pool: context.pool,
+      store,
+      gateway,
+      models,
+      definitions: async (code) =>
+        (await buildAgentTools(store, code, context.pool)).filter(
+          (tool) => fixture.canReview || tool.metadata.name !== 'submit_for_review',
+        ),
+    },
+    target.runId,
+  );
+  expect(corrections).toEqual(fixture.retries ? [false, false, true] : [false, false]);
+  expect(outcome.status).toBe(fixture.status);
+  const { rows } = await context.pool.query<{ request_key: string; status: string }>(
+    'SELECT request_key,status FROM usage_ledger WHERE run_id=$1 ORDER BY created_at',
+    [target.runId],
+  );
+  expect(rows.map(({ status }) => status)).toEqual(corrections.map(() => 'unknown'));
+  expect(new Set(rows.map(({ request_key }) => request_key)).size).toBe(corrections.length);
+  const completed = await context.pool.query<{ request_id: string }>(
+    "SELECT request_id FROM run_event WHERE run_id=$1 AND type='model_completed' ORDER BY seq",
+    [target.runId],
+  );
+  expect(completed.rows).toEqual(rows.map(({ request_key }) => ({ request_id: request_key })));
+});
+
 test('Agent 剧本在容器模式收不到核实工具，宿主模式仍能使用', async () => {
   const context = await createIntegrationContext();
   close = () => context.close();

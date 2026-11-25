@@ -582,6 +582,7 @@ export async function executeAgentRun(
       if (resumedTerminal === 'review')
         reviewId = reviewSubmitResultSchema.parse(resolved.result.data).reviewId;
     }
+    let planIncomplete = false;
     const onEvent = async (event: KernelEvent) => {
       if (event.type === 'message') {
         const saved = await appendConversationMessage(pool, {
@@ -628,8 +629,11 @@ export async function executeAgentRun(
               : {}),
           },
         });
-        if (!event.isError && event.name === 'plan_update')
-          await emit({ type: 'plan_updated', payload: agentPlanSchema.parse(event.data) });
+        if (!event.isError && event.name === 'plan_update') {
+          const plan = agentPlanSchema.parse(event.data);
+          planIncomplete = plan.steps.some(({ status }) => status !== 'completed');
+          await emit({ type: 'plan_updated', payload: plan });
+        }
         if (!event.isError && event.name === 'ask_user')
           await emit({
             type: 'question',
@@ -707,8 +711,8 @@ export async function executeAgentRun(
             userId: context.userId,
             event: { type: 'model_started' },
           });
-        const attempt = (input: ChatRequest, key: string) =>
-          gateway.complete(
+        const attempt = async (input: ChatRequest, key: string) => {
+          const response = await gateway.complete(
             input,
             {
               requestKey: key,
@@ -720,17 +724,36 @@ export async function executeAgentRun(
             signal,
             ensureActive,
           );
+          if (response.requestKey !== key)
+            throw new KernelToolError('MODEL_RESPONSE_INVALID', '模型回执的请求编号不匹配。', {
+              recoverable: false,
+            });
+          await appendRunEvent(pool, {
+            runId,
+            userId: context.userId,
+            event: {
+              type: 'model_completed',
+              requestId: response.requestKey,
+              ...(response.usage
+                ? {
+                    inputTokens: response.usage.inputTokens,
+                    outputTokens: response.usage.outputTokens,
+                    totalTokens: response.usage.totalTokens,
+                  }
+                : {}),
+              costNano: response.usage?.costNano ?? null,
+              dataLevel: response.dataLevel,
+            },
+          });
+          return response;
+        };
         let acceptedKey = requestKey;
-        const response = await attempt(request, requestKey).catch(async (error: unknown) => {
-          if (
-            !(error instanceof AppError) ||
-            error.code !== 'MODEL_CURSOR_REPLY_INVALID' ||
-            model.transport !== 'cursor-acp' ||
-            purpose !== 'agent' ||
-            retriedCursorReply ||
-            request.messages.length >= 256
-          )
-            throw error;
+        const canRetryCursorReply = () =>
+          model.transport === 'cursor-acp' &&
+          purpose === 'agent' &&
+          !retriedCursorReply &&
+          request.messages.length < 256;
+        const retry = async (content: string) => {
           await ensureActive();
           retriedCursorReply = true;
           await appendRunEvent(pool, {
@@ -742,39 +765,32 @@ export async function executeAgentRun(
           return attempt(
             {
               ...request,
-              messages: [
-                {
-                  role: 'system',
-                  content:
-                    '上一次返回未通过回合结构校验。请重新根据本轮请求返回一个完整的 JSON 回合，并在 actions 中声明下一步所需的已登记工具。',
-                },
-                ...request.messages,
-              ],
+              messages: [{ role: 'system', content }, ...request.messages],
             },
             acceptedKey,
           );
+        };
+        let response = await attempt(request, requestKey).catch((error: unknown) => {
+          if (
+            !(error instanceof AppError) ||
+            error.code !== 'MODEL_CURSOR_REPLY_INVALID' ||
+            !canRetryCursorReply()
+          )
+            throw error;
+          return retry(
+            '上一次返回未通过回合结构校验。请重新根据本轮请求返回一个完整的 JSON 回合，并在 actions 中声明下一步所需的已登记工具。',
+          );
         });
-        if (response.requestKey !== acceptedKey)
-          throw new KernelToolError('MODEL_RESPONSE_INVALID', '模型回执的请求编号不匹配。', {
-            recoverable: false,
-          });
-        await appendRunEvent(pool, {
-          runId,
-          userId: context.userId,
-          event: {
-            type: 'model_completed',
-            requestId: response.requestKey,
-            ...(response.usage
-              ? {
-                  inputTokens: response.usage.inputTokens,
-                  outputTokens: response.usage.outputTokens,
-                  totalTokens: response.usage.totalTokens,
-                }
-              : {}),
-            costNano: response.usage?.costNano ?? null,
-            dataLevel: response.dataLevel,
-          },
-        });
+        if (
+          response.finishReason === 'stop' &&
+          planIncomplete &&
+          request.tool_choice !== 'none' &&
+          request.tools?.some(({ function: tool }) => tool.name === 'submit_for_review') &&
+          canRetryCursorReply()
+        )
+          response = await retry(
+            '已登记的计划仍有未完成步骤。上一次仅返回了文字，未完成交付。请依据已有工具回执和当前权限继续，选择下一步允许的工具。缺少事实或需要人工判断时请用 ask_user，完成交付后用 submit_for_review。',
+          );
         return acceptedKey === requestKey ? response : { ...response, requestKey };
       } catch (error) {
         throw new KernelToolError(
