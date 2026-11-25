@@ -47,6 +47,7 @@
     "dev:down": "node scripts/dev.mjs down",
     "dev:status": "node scripts/dev.mjs status",
     "dev:isolated:up": "node scripts/dev.mjs isolated-up",
+    "dev:isolated:stop": "node scripts/dev.mjs isolated-stop",
     "dev:isolated:down": "node scripts/dev.mjs isolated-down",
     "dev:isolated:status": "node scripts/dev.mjs isolated-status",
     "dev:isolated:accounts": "node scripts/dev.mjs isolated-accounts",
@@ -72,7 +73,10 @@
     "walkthrough:real": "node --import tsx scripts/walkthrough.mjs",
     "walkthrough:batch": "node --import tsx scripts/walkthrough.mjs --batch",
     "format": "prettier --write apps packages scripts *.json *.mjs *.yaml",
-    "security:scan": "node scripts/secret-scan.mjs"
+    "security:scan": "node scripts/secret-scan.mjs",
+    "backup:save": "node scripts/backup.mjs save",
+    "backup:restore": "node scripts/backup.mjs restore",
+    "test:backup": "node scripts/test-backup.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-39 切片部署和备份恢复</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#冷备份">冷备份</a><a class="level-2" href="#恢复演练">恢复演练</a><a class="level-2" href="#待完成">待完成</a></nav><main><h1 id="pr-39-切片部署和备份恢复">PR-39 切片部署和备份恢复</h1>
+<p>使用现有隔离部署 <code>pnpm dev:isolated:up</code>。网页只在回环端口监听，数据库和 MinIO 仍在 Compose 内部网段。备份不需要网络或模型凭据。</p>
+<h2 id="冷备份">冷备份</h2>
+<p>在维护窗口运行 <code>pnpm dev:isolated:stop</code>，停止隔离工作台、后台、数据库与 MinIO，保留已停的源容器和数据卷。备份过程中保持这些服务停止。日常工作台和稳定预览使用各自的项目与卷。</p>
+<p>运行 <code>pnpm backup:save</code>。脚本校验项目、卷标识、数据卷无人使用、PostgreSQL 已正常停库，然后只读复制两个命名卷。输出位于 <code>.local/backups/&lt;备份编号&gt;/</code>，包含两个归档与 SHA-256、大小和镜像编号清单。成功前保留为隐藏的临时目录。归档含业务资料与数据库认证状态，应按源资料权限保存。Windows 使用仅当前维护账号可访问的目录，Linux 脚本校验目录的私有权限。不要提交或转发归档。</p>
+<h2 id="恢复演练">恢复演练</h2>
+<p>在只存放受信任备份的独立环境运行 <code>pnpm backup:restore &lt;备份编号&gt;</code>。先校验整个归档与原镜像版本，再生成一个 <code>cert-board-restore-…</code> 项目并创建空卷。验证时使用同一 Compose 文件、恢复项目名和源环境对应的凭据启动 PostgreSQL 与 MinIO。恢复命令只填充新卷，源部署仍由日常部署流程管理。</p>
+<p><code>pnpm test:backup</code> 只在干净的独立 Linux KVM 上运行。演练使用合成资料和临时凭据，核对带数据的卷、所有应用表行数和对象文件 SHA-256，测试运行中的源与损坏的备份拒绝操作。</p>
+<h2 id="待完成">待完成</h2>
+<ul><li>用最终提交与届时的 <code>main</code> 复验完整隔离部署、恢复和全部检查。真实 R09 的后台与沙箱资源采样随正式走查跑。</li><li>日备份窗口和长期归档位置随正式部署配置，演练阶段手动启动。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

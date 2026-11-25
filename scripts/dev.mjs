@@ -56,6 +56,7 @@ export function composeInvocation(
     'preview-up': ['up', '--detach', '--wait', '--wait-timeout', '120'],
     'isolated-up': ['up', '--detach', '--build', '--wait', '--wait-timeout', '120'],
     'isolated-web-up': ['up', '--detach', '--build', '--wait', '--wait-timeout', '120'],
+    'isolated-stop': ['stop', '--timeout', '60'],
     'isolated-down': ['--profile', 'network-check', 'down'],
     'isolated-web-down': ['--profile', 'network-check', 'down'],
     'isolated-status': ['--profile', 'network-check', 'ps'],

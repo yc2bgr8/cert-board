@@ -77,6 +77,7 @@ describe('本地依赖服务脚本', () => {
     for (const action of [
       'isolated-check',
       'isolated-down',
+      'isolated-stop',
       'isolated-status',
       'isolated-accounts',
     ]) {
@@ -85,6 +86,8 @@ describe('本地依赖服务脚本', () => {
       expect(invocation.args).not.toContain('--volumes');
       expect(invocation.environment).not.toHaveProperty('OPENROUTER_API_KEY');
     }
+    expect(composeInvocation('isolated-stop', '/work', 'linux', supplied, source).args.slice(-3))
+      .toEqual(['stop', '--timeout', '60']);
     expect(() =>
       composeInvocation('isolated-up', '/work', 'linux', supplied, {
         CERT_ISOLATED_WEB_PORT: '3100',
