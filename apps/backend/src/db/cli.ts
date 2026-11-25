@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 import { ConfigurationError, parseBackendConfig, SeedConfigurationError } from '@cert-board/shared';
 import { migrateDatabase, MigrationError } from './migrate.js';
 import { DevelopmentSeedError, seedDevelopmentAccounts } from './seed.js';
 import { seedDevelopmentProject } from '../projects/seed.js';
-import { seedInFlightDevelopment } from '../projects/in-flight-seed.js';
+import { requireInFlightSeedTarget, seedInFlightDevelopment } from '../projects/in-flight-seed.js';
 import { seedT1Documents } from '../documents/t1-seed.js';
 import { BlobStore } from '../documents/blob-store.js';
 import { createDependencies } from '../dependencies.js';
@@ -18,6 +19,10 @@ async function main() {
   if (!['migrate', 'seed', 'setup', 'isolated-accounts', 'seed-in-flight'].includes(action ?? ''))
     throw new Error('unknown_action');
   const config = parseBackendConfig(process.env);
+  if (action === 'seed-in-flight') {
+    const marker = await readFile('/etc/cert-board-acceptance-vm', 'utf8').catch(() => null);
+    requireInFlightSeedTarget(config, marker?.trim() === 'cert-board-acceptance');
+  }
   if (
     action === 'isolated-accounts' &&
     (config.CONTAINER_RUNTIME !== 'docker' ||

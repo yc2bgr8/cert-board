@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type pg from 'pg';
-import { developmentProjectSeedConfigSchema } from '@cert-board/shared';
+import { developmentProjectSeedConfigSchema, type BackendConfig } from '@cert-board/shared';
 import { DevelopmentSeedError } from '../db/seed.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { initializeDevelopmentWorkspace } from '../workspace/seed.js';
@@ -46,6 +46,35 @@ type Scenario = (typeof scenarios)[number];
 const collision = () =>
   new DevelopmentSeedError('合成在途项目已有冲突或记录不完整。请核对数据，原记录已保留。');
 
+export function requireInFlightSeedTarget(
+  config: Pick<
+    BackendConfig,
+    | 'DATABASE_URL'
+    | 'MINIO_ENDPOINT'
+    | 'MINIO_PORT'
+    | 'MINIO_USE_SSL'
+    | 'MINIO_BUCKET'
+    | 'NODE_ENV'
+    | 'CONTAINER_RUNTIME'
+  >,
+  onAcceptanceVm: boolean,
+) {
+  const database = new URL(config.DATABASE_URL);
+  if (
+    !onAcceptanceVm ||
+    !developmentProjectSeedConfigSchema.safeParse(config).success ||
+    config.CONTAINER_RUNTIME !== 'host' ||
+    database.hostname !== '127.0.0.1' ||
+    database.port !== '25432' ||
+    database.pathname !== '/cert_board' ||
+    config.MINIO_ENDPOINT !== '127.0.0.1' ||
+    config.MINIO_PORT !== 29000 ||
+    config.MINIO_USE_SSL ||
+    config.MINIO_BUCKET !== 'cert-board'
+  )
+    throw new DevelopmentSeedError('请在独立验收机使用已登记的本地测试数据库和文件存储。');
+}
+
 function scenarioFiles(seed: Scenario) {
   const items = seed.nodes.map((node) => ({
     ...node,
@@ -81,7 +110,7 @@ function scenarioFiles(seed: Scenario) {
   ];
 }
 
-async function alreadySeeded(client: pg.PoolClient, seed: Scenario) {
+async function alreadySeeded(client: pg.PoolClient, store: DocumentBlobStore, seed: Scenario) {
   const project = await client.query<{
     id: string;
     development_seed_key: string;
@@ -107,6 +136,30 @@ async function alreadySeeded(client: pg.PoolClient, seed: Scenario) {
     [seed.goalId, seed.projectId, seed.workspaceId, seed.versionId],
   );
   if (state.rowCount !== 1) throw collision();
+  const initialFiles = await client.query<{
+    path: string;
+    sha256: string;
+    byte_size: string;
+    media_type: string;
+  }>('SELECT path,sha256,byte_size,media_type FROM workspace_file WHERE version_id=$1', [
+    seed.versionId,
+  ]);
+  const byPath = new Map(initialFiles.rows.map((file) => [file.path, file]));
+  for (const entry of scenarioFiles(seed)) {
+    const file = byPath.get(entry.path);
+    if (!file || file.media_type !== (entry.mediaType ?? 'text/markdown')) throw collision();
+    let bytes: Buffer;
+    try {
+      bytes = await store.get(file.sha256);
+    } catch {
+      throw new DevelopmentSeedError('合成项目的工作区初版文件不可读取，请核对隔离存储后重试。');
+    }
+    if (
+      bytes.length !== Number(file.byte_size) ||
+      createHash('sha256').update(bytes).digest('hex') !== file.sha256
+    )
+      throw new DevelopmentSeedError('合成项目的工作区初版文件校验不符，请核对隔离存储后重试。');
+  }
   return true;
 }
 
@@ -130,7 +183,7 @@ export async function seedInFlightDevelopment(
     ).rows[0];
     if (!owner) throw new DevelopmentSeedError('请先初始化有效的开发账号。');
     for (const seed of scenarios) {
-      const exists = await alreadySeeded(client, seed);
+      const exists = await alreadySeeded(client, store, seed);
       if (!exists) {
         const project = await client.query(
           `INSERT INTO cert_project(id,development_seed_key,name,project_type,market,pathway,owner_user_id,next_action)

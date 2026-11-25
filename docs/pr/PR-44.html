@@ -17,8 +17,8 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
 </style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#本机候选范围">本机候选范围</a><a class="level-2" href="#开发验收">开发验收</a><a class="level-2" href="#没做什么">没做什么</a></nav><main><h1 id="pr-44-在途项目合成初始化">PR-44 在途项目合成初始化</h1>
 <h2 id="本机候选范围">本机候选范围</h2>
-<ul><li><code>pnpm db:seed:in-flight</code> 在已初始化账号和数据库的开发环境中建立两个合成演练。注册项目用于 CPAP 510(k) 准备，维护项目用于 L08 年度核查。项目标题、目标、工作区初版和节点文件均可在工作区查看。</li><li>计划与实际日期保持待核，真实主体、具体证照、型号和日期交注册人员确认。工作区保存结构化的 <code>计划/节点.json</code> 及对应说明。种子入口单独执行。</li><li>复用现有的工作区初版写入和审计方式。种子借助事务和同一锁保护并发，重复执行保留已经添加的人工版本。标识冲突、现有数据不完整或存储失败会终止该轮初始化。</li></ul>
+<ul><li><code>pnpm db:seed:in-flight</code> 在已初始化账号和数据库的独立验收虚拟机中建立两个合成演练。命令核对验收机标记和批准的本地数据库、文件存储。注册项目用于 CPAP 510(k) 准备，维护项目用于 L08 年度核查。项目标题、目标、工作区初版和节点文件均可在工作区查看。</li><li>计划与实际日期保持待核，真实主体、具体证照、型号和日期交注册人员确认。工作区保存结构化的 <code>计划/节点.json</code> 及对应说明。种子入口单独执行。</li><li>复用现有的工作区初版写入和审计方式。种子借助事务和同一锁保护并发，重复执行保留已经添加的人工版本，并核对初版文件记录、大小和哈希。初版对象缺失时会报错，保留现有工作区。</li></ul>
 <h2 id="开发验收">开发验收</h2>
-<ul><li><code>pnpm test:in-flight</code> 在隔离库通过 3 项集成，覆盖并发初始化、已有人工版本、空业务日期、存储失败回滚和生产环境拒绝。已登录的浏览器接口可列出两套演练的节点文件。</li><li>隔离虚拟机型检、lint 通过。使用 PostgreSQL 和 MinIO 实跑 <code>pnpm db:seed:in-flight</code> 两次，首次新增两套，重跑新增零套，数据库里两个节点文件和空业务日期均核对通过。</li></ul>
+<ul><li><code>pnpm test:in-flight</code> 在隔离库通过 3 项集成，覆盖并发初始化、已有人工版本、空业务日期、存储失败回滚和生产环境拒绝。已登录的浏览器接口可列出两套演练的节点文件。</li><li>验收机与目标服务的校验通过定点单测。新版集成另检查仅恢复数据库但缺少初版文件的情形。</li><li>隔离虚拟机型检、lint 通过。使用 PostgreSQL 和 MinIO 实跑 <code>pnpm db:seed:in-flight</code> 两次，首次新增两套，重跑新增零套，数据库里两个节点文件和空业务日期均核对通过。</li></ul>
 <h2 id="没做什么">没做什么</h2>
 <ul><li>PR-43 的真实台账经注册人员核对后再进入实际项目初始化。真实在途目标、负责人、材料和业务日期需要人员确认。</li><li>计划节点先放在工作区版本中。正式节点维护、提醒和真实模型业务走查留待相关能力与合并门禁完成。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

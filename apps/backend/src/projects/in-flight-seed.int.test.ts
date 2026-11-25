@@ -112,6 +112,18 @@ test('在途演练可并发重跑，节点与业务日期待核，保留后续�
     );
     const rerun = await seedInFlightDevelopment(context.pool, storage, environment);
     expect(rerun.every(({ created }) => !created)).toBe(true);
+    await expect(
+      seedInFlightDevelopment(
+        context.pool,
+        {
+          ...storage,
+          async get() {
+            throw new Error('模拟备份只恢复了数据库');
+          },
+        },
+        environment,
+      ),
+    ).rejects.toThrow('工作区初版文件不可读取');
     expect(
       (
         await context.pool.query('SELECT current_version_id FROM workspace WHERE id=$1', [
