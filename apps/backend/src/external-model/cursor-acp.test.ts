@@ -36,7 +36,7 @@ test('ACP 主 Agent 将回复格式直接放在派发文本开头，按原样附
         function: { name: 'read_example', description: '读取合成示例', parameters: { type: 'object' } },
       }],
     };
-    await expect(sendCursorAcceptance(connection, cursorAcceptanceModels[0]!, request, undefined, sent))
+    await expect(sendCursorAcceptance(connection, cursorAcceptanceModels[0]!, request, undefined, { prepare: sent }))
       .resolves.toMatchObject({ choices: [{
       finish_reason: 'tool_calls',
       message: { content: null, tool_calls: [{ function: { name: 'read_example', arguments: '{}' } }] },
@@ -44,7 +44,10 @@ test('ACP 主 Agent 将回复格式直接放在派发文本开头，按原样附
     expect(sent).toHaveBeenCalledOnce();
     let checks = 0;
     let blocked = false;
-    const assertDispatch = vi.fn(() => {
+    const recheckRouting = vi.fn(async () => {
+      expect(blocked).toBe(true);
+    });
+    const assertMayWrite = vi.fn(() => {
       if (blocked) throw new Error('blocked-after-scope');
     });
     await expect(sendCursorAcceptance({
@@ -52,10 +55,13 @@ test('ACP 主 Agent 将回复格式直接放在派发文本开头，按原样附
       async verifyAcceptanceScope() {
         if (++checks === 2) blocked = true;
       },
-    }, cursorAcceptanceModels[0]!, request, undefined, async () => {
-      expect(blocked).toBe(false);
-    }, assertDispatch)).rejects.toMatchObject({ confirmedNotSent: true });
-    expect(assertDispatch).toHaveBeenCalledOnce();
+    }, cursorAcceptanceModels[0]!, request, undefined, {
+      prepare: async () => { expect(blocked).toBe(false); },
+      recheckRouting,
+      assertMayWrite,
+    })).rejects.toMatchObject({ confirmedNotSent: true });
+    expect(recheckRouting).toHaveBeenCalledOnce();
+    expect(assertMayWrite).toHaveBeenCalledOnce();
   } finally {
     await Promise.allSettled([unlink(config), unlink(mcp), unlink(marker)]);
     await rmdir(profile);

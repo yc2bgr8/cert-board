@@ -192,9 +192,12 @@ test('Cursor 最终路由拒绝已换代的执行租约，账本记录未发送'
   const paidSend = vi.fn(() => response());
   const remote: GatewayTransport = {
     kind: 'fixture',
-    async send(_model, _body, _signal, guard) {
+    async send(_model, _body, _signal, dispatch) {
       try {
-        await guard?.();
+        await dispatch?.prepare?.();
+        await context.pool.query('UPDATE run SET lease_generation=2 WHERE id=$1', [caller.runId]);
+        await dispatch?.recheckRouting?.();
+        dispatch?.assertMayWrite?.();
       } catch {
         throw new VerificationChannelError('failed', true);
       }
@@ -208,9 +211,7 @@ test('Cursor 最终路由拒绝已换代的执行租约，账本记录未发送'
     { environment: 'test' },
   );
   await expect(
-    gateway.complete(request, { ...caller, lease: { ownerId, generation: 1 } }, undefined, async () => {
-      await context.pool.query('UPDATE run SET lease_generation=2 WHERE id=$1', [caller.runId]);
-    }),
+    gateway.complete(request, { ...caller, lease: { ownerId, generation: 1 } }),
   ).rejects.toMatchObject({ code: 'MODEL_DISPATCH_BLOCKED' });
   expect(paidSend).not.toHaveBeenCalled();
   const ledger = await context.pool.query<{ status: string }>(
@@ -224,12 +225,13 @@ test('Cursor 范围复核期间建立计量拦截时，最终同步门禁拒绝�
   const actualSend = vi.fn(() => response());
   const transport: GatewayTransport = {
     kind: 'fixture',
-    async send(_model, _body, _signal, beforeDispatch, assertDispatch) {
-      await beforeDispatch?.();
-      // 第二次范围复核为异步操作，期间另一请求进入计量处理。
+    async send(_model, _body, _signal, dispatch) {
+      await dispatch?.prepare?.();
+      await dispatch?.recheckRouting?.();
+      // 路由查询结束前另一请求进入计量处理。
       Reflect.get(gateway, 'meteringBlocks').set(randomUUID(), null);
       try {
-        assertDispatch?.();
+        dispatch?.assertMayWrite?.();
       } catch {
         throw new VerificationChannelError('failed', true);
       }

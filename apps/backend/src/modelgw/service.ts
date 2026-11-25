@@ -26,7 +26,7 @@ import {
   markUsageNotDispatched,
   meteringCanResume,
 } from '../budget/service.js';
-import { CursorOutputLimitError, CursorReplyFormatError } from './cursor-acceptance.js';
+import { CursorOutputLimitError, CursorReplyFormatError, type CursorDispatchChecks } from './cursor-acceptance.js';
 import { CursorAcpNativeToolError } from '../external-model/cursor-acp.js';
 
 export type UpstreamChatRequest = Omit<ChatRequest, 'model' | 'stream'> & {
@@ -44,8 +44,7 @@ export interface GatewayTransport {
     model: GatewayModelConfig,
     body: UpstreamChatRequest,
     signal?: AbortSignal,
-    beforeCursorDispatch?: () => Promise<void>,
-    assertCursorDispatch?: () => void,
+    cursorDispatch?: CursorDispatchChecks,
   ): Promise<unknown>;
 }
 type GatewayOptions = { environment?: 'development' | 'test' | 'production' };
@@ -454,16 +453,20 @@ export class ModelGateway {
               model,
               body,
               signal,
-              async () => {
-                if (this.meteringBlocks.size || signal?.aborted)
-                  throw new Error('dispatch_cancelled');
-                await this.routing(context, model);
-                await beforeDispatch?.();
-                await this.routing(context, model);
-              },
-              () => {
-                if (this.meteringBlocks.size || signal?.aborted)
-                  throw new Error('dispatch_cancelled');
+              {
+                prepare: async () => {
+                  if (this.meteringBlocks.size || signal?.aborted)
+                    throw new Error('dispatch_cancelled');
+                  await this.routing(context, model);
+                  await beforeDispatch?.();
+                },
+                recheckRouting: async () => {
+                  await this.routing(context, model);
+                },
+                assertMayWrite: () => {
+                  if (this.meteringBlocks.size || signal?.aborted)
+                    throw new Error('dispatch_cancelled');
+                },
               },
             )
           : await this.transport.send(model, body, signal);

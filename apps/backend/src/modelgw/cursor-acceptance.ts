@@ -159,6 +159,12 @@ export class CursorReplyFormatError extends Error {
   }
 }
 
+export type CursorDispatchChecks = {
+  prepare?: () => Promise<void>;
+  recheckRouting?: () => Promise<void>;
+  assertMayWrite?: () => void;
+};
+
 const startMarker = 'CERT_BOARD_TURN_START ';
 const endMarker = 'CERT_BOARD_TURN_END ';
 
@@ -253,8 +259,7 @@ export async function sendCursorAcceptance(
   model: CursorGatewayModel,
   raw: unknown,
   signal?: AbortSignal,
-  beforeDispatch?: () => Promise<void>,
-  assertDispatch?: () => void,
+  dispatch?: CursorDispatchChecks,
 ) {
   let request: z.infer<typeof chatRequestSchema> & { max_tokens: number };
   try {
@@ -274,7 +279,7 @@ export async function sendCursorAcceptance(
     : [
         turnContract,
         ...(frame
-          ? [`Place the JSON between these two exact lines: "${frame.start}" and "${frame.end}". End the reply after the closing line.`]
+          ? [`If the entire framed reply fits the byte limit, place the JSON between these two exact lines: "${frame.start}" and "${frame.end}". End the reply after the closing line. If the frame would exceed the limit, use the same standalone JSON object without markers.`]
           : ['Use the entire reply for the JSON object, with no reply frame.']),
         `Reply limit: ${request.max_tokens} UTF-8 bytes. Use the labelled messages and tool definitions in the request below.`,
         `Request JSON:\n${JSON.stringify(request)}`,
@@ -286,11 +291,12 @@ export async function sendCursorAcceptance(
       prompt,
       async () => {
         await config.verifyAcceptanceScope?.();
-        await beforeDispatch?.();
+        await dispatch?.prepare?.();
         await config.verifyAcceptanceScope?.();
+        await dispatch?.recheckRouting?.();
       },
       signal,
-      assertDispatch,
+      dispatch?.assertMayWrite,
     );
   const answer = await readTurn().catch((error: unknown) => {
     if (error instanceof CursorAcpStartupError && !signal?.aborted) return readTurn();

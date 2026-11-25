@@ -205,8 +205,10 @@ test('只读 Cursor 网关把核实原回执交给主持人并保留未结算账
     { version: 1, models: cursorAcceptanceModels },
     {
       kind: 'fixture',
-      async send(_model, request, _signal, beforeDispatch) {
-        await beforeDispatch?.();
+      async send(_model, request, _signal, dispatch) {
+        await dispatch?.prepare?.();
+        await dispatch?.recheckRouting?.();
+        dispatch?.assertMayWrite?.();
         expect(request.tool_choice).toBe('none');
         return parseCursorModelTurn(JSON.stringify(reply), request, true);
       },

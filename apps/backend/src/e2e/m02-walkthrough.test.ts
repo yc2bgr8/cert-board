@@ -5,14 +5,14 @@ import { verifyM02ListingClaims } from './m02-walkthrough.js';
 const lookup = ['SYNTHETIC PRODUCT'];
 const record: OfficialRecord = {
   identifier: '54321',
-  company: 'Synthetic Incorporation',
+  company: 'Synthetic Product',
   registrationExpiryYear: 2026,
   usAgentBusiness: 'Synthetic Agent',
   proprietaryNames: ['Synthetic Product'],
 };
 const receipt = { documentId: '398fdc60-6d3b-4484-a7bb-b62b5f75a029', version: 2, page: 1 };
 const values = [
-  ['列名机构', record.company!, '"company": "Synthetic Incorporation"'],
+  ['列名机构', record.company!, '"company": "Synthetic Product"'],
   ['登记号', record.identifier, '"identifier": "54321"'],
   ['到期年份', record.registrationExpiryYear!, '"registrationExpiryYear": 2026'],
   ['美国代理人企业', record.usAgentBusiness!, '"usAgentBusiness": "Synthetic Agent"'],
@@ -39,6 +39,7 @@ test('列名主张逐字保留回执的商品名和对应页码', () => {
     { ...claims[4]!, sources: [{ ...receipt, page: 2, quote: '"Synthetic Product"' }] },
     { ...claims[4]!, sources: [{ ...receipt, version: 1, quote: '"Synthetic Product"' }] },
     { ...claims[4]!, sources: [{ ...receipt, quote: '"Synthetic Product II"' }] },
+    { ...claims[4]!, sources: [{ ...receipt, quote: '"company": "Synthetic Product"' }] },
   ]) {
     const altered = [...claims.slice(0, 4), product];
     expect(() => verifyM02ListingClaims(record, lookup, receipt, altered, review(altered)))

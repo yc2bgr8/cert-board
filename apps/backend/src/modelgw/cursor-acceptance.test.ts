@@ -174,7 +174,9 @@ test.each([false, true])('验收报告失效后拒绝上游发送（派发复核
     sent();
     return '{"content":"完成","actions":[]}';
   });
-  await expect(sendCursorAcceptance(cursor, cursorAcceptanceModels[0]!, request, undefined, beforeDispatch))
+  await expect(sendCursorAcceptance(cursor, cursorAcceptanceModels[0]!, request, undefined, {
+    prepare: beforeDispatch,
+  }))
     .rejects.toThrow('CURSOR_ACCEPTANCE_SCOPE_REQUIRED');
   expect(verifyAcceptanceScope).toHaveBeenCalledTimes(duringDispatch ? 2 : 1);
   expect(beforeDispatch).toHaveBeenCalledTimes(duringDispatch ? 1 : 0);
@@ -264,6 +266,19 @@ test('每个 ACP 派发独立生成回合边界，转发上轮回执无效', asy
   });
   expect(ids).toHaveLength(2);
   expect(new Set(ids).size).toBe(2);
+});
+
+test('实际动作装不进帧时，可返回预算内的完整裸 JSON', async () => {
+  const cursor = { executable: 'fixture', entrypoint: 'fixture', profileDirectory: 'fixture' };
+  const candidate = '{"content":null,"actions":[{"name":"doc_read","arguments":{"page":321654}}]}';
+  vi.mocked(readCursorTurn).mockImplementationOnce(async (_config, _model, prompt) => {
+    expect(String(prompt)).toContain('CERT_BOARD_TURN_START');
+    expect(String(prompt)).toContain('If the frame would exceed the limit');
+    return candidate;
+  });
+  await expect(sendCursorAcceptance(cursor, cursorAcceptanceModels[0]!, {
+    ...request, max_tokens: 180,
+  })).resolves.toMatchObject({ choices: [{ finish_reason: 'tool_calls' }] });
 });
 
 test('只读网关核实接收自己的文本和判断字段，仍拒绝动作和超长回复', async () => {
