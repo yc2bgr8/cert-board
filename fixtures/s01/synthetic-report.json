@@ -150,19 +150,25 @@
       "documentId": "48000000-0000-4000-8000-000000000011",
       "version": 1,
       "page": 1,
-      "text": "合成资料\n型号：SYNTH-CP-01"
+      "subject": "SYNTH-DEVICE",
+      "level": "internal",
+      "bodyFile": "model.txt"
     },
     {
       "documentId": "48000000-0000-4000-8000-000000000011",
       "version": 1,
       "page": 2,
-      "text": "合成资料\n证照编号：SYNTH-CERT-01"
+      "subject": "SYNTH-DEVICE",
+      "level": "internal",
+      "bodyFile": "certificate.txt"
     },
     {
       "documentId": "48000000-0000-4000-8000-000000000011",
       "version": 1,
       "page": 3,
-      "text": "合成资料\n标准号：SYNTH-PRIVATE-STANDARD"
+      "subject": "SYNTH-DEVICE",
+      "level": "confidential",
+      "bodyFile": "restricted-standard.txt"
     }
   ]
 }

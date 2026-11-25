@@ -1,27 +1,31 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { expect, test, vi } from 'vitest';
-import { buildSyntheticSalesComplianceDraft } from './sales-compliance-draft.js';
+import {
+  buildSyntheticSalesComplianceDraft,
+  salesSourceKey,
+  syntheticSalesSourceManifest,
+} from './sales-compliance-draft.js';
 import { parseSkillDraftMarkdown } from '../skills/markdown.js';
 
-const fixture = JSON.parse(
-  readFileSync(new URL('../../../../fixtures/s01/synthetic-report.json', import.meta.url), 'utf8'),
-);
-const readSource = ({
-  documentId,
-  version,
-  page,
-}: {
-  documentId: string;
-  version: number;
-  page: number;
-}) =>
-  Promise.resolve(
-    fixture.pages.find(
-      (item: { documentId: string; version: number; page: number }) =>
-        item.documentId === documentId && item.version === version && item.page === page,
-    )?.text ?? null,
-  );
+const folder = new URL('../../../../fixtures/s01/', import.meta.url);
+const fixture = JSON.parse(readFileSync(new URL('synthetic-report.json', folder), 'utf8'));
+const pages = syntheticSalesSourceManifest.parse(fixture.pages);
+const readSource = async (reference: Parameters<typeof salesSourceKey>[0]) => {
+  const found = pages.find((page) => salesSourceKey(page) === salesSourceKey(reference));
+  return found
+    ? {
+        subject: found.subject,
+        level: found.level,
+        readText: async () => readFileSync(new URL(found.bodyFile, folder), 'utf8'),
+      }
+    : null;
+};
+const sourceFor = (text: string) => ({
+  subject: 'SYNTH-DEVICE',
+  level: 'internal' as const,
+  readText: async () => text,
+});
 
 test('合规草稿逐条追踪当前确认值，保密、旧版和来稿猜测不进入交付', async () => {
   const reader = vi.fn(readSource);
@@ -90,9 +94,8 @@ test('字段含义要求明确日期，授权也不把非日期变成有效期',
       },
     },
   ];
-  const report = await buildSyntheticSalesComplianceDraft(
-    request,
-    async () => '有效期截止日：未说明',
+  const report = await buildSyntheticSalesComplianceDraft(request, async () =>
+    sourceFor('对象：SYNTH-DEVICE\n有效期截止日：未说明'),
   );
   expect(report.sources.references).toEqual([]);
   expect(report.issues).toEqual([{ field: 'expiry_date', reason: 'source_invalid' }]);
@@ -111,4 +114,70 @@ test('S01 登记草稿归维护 Agent 并保留注册人员与销售边界', () 
     requiredChecks: ['V1', 'V3'],
   });
   expect(draft.body).toContain('销售人员不登录');
+});
+
+test('确认事实和原页分类独立，原页包含其他主体时留待核', async () => {
+  const readRestricted = vi.fn(async () => '不能读取');
+  const report = await buildSyntheticSalesComplianceDraft(fixture.request, async (ref) =>
+    ref.page === 1
+      ? { subject: 'SYNTH-DEVICE', level: 'confidential', readText: readRestricted }
+      : sourceFor('对象：SYNTH-DEVICE\n对象：ANOTHER-DEVICE\n证照编号：SYNTH-CERT-01'),
+  );
+  expect(readRestricted).not.toHaveBeenCalled();
+  expect(report.issues).toContainEqual({ field: 'device_model', reason: 'not_approved' });
+  expect(report.issues).toContainEqual({ field: 'certificate_number', reason: 'source_invalid' });
+  expect(report.sources.references).toEqual([]);
+});
+
+test('许可键和原页坐标出现歧义时拒绝', async () => {
+  const request = structuredClone(fixture.request);
+  request.facts[1].fact.id = request.facts[0].fact.id;
+  await expect(buildSyntheticSalesComplianceDraft(request, readSource)).rejects.toThrow('重复修订');
+  expect(
+    syntheticSalesSourceManifest.safeParse([...pages, { ...pages[0], bodyFile: 'other.txt' }])
+      .success,
+  ).toBe(false);
+});
+
+test('未来修订不抢占当前确认值，申报编号与证照编号分别核验', async () => {
+  const request = structuredClone(fixture.request);
+  const model = request.facts[0].fact;
+  const filing = { ...request.facts[1].fact, field: 'submission_number', value: 'SYNTH-FILING-42' };
+  filing.evidence.quote = '申报编号：SYNTH-FILING-42';
+  request.facts[1].fact = filing;
+  request.facts.push({
+    level: 'internal',
+    fact: {
+      ...model,
+      id: '48000000-0000-4000-8000-000000000021',
+      revision: 2,
+      replacesId: model.id,
+      validFrom: '2031-01-01T00:00:00Z',
+    },
+  });
+  request.fields = [
+    { field: 'device_model' },
+    { field: 'submission_number' },
+    { field: 'certificate_number' },
+  ];
+  const result = await buildSyntheticSalesComplianceDraft(request, async (ref) =>
+    ref.page === 1 ? readSource(ref) : sourceFor('对象：SYNTH-DEVICE\n申报编号：SYNTH-FILING-42'),
+  );
+  expect(result.sources.references.map(({ field, revision }) => [field, revision])).toEqual([
+    ['device_model', 1],
+    ['submission_number', 1],
+  ]);
+  expect(result.issues).toEqual([{ field: 'certificate_number', reason: 'missing' }]);
+});
+
+test('待发放占位文字保留待核', async () => {
+  const request = structuredClone(fixture.request);
+  request.fields = [{ field: 'certificate_number' }];
+  request.facts[1].fact.value = '待发放';
+  request.facts[1].fact.evidence.quote = '证照编号：待发放';
+  const reader = vi.fn(readSource);
+  const result = await buildSyntheticSalesComplianceDraft(request, reader);
+  expect(result.sources.references).toEqual([]);
+  expect(result.issues).toEqual([{ field: 'certificate_number', reason: 'source_invalid' }]);
+  expect(reader).not.toHaveBeenCalled();
 });

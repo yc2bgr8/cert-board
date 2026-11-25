@@ -1,36 +1,46 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { documentCitationSchema } from '@cert-board/shared';
-import { buildSyntheticSalesComplianceDraft } from './sales-compliance-draft.js';
+import {
+  buildSyntheticSalesComplianceDraft,
+  salesSourceKey,
+  syntheticSalesSourceManifest,
+} from './sales-compliance-draft.js';
 
 async function main() {
   if (process.argv.length !== 2) throw new Error('只运行固定合成样本。');
   const root = new URL('../../../../', import.meta.url);
+  const sourceDirectory = new URL('fixtures/s01/', root);
+  const actualSources = await realpath(fileURLToPath(sourceDirectory));
   const fixture = z
     .strictObject({
       request: z.unknown(),
-      pages: documentCitationSchema
-        .omit({ quote: true })
-        .extend({ text: z.string() })
-        .array()
-        .max(12),
+      pages: syntheticSalesSourceManifest,
     })
     .parse(JSON.parse(await readFile(new URL('fixtures/s01/synthetic-report.json', root), 'utf8')));
-  const draft = await buildSyntheticSalesComplianceDraft(
-    fixture.request,
-    async (ref) =>
-      fixture.pages.find(
-        (page) =>
-          page.documentId === ref.documentId &&
-          page.version === ref.version &&
-          page.page === ref.page,
-      )?.text ?? null,
-  );
+  const byLocation = new Map(fixture.pages.map((page) => [salesSourceKey(page), page]));
+  const draft = await buildSyntheticSalesComplianceDraft(fixture.request, async (ref) => {
+    const source = byLocation.get(salesSourceKey(ref));
+    return source
+      ? {
+          subject: source.subject,
+          level: source.level,
+          async readText() {
+            const file = await realpath(fileURLToPath(new URL(source.bodyFile, sourceDirectory)));
+            if (path.dirname(file) !== actualSources) throw new Error('合成资料文件位置无效。');
+            return readFile(file, 'utf8');
+          },
+        }
+      : null;
+  });
   const local = fileURLToPath(new URL('.local/', root));
   await mkdir(local, { recursive: true });
-  const target = await mkdtemp(path.join(local, 's01-synthetic-'));
+  const actualRoot = await realpath(fileURLToPath(root));
+  const actualLocal = await realpath(local);
+  if (path.relative(actualRoot, actualLocal) !== '.local')
+    throw new Error('本机输出目录位置无效。');
+  const target = await mkdtemp(path.join(actualLocal, 's01-synthetic-'));
   await writeFile(path.join(target, 'sales-compliance.draft.md'), draft.markdown, {
     flag: 'wx',
     mode: 0o600,

@@ -17,8 +17,8 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
 </style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#本机候选范围">本机候选范围</a><a class="level-2" href="#开发验收">开发验收</a><a class="level-2" href="#没做什么">没做什么</a></nav><main><h1 id="pr-48-s01-合规草稿事实追溯">PR-48 S01 合规草稿事实追溯</h1>
 <h2 id="本机候选范围">本机候选范围</h2>
-<ul><li>增加维护 Agent 的 S01 待审核草稿，由注册人员代销售提出问题。现行浏览器审核和外部交付的人工流程继续适用。</li><li>提供合成报告生成检验。字段取自有效的最新确认修订，核对修订的用途许可及实际可引用原文。保密字段与缺许可字段保留待核状态。来稿数值或单位有分歧时列出来稿与主数据不一致的字段。报告只展示已核对的确认值。</li><li><code>pnpm test:s01</code> 生成固定合成输入的 Markdown 和 JSON 来源表。各事实行标出来源编号，记录主数据修订、资料位置与文件哈希。缺项理由留在草稿，输出样稿标为合成演练。</li></ul>
+<ul><li>增加维护 Agent 的 S01 待审核草稿，由注册人员代销售提出问题。现行浏览器审核和外部交付的人工流程继续适用。</li><li>提供合成报告生成检验。字段取自在报告时点已生效的最新确认修订。按用途许可和原页的级别、报告主体与完整字段行核验，分别处理证照编号和申报编号。保密页只查看分类，待发放等占位留待核。报告只展示已核对的确认值。</li><li><code>pnpm test:s01</code> 生成固定合成输入的 Markdown 和 JSON 来源表。各事实行标出来源编号，记录主数据修订、资料位置与文件哈希。缺项理由留在草稿，输出样稿标为合成演练。</li></ul>
 <h2 id="开发验收">开发验收</h2>
-<ul><li>定点覆盖确认修订、缺失或过期许可、原文与字段精确匹配、非日期文本、保密值、旧版本和不一致来稿。</li><li>独立虚拟机型检、lint 和 5 项专项通过。命令生成两条有效事实和四条待核，来源表与正文哈希一致。S01 在隔离 PostgreSQL 重复登记只保留一个待审核草稿，零发布记录。</li></ul>
+<ul><li>定点覆盖确认修订、缺失或过期许可、原文与字段精确匹配、非日期文本、保密值、旧版本和不一致来稿。</li><li>独立虚拟机型检、lint 和 9 项专项通过。命令生成两条有效事实和四条待核，来源表与正文哈希一致。夹具的保密页无正文文件，合成命令仍通过。额外验证 <code>.local</code> 指向仓库外时拒绝生成。S01 在隔离 PostgreSQL 重复登记只保留一个待审核草稿，零发布记录。</li></ul>
 <h2 id="没做什么">没做什么</h2>
 <ul><li>正式来源授权与附件包、批准后的实际工作区提交、公司模板及真实销售报告评审依赖 PR-43、PR-47 和可用的授权模型。当前演示入口只运行固定合成用例。</li><li>20 条 rp 评测和人工耗时对照在正式主数据与试用条件就绪后记录。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

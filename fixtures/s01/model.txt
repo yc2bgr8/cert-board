@@ -1,0 +1,3 @@
+合成资料
+对象：SYNTH-DEVICE
+型号：SYNTH-CP-01
