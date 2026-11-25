@@ -236,7 +236,7 @@ export async function inspectM02Walkthrough(
     );
   assert.match(report, /(?:申请人|申请企业|Ram\.Shaw)/iu);
   assert.match(report, /GUDID|UDI/iu);
-  assert.match(report, /待核实|待确认/u);
+  assert.ok(submission.uncertain.length > 0, '审核卡必须列出本次核查的不确定事项');
   const { rows: reminders } = await pool.query<{ due: string; title: string; jurisdiction_tz: string }>(
     `SELECT to_char(due_on,'MM-DD') AS due,title,jurisdiction_tz FROM timer t JOIN run r ON r.conversation_id=t.conversation_id
       WHERE t.goal_id=$1 AND r.id=$2 AND t.state='active'`,
@@ -259,7 +259,11 @@ export async function inspectM02Walkthrough(
   await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
   const card = page.getByRole('article', { name: '审核结果', exact: true });
   await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
-  assert.match(await card.innerText(), /待核实/u);
+  const uncertainties = card.locator('section').filter({
+    has: page.getByRole('heading', { name: '不确定事项', exact: true }),
+  });
+  for (const item of new Set(submission.uncertain))
+    await uncertainties.getByText(item, { exact: true }).waitFor({ state: 'visible' });
   const { rows: cost } = await pool.query<{
     model: string;
     paid: string;
