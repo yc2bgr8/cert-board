@@ -111,6 +111,7 @@ export class RealGatewayTransport {
     body: unknown,
     signal?: AbortSignal,
     beforeCursorDispatch?: () => Promise<void>,
+    assertCursorDispatch?: () => void,
   ): Promise<unknown> {
     if (model.transport === 'cursor-acp') {
       if (!this.#cursorAcceptance) throw new VerificationChannelError('not_installed', true);
@@ -120,6 +121,7 @@ export class RealGatewayTransport {
         body,
         signal,
         beforeCursorDispatch,
+        assertCursorDispatch,
       );
     }
     return this.#call(model, 'chat/completions', body, signal);

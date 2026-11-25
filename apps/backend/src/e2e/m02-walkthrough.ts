@@ -8,6 +8,10 @@ import {
   reviewEvidenceRefSchema,
   rulePackSeedSchema,
   structuredSubmissionSchema,
+  type DocumentCitation,
+  type OfficialRecord,
+  type ReviewEvidenceRef,
+  type StructuredSubmission,
 } from '@cert-board/shared';
 import { l08PublicCriteria as input } from '../../../../evals/m02/l08-public.js';
 import { nanoToUsd } from '../budget/meter.js';
@@ -22,6 +26,56 @@ const listingFields = {
   agent: '美国代理人企业',
   name: '公开列名商品名',
 };
+
+function inReviewedReceipt(
+  source: DocumentCitation,
+  receipt: Pick<DocumentCitation, 'documentId' | 'version' | 'page'>,
+  citations: readonly ReviewEvidenceRef[],
+) {
+  return source.documentId === receipt.documentId && source.version === receipt.version &&
+    source.page === receipt.page &&
+    citations.some(
+      (citation) => citation.documentId === source.documentId && citation.version === source.version &&
+        citation.page === source.page && citation.quote === source.quote,
+    );
+}
+
+export function verifyM02ListingClaims(
+  listing: OfficialRecord,
+  brandNames: readonly string[],
+  receipt: Pick<DocumentCitation, 'documentId' | 'version' | 'page'>,
+  claims: StructuredSubmission['claims'],
+  citations: readonly ReviewEvidenceRef[],
+) {
+  const names = brandNames.map((name) => {
+    const matched = [...new Set(listing.proprietaryNames?.filter((actual) =>
+      actual.toLowerCase() === name.toLowerCase(),
+    ))];
+    assert.equal(matched.length, 1, '无法在列名回执唯一定位本次检索的商品名');
+    return matched[0]!;
+  });
+  for (const [field, value] of [
+    [listingFields.company, listing.company],
+    [listingFields.number, listing.identifier],
+    [listingFields.year, listing.registrationExpiryYear],
+    [listingFields.agent, listing.usAgentBusiness],
+    ...names.map((name) => [listingFields.name, name] as const),
+  ] as const) {
+    assert.ok(value !== undefined, '列名回执缺少必须核对的字段');
+    const literal = JSON.stringify(value);
+    const hasValue = (quote: string) => typeof value === 'number'
+      ? quote === literal || new RegExp(`"registrationExpiryYear"\\s*:\\s*${literal}(?![\\d.])`, 'u').test(quote)
+      : quote === literal.slice(1, -1) || quote.includes(literal);
+    const verified = claims.some(
+      (claim) => claim.status === 'unverified' && claim.field === field &&
+        String(claim.value) === String(value) &&
+        claim.sources.some((source) =>
+          inReviewedReceipt(source, receipt, citations) && hasValue(source.quote),
+        ),
+    );
+    assert.ok(verified, '审核卡须逐项保留列名回执原值，并引用支持该值的已读档案页');
+  }
+}
 
 const publicQueries = {
   registration: officialRequestUrl({
@@ -196,8 +250,10 @@ export async function inspectM02Walkthrough(
       receipt?.status === 'ok' && receipt.evidence && !receipt.cached,
       `缺少 ${kind} 本次真实官方档案`,
     );
+    const evidence = receipt.evidence;
     assert.ok(
-      citations.some(({ documentId }) => documentId === receipt.evidence!.documentId),
+      citations.some(({ documentId, version, page }) =>
+        documentId === evidence.documentId && version === evidence.version && page === evidence.page),
       `审核卡缺少 ${kind} 档案引文`,
     );
     if (kind !== 'registration') {
@@ -210,19 +266,22 @@ export async function inspectM02Walkthrough(
         matches ? `本次查询首批匹配 ${matches} 条` : '本次查询条件下未查到',
       );
       assert.ok(
-        claim.sources.some(({ documentId }) => documentId === receipt.evidence!.documentId),
+        claim.sources.some((source) => inReviewedReceipt(source, evidence, citations)),
         `${kind} 结论未引用本次查询档案`,
       );
     }
     return {
       kind,
-      documentId: receipt.evidence.documentId,
+      documentId: evidence.documentId,
+      version: evidence.version,
+      page: evidence.page,
       fetchedAt: receipt.fetchedAt,
       matches: receipt.records.length,
       records: receipt.records,
     };
   });
-  const listing = official[0]?.records.find(
+  const listingEvidence = official.find(({ kind }) => kind === 'registration');
+  const listing = listingEvidence?.records.find(
     (record) =>
       record.company &&
       record.identifier === input.registrationNumber &&
@@ -232,23 +291,8 @@ export async function inspectM02Walkthrough(
         record.proprietaryNames?.some((actual) => actual.toLowerCase() === name.toLowerCase()),
       ),
   );
-  assert.ok(listing, '列名回执缺少用例所需的登记字段或完整商品名；请核对新公开记录');
-  const listingClaims = submission.claims.filter((claim) =>
-      claim.status === 'unverified' &&
-      claim.sources.some(({ documentId }) => documentId === official[0]?.documentId),
-  );
-  for (const [field, value] of [
-    [listingFields.company, listing.company],
-    [listingFields.number, listing.identifier],
-    [listingFields.year, String(listing.registrationExpiryYear)],
-    [listingFields.agent, listing.usAgentBusiness],
-    ...input.brandNames.map((name) => [listingFields.name, name] as const),
-  ])
-    assert.ok(
-      value && listingClaims.some((claim) => claim.field === field &&
-        String(claim.value).trim().toLowerCase() === value.trim().toLowerCase()),
-      '审核卡必须逐项引用列名档案并标为待核实',
-    );
+  assert.ok(listing && listingEvidence, '列名回执缺少用例所需的登记字段或完整商品名；请核对新公开记录');
+  verifyM02ListingClaims(listing, input.brandNames, listingEvidence, submission.claims, citations);
   assert.match(report, /(?:申请人|申请企业|Ram\.Shaw)/iu);
   assert.match(report, /GUDID|UDI/iu);
   assert.ok(submission.uncertain.length > 0, '审核卡必须列出本次核查的不确定事项');

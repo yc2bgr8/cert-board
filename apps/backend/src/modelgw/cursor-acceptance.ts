@@ -132,7 +132,7 @@ const channelBoundary = [
 ].join('\n');
 
 const turnContract = [
-  'Return exactly one JSON object inside the reply frame. Omit Markdown fences and any preface.',
+  'Return exactly one JSON object. Omit Markdown fences and any preface.',
   channelBoundary,
   'To use a cert-board tool, describe it as an action in your response.',
   'Use the shape {"content":null,"actions":[{"name":"tool_name","arguments":{}}]}. Set content to a string when reporting progress or a final answer.',
@@ -162,6 +162,16 @@ export class CursorReplyFormatError extends Error {
 const startMarker = 'CERT_BOARD_TURN_START ';
 const endMarker = 'CERT_BOARD_TURN_END ';
 
+function turnFrame(maxBytes: number) {
+  const id = randomUUID();
+  const start = startMarker + id;
+  const end = endMarker + id;
+  const example = '{"content":null,"actions":[{"name":"tool_name","arguments":{}}]}';
+  return Buffer.byteLength(`${start}\n${example}\n${end}`, 'utf8') <= maxBytes
+    ? { id, start, end }
+    : undefined;
+}
+
 function replyJsonText(text: string, turnId?: string) {
   const lines = text.split(/\r?\n/u);
   const markers = lines.flatMap((line, index) =>
@@ -186,18 +196,19 @@ export function parseCursorModelTurn(
   // ACP 不提供生成令牌上限。用 UTF-8 字节作为输出令牌数的保守上界。
   if (request.max_tokens !== undefined && Buffer.byteLength(answer, 'utf8') > request.max_tokens)
     throw new CursorOutputLimitError();
-  const text = answer
-    .trim()
-    .replace(/^\x60\x60\x60(?:json)?\s*/iu, '')
-    .replace(/\s*\x60\x60\x60$/u, '');
+  const text = answer.trim();
   if (!text) throw new CursorReplyFormatError('empty');
-  const body = replyJsonText(text, toolFreeVerification ? undefined : turnId);
+  const framed = replyJsonText(text, toolFreeVerification ? undefined : turnId);
+  const body = framed === text
+    ? text.replace(/^\x60\x60\x60(?:json)?\s*/iu, '').replace(/\s*\x60\x60\x60$/u, '')
+    : framed;
+  if (framed === text && !body) throw new CursorReplyFormatError('empty');
   let payload: unknown;
   try {
     payload = JSON.parse(body);
   } catch {
     throw new CursorReplyFormatError(
-      body === text && !body.startsWith('{') && !body.startsWith('[') ? 'unframed_text' : 'invalid_json',
+      framed === text && !body.startsWith('{') && !body.startsWith('[') ? 'unframed_text' : 'invalid_json',
     );
   }
   const verification = toolFreeVerification ? verificationReplySchema.safeParse(payload) : null;
@@ -243,6 +254,7 @@ export async function sendCursorAcceptance(
   raw: unknown,
   signal?: AbortSignal,
   beforeDispatch?: () => Promise<void>,
+  assertDispatch?: () => void,
 ) {
   let request: z.infer<typeof chatRequestSchema> & { max_tokens: number };
   try {
@@ -256,12 +268,14 @@ export async function sendCursorAcceptance(
     model.purposes[0] === 'verification' &&
     request.tool_choice === 'none' &&
     !request.tools?.length;
-  const turnId = toolFreeVerification ? undefined : randomUUID();
+  const frame = toolFreeVerification ? undefined : turnFrame(request.max_tokens);
   const prompt = toolFreeVerification
     ? { contract: verificationContract, maximumResponseBytes: request.max_tokens, request }
     : [
         turnContract,
-        `Place the JSON between these two exact lines: "${startMarker}${turnId}" and "${endMarker}${turnId}". End the reply after the closing line.`,
+        ...(frame
+          ? [`Place the JSON between these two exact lines: "${frame.start}" and "${frame.end}". End the reply after the closing line.`]
+          : ['Use the entire reply for the JSON object, with no reply frame.']),
         `Reply limit: ${request.max_tokens} UTF-8 bytes. Use the labelled messages and tool definitions in the request below.`,
         `Request JSON:\n${JSON.stringify(request)}`,
       ].join('\n\n');
@@ -276,6 +290,7 @@ export async function sendCursorAcceptance(
         await config.verifyAcceptanceScope?.();
       },
       signal,
+      assertDispatch,
     );
   const answer = await readTurn().catch((error: unknown) => {
     if (error instanceof CursorAcpStartupError && !signal?.aborted) return readTurn();
@@ -283,7 +298,7 @@ export async function sendCursorAcceptance(
   });
   // ACP does not give this worker an invoiced model cost. The ModelGateway retains an unknown ledger entry.
   try {
-    return parseCursorModelTurn(answer, request, toolFreeVerification, turnId);
+    return parseCursorModelTurn(answer, request, toolFreeVerification, frame?.id);
   } catch (error) {
     if (error instanceof CursorOutputLimitError || error instanceof CursorReplyFormatError)
       throw error;

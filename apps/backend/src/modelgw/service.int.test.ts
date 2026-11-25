@@ -220,6 +220,35 @@ test('Cursor 最终路由拒绝已换代的执行租约，账本记录未发送'
   expect(ledger.rows).toEqual([{ status: 'not_sent' }]);
 });
 
+test('Cursor 范围复核期间建立计量拦截时，最终同步门禁拒绝已预占请求', async () => {
+  const actualSend = vi.fn(() => response());
+  const transport: GatewayTransport = {
+    kind: 'fixture',
+    async send(_model, _body, _signal, beforeDispatch, assertDispatch) {
+      await beforeDispatch?.();
+      // 第二次范围复核为异步操作，期间另一请求进入计量处理。
+      Reflect.get(gateway, 'meteringBlocks').set(randomUUID(), null);
+      try {
+        assertDispatch?.();
+      } catch {
+        throw new VerificationChannelError('failed', true);
+      }
+      return actualSend();
+    },
+  };
+  const gateway = new ModelGateway(
+    context.pool, { version: 1, models: cursorAcceptanceModels }, transport, { environment: 'test' },
+  );
+  await expect(gateway.complete(request, caller)).rejects.toMatchObject({
+    code: 'MODEL_DISPATCH_BLOCKED',
+  });
+  expect(actualSend).not.toHaveBeenCalled();
+  const ledger = await context.pool.query<{ status: string }>(
+    'SELECT status FROM usage_ledger WHERE request_key=$1', [caller.requestKey],
+  );
+  expect(ledger.rows).toEqual([{ status: 'not_sent' }]);
+});
+
 test.each([
   { confirmedNotSent: true, state: 'not_sent', code: 'MODEL_DISPATCH_BLOCKED' },
   { confirmedNotSent: false, state: 'unknown', code: 'MODEL_UPSTREAM_FAILED' },

@@ -45,6 +45,7 @@ export interface GatewayTransport {
     body: UpstreamChatRequest,
     signal?: AbortSignal,
     beforeCursorDispatch?: () => Promise<void>,
+    assertCursorDispatch?: () => void,
   ): Promise<unknown>;
 }
 type GatewayOptions = { environment?: 'development' | 'test' | 'production' };
@@ -449,15 +450,22 @@ export class ModelGateway {
     try {
       raw =
         model.transport === 'cursor-acp'
-          ? await this.transport.send(model, body, signal, async () => {
-              if (this.meteringBlocks.size || signal?.aborted)
-                throw new Error('dispatch_cancelled');
-              await this.routing(context, model);
-              await beforeDispatch?.();
-              await this.routing(context, model);
-              if (this.meteringBlocks.size || signal?.aborted)
-                throw new Error('dispatch_cancelled');
-            })
+          ? await this.transport.send(
+              model,
+              body,
+              signal,
+              async () => {
+                if (this.meteringBlocks.size || signal?.aborted)
+                  throw new Error('dispatch_cancelled');
+                await this.routing(context, model);
+                await beforeDispatch?.();
+                await this.routing(context, model);
+              },
+              () => {
+                if (this.meteringBlocks.size || signal?.aborted)
+                  throw new Error('dispatch_cancelled');
+              },
+            )
           : await this.transport.send(model, body, signal);
     } catch (error) {
       if (error instanceof CursorOutputLimitError) {

@@ -131,6 +131,8 @@ test('未指定单次上限时，将同一个模型默认值用于提示与接�
   expect(typeof prompt).toBe('string');
   const [contract, body] = (prompt as string).split('\n\nRequest JSON:\n');
   expect(contract).toContain('50 UTF-8 bytes');
+  expect(contract).not.toContain('CERT_BOARD_TURN_START');
+  expect(contract).toContain('with no reply frame');
   expect(JSON.parse(body!)).toMatchObject({ ...request, max_tokens: 50 });
 });
 
@@ -225,6 +227,7 @@ test.each([
   framed('this-turn', action) + '\n' + framed('this-turn', action),
   'CERT_BOARD_TURN_START this-turn\n' + action,
   framed('this-turn', action) + '\n帧后文字',
+  framed('this-turn', action) + '\n' + String.fromCharCode(96).repeat(3),
   action + '\n' + framed('this-turn', action),
 ])('歧义或跨回合的帧整体拒绝', (answer) => {
   try {
