@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-39 离线备份恢复</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong></nav><main><h1 id="pr-39-离线备份恢复">PR-39 离线备份恢复</h1>
+<p>2026-11-26，独立 Linux KVM 验收使用 <code>348351840d45c4fee5917cb790bb699902cbf289</code>、<code>main</code> <code>7bdaa8a41454c90d3d0e49ff293eb309af9900cd</code>、合并树 <code>311c476af041a1dcb91c67a4d3f5f5e14dfa82fe</code>。</p>
+<table><thead><tr><th>检查</th><th>结果</th></tr></thead><tbody><tr><td>通用离线验收</td><td>15 项全部通过，含 534 项单测、537 项集成、35 项 Agent 剧本、浏览器回归、Python、HTML、Gitleaks 和备份专项</td></tr><tr><td>恢复到新卷</td><td>真实 PostgreSQL 和 MinIO 启动后，80 张表行数、2 个合成对象 SHA-256 及数据库内的对象引用和源端一致</td></tr><tr><td>拒绝条件</td><td>运行中的源服务拒绝生成冷备份。修改档案后在创建恢复卷之前拒绝恢复</td></tr><tr><td>数据隔离</td><td>演练使用独立容器、卷、临时账号和合成资料，归档到宿主的证据只含日志和脱敏统计</td></tr></tbody></table>
+<p>验收提交为 <code>096120cf6a2ef5ad1551043f866a4466fbdc2db6</code>。测试证据归档 SHA-256 为 <code>6165c9baa174a9e7513a53ab1d70d634c95231ccb612dc9c0f6c49bd87b0cfbf</code>。本轮真实模型调用 0 次。正式验收待 PR-38 合并后，以最新 <code>main</code> 再做完整验证和真实 R09 资源采样。<a href="../pr/PR-39.html">PR-39 范围</a></p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
