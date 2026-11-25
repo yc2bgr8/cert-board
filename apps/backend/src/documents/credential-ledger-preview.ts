@@ -27,6 +27,8 @@ const text = z
   .refine((value) => !value.includes('\0'))
   .transform((value) => value.normalize('NFC'));
 const identifier = z.uuid().transform((value) => value.toLowerCase());
+const currencies = new Set(Intl.supportedValuesOf('currency'));
+const currencyCode = z.string().refine((value) => currencies.has(value));
 const amount = z
   .string()
   .regex(/^\d{1,10}(?:\.\d{1,2})?$/u)
@@ -45,10 +47,7 @@ const credential = z.strictObject({
   startsOn: z.iso.date().nullable(),
   expiresOn: z.iso.date().nullable(),
   fee: amount.nullable(),
-  currency: z
-    .string()
-    .regex(/^[A-Z]{3}$/u)
-    .nullable(),
+  currency: currencyCode.nullable(),
   ownerId: identifier,
 });
 type Credential = z.infer<typeof credential>;
@@ -64,7 +63,13 @@ type Invalid = PreviewBase & { status: 'error'; problems: { code: string; column
 type PreviewRow =
   | Invalid
   | (Candidate & { status: 'new' | 'unchanged' })
-  | (Candidate & { status: 'conflict'; current: Credential; origin: 'current' | 'same_file' });
+  | (Candidate & { status: 'conflict'; current: Credential; origin: 'current' })
+  | (Candidate & {
+      status: 'conflict';
+      current: Credential | null;
+      alternative: Credential;
+      origin: 'same_file';
+    });
 
 function invalid(message: string, code = 'LEDGER_PREVIEW_CSV_INVALID') {
   return new AppError(422, code, message);
@@ -84,8 +89,9 @@ function csvRows(content: string): Row[] {
     state = 'plain';
   };
   const finishRow = () => {
+    const hasFields = cells.length > 0 || state === 'closed' || Boolean(clean(field));
     finishField();
-    if (cells.some((value) => clean(value))) {
+    if (hasFields) {
       if (result.length >= 10_001) throw invalid('台账每份最多 10000 行，请拆分后预览。');
       result.push({ line: firstLine, cells });
     }
@@ -191,6 +197,9 @@ function normalize(
   const fee = get('费用') || null;
   const currency = get('币种').toUpperCase() || null;
   if ((fee === null) !== (currency === null)) add('fee_currency_pair', fee ? '币种' : '费用');
+  if (fee !== null && !amount.safeParse(fee).success) add('invalid_fee', '费用');
+  if (currency !== null && !currencyCode.safeParse(currency).success)
+    add('invalid_currency', '币种');
   if (errors.length) return fail();
   const result = credential.safeParse({
     type: get('类型'),
@@ -269,6 +278,22 @@ export function previewCredentialLedger(filename: string, bytes: Buffer, snapsho
   }
   const preview: PreviewRow[] = candidates.map((candidate) => {
     if ('status' in candidate) return candidate;
+    const key = identityKey(candidate.proposed);
+    const current = existing.get(key) ?? null;
+    const first = firstByKey.get(key)!;
+    const inFile = conflictByKey.get(key);
+    if (inFile)
+      return {
+        ...candidate,
+        status: 'conflict',
+        current,
+        alternative: equivalent(candidate.proposed, first.proposed)
+          ? inFile.proposed
+          : first.proposed,
+        origin: 'same_file',
+      };
+    if (current && equivalent(current, candidate.proposed))
+      return { ...candidate, status: 'unchanged' };
     if (
       candidate.proposed.authorization &&
       (authorizations.get(marketKey(candidate.proposed))?.size ?? 0) > 1
@@ -279,20 +304,8 @@ export function previewCredentialLedger(filename: string, bytes: Buffer, snapsho
         status: 'error',
         problems: [{ code: 'authorization_duplicate', column: '授权状态' }],
       };
-    const key = identityKey(candidate.proposed);
-    const first = firstByKey.get(key)!;
-    const inFile = conflictByKey.get(key);
-    if (inFile)
-      return {
-        ...candidate,
-        status: 'conflict',
-        current: equivalent(candidate.proposed, first.proposed) ? inFile.proposed : first.proposed,
-        origin: 'same_file',
-      };
-    const current = existing.get(key);
-    if (current && !equivalent(current, candidate.proposed))
-      return { ...candidate, status: 'conflict', current, origin: 'current' };
-    return { ...candidate, status: current || candidate !== first ? 'unchanged' : 'new' };
+    if (current) return { ...candidate, status: 'conflict', current, origin: 'current' };
+    return { ...candidate, status: candidate !== first ? 'unchanged' : 'new' };
   });
   return {
     format: 'credential-ledger-preview-v1',

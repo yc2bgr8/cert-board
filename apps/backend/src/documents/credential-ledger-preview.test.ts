@@ -124,3 +124,57 @@ test('M01 草稿按维护 Agent 的实际登记格式保存', () => {
   });
   expect(draft.body).toContain('现有字段默认保留');
 });
+
+test('同文件冲突同时保留真实台账值和另一个候选', () => {
+  const rows = [
+    '代理合同,SYNTH-KEEP,合成机构乙,,,,2027-01-01,2027-06-30,152,USD,synth_owner,合成,',
+    '代理合同,SYNTH-KEEP,合成机构丙,,,,2027-01-01,2027-06-30,152,USD,synth_owner,合成,',
+  ];
+  expect(preview(rows).rows).toMatchObject([
+    {
+      status: 'conflict',
+      origin: 'same_file',
+      current: { holder: '合成机构' },
+      alternative: { holder: '合成机构丙' },
+    },
+    {
+      status: 'conflict',
+      origin: 'same_file',
+      current: { holder: '合成机构' },
+      alternative: { holder: '合成机构乙' },
+    },
+  ]);
+});
+
+test('新增授权碰撞时保留台账的相同行，未知币种与错列空行也纳入检查', () => {
+  const first = '证照,SYNTH-EXISTING,合成机构,SYNTH-BASE,US,已列名,,,,,synth_owner,合成,';
+  const next = first.replace('SYNTH-EXISTING', 'SYNTH-NEW');
+  const currency = '证照,SYNTH-CURRENCY,合成机构,,,,,,2,ABC,synth_owner,合成,';
+  const state = {
+    ...snapshot,
+    existing: [
+      {
+        ...snapshot.existing[0],
+        type: '证照',
+        number: 'SYNTH-EXISTING',
+        market: 'US',
+        model: 'SYNTH-BASE',
+        authorization: '已列名',
+        startsOn: null,
+        expiresOn: null,
+        fee: null,
+        currency: null,
+      },
+    ],
+  };
+  expect(preview([first, next, currency, '', ',,'], state).rows).toMatchObject([
+    { status: 'unchanged', line: 2 },
+    {
+      status: 'error',
+      line: 3,
+      problems: [{ code: 'authorization_duplicate', column: '授权状态' }],
+    },
+    { status: 'error', line: 4, problems: [{ code: 'invalid_currency', column: '币种' }] },
+    { status: 'error', line: 6, problems: [{ code: 'column_count' }] },
+  ]);
+});
