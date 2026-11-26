@@ -14,7 +14,7 @@ const receipt = { documentId: '398fdc60-6d3b-4484-a7bb-b62b5f75a029', version: 2
 const values = [
   ['列名机构', record.company!, '"company": "Synthetic Product"'],
   ['登记号', record.identifier, '"identifier": "54321"'],
-  ['到期年份', record.registrationExpiryYear!, '"registrationExpiryYear": 2026'],
+  ['到期年份', String(record.registrationExpiryYear), '"registrationExpiryYear": 2026'],
   ['美国代理人企业', record.usAgentBusiness!, '"usAgentBusiness": "Synthetic Agent"'],
   ['公开列名商品名', record.proprietaryNames![0]!, '"proprietaryNames": ["Synthetic Product"]'],
 ] as const;
@@ -47,4 +47,19 @@ test('列名主张逐字保留回执的商品名和对应页码', () => {
   }
   expect(() => verifyM02ListingClaims(record, lookup, receipt, claims, review(claims.slice(0, 4))))
     .toThrow('支持该值的已读档案页');
+});
+
+test('到期年份以文本送审并逐字引用档案中的数字原文', () => {
+  const year = claims[2]!;
+  expect(() => verifyM02ListingClaims(record, lookup, receipt, claims, review(claims))).not.toThrow();
+  for (const altered of [
+    { ...year, value: 2026 },
+    { ...year, unit: '年' },
+    { ...year, sources: [{ ...receipt, quote: '"registrationExpiryYear": "2026"' }] },
+    { ...year, sources: [{ ...receipt, quote: '"registrationExpiryYear": 20260' }] },
+  ]) {
+    const submission = claims.map((claim) => claim.id === year.id ? altered : claim);
+    expect(() => verifyM02ListingClaims(record, lookup, receipt, submission, review(submission)))
+      .toThrow('支持该值的已读档案页');
+  }
 });
