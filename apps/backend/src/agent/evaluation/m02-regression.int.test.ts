@@ -25,7 +25,6 @@ import { scanM02Schedules } from '../../goals/m02-schedule.js';
 import { seedDevelopmentRulePack } from '../../knowledge/rule-packs.js';
 import { loadModelGatewayConfig } from '../../modelgw/config.js';
 import { ModelGateway } from '../../modelgw/service.js';
-import { officialRequestUrl } from '../../official/providers.js';
 import { createIntegrationContext } from '../../test-support/context.js';
 import { officialLookupTool } from '../../tools/official-lookup.js';
 import { seedDevelopmentWorkspace } from '../../workspace/seed.js';
@@ -48,6 +47,29 @@ const queries = {
   applicant: { dataset: 'fda_registration_company', companyName: 'Synthetic Applicant Ltd.' },
   udi: { dataset: 'fda_gudid_search', productCode: 'LRK', brandNames, kNumber: 'K000001' },
 } satisfies Record<string, OfficialLookupInput>;
+function fixtureUrl(resource: string, search: string) {
+  const url = new URL(`https://api.fda.gov/device/${resource}.json`);
+  url.searchParams.set('search', search);
+  url.searchParams.set('limit', '25');
+  return url.href;
+}
+const expectedUrls = {
+  registration: fixtureUrl(
+    'registrationlisting',
+    'registration.registration_number:"9000000000" AND products.product_code:"LRK" AND k_number:"K000001"',
+  ),
+  applicant: fixtureUrl(
+    'registrationlisting',
+    'registration.name.exact:"Synthetic Applicant Ltd."',
+  ),
+  udi: fixtureUrl(
+    'udi',
+    'product_codes.code.exact:"LRK" AND (' +
+      brandNames.map((name) => `brand_name.exact:"${name}"`).join(' OR ') +
+      ' OR premarket_submissions.submission_number:"K000001")',
+  ),
+};
+const fixtureUsage = { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20, cost: 0.000001 };
 const listingPayload = {
   meta: { results: { total: 1 } },
   results: [
@@ -89,11 +111,14 @@ const path = '交付/合成年检核查.md';
 type UdiCase = 'matched' | 'zero' | 'unavailable';
 type Claim = StructuredSubmission['claims'][number];
 
-function cite(read: DocumentPageRead, field: string): DocumentCitation {
+function cite(
+  read: Pick<DocumentPageRead, 'documentId' | 'version' | 'page' | 'text'>,
+  field: string,
+): DocumentCitation {
   const start = read.text.indexOf(`"${field}":`);
   expect(start).toBeGreaterThanOrEqual(0);
   const quote =
-    field === 'proprietaryNames'
+    field === 'proprietaryNames' || field === 'records'
       ? read.text.slice(start, read.text.indexOf(']', start) + 1)
       : read.text.slice(start).split('\n', 1)[0]!.replace(/,$/u, '');
   return { documentId: read.documentId, version: read.version, page: read.page, quote };
@@ -179,7 +204,7 @@ function* recordedRun(scenario: UdiCase): Generator<ReturnType<typeof call>, voi
         primaryDeviceIdentifier,
       });
       claims.push(
-        claim('udi_lookup', '公开 UDI', '本次查询首批匹配 1 条', [cite(read, 'gudidRecordKey')]),
+        claim('udi_lookup', '公开 UDI', '本次查询首批匹配 1 条', [cite(read, 'records')]),
         claim('udi_record_key', 'UDI 记录键', udiRecordKey, [cite(read, 'gudidRecordKey')]),
         claim('udi_primary_di', '主 DI', primaryDeviceIdentifier, [
           cite(read, 'primaryDeviceIdentifier'),
@@ -281,9 +306,9 @@ test.each(['matched', 'zero', 'unavailable'] as const)(
       expect(run?.trigger_type).toBe('wakeup');
       const runId = run!.id;
       const payloads = new Map<string, unknown>([
-        [officialRequestUrl(queries.registration), listingPayload],
-        [officialRequestUrl(queries.applicant), emptyPayload],
-        [officialRequestUrl(queries.udi), scenario === 'matched' ? udiPayload : emptyPayload],
+        [expectedUrls.registration, listingPayload],
+        [expectedUrls.applicant, emptyPayload],
+        [expectedUrls.udi, scenario === 'matched' ? udiPayload : emptyPayload],
       ]);
       const fetched: string[] = [];
       const lookup = officialLookupTool(
@@ -293,7 +318,7 @@ test.each(['matched', 'zero', 'unavailable'] as const)(
           async fetchPage(url) {
             expect(payloads.has(url)).toBe(true);
             fetched.push(url);
-            if (scenario === 'unavailable' && url === officialRequestUrl(queries.udi))
+            if (scenario === 'unavailable' && url === expectedUrls.udi)
               throw new AppError(503, 'FETCH_PROXY_UNAVAILABLE', '合成录制来源不可用。');
             const data = Buffer.from(JSON.stringify(payloads.get(url)));
             return {
@@ -316,6 +341,7 @@ test.each(['matched', 'zero', 'unavailable'] as const)(
       );
       const models = await loadModelGatewayConfig({ environment: 'development', sourceEnv: {} });
       const scenarioRun = recordedRun(scenario);
+      let modelCalls = 0;
       let invalid: unknown;
       const gateway = new ModelGateway(
         pool,
@@ -330,6 +356,7 @@ test.each(['matched', 'zero', 'unavailable'] as const)(
               );
               if (next.done) throw new Error('M02_FIXTURE_OVERFLOW');
               const { name, args } = next.value;
+              modelCalls++;
               return {
                 id: randomUUID(),
                 choices: [
@@ -349,7 +376,7 @@ test.each(['matched', 'zero', 'unavailable'] as const)(
                     },
                   },
                 ],
-                usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20, cost: 0 },
+                usage: fixtureUsage,
               };
             } catch (error) {
               invalid = error;
@@ -398,16 +425,57 @@ test.each(['matched', 'zero', 'unavailable'] as const)(
         result.claims,
         citations,
       );
-      const udiClaim = result.claims.find(({ id }) => id === 'udi_lookup');
+      const archived = async (url: string) =>
+        (
+          await pool.query<{
+            documentId: string;
+            version: number;
+            page: number;
+            text: string;
+          }>(
+            `SELECT d.id AS "documentId",v.version_no AS version,p.page_number AS page,p.text
+           FROM document d JOIN document_version v ON v.document_id=d.id
+           JOIN document_page p ON p.version_id=v.id AND p.page_number=1
+           WHERE d.project_id=$1 AND d.source_path=$2 ORDER BY v.version_no DESC`,
+            [projectId, url],
+          )
+        ).rows;
+      const expectArchivedClaim = (id: string, value: string, ref: DocumentCitation) => {
+        expect(result.claims.find((item) => item.id === id)).toMatchObject({
+          status: 'unverified',
+          value,
+          sources: [ref],
+        });
+        expect(citations).toContainEqual(expect.objectContaining(ref));
+      };
+      const applicantPages = await archived(expectedUrls.applicant);
+      expect(applicantPages).toHaveLength(1);
+      const applicantCount = cite(applicantPages[0]!, 'records');
+      expect(JSON.parse(`{${applicantCount.quote}}`).records).toEqual([]);
+      expectArchivedClaim('applicant_lookup', '本次查询条件下未查到', applicantCount);
+      const udiPages = await archived(expectedUrls.udi);
       if (scenario === 'unavailable') {
-        expect(udiClaim).toBeUndefined();
+        expect(udiPages).toEqual([]);
+        expect(result.claims.filter(({ id }) => id.startsWith('udi_'))).toEqual([]);
         expect(result.uncertain).toContain('UDI 来源不可用，需重新查询。');
       } else {
-        expect(udiClaim).toMatchObject({
-          status: 'unverified',
-          value: scenario === 'matched' ? '本次查询首批匹配 1 条' : '本次查询条件下未查到',
-        });
-        expect(udiClaim?.sources.length).toBe(1);
+        expect(udiPages).toHaveLength(1);
+        const read = udiPages[0]!;
+        const batch = cite(read, 'records');
+        expect(JSON.parse(`{${batch.quote}}`).records).toHaveLength(scenario === 'matched' ? 1 : 0);
+        expectArchivedClaim(
+          'udi_lookup',
+          scenario === 'matched' ? '本次查询首批匹配 1 条' : '本次查询条件下未查到',
+          batch,
+        );
+        if (scenario === 'matched') {
+          expectArchivedClaim('udi_record_key', udiRecordKey, cite(read, 'gudidRecordKey'));
+          expectArchivedClaim(
+            'udi_primary_di',
+            primaryDeviceIdentifier,
+            cite(read, 'primaryDeviceIdentifier'),
+          );
+        }
       }
       const timers = await pool.query(
         "SELECT due_on::text AS due,jurisdiction_tz AS zone FROM timer WHERE goal_id=$1 AND state='active'",
@@ -431,20 +499,48 @@ test.each(['matched', 'zero', 'unavailable'] as const)(
         collaboration: { status: 'passed' },
       });
       expect(report.semantic.status).not.toBe('completed');
-      const reviewer = await context.login('MEMBER_B');
-      const approved = await context.app.inject({
-        method: 'POST',
-        url: `/api/reviews/${reviewId}/decision`,
-        headers: reviewer.headers,
-        payload: {
-          expectedVersion: card!.version,
-          workspaceVersion: result.workspaceVersion,
-          requestKey: randomUUID(),
-          action: 'approved',
-        },
+      const {
+        rows: [usage],
+      } = await pool.query(
+        `SELECT count(*)::int AS calls,count(*) FILTER(WHERE status='settled')::int AS settled,
+          sum(input_tokens)::text AS input,sum(output_tokens)::text AS output,sum(actual_nano)::text AS actual
+          FROM usage_ledger WHERE run_id=$1`,
+        [runId],
+      );
+      expect(usage).toEqual({
+        calls: modelCalls,
+        settled: modelCalls,
+        input: String(modelCalls * fixtureUsage.prompt_tokens),
+        output: String(modelCalls * fixtureUsage.completion_tokens),
+        actual: String(modelCalls * 1000),
       });
+      const reviewer = await context.login('MEMBER_B');
+      const approve = (headers: Partial<typeof reviewer.headers>) =>
+        context.app.inject({
+          method: 'POST',
+          url: `/api/reviews/${reviewId}/decision`,
+          headers,
+          payload: {
+            expectedVersion: card!.version,
+            workspaceVersion: result.workspaceVersion,
+            requestKey: randomUUID(),
+            action: 'approved',
+          },
+        });
+      const { cookie: _cookie, ...withoutSession } = reviewer.headers;
+      const { 'x-csrf-token': _csrf, ...withoutCsrf } = reviewer.headers;
+      expect((await approve(withoutSession)).statusCode).toBe(401);
+      expect((await approve(withoutCsrf)).statusCode).toBe(403);
+      expect(
+        (await pool.query('SELECT status FROM review_card WHERE id=$1', [reviewId])).rows,
+      ).toEqual([{ status: 'pending' }]);
+      const approved = await approve(reviewer.headers);
       expect(approved.statusCode).toBe(200);
       expect(approved.json().status).toBe('approved');
+      expect(
+        (await pool.query('SELECT actor_user_id FROM review_decision WHERE card_id=$1', [reviewId]))
+          .rows,
+      ).toEqual([{ actor_user_id: context.userId('MEMBER_B') }]);
       expect(
         (await pool.query('SELECT 1 FROM outbound_message WHERE project_id=$1', [projectId]))
           .rowCount,
