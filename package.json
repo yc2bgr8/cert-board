@@ -37,6 +37,7 @@
     "k14:verify-pairs": "node scripts/k14-pairs.mjs verify",
     "k14:plan-replay": "node scripts/k14-replay-plan.mjs",
     "k14:draft-r02": "node scripts/k14-r02-draft.mjs",
+    "k14:grade-r02": "node scripts/k14-r02-grade.mjs",
     "eval:r09": "vitest run apps/backend/src/agent/evaluation/r09-extraction.test.ts apps/backend/src/agent/evaluation/r09-l08.test.ts apps/backend/src/rules/rv05.test.ts",
     "docs:html": "node scripts/docs-html.mjs",
     "env:init": "node scripts/init-env.mjs",

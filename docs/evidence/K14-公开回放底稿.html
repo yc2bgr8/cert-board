@@ -34,4 +34,5 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="首批-r02-待审题目">首批 R02 待审题目</h2>
 <p>依据三份已归档的 2026 年 FDA 决定和摘要起草三道匿名题。每道题要求给出类别、产品代码、法规编号和申报路径。来源逐一校验和渲染核对。草题覆盖三种产品代码，三个例子的类别和申报主路径相同，类别与路径区分能力仍需补充其他样本。</p>
 <p>题目和参考答案分别保存在本机 <code>pr37-r02-questions-review-only.json</code> 与 <code>pr37-r02-answers-review-only.json</code>。题目摘要为 <code>bab86cd4c7bc7661c291ec67f6beebfbd9daf0080b616f61850bb2e708bc0324</code>，答案摘要为 <code>9572d6866c6f352e492c5d8ed7ac79fb09b1c01ef110d8392c1721961c082721</code>。回放边界使用原始 openFDA 受理日前一日。三份决定通知显示的收到日期均与该归档受理日有差异，复核时须确认摘要内容能否用作原受理时点的题目描述。</p>
+<p>独立判分工具按审阅答案计算四个字段，先核验评测端记录的输入摘要与回放结论。评分报告保留已作答、无效回放、未核验和未作答的覆盖状态。证据出现目标编号、晚于截止日或来源日期无法确认时，依 PR-35 的核验结论排除出字段得分分母。</p>
 <p>候选来源供后续题目制作与抽查。训练截止日、正式测试题与答案、候选配对确认及真实模型验收报告仍待完成。<a href="https://open.fda.gov/apis/device/510k/" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">FDA 510(k) API（外部链接）</a> · <a href="../pr/PR-37.html">PR-37 范围</a></p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
