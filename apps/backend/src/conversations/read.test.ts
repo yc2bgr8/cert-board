@@ -119,7 +119,7 @@ describe('公开对话过程投影', () => {
       }).payload,
     ).not.toHaveProperty('pendingSteeringCount');
   });
-  it('预算停机只显示允许的解释，不透上游错误或用量', () => {
+  it('用量和网关停机只显示允许的摘要', () => {
     const blocked = projectConversationEvent({
       ...row,
       type: 'run_status',
@@ -140,6 +140,20 @@ describe('公开对话过程投影', () => {
       payload: { status: 'failed', reasonCode: '私有错误正文' },
     });
     expect(unknown.payload).toEqual({ status: 'failed', summary: '运行状态已更新。' });
+    expect(
+      projectConversationEvent({
+        ...row,
+        type: 'run_status',
+        payload: {
+          status: 'failed',
+          reasonCode: 'MODEL_CURSOR_PAYMENT_METHOD_REQUIRED',
+          message: '私有账单信息',
+        },
+      }).payload,
+    ).toEqual({
+      status: 'failed',
+      summary: 'Cursor 要求添加付款方式。请核对当前团队的账单设置。',
+    });
     expect(
       projectConversationEvent({
         ...row,

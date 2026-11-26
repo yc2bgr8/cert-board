@@ -15,7 +15,11 @@ import { seedDevelopmentBudgetPolicy } from '../budget/service.js';
 import { appendConversationMessage } from '../conversations/storage.js';
 import * as conversationStorage from '../conversations/storage.js';
 import { ModelGateway, type GatewayTransport } from '../modelgw/service.js';
-import { cursorAcceptanceModels, CursorReplyFormatError } from '../modelgw/cursor-acceptance.js';
+import {
+  cursorAcceptanceModels,
+  CursorPaymentMethodRequiredError,
+  CursorReplyFormatError,
+} from '../modelgw/cursor-acceptance.js';
 import { CursorAcpNativeToolError } from '../external-model/cursor-acp.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { ingestParsedDocument } from '../documents/service.js';
@@ -118,8 +122,15 @@ test.each([
     done: false,
   },
   { label: '原生工具被阻止', errors: [new CursorAcpNativeToolError()], calls: 1, done: false },
+  {
+    label: 'Cursor 要求付款方式',
+    errors: [new CursorPaymentMethodRequiredError()],
+    calls: 1,
+    done: false,
+    reasonCode: 'MODEL_CURSOR_PAYMENT_METHOD_REQUIRED',
+  },
   { label: '其他派发后失败', errors: [new Error('合成上游连接中断')], calls: 1, done: false },
-])('Cursor 主模型回合单独计量并限制复试（$label）', async ({ errors, calls, done }) => {
+])('Cursor 主模型回合单独计量并限制复试（$label）', async ({ errors, calls, done, reasonCode }) => {
   const context = await createIntegrationContext();
   close = () => context.close();
   const store = new MemoryStore();
@@ -150,6 +161,7 @@ test.each([
     target.runId,
   );
   expect(outcome.status).toBe(done ? 'completed' : 'failed');
+  if (reasonCode) expect(outcome.reasonCode).toBe(reasonCode);
   expect(corrections).toEqual(calls === 2 ? [false, true] : [false]);
   const { rows } = await context.pool.query<{
     request_key: string;

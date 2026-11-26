@@ -153,6 +153,12 @@ export class CursorOutputLimitError extends Error {
   }
 }
 
+export class CursorPaymentMethodRequiredError extends Error {
+  constructor() {
+    super('Cursor 要求添加付款方式。请核对当前团队的账单设置。');
+  }
+}
+
 export class CursorReplyFormatError extends Error {
   constructor(readonly failure: CursorReplyFailure) {
     super('Cursor 未返回有效的 cert-board 工具回合。实际调用已登记，未执行这次回复中的动作。');
@@ -317,6 +323,8 @@ export async function sendCursorAcceptance(
     if (error instanceof CursorAcpStartupError && !signal?.aborted) return readTurn();
     throw error;
   });
+  if (answer.trim() === 'Add a payment method to continue')
+    throw new CursorPaymentMethodRequiredError();
   // ACP does not give this worker an invoiced model cost. The ModelGateway retains an unknown ledger entry.
   try {
     return parseCursorModelTurn(answer, request, toolFreeVerification, turnId);

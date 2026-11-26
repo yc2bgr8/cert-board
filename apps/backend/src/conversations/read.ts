@@ -172,6 +172,8 @@ function publicRunSummary(status: unknown, reason: unknown) {
   }
   if (status === 'failed' && reason === 'MODEL_UPSTREAM_FAILED')
     return '上游模型请求失败，已保留计量记录。请核对用量和本轮工具记录。';
+  if (status === 'failed' && reason === 'MODEL_CURSOR_PAYMENT_METHOD_REQUIRED')
+    return 'Cursor 要求添加付款方式。请核对当前团队的账单设置。';
   if (status === 'stopped' && reason === 'REVIEW_NOT_SUBMITTED')
     return '本轮结束时未提交审核。请核对已保存的改动和未完成事项。';
   return '运行状态已更新。';

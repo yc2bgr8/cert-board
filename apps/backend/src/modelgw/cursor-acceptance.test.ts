@@ -161,6 +161,22 @@ test('只重建明确未派发的 ACP 启动握手，普通派发拒绝或发送
   }
 });
 
+test('Cursor 付款提示单独中止，结构化回复中引用该提示仍可读取', async () => {
+  const model = cursorAcceptanceModels[0]!;
+  const cursor = { executable: 'fixture', entrypoint: 'fixture', profileDirectory: 'fixture' };
+  const text = 'Add a payment method to continue';
+  const turn = vi.mocked(readCursorTurn).mockClear();
+  turn.mockResolvedValueOnce(`\n${text}\n`);
+  await expect(sendCursorAcceptance(cursor, model, request)).rejects.toThrow(
+    'Cursor 要求添加付款方式。',
+  );
+  expect(turn).toHaveBeenCalledOnce();
+  turn.mockResolvedValueOnce(JSON.stringify({ content: text, actions: [] }));
+  await expect(sendCursorAcceptance(cursor, model, request)).resolves.toMatchObject({
+    choices: [{ finish_reason: 'stop', message: { content: text } }],
+  });
+});
+
 test.each([false, true])('验收报告失效后拒绝上游发送（派发复核期间发生变化 %s）', async (duringDispatch) => {
   const verifyAcceptanceScope = vi.fn(async () => undefined);
   if (duringDispatch) verifyAcceptanceScope.mockResolvedValueOnce(undefined);

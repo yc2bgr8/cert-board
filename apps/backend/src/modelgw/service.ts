@@ -26,7 +26,12 @@ import {
   markUsageNotDispatched,
   meteringCanResume,
 } from '../budget/service.js';
-import { CursorOutputLimitError, CursorReplyFormatError, type CursorDispatchChecks } from './cursor-acceptance.js';
+import {
+  CursorOutputLimitError,
+  CursorPaymentMethodRequiredError,
+  CursorReplyFormatError,
+  type CursorDispatchChecks,
+} from './cursor-acceptance.js';
 import { CursorAcpNativeToolError } from '../external-model/cursor-acp.js';
 
 export type UpstreamChatRequest = Omit<ChatRequest, 'model' | 'stream'> & {
@@ -478,6 +483,10 @@ export class ModelGateway {
       if (model.transport === 'cursor-acp' && object(error)?.confirmedNotSent === true) {
         await this.releaseUnsent(context, signal);
         throw new ModelNotDispatchedError();
+      }
+      if (model.transport === 'cursor-acp' && error instanceof CursorPaymentMethodRequiredError) {
+        await this.incomplete(context, 'request_uncertain');
+        throw rejected('MODEL_CURSOR_PAYMENT_METHOD_REQUIRED', error.message, 502);
       }
       if (model.transport === 'cursor-acp' && error instanceof CursorReplyFormatError) {
         await this.incomplete(context, 'request_uncertain', error.failure);
