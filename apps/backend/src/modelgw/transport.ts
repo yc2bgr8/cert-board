@@ -8,7 +8,7 @@ import {
 } from '@cert-board/shared';
 import type { CursorAcpConfig } from '../external-model/cursor-acp.js';
 import { VerificationChannelError } from '../external-model/verification-runtime.js';
-import { sendCursorAcceptance } from './cursor-acceptance.js';
+import { sendCursorAcceptance, type CursorDispatchChecks } from './cursor-acceptance.js';
 
 type RemoteTarget = Pick<OpenRouterGatewayModel, 'baseUrl' | 'apiKeyEnv' | 'transport'>;
 type Target = RemoteTarget | { baseUrl: string | null; transport: 'local' };
@@ -110,7 +110,7 @@ export class RealGatewayTransport {
     model: Target | CursorGatewayModel,
     body: unknown,
     signal?: AbortSignal,
-    beforeCursorDispatch?: () => Promise<void>,
+    cursorDispatch?: CursorDispatchChecks,
   ): Promise<unknown> {
     if (model.transport === 'cursor-acp') {
       if (!this.#cursorAcceptance) throw new VerificationChannelError('not_installed', true);
@@ -119,7 +119,7 @@ export class RealGatewayTransport {
         model,
         body,
         signal,
-        beforeCursorDispatch,
+        cursorDispatch,
       );
     }
     return this.#call(model, 'chat/completions', body, signal);

@@ -17,7 +17,7 @@ import {
   type UpstreamUsage,
   type BudgetIncomplete,
 } from '@cert-board/shared';
-import { AppError } from '../api/errors.js';
+import { AppError, ModelNotDispatchedError } from '../api/errors.js';
 import { enforceCostLimits } from '../budget/cost-policy.js';
 import {
   reserveUsage,
@@ -26,7 +26,7 @@ import {
   markUsageNotDispatched,
   meteringCanResume,
 } from '../budget/service.js';
-import { CursorOutputLimitError, CursorReplyFormatError } from './cursor-acceptance.js';
+import { CursorOutputLimitError, CursorReplyFormatError, type CursorDispatchChecks } from './cursor-acceptance.js';
 import { CursorAcpNativeToolError } from '../external-model/cursor-acp.js';
 
 export type UpstreamChatRequest = Omit<ChatRequest, 'model' | 'stream'> & {
@@ -44,7 +44,7 @@ export interface GatewayTransport {
     model: GatewayModelConfig,
     body: UpstreamChatRequest,
     signal?: AbortSignal,
-    beforeCursorDispatch?: () => Promise<void>,
+    cursorDispatch?: CursorDispatchChecks,
   ): Promise<unknown>;
 }
 type GatewayOptions = { environment?: 'development' | 'test' | 'production' };
@@ -266,6 +266,7 @@ export class ModelGateway {
   private async recordIncomplete(
     context: GatewayContext,
     reasonCode: BudgetIncomplete['reasonCode'],
+    cursorReplyFailure?: BudgetIncomplete['cursorReplyFailure'],
   ) {
     this.meteringBlocks.set(context.requestKey, null);
     const recorded = await markUsageIncomplete(this.pool, {
@@ -273,6 +274,7 @@ export class ModelGateway {
       runId: context.runId,
       userId: context.userId,
       reasonCode,
+      ...(cursorReplyFailure ? { cursorReplyFailure } : {}),
     });
     if (enforceCostLimits(this.environment))
       this.meteringBlocks.set(context.requestKey, recorded.id);
@@ -294,9 +296,10 @@ export class ModelGateway {
   private async incomplete(
     context: GatewayContext,
     reasonCode: 'missing_usage' | 'request_uncertain' | 'aborted',
+    cursorReplyFailure?: BudgetIncomplete['cursorReplyFailure'],
   ) {
     try {
-      await this.recordIncomplete(context, reasonCode);
+      await this.recordIncomplete(context, reasonCode, cursorReplyFailure);
     } catch {
       throw rejected(
         'MODEL_METERING_FAILED',
@@ -446,15 +449,26 @@ export class ModelGateway {
     try {
       raw =
         model.transport === 'cursor-acp'
-          ? await this.transport.send(model, body, signal, async () => {
-              if (this.meteringBlocks.size || signal?.aborted)
-                throw new Error('dispatch_cancelled');
-              await this.routing(context, model);
-              await beforeDispatch?.();
-              await this.routing(context, model);
-              if (this.meteringBlocks.size || signal?.aborted)
-                throw new Error('dispatch_cancelled');
-            })
+          ? await this.transport.send(
+              model,
+              body,
+              signal,
+              {
+                prepare: async () => {
+                  if (this.meteringBlocks.size || signal?.aborted)
+                    throw new Error('dispatch_cancelled');
+                  await this.routing(context, model);
+                  await beforeDispatch?.();
+                },
+                recheckRouting: async () => {
+                  await this.routing(context, model);
+                },
+                assertMayWrite: () => {
+                  if (this.meteringBlocks.size || signal?.aborted)
+                    throw new Error('dispatch_cancelled');
+                },
+              },
+            )
           : await this.transport.send(model, body, signal);
     } catch (error) {
       if (error instanceof CursorOutputLimitError) {
@@ -463,14 +477,10 @@ export class ModelGateway {
       }
       if (model.transport === 'cursor-acp' && object(error)?.confirmedNotSent === true) {
         await this.releaseUnsent(context, signal);
-        throw rejected(
-          'MODEL_DISPATCH_BLOCKED',
-          'Cursor 尚未发送模型请求。请核对验收配置、数据级别和运行状态。',
-          502,
-        );
+        throw new ModelNotDispatchedError();
       }
       if (model.transport === 'cursor-acp' && error instanceof CursorReplyFormatError) {
-        await this.incomplete(context, 'request_uncertain');
+        await this.incomplete(context, 'request_uncertain', error.failure);
         throw rejected('MODEL_CURSOR_REPLY_INVALID', error.message, 502);
       }
       if (model.transport === 'cursor-acp' && error instanceof CursorAcpNativeToolError) {

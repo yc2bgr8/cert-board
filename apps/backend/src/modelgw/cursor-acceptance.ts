@@ -8,6 +8,7 @@ import {
   verificationReplySchema,
   upstreamAssistantResponseSchema,
   type CursorGatewayModel,
+  type CursorReplyFailure,
 } from '@cert-board/shared';
 import {
   CursorAcpStartupError,
@@ -93,8 +94,9 @@ export async function readCursorAcceptanceConfig(
     (await readFile(marker, 'utf8')).trim() !== 'cert-board-acceptance'
   )
     throw new Error('CURSOR_ACCEPTANCE_VM_REQUIRED');
-  await confirmCursorAcceptanceScope(
-    process.cwd(),
+  const source = process.cwd();
+  const scope = await confirmCursorAcceptanceScope(
+    source,
     env.CERT_CURSOR_ACCEPTANCE_WORKER,
     env.CERT_CURSOR_ACCEPTANCE_HEAD,
   );
@@ -103,6 +105,9 @@ export async function readCursorAcceptanceConfig(
     entrypoint: path.join(bundle, 'index.js'),
     profileDirectory,
     timeoutMs: 120_000,
+    async verifyAcceptanceScope() {
+      await confirmCursorAcceptanceScope(source, scope.pr, scope.head);
+    },
   };
 }
 
@@ -127,11 +132,12 @@ const channelBoundary = [
 ].join('\n');
 
 const turnContract = [
+  'Return exactly one JSON object. Omit Markdown fences and any preface.',
   channelBoundary,
   'To use a cert-board tool, describe it as an action in your response.',
-  'Respond with only one JSON object: {"content":"assistant progress or final reply, or null","actions":[{"name":"tool_name","arguments":{}}]}.',
+  'Use the shape {"content":null,"actions":[{"name":"tool_name","arguments":{}}]}. Set content to a string when reporting progress or a final answer.',
   'If the requested answer itself is a JSON object, put that object as a JSON-encoded string in the content field, and still return the outer envelope.',
-  'Keep the entire response, including the JSON envelope and all tool arguments, within maximumResponseBytes UTF-8 bytes.',
+  'Count the entire reply, including the JSON envelope and tool arguments, toward the byte limit.',
   'Use exact tool names and their parameter schemas. When the user requests a workflow and the next required action is available, put that action in actions now. Progress text alone does not execute an action.',
   'Return an empty actions array only when the requested work is complete, no available tool can advance it, or the user requests only a text answer. In a single turn, request independent actions and wait for client results before dependent actions.',
 ].join('\n');
@@ -148,35 +154,82 @@ export class CursorOutputLimitError extends Error {
 }
 
 export class CursorReplyFormatError extends Error {
-  constructor() {
+  constructor(readonly failure: CursorReplyFailure) {
     super('Cursor 未返回有效的 cert-board 工具回合。实际调用已登记，未执行这次回复中的动作。');
   }
+}
+
+export type CursorDispatchChecks = {
+  prepare?: () => Promise<void>;
+  recheckRouting?: () => Promise<void>;
+  assertMayWrite?: () => void;
+};
+
+const startMarker = 'CERT_BOARD_TURN_START ';
+const endMarker = 'CERT_BOARD_TURN_END ';
+
+function turnFrame(maxBytes: number) {
+  const id = randomUUID();
+  const start = startMarker + id;
+  const end = endMarker + id;
+  const example = '{"content":null,"actions":[{"name":"tool_name","arguments":{}}]}';
+  return Buffer.byteLength(`${start}\n${example}\n${end}`, 'utf8') <= maxBytes
+    ? { id, start, end }
+    : undefined;
+}
+
+function replyJsonText(text: string, turnId?: string) {
+  const lines = text.split(/\r?\n/u);
+  const markers = lines.flatMap((line, index) =>
+    line.trimStart().startsWith('CERT_BOARD_TURN_') ? [index] : [],
+  );
+  if (!markers.length) return text;
+  const [start, end] = markers;
+  if (
+    !turnId || markers.length !== 2 || start === undefined || end === undefined ||
+    lines[start] !== startMarker + turnId || lines[end] !== endMarker + turnId ||
+    end !== lines.length - 1 || /[{}]|\[|\]|\x60{3}|~{3}/u.test(lines.slice(0, start).join('\n'))
+  ) throw new CursorReplyFormatError('invalid_frame');
+  return lines.slice(start + 1, end).join('\n');
 }
 
 export function parseCursorModelTurn(
   answer: string,
   request: z.infer<typeof chatRequestSchema>,
   toolFreeVerification = false,
+  turnId?: string,
 ) {
   // ACP 不提供生成令牌上限。用 UTF-8 字节作为输出令牌数的保守上界。
   if (request.max_tokens !== undefined && Buffer.byteLength(answer, 'utf8') > request.max_tokens)
     throw new CursorOutputLimitError();
-  const body = answer
-    .trim()
-    .replace(/^\x60\x60\x60(?:json)?\s*/iu, '')
-    .replace(/\s*\x60\x60\x60$/u, '');
-  const payload: unknown = JSON.parse(body);
+  const text = answer.trim();
+  if (!text) throw new CursorReplyFormatError('empty');
+  const framed = replyJsonText(text, toolFreeVerification ? undefined : turnId);
+  const body = framed === text
+    ? text.replace(/^\x60\x60\x60(?:json)?\s*/iu, '').replace(/\s*\x60\x60\x60$/u, '')
+    : framed;
+  if (framed === text && !body) throw new CursorReplyFormatError('empty');
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    throw new CursorReplyFormatError(
+      framed === text && !body.startsWith('{') && !body.startsWith('[') ? 'unframed_text' : 'invalid_json',
+    );
+  }
   const verification = toolFreeVerification ? verificationReplySchema.safeParse(payload) : null;
-  const result = modelTurn.parse(
+  const turn = modelTurn.safeParse(
     verification?.success
       ? { content: JSON.stringify(verification.data), actions: [] }
       : payload,
   );
+  if (!turn.success) throw new CursorReplyFormatError('invalid_envelope');
+  const result = turn.data;
   const eligible = new Set(
     request.tool_choice === 'none' ? [] : request.tools?.map((tool) => tool.function.name),
   );
   if (result.actions.some(({ name }) => !eligible.has(name)))
-    throw new Error('CURSOR_ACTION_NOT_REGISTERED');
+    throw new CursorReplyFormatError('unavailable_action');
   return upstreamAssistantResponseSchema.parse({
     id: randomUUID(),
     choices: [
@@ -206,7 +259,7 @@ export async function sendCursorAcceptance(
   model: CursorGatewayModel,
   raw: unknown,
   signal?: AbortSignal,
-  beforeDispatch?: () => Promise<void>,
+  dispatch?: CursorDispatchChecks,
 ) {
   let request: z.infer<typeof chatRequestSchema> & { max_tokens: number };
   try {
@@ -220,19 +273,30 @@ export async function sendCursorAcceptance(
     model.purposes[0] === 'verification' &&
     request.tool_choice === 'none' &&
     !request.tools?.length;
+  const frame = toolFreeVerification ? undefined : turnFrame(request.max_tokens);
+  const prompt = toolFreeVerification
+    ? { contract: verificationContract, maximumResponseBytes: request.max_tokens, request }
+    : [
+        turnContract,
+        ...(frame
+          ? [`If the entire framed reply fits the byte limit, place the JSON between these two exact lines: "${frame.start}" and "${frame.end}". End the reply after the closing line. If the frame would exceed the limit, use the same standalone JSON object without markers.`]
+          : ['Use the entire reply for the JSON object, with no reply frame.']),
+        `Reply limit: ${request.max_tokens} UTF-8 bytes. Use the labelled messages and tool definitions in the request below.`,
+        `Request JSON:\n${JSON.stringify(request)}`,
+      ].join('\n\n');
   const readTurn = () =>
     readCursorTurn(
       config,
       model.cursorModel,
-      {
-        contract: toolFreeVerification ? verificationContract : turnContract,
-        maximumResponseBytes: request.max_tokens,
-        request,
-      },
+      prompt,
       async () => {
-        await beforeDispatch?.();
+        await config.verifyAcceptanceScope?.();
+        await dispatch?.prepare?.();
+        await config.verifyAcceptanceScope?.();
+        await dispatch?.recheckRouting?.();
       },
       signal,
+      dispatch?.assertMayWrite,
     );
   const answer = await readTurn().catch((error: unknown) => {
     if (error instanceof CursorAcpStartupError && !signal?.aborted) return readTurn();
@@ -240,9 +304,10 @@ export async function sendCursorAcceptance(
   });
   // ACP does not give this worker an invoiced model cost. The ModelGateway retains an unknown ledger entry.
   try {
-    return parseCursorModelTurn(answer, request, toolFreeVerification);
+    return parseCursorModelTurn(answer, request, toolFreeVerification, frame?.id);
   } catch (error) {
-    if (error instanceof CursorOutputLimitError) throw error;
-    throw new CursorReplyFormatError();
+    if (error instanceof CursorOutputLimitError || error instanceof CursorReplyFormatError)
+      throw error;
+    throw new CursorReplyFormatError('invalid_envelope');
   }
 }

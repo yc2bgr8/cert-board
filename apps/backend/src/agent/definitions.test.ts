@@ -30,8 +30,12 @@ test('技能正文与审核策略版本一致，M02 草稿限定官方工具、�
   expect(maintenance.publication).toBe('draft');
   expect(maintenance.developmentOnly).toBe(true);
   expect(maintenance.body).toContain('official_lookup');
+  expect(maintenance.body).toMatch(/只有取得登记号后，才用.+`fda_registration`/u);
+  expect(maintenance.body).toContain('缺少登记号时列为待核实');
   expect(maintenance.body).toContain('每个商品名，各建一条「公开列名商品名」主张');
   expect(maintenance.body).toContain('`sources` 引用包含该名称的已读档案页');
+  expect(maintenance.body).toContain('到期年份是档案标识，`value` 用字符串');
+  expect(maintenance.body).toContain('查询失败且没有可引证的档案时写入 `uncertain` 或 `missing`');
   expect(maintenance.body).toContain('只用资料中明确给出且可以公开查询的编号和名称');
   expect(maintenance.body).toContain('只在成功回执明确返回零条时写「本次查询条件下未查到」');
 });

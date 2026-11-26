@@ -52,6 +52,7 @@ export type CursorAcpConfig = {
   entrypoint: string;
   profileDirectory: string;
   timeoutMs?: number;
+  verifyAcceptanceScope?: () => Promise<void>;
 };
 
 export class CursorAcpStartupError extends VerificationChannelError {
@@ -139,6 +140,7 @@ export async function readCursorTurn(
   prompt: unknown,
   beforeDispatch: (processClosed: AbortSignal) => Promise<void>,
   signal?: AbortSignal,
+  assertDispatch?: () => void,
 ) {
   const model = cursorModels[modelId as keyof typeof cursorModels];
   if (typeof model !== 'string') throw new VerificationChannelError('failed', true);
@@ -277,10 +279,11 @@ export async function readCursorTurn(
     await beforeDispatch(processClosed.signal);
     if (error || child.exitCode !== null || child.killed || !child.stdin.writable)
       throw new VerificationChannelError('failed', true);
+    assertDispatch?.();
     promptAttempted = true;
     const completed = await rpc('session/prompt', {
       sessionId,
-      prompt: [{ type: 'text', text: JSON.stringify(prompt) }],
+      prompt: [{ type: 'text', text: typeof prompt === 'string' ? prompt : JSON.stringify(prompt) }],
     });
     if (error) throw error;
     if (!z.object({ stopReason: z.literal('end_turn') }).safeParse(completed).success)

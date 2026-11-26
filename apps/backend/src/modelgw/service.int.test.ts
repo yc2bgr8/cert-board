@@ -192,9 +192,12 @@ test('Cursor 最终路由拒绝已换代的执行租约，账本记录未发送'
   const paidSend = vi.fn(() => response());
   const remote: GatewayTransport = {
     kind: 'fixture',
-    async send(_model, _body, _signal, guard) {
+    async send(_model, _body, _signal, dispatch) {
       try {
-        await guard?.();
+        await dispatch?.prepare?.();
+        await context.pool.query('UPDATE run SET lease_generation=2 WHERE id=$1', [caller.runId]);
+        await dispatch?.recheckRouting?.();
+        dispatch?.assertMayWrite?.();
       } catch {
         throw new VerificationChannelError('failed', true);
       }
@@ -208,14 +211,42 @@ test('Cursor 最终路由拒绝已换代的执行租约，账本记录未发送'
     { environment: 'test' },
   );
   await expect(
-    gateway.complete(request, { ...caller, lease: { ownerId, generation: 1 } }, undefined, async () => {
-      await context.pool.query('UPDATE run SET lease_generation=2 WHERE id=$1', [caller.runId]);
-    }),
+    gateway.complete(request, { ...caller, lease: { ownerId, generation: 1 } }),
   ).rejects.toMatchObject({ code: 'MODEL_DISPATCH_BLOCKED' });
   expect(paidSend).not.toHaveBeenCalled();
   const ledger = await context.pool.query<{ status: string }>(
     'SELECT status FROM usage_ledger WHERE request_key=$1',
     [caller.requestKey],
+  );
+  expect(ledger.rows).toEqual([{ status: 'not_sent' }]);
+});
+
+test('Cursor 范围复核期间建立计量拦截时，最终同步门禁拒绝已预占请求', async () => {
+  const actualSend = vi.fn(() => response());
+  const transport: GatewayTransport = {
+    kind: 'fixture',
+    async send(_model, _body, _signal, dispatch) {
+      await dispatch?.prepare?.();
+      await dispatch?.recheckRouting?.();
+      // 路由查询结束前另一请求进入计量处理。
+      Reflect.get(gateway, 'meteringBlocks').set(randomUUID(), null);
+      try {
+        dispatch?.assertMayWrite?.();
+      } catch {
+        throw new VerificationChannelError('failed', true);
+      }
+      return actualSend();
+    },
+  };
+  const gateway = new ModelGateway(
+    context.pool, { version: 1, models: cursorAcceptanceModels }, transport, { environment: 'test' },
+  );
+  await expect(gateway.complete(request, caller)).rejects.toMatchObject({
+    code: 'MODEL_DISPATCH_BLOCKED',
+  });
+  expect(actualSend).not.toHaveBeenCalled();
+  const ledger = await context.pool.query<{ status: string }>(
+    'SELECT status FROM usage_ledger WHERE request_key=$1', [caller.requestKey],
   );
   expect(ledger.rows).toEqual([{ status: 'not_sent' }]);
 });

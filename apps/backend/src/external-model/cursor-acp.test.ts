@@ -10,6 +10,64 @@ import {
   sendCursorAcceptance,
 } from '../modelgw/cursor-acceptance.js';
 
+test('ACP 主 Agent 将回复格式直接放在派发文本开头，按原样附带有标签的请求', async () => {
+  const profile = await mkdtemp(path.join(tmpdir(), 'cert-board-acp-contract-test-'));
+  const config = path.join(profile, 'cli-config.json');
+  const mcp = path.join(profile, 'mcp.json');
+  const marker = path.join(profile, 'direct-contract-fixture');
+  try {
+    await Promise.all([
+      writeFile(config, JSON.stringify(cursorPermissions)),
+      writeFile(mcp, JSON.stringify({ mcpServers: {} })),
+      writeFile(marker, ''),
+    ]);
+    const sent = vi.fn(async () => undefined);
+    const connection = {
+      executable: process.execPath,
+      entrypoint: fileURLToPath(new URL('../test-support/cursor-acp-exit-fixture.mjs', import.meta.url)),
+      profileDirectory: profile,
+      timeoutMs: 3000,
+    };
+    const request = {
+      messages: [{ role: 'user', content: '合成验收' }],
+      max_tokens: 256,
+      tools: [{
+        type: 'function',
+        function: { name: 'read_example', description: '读取合成示例', parameters: { type: 'object' } },
+      }],
+    };
+    await expect(sendCursorAcceptance(connection, cursorAcceptanceModels[0]!, request, undefined, { prepare: sent }))
+      .resolves.toMatchObject({ choices: [{
+      finish_reason: 'tool_calls',
+      message: { content: null, tool_calls: [{ function: { name: 'read_example', arguments: '{}' } }] },
+    }] });
+    expect(sent).toHaveBeenCalledOnce();
+    let checks = 0;
+    let blocked = false;
+    const recheckRouting = vi.fn(async () => {
+      expect(blocked).toBe(true);
+    });
+    const assertMayWrite = vi.fn(() => {
+      if (blocked) throw new Error('blocked-after-scope');
+    });
+    await expect(sendCursorAcceptance({
+      ...connection,
+      async verifyAcceptanceScope() {
+        if (++checks === 2) blocked = true;
+      },
+    }, cursorAcceptanceModels[0]!, request, undefined, {
+      prepare: async () => { expect(blocked).toBe(false); },
+      recheckRouting,
+      assertMayWrite,
+    })).rejects.toMatchObject({ confirmedNotSent: true });
+    expect(recheckRouting).toHaveBeenCalledOnce();
+    expect(assertMayWrite).toHaveBeenCalledOnce();
+  } finally {
+    await Promise.allSettled([unlink(config), unlink(mcp), unlink(marker)]);
+    await rmdir(profile);
+  }
+});
+
 test('正常结束的空回合是主 Agent 的格式错误，直接核实仍拒绝空回复', async () => {
   const profile = await mkdtemp(path.join(tmpdir(), 'cert-board-acp-empty-test-'));
   const preferences = path.join(profile, 'cli-config.json');

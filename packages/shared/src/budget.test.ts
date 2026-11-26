@@ -87,6 +87,15 @@ describe('预算计量边界', () => {
     expect(
       budgetIncompleteSchema.safeParse({ ...request, reasonCode: '原始响应正文或凭据' }).success,
     ).toBe(false);
+    expect(budgetIncompleteSchema.safeParse({
+      ...request, reasonCode: 'request_uncertain', cursorReplyFailure: 'invalid_json',
+    }).success).toBe(true);
+    expect(budgetIncompleteSchema.safeParse({
+      ...request, reasonCode: 'request_uncertain', cursorReplyFailure: 'invalid_frame',
+    }).success).toBe(true);
+    expect(budgetIncompleteSchema.safeParse({
+      ...request, reasonCode: 'request_uncertain', cursorReplyFailure: '原始响应正文或凭据',
+    }).success).toBe(false);
   });
   it('默认运营额度不能自动用于生产', () => {
     expect(developmentBudgetEnvironmentSchema.safeParse('development').success).toBe(true);
