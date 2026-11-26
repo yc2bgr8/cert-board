@@ -30,7 +30,7 @@ export function ChatBubble({
         <strong>{agentName}</strong>
         <time dateTime={message.createdAt}>{clock.format(new Date(message.createdAt))}</time>
       </header>
-      <SafeMarkdown workbench>{message.text}</SafeMarkdown>
+      <div className="live-agent-message-body"><SafeMarkdown workbench>{message.text}</SafeMarkdown></div>
     </article>
   );
 }

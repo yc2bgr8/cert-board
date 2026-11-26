@@ -307,17 +307,31 @@ async function main() {
     await page.getByRole('heading', { name: 'L08 510(k)', exact: true }).waitFor();
     stage = 'L08资料与安全Markdown';
     await createConversation(page, harness.projectId, 'read_only');
-    await page.getByRole('button', { name: '添加资料引用', exact: true }).click();
+    const composerInput = page.getByRole('textbox', { name: '消息', exact: true });
+    const compactHeight = await composerInput.evaluate((node) => node.getBoundingClientRect().height);
+    await composerInput.fill('定位编号。\n核对出处。\n记录待确认事项。');
+    assert.ok(await composerInput.evaluate((node) => node.getBoundingClientRect().height) > compactHeight);
+    await composerInput.fill('核查依据 @');
+    const referenceDialog = page.getByRole('dialog', { name: '添加资料引用', exact: true });
+    await referenceDialog.getByRole('textbox', { name: '筛选已加载的资料' }).fill('D035');
     await page
-      .getByRole('region', { name: '添加资料引用', exact: true })
+      .getByRole('dialog', { name: '添加资料引用', exact: true })
       .getByRole('button', { name: /D035/ })
       .click();
-    assert.match(
-      await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(),
-      /资料引用：D035/,
-    );
+    const removeReference = page.getByRole('button', { name: '移除 D035', exact: true });
+    await removeReference.waitFor();
+    assert.equal(await composerInput.inputValue(), '核查依据');
+    await captureWorkbench(page, output, 'pr-u5-01-composer.png');
     const read = harness.plan('read');
     const first = await send(page, '只读检查L08对比器械资料，说明原文位置。');
+    await removeReference.waitFor({ state: 'hidden' });
+    assert.match(
+      (await harness.pool.query<{ text: string }>(
+        "SELECT message_json->>'content' AS text FROM conversation_message WHERE run_id=$1 AND message_json->>'role'='user'",
+        [first.runId],
+      )).rows[0]?.text ?? '',
+      /资料引用：D035/,
+    );
     await page.getByText('已读取资料原文，正确编号仍待确认。', { exact: false }).waitFor();
     await until(() => read.observed.calls === 3);
     assert.equal(read.observed.readPage, 1);
@@ -404,7 +418,9 @@ async function main() {
       (response) =>
         response.request().method() === 'PATCH' && response.url().endsWith('/permission-mode'),
     );
-    await page.getByRole('combobox', { name: '权限模式', exact: true }).selectOption('read_only');
+    await page.getByRole('button', { name: '权限模式', exact: true }).click();
+    await page.getByRole('dialog', { name: '切换权限模式' })
+      .getByRole('button', { name: /^只读/ }).click();
     assert.equal((await modeResponse).status(), 200);
     mode.release();
     await page.getByText('已读取资料原文，正确编号仍待确认。', { exact: false }).waitFor();

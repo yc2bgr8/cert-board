@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-U5 Orca 对话输入区与消息流</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#验收">验收</a><a class="level-2" href="#余项">余项</a></nav><main><h1 id="pr-u5-orca-对话输入区与消息流">PR-U5 Orca 对话输入区与消息流</h1>
+<p>Lan 看过 <code>.local/orca-chat-prototype</code> 中的可点击原型后，确认用 Orca 聊天组件作底稿，优先替换输入区和消息流。这一轮在正式网页复用现有对话、浏览器请求和事件流。</p>
+<ul><li>输入框按多行内容增高。工具条使用紧凑的资料、权限、停止和发送按钮。运行时仍可以插话，断流时发起人仍可停止。</li><li>点击资料按钮或在消息末尾输入独立的 <code>@</code>，可从浮层筛选已加载的项目资料。已选资料以可移除的标签显示，切换对话后从原草稿还原，提交时仍按既有引用格式传给后端。</li><li>消息气泡、Agent 名称和正文、可展开工具步骤使用原型的排版。工具步骤状态有文字，审核与外发提案沿用既有业务内容和操作。</li><li>组件与样式参考 Orca 提交 <code>bc8085021b0a7e046925901a2f857361dd929686</code>，源码保留出处，MIT 声明见 <code>third_party/orca/LICENSE</code>。应用已有的字号与色板用于具体令牌。本 PR 没有新增运行时依赖。</li></ul>
+<h2 id="验收">验收</h2>
+<p>在干净 Linux 虚拟机运行通用检查。浏览器剧本验证输入框增高、<code>@</code> 和筛选、标签显示、请求保留资料编号、发送后清理引用、运行中的权限切换、插话、停止、批准和审核。覆盖设计稿 04 的对话流程与 11 的停止流程，保留 1440×900 浏览器截图。另按 v6 做真实模型走查。</p>
+<h2 id="余项">余项</h2>
+<p>上传本机原件在项目资料及改稿工作流处理。新建项目和上传修改稿分别设计并验收。审核卡、项目文件和侧栏的完整视觉调整留给后续界面范围。</p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

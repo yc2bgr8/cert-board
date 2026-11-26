@@ -8,7 +8,7 @@ import {
   type SetStateAction,
 } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { permissionModeSchema, type PermissionMode } from '@cert-board/shared';
+import type { PermissionMode } from '@cert-board/shared';
 import { api, errorMessage, type ConversationDetail } from './api.js';
 import { ApprovalCard, useBrowserCommand } from './ApprovalCard.js';
 import type { LiveMessage, LiveRun } from './events.js';
@@ -17,7 +17,7 @@ import { ChatBubble } from './ChatBubble.js';
 import { InlineExecution } from './InlineExecution.js';
 import { runStateNames } from './RunDetails.js';
 import { ShellIcon } from './ShellIcon.js';
-import { ReferencePicker } from './ReferencePicker.js';
+import { ConversationComposer } from './ConversationComposer.js';
 import { proposalStatusLabels } from './ProposalCard.js';
 import {
   LinkedVerificationHistoryActions,
@@ -26,11 +26,6 @@ import {
 } from './LinkedVerifications.js';
 import './conversation.css';
 
-const modes: Record<PermissionMode, { label: string; description: string }> = {
-  read_only: { label: '只读', description: '可以读取和分析资料，不能执行业务改动。' },
-  ask: { label: '请求批准', description: '需要批准的动作先交给本对话发起人确认。' },
-  full: { label: '完全允许', description: '允许执行可撤销的动作；对外动作仍需批准。' },
-};
 const planStates = { pending: '待处理', running: '进行中', completed: '完成' };
 const agentNames = { registration: '注册 Agent', maintenance: '维护 Agent' };
 
@@ -173,8 +168,6 @@ function ConversationView({
   }, [state.messages]);
   const command = useBrowserCommand();
   const stopCommand = useBrowserCommand();
-  const [referencesOpen, setReferencesOpen] = useState(false);
-  const [referenceError, setReferenceError] = useState<string>();
   const [queuedRun, setQueuedRun] = useState<string | null>(null);
   const [stoppedRun, setStoppedRun] = useState<string | null>(null);
   const [modeReceipt, setModeReceipt] = useState<{
@@ -413,129 +406,33 @@ function ConversationView({
             <ApprovalCard key={run.approvalId} approvalId={run.approvalId} disabled={!connected} />
           )}
           {record.canWrite ? (
-            <form className="live-composer" onSubmit={(event) => void submit(event)}>
-              <textarea
-                aria-label="消息"
-                maxLength={8000}
-                rows={2}
-                value={text}
-                placeholder={
-                  question ? '回复 Agent 的提问…' : blocked ? '请先处理批准请求' : '输入消息…'
-                }
-                onChange={(event) => setText(event.target.value)}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === 'Enter' &&
-                    !event.shiftKey &&
-                    !event.nativeEvent.isComposing &&
-                    event.keyCode !== 229
-                  ) {
-                    event.preventDefault();
-                    event.currentTarget.form?.requestSubmit();
-                  }
-                }}
-                disabled={blocked}
-              />
-              <div className="live-composer-controls">
-                <div className="live-permission">
-                  {record.projectId && (
-                    <button
-                      type="button"
-                      className="live-reference-toggle"
-                      aria-label="添加资料引用"
-                      aria-expanded={referencesOpen && !blocked}
-                      title="将已有项目资料的编号加入消息"
-                      disabled={!mayWrite || blocked}
-                      onClick={() => {
-                        setReferencesOpen(!referencesOpen);
-                        setReferenceError(undefined);
-                      }}
-                    >
-                      <ShellIcon name="attachment" />
-                    </button>
-                  )}
-                  <select
-                    aria-label="权限模式"
-                    aria-describedby="live-permission-help"
-                    value={mode.permissionMode}
-                    disabled={!mayWrite}
-                    onChange={(event) => {
-                      const permissionMode = permissionModeSchema.parse(event.target.value);
-                      void command
-                        .run(['mode', mode.version, permissionMode], (requestKey) =>
-                          api.setMode(conversationId, {
-                            permissionMode,
-                            expectedVersion: mode.version,
-                            requestKey,
-                          }),
-                        )
-                        .then((result) => {
-                          if (result) setModeReceipt(result);
-                          else void detail.refetch();
-                        });
-                    }}
-                  >
-                    {Object.entries(modes).map(([value, { label }]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                  <span id="live-permission-help" className="live-conversation-meta">
-                    {modes[mode.permissionMode].description}
-                  </span>
-                </div>
-                <div className="live-composer-actions">
-                  {active && runId && (
-                    <button
-                      type="button"
-                      disabled={stopCommand.busy}
-                      onClick={() =>
-                        void stopCommand
-                          .run(['stop', runId], (requestKey) =>
-                            api.stop(conversationId, { runId, requestKey }),
-                          )
-                          .then((result) => {
-                            if (result?.stopped) setStoppedRun(result.runId);
-                          })
-                      }
-                    >
-                      停止
-                    </button>
-                  )}
-                  <button
-                    type="submit"
-                    className="live-send"
-                    aria-label={question ? '回复' : active ? '插话' : '发送'}
-                    disabled={!mayWrite || !text.trim() || blocked}
-                  >
-                    <ShellIcon name="arrowUp" />
-                  </button>
-                </div>
-              </div>
-              {referencesOpen && !blocked && record.projectId && (
-                <ReferencePicker
-                  projectId={record.projectId}
-                  conversationId={conversationId}
-                  onSelect={(reference) => {
-                    if (!mayWrite) return;
-                    const next = [text.trimEnd(), reference].filter(Boolean).join('\n');
-                    if (next.length > 8000) {
-                      setReferenceError('消息和资料引用合计不得超过 8000 字。');
-                      return;
-                    }
-                    setText(next);
-                    setReferencesOpen(false);
-                    setReferenceError(undefined);
-                  }}
-                />
-              )}
-              {referenceError && (
-                <p className="live-command-error" role="alert">
-                  {referenceError}
-                </p>
-              )}
-            </form>
+            <ConversationComposer
+              conversationId={conversationId}
+              projectId={record.projectId}
+              text={text}
+              setText={setText}
+              mode={mode.permissionMode}
+              mayWrite={mayWrite}
+              blocked={blocked}
+              status={question ? '回复' : active ? '插话' : '发送'}
+              stopBusy={stopCommand.busy}
+              onSubmit={(event) => void submit(event)}
+              onMode={(permissionMode) =>
+                void command.run(['mode', mode.version, permissionMode], (requestKey) =>
+                  api.setMode(conversationId, { permissionMode, expectedVersion: mode.version, requestKey }),
+                ).then((result) => {
+                  if (result) setModeReceipt(result);
+                  else void detail.refetch();
+                })
+              }
+              onStop={active && runId ? () =>
+                void stopCommand.run(['stop', runId], (requestKey) =>
+                  api.stop(conversationId, { runId, requestKey }),
+                ).then((result) => {
+                  if (result?.stopped) setStoppedRun(result.runId);
+                })
+              : undefined}
+            />
           ) : (
             <p className="live-conversation-meta">
               {record.status === 'archived'
