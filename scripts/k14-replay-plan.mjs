@@ -80,7 +80,7 @@ export function buildReplayInventory(a, c, receiptDates, pages, model = null) {
   return { status: 'review-only', model, us, canada };
 }
 
-async function receiptDates(source) {
+export async function receiptDates(source) {
   const received = new Map();
   for (const { file } of expectedSources('A', source.through)) {
     const document = JSON.parse(await readFile(path.join(source.directory, file), 'utf8'));
@@ -93,7 +93,7 @@ async function receiptDates(source) {
   return received;
 }
 
-async function readPages(root, snapshot, source) {
+export async function readPages(root, snapshot, source) {
   const directory = path.join(root, snapshot);
   const manifestBytes = await readFile(path.join(directory, 'manifest.json'));
   const manifest = JSON.parse(manifestBytes.toString('utf8'));
