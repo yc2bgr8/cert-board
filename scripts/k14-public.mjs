@@ -15,7 +15,7 @@ const candidateStart = '2026-01-01';
 const maxJson = 128 * 1024 * 1024;
 const maxPdf = 20 * 1024 * 1024;
 const maxMdallIdentifiers = 384 * 1024 * 1024;
-const snapshotName = /^[AC]-\d{8}T\d{6}Z-[a-f0-9]{12}$/u;
+const snapshotName = /^(A|C|C-history)-\d{8}T\d{6}Z-[a-f0-9]{12}$/u;
 
 class DatasetError extends Error {}
 
@@ -58,15 +58,16 @@ export function expectedSources(dataset, through) {
         limit: '1000',
       }),
     }));
-  requireValue(dataset === 'C', '公开回放数据集须为 A 或 C。');
+  requireValue(dataset === 'C' || dataset === 'C-history', '公开回放数据集须为 A 或 C（含 C-history）。');
+  const state = dataset === 'C' ? 'active' : 'archived';
   return [
     ...caNames.map((name) => ({
       file: 'mdall-' + name.toLowerCase().replaceAll(' ', '-') + '.json',
-      url: url(mdall + 'licence/', { state: 'active', licence_name: name, lang: 'en', type: 'json' }),
+      url: url(mdall + 'licence/', { state, licence_name: name, lang: 'en', type: 'json' }),
     })),
     ...['device', 'deviceidentifier'].map((part) => ({
       file: 'mdall-' + part + '.json',
-      url: url(mdall + part + '/', { state: 'active', type: 'json' }),
+      url: url(mdall + part + '/', { state, type: 'json' }),
     })),
   ];
 }
@@ -160,6 +161,73 @@ export function indexMdall(payloads, through) {
   };
 }
 
+function archivedDates(start, end) {
+  requireValue(end !== null, 'MDALL 历史档案不得包含活动记录。');
+  const availableOn = date(start);
+  const endedOn = date(end);
+  requireValue(availableOn <= endedOn, 'MDALL 历史档案的终止日期早于加入日期。');
+  return { availableOn, endedOn };
+}
+
+export function indexMdallHistory(payloads, through, active) {
+  date(through);
+  requireValue(payloads.length === caNames.length + 2, 'MDALL 历史许可、器械或标识档案缺失。');
+  const selected = new Set(active.licences.map(({ id }) => id));
+  const deviceKeys = new Set(active.devices.map(({ licenceId, id }) => deviceKey(licenceId, id)));
+  const licences = new Map();
+  for (const [index, name] of caNames.entries()) {
+    for (const row of rows(payloads[index])) {
+      requireValue(positive(row?.original_licence_no) && nonempty(row.licence_name) &&
+        row.licence_name.toUpperCase().includes(name) && nonempty(row.licence_status),
+      'MDALL 历史许可检索返回范围外记录。');
+      const dates = archivedDates(row.first_licence_status_dt, row.end_date);
+      if (dates.endedOn > through) continue;
+      const id = row.original_licence_no;
+      addUnique(licences, id + ':' + dates.availableOn + ':' + dates.endedOn, {
+        id, name: row.licence_name, status: row.licence_status,
+        type: nonempty(row.licence_type_cd) ? row.licence_type_cd : null,
+        riskClass: positive(row.appl_risk_class) ? row.appl_risk_class : null,
+        companyId: positive(row.company_id) ? row.company_id : null,
+        ...dates,
+      }, 'MDALL 同一历史许可期间的档案出现冲突。');
+      selected.add(id);
+    }
+  }
+  const devices = new Map();
+  for (const row of rows(payloads[caNames.length])) {
+    if (!selected.has(row?.original_licence_no)) continue;
+    requireValue(positive(row.device_id) && nonempty(row.trade_name), 'MDALL 历史器械记录格式不符。');
+    const dates = archivedDates(row.first_licence_dt, row.end_date);
+    if (dates.endedOn > through) continue;
+    const key = deviceKey(row.original_licence_no, row.device_id);
+    addUnique(devices, key + ':' + dates.availableOn + ':' + dates.endedOn, {
+      id: row.device_id, licenceId: row.original_licence_no, name: row.trade_name, ...dates,
+    }, 'MDALL 同一历史器械期间的档案出现冲突。');
+    deviceKeys.add(key);
+  }
+  const identifiers = new Map();
+  for (const row of rows(payloads[caNames.length + 1])) {
+    const key = deviceKey(row?.original_licence_no, row?.device_id);
+    if (!deviceKeys.has(key)) continue;
+    requireValue(nonempty(row.device_identifier), 'MDALL 历史型号标识格式不符。');
+    const dates = archivedDates(row.first_licence_dt, row.end_date);
+    if (dates.endedOn > through) continue;
+    addUnique(identifiers, key + ':' + row.device_identifier + ':' + dates.availableOn + ':' + dates.endedOn, {
+      licenceId: row.original_licence_no, deviceId: row.device_id, value: row.device_identifier, ...dates,
+    }, 'MDALL 同一历史型号期间的档案出现冲突。');
+  }
+  const byPeriod = (a, b) =>
+    a.availableOn.localeCompare(b.availableOn) || a.endedOn.localeCompare(b.endedOn);
+  return {
+    licences: [...licences.values()].sort((a, b) => a.id - b.id || byPeriod(a, b)),
+    devices: [...devices.values()].sort((a, b) =>
+      a.licenceId - b.licenceId || a.id - b.id || byPeriod(a, b)),
+    identifiers: [...identifiers.values()].sort((a, b) =>
+      a.licenceId - b.licenceId || a.deviceId - b.deviceId ||
+      a.value.localeCompare(b.value, 'en') || byPeriod(a, b)),
+  };
+}
+
 function hash() {
   let bytes = 0;
   const h = createHash('sha256');
@@ -216,10 +284,12 @@ async function download(spec, root, { pdf = false, allowMissingFdaCode = false }
 
 const serialized = (value) => JSON.stringify(value, null, 2) + '\n';
 
-async function buildIndex(dataset, through, root, files) {
+async function buildIndex(dataset, through, root, files, active) {
   const payloads = [];
   for (const { file } of files) payloads.push(JSON.parse(await readFile(path.join(root, file), 'utf8')));
-  return dataset === 'A' ? indexFda(payloads, through) : indexMdall(payloads, through);
+  if (dataset === 'A') return indexFda(payloads, through);
+  if (dataset === 'C-history') return indexMdallHistory(payloads, through, active);
+  return indexMdall(payloads, through);
 }
 
 function pdfSources(dataset, index) {
@@ -231,6 +301,11 @@ function pdfSources(dataset, index) {
 }
 
 function counts(dataset, index, pdfs) {
+  if (dataset === 'C-history') return {
+    endedLicences: index.licences.length,
+    endedDevices: index.devices.length,
+    endedIdentifiers: index.identifiers.length,
+  };
   const records = dataset === 'A' ? index : index.licences;
   return {
     records: records.length,
@@ -240,10 +315,19 @@ function counts(dataset, index, pdfs) {
   };
 }
 
-async function collect(root, dataset, through) {
+async function loadActiveSnapshot(root, id, through) {
+  requireValue(snapshotName.exec(id ?? '')?.[1] === 'C', '须指定活动许可集 C 的完整档案编号。');
+  const active = await loadVerifiedK14(root, id);
+  requireValue(active.through === through, '历史档案与活动档案须使用同一截止日期。');
+  return active;
+}
+
+async function collect(root, dataset, through, activeId) {
   const specs = expectedSources(dataset, through);
   const started = new Date().toISOString();
   requireValue(through <= started.slice(0, 10), '不得用未来日期采集公开档案。');
+  requireValue(dataset === 'C-history' || !activeId, '仅历史档案接受活动档案编号。');
+  const active = dataset === 'C-history' ? await loadActiveSnapshot(root, activeId, through) : undefined;
   const id = dataset + '-' + started.slice(0, 19).replace(/[-:]/gu, '') + 'Z-' + randomBytes(6).toString('hex');
   const directory = path.join(root, '.' + id + '.partial');
   await mkdir(directory, { mode: 0o700 });
@@ -252,10 +336,13 @@ async function collect(root, dataset, through) {
     sources.push(await download(spec, directory, { allowMissingFdaCode: dataset === 'A' }));
     console.log('已归档 ' + spec.file);
   }
-  const index = await buildIndex(dataset, through, directory, specs);
+  const index = await buildIndex(dataset, through, directory, specs, active?.index);
   const pdfs = [];
   for (const spec of pdfSources(dataset, index)) pdfs.push(await download(spec, directory, { pdf: true }));
-  const manifest = { version: 1, dataset, through, sources, pdfs, counts: counts(dataset, index, pdfs) };
+  const manifest = {
+    version: 1, dataset, through, sources, pdfs, counts: counts(dataset, index, pdfs),
+    ...(active && { activeSnapshot: { id: activeId, sha256: active.manifestSha256 } }),
+  };
   await writeFile(path.join(directory, 'index.json'), serialized(index), { flag: 'wx', mode: 0o600 });
   await writeFile(path.join(directory, 'manifest.json'), serialized(manifest), { flag: 'wx', mode: 0o600 });
   await rename(directory, path.join(root, id));
@@ -280,29 +367,39 @@ async function verifyFiles(directory, specs, archived, optional = false) {
 }
 
 export async function loadVerifiedK14(root, id) {
-  requireValue(snapshotName.test(id ?? ''), '请输入完整的公开档案编号。');
+  const match = snapshotName.exec(id ?? '');
+  requireValue(match, '请输入完整的公开档案编号。');
   const directory = path.join(root, id);
-  const manifest = JSON.parse(await readFile(path.join(directory, 'manifest.json'), 'utf8'));
-  requireValue(manifest.version === 1 && id.startsWith(manifest.dataset + '-'), '档案版本或数据集不符。');
+  const sourceManifest = await readFile(path.join(directory, 'manifest.json'));
+  const manifest = JSON.parse(sourceManifest.toString('utf8'));
+  requireValue(manifest.version === 1 && match[1] === manifest.dataset, '档案版本或数据集不符。');
   const specs = expectedSources(manifest.dataset, manifest.through);
+  let active;
+  if (manifest.dataset === 'C-history') {
+    active = await loadActiveSnapshot(root, manifest.activeSnapshot?.id, manifest.through);
+    requireValue(active.manifestSha256 === manifest.activeSnapshot.sha256, '活动档案清单与历史档案绑定不符。');
+  }
   await verifyFiles(directory, specs, manifest.sources);
-  const index = await buildIndex(manifest.dataset, manifest.through, directory, specs);
+  const index = await buildIndex(manifest.dataset, manifest.through, directory, specs, active?.index);
   await verifyFiles(directory, pdfSources(manifest.dataset, index), manifest.pdfs, true);
   const recalculated = counts(manifest.dataset, index, manifest.pdfs);
   requireValue(serialized(index) === await readFile(path.join(directory, 'index.json'), 'utf8') &&
     serialized(recalculated) === serialized(manifest.counts), '离线重算与已保存的索引不符。');
-  return { directory, dataset: manifest.dataset, through: manifest.through, pdfs: manifest.pdfs, counts: recalculated };
+  return {
+    directory, dataset: manifest.dataset, through: manifest.through, pdfs: manifest.pdfs,
+    counts: recalculated, index, manifestSha256: createHash('sha256').update(sourceManifest).digest('hex'),
+  };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const root = fileURLToPath(new URL('../.local/k14/', import.meta.url));
-    const [action, first, second, extra] = process.argv.slice(2);
-    requireValue(!extra && (action === 'collect' || (action === 'verify' && !second)),
-      '使用 pnpm k14:collect <A 或 C> <截至日期> 或 pnpm k14:verify <档案编号>。');
+    const [action, first, second, activeId, extra] = process.argv.slice(2);
+    requireValue(!extra && (action === 'collect' || (action === 'verify' && !second && !activeId)),
+      '使用 pnpm k14:collect <A 或 C> <截至日期>、pnpm k14:collect C-history <截至日期> <活动档案编号> 或 pnpm k14:verify <档案编号>。');
     if (action === 'collect') {
       await mkdir(root, { recursive: true, mode: 0o700 });
-      await collect(root, first, second);
+      await collect(root, first, second, activeId);
     } else {
       const { dataset, counts: recalculated } = await loadVerifiedK14(root, first);
       console.log(JSON.stringify({ verified: first, dataset, ...recalculated }));

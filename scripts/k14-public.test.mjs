@@ -1,5 +1,9 @@
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { expect, test } from 'vitest';
-import { expectedSources, indexFda, indexMdall } from './k14-public.mjs';
+import { expectedSources, indexFda, indexMdall, indexMdallHistory, loadVerifiedK14 } from './k14-public.mjs';
 
 const through = '2026-11-25';
 const fda = {
@@ -19,6 +23,12 @@ test('公开请求限制在计划的来源、字段、市场和日期', () => {
   expect(ca).toHaveLength(6);
   expect(ca.every((entry) =>
     entry.hostname === 'health-products.canada.ca' && entry.searchParams.get('state') === 'active',
+  )).toBe(true);
+  const history = expectedSources('C-history', through).map((entry) => new URL(entry.url));
+  expect(history).toHaveLength(6);
+  expect(history.map(({ pathname }) => pathname)).toEqual(ca.map(({ pathname }) => pathname));
+  expect(history.every((entry) =>
+    entry.hostname === 'health-products.canada.ca' && entry.searchParams.get('state') === 'archived',
   )).toBe(true);
   expect(() => expectedSources('C', '2026-02-30')).toThrow('日期无效');
   expect(() => expectedSources('other', through)).toThrow('须为 A 或 C');
@@ -76,4 +86,89 @@ test('器械编号可以在多张许可复用，标识只连到所属许可', ()
   expect(data.identifiers.map(({ licenceId, value }) => [licenceId, value])).toEqual([
     [99991, 'SYNTH'], [99992, 'SYNTH2'],
   ]);
+});
+
+test('历史快照记录取消许可及活动许可上的移除事件，保留许可与器械的组合关系', () => {
+  const active = indexMdall([[licence], [], [], [], [device], []], through);
+  const archivedLicence = { ...licence, original_licence_no: 99992, licence_status: 'C', end_date: '2026-08-01' };
+  const removedActiveDevice = { ...device, device_id: 124, end_date: '2026-08-02' };
+  const removedArchivedDevice = { ...device, original_licence_no: 99992, end_date: '2026-07-29' };
+  const retiredIdentifiers = [
+    { ...identifier, device_id: 124, end_date: '2026-08-02' },
+    { ...identifier, device_identifier: 'ALTERNATE', end_date: '2026-08-05' },
+    { ...identifier, original_licence_no: 99992, end_date: '2026-07-29' },
+    { ...identifier, original_licence_no: 99993, end_date: '2026-07-29' },
+    { ...identifier, device_identifier: 'FUTURE', end_date: '2026-11-26' },
+  ];
+  const result = indexMdallHistory([
+    [archivedLicence], [], [], [archivedLicence],
+    [removedActiveDevice, removedArchivedDevice], retiredIdentifiers,
+  ], through, active);
+  expect(result.licences).toEqual([
+    expect.objectContaining({
+      id: 99992, availableOn: '2026-04-12', endedOn: '2026-08-01',
+      status: 'C', type: 'F', riskClass: 2, companyId: 999,
+    }),
+  ]);
+  expect(result.devices.map(({ licenceId, id, endedOn }) => [licenceId, id, endedOn])).toEqual([
+    [99991, 124, '2026-08-02'], [99992, 123, '2026-07-29'],
+  ]);
+  expect(result.identifiers.map(({ licenceId, deviceId, value, endedOn }) =>
+    [licenceId, deviceId, value, endedOn],
+  )).toEqual([
+    [99991, 123, 'ALTERNATE', '2026-08-05'], [99991, 124, 'SYNTH', '2026-08-02'],
+    [99992, 123, 'SYNTH', '2026-07-29'],
+  ]);
+});
+
+test('历史快照拒绝活动数据伪装成移除记录和倒置的日期', () => {
+  const active = indexMdall([[licence], [], [], [], [device], []], through);
+  expect(() => indexMdallHistory([[], [], [], [], [device], []], through, active))
+    .toThrow('历史档案');
+  expect(() => indexMdallHistory([
+    [{ ...licence, licence_status: 'C', end_date: '2026-04-10' }], [], [], [], [], [],
+  ], through, active)).toThrow('日期');
+});
+
+test('历史档案离线重算并绑定同一日期的活动档案清单', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'cert-board-k14-test-'));
+  const activeId = 'C-20261125T185750Z-111111111111';
+  const historyId = 'C-history-20261126T030000Z-222222222222';
+  const activePayloads = [[licence], [], [], [], [device], [identifier]];
+  const historyPayloads = [[], [], [], [], [], [{ ...identifier, end_date: '2026-10-01' }]];
+  const active = indexMdall(activePayloads, through);
+  const history = indexMdallHistory(historyPayloads, through, active);
+  const stringify = (value) => JSON.stringify(value, null, 2) + '\n';
+  const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+
+  async function snapshot(id, dataset, payloads, index, counts, binding = {}) {
+    const directory = path.join(root, id);
+    await mkdir(directory);
+    const sources = await Promise.all(expectedSources(dataset, through).map(async (spec, position) => {
+      const contents = stringify(payloads[position]);
+      await writeFile(path.join(directory, spec.file), contents);
+      return {
+        ...spec, status: 'saved', httpStatus: 200, receivedAt: '2026-11-26T03:00:00.000Z',
+        bytes: Buffer.byteLength(contents), sha256: sha256(contents),
+      };
+    }));
+    await writeFile(path.join(directory, 'index.json'), stringify(index));
+    const manifest = stringify({ version: 1, dataset, through, sources, pdfs: [], counts, ...binding });
+    await writeFile(path.join(directory, 'manifest.json'), manifest);
+    return manifest;
+  }
+
+  try {
+    const activeManifest = await snapshot(activeId, 'C', activePayloads, active,
+      { records: 1, candidates2026: 1, devices: 1, identifiers: 1 });
+    await snapshot(historyId, 'C-history', historyPayloads, history,
+      { endedLicences: 0, endedDevices: 0, endedIdentifiers: 1 },
+      { activeSnapshot: { id: activeId, sha256: sha256(activeManifest) } });
+    await expect(loadVerifiedK14(root, historyId)).resolves.toMatchObject({ index: history });
+
+    await writeFile(path.join(root, activeId, 'manifest.json'), activeManifest + '\n');
+    await expect(loadVerifiedK14(root, historyId)).rejects.toThrow('清单与历史档案绑定');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
