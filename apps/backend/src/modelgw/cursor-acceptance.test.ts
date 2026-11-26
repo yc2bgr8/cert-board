@@ -129,10 +129,12 @@ test('未指定单次上限时，将同一个模型默认值用于提示与接�
   );
   const [, , prompt] = vi.mocked(readCursorTurn).mock.lastCall!;
   expect(typeof prompt).toBe('string');
-  const [contract, body] = (prompt as string).split('\n\nRequest JSON:\n');
-  expect(contract).toContain('50 UTF-8 bytes');
-  expect(contract).not.toContain('CERT_BOARD_TURN_START');
-  expect(contract).toContain('with no reply frame');
+  const [contract, payload] = (prompt as string).split('\n\nRequest JSON:\n');
+  const [body, format] = payload!.split('\n\n回执格式');
+  expect(contract).toContain('由 cert-board 执行');
+  expect(format).toContain('50 UTF-8 字节');
+  expect(format).not.toContain('CERT_BOARD_TURN_START');
+  expect(format).toContain('字节预算不足以容纳边界');
   expect(JSON.parse(body!)).toMatchObject({ ...request, max_tokens: 50 });
 });
 
@@ -273,7 +275,7 @@ test('实际动作装不进帧时，可返回预算内的完整裸 JSON', async 
   const candidate = '{"content":null,"actions":[{"name":"doc_read","arguments":{"page":321654}}]}';
   vi.mocked(readCursorTurn).mockImplementationOnce(async (_config, _model, prompt) => {
     expect(String(prompt)).toContain('CERT_BOARD_TURN_START');
-    expect(String(prompt)).toContain('If the frame would exceed the limit');
+    expect(String(prompt)).toContain('仅在包含边界会超出字节上限时');
     return candidate;
   });
   await expect(sendCursorAcceptance(cursor, cursorAcceptanceModels[0]!, {

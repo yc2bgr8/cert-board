@@ -10,7 +10,7 @@ import {
   sendCursorAcceptance,
 } from '../modelgw/cursor-acceptance.js';
 
-test('ACP 主 Agent 将回复格式直接放在派发文本开头，按原样附带有标签的请求', async () => {
+test('ACP 主 Agent 按原样发送带角色的请求，并在末尾指定无歧义的回执格式', async () => {
   const profile = await mkdtemp(path.join(tmpdir(), 'cert-board-acp-contract-test-'));
   const config = path.join(profile, 'cli-config.json');
   const mcp = path.join(profile, 'mcp.json');

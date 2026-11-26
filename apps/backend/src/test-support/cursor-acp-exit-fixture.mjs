@@ -19,15 +19,16 @@ input.on('line', (line) => {
   else if (method === 'session/new') reply({ sessionId: 'synthetic-session', configOptions: [] });
   else if (method === 'session/prompt') {
     if (existsSync(path.join(process.env.CURSOR_CONFIG_DIR, 'direct-contract-fixture'))) {
-      const [instructions, body] = params.prompt[0].text.split('\n\nRequest JSON:\n');
-      if (instructions.startsWith('Return exactly one JSON object') && body) {
+      const [instructions, payload] = params.prompt[0].text.split('\n\nRequest JSON:\n');
+      const [body, format] = (payload ?? '').split('\n\n回执格式');
+      if (instructions.includes('由 cert-board 执行') && body && format) {
         const request = JSON.parse(body);
-        const tag = /CERT_BOARD_TURN_START ([a-f0-9-]{36})/u.exec(instructions)?.[1];
+        const tag = /CERT_BOARD_TURN_START ([a-f0-9-]{36})/u.exec(format)?.[1];
         if (
-          instructions.includes('256 UTF-8 bytes') && request.max_tokens === 256 &&
+          format.includes('256 UTF-8 字节') && request.max_tokens === 256 &&
           request.messages[0]?.role === 'user' && request.messages[0]?.content === '合成验收' &&
           request.tools[0]?.function.name === 'read_example' &&
-          tag && instructions.includes('CERT_BOARD_TURN_END ' + tag)
+          tag && format.includes('CERT_BOARD_TURN_END ' + tag)
         ) {
           for (const text of [
             '正在核对合成资料。\n',
