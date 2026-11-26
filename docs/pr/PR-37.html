@@ -15,7 +15,7 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;backgrou
 img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
 @media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
-</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#跨市场核对">跨市场核对</a><a class="level-2" href="#待完成">待完成</a></nav><main><h1 id="pr-37-模型正式比选">PR-37 模型正式比选</h1>
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#跨市场核对">跨市场核对</a><a class="level-2" href="#2026-年回放候选">2026 年回放候选</a><a class="level-2" href="#待完成">待完成</a></nav><main><h1 id="pr-37-模型正式比选">PR-37 模型正式比选</h1>
 <p>按执行方案先准备 K14 的公开回放底稿。独立验收虚拟机可以执行 <code>pnpm k14:collect A 2026-11-25</code> 或 <code>pnpm k14:collect C 2026-11-25</code>。只读取计划中的官方来源。每次采集生成独立目录，原始响应、索引、来源地址、获取时刻、大小和 SHA-256 保存在本机 <code>.local/k14/</code>。运行 <code>pnpm k14:verify &lt;档案编号&gt;</code> 离线重新校验并重算索引。</p>
 <ul><li>A 收集 FDA 四个产品代码从 2016 年以来的 SESE 决定，核对 API 总数和实际记录。2026 年候选的公开摘要按 K 号请求并记录取得状态。</li><li>C 收集 MDALL 活动许可，再按「许可号、器械编号」连接器械及型号标识。不同许可内可能出现同一个器械编号。按各自首次加入日期截去晚于指定日期的记录。活动状态对应本次公开快照。</li><li><code>pnpm k14:collect C-history &lt;截至日期&gt; &lt;集 C 活动档案编号&gt;</code> 从相同 MDALL 接口读取历史状态。索引保留取消许可、被移除的器械与型号标识，覆盖名称命中的历史许可及活动档案中的许可。记录官方公布的加入和终止日期，排除晚于截止日的终止事件。历史档案引用同一截止日的活动档案，通过清单的 SHA-256 绑定。两份档案均须保留，<code>pnpm k14:verify &lt;历史档案编号&gt;</code> 会校验两份原始记录并重算索引。</li><li>两地的 2026 年候选只供挑选。正式评测还要核对每个模型的训练截止日期、准备及审阅题目，并走 PR-35 的遮挡、时间截断和偷看检测。原始索引带公开编号，供本地题目构建使用。</li></ul>
 <p>历史档案反映采集时 MDALL 公布的终止记录。用来制作回放题时，仍须按题目时间核对可见字段。涉及同名产品、资质状态或归属不清的记录需要人工抽查。</p>
@@ -23,6 +23,10 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <h2 id="跨市场核对">跨市场核对</h2>
 <p><code>pnpm k14:pair &lt;集 A 档案编号&gt; &lt;活动集 C 档案编号&gt;</code> 对同一截止日的两份已验证档案做名称初筛，按许可和器械编号取得型号标识。归档相关 MDALL 公司回执、FDA 510(k) 摘要和同一申报号的 GUDID 回执。UDI 只纳入公布日和公开版本日都在截止日期内的记录，分别保留型号、目录号和商品名证据。输入清单与新增来源均以 SHA-256 核对。禁网环境可用 <code>pnpm k14:verify-pairs &lt;配对档案编号&gt;</code> 重算索引。</p>
 <p>同名、公司名称相符或型号相符只记为候选证据。注册人员需要确认主体、型号及申报范围后，才能选入评测题。现场核对见 <a href="../evidence/K14-公开回放底稿.html#跨市场同名候选核对">K14 跨市场核对表</a>。</p>
+<h2 id="2026-年回放候选">2026 年回放候选</h2>
+<p><code>pnpm k14:plan-replay &lt;集 A 档案编号&gt; &lt;活动集 C 档案编号&gt;</code> 生成供人工复核的本机候选清单。A、C 原始档案和 A 的逐页解析清单以 SHA-256 绑定。对美国候选从原始 FDA 记录读出受理日，以其前一天作为回放可见证据的上限。清单只记录既有同产品代码档案中的可见数量。对比器械答案须逐题核对摘要。</p>
+<p>提交前可能已使用的公司项目单独保留。美国按需求和数据方案列出的三个 2026 年候选编号处理，加拿大按已记录的公司主体编号处理。加拿大签发日用于与模型训练截止日比较。每道加拿大题仍需有独立的器械描述和回放时点。</p>
+<p>仅在取得模型的训练截止日期后，才在两个档案编号后加 <code>&lt;模型编号&gt; &lt;训练截止日期&gt;</code>。清单标记决定或签发日期严格晚于这个日期的记录。输出位于本机 <code>.local/k14-plans/</code>，含审阅字段和来源指纹，状态固定为待复核。正式题目仍需审阅输入和答案，并通过 PR-35 的遮挡、时间截断和偷看检测。<a href="../数据与评测方案/AI原生器械认证板块_数据与评测方案_v0.1.html#7-防止背题和偷看答案">数据与评测方案第 7 节</a></p>
 <p>本轮已校验的集 A、C 数量及解析覆盖见<a href="../evidence/K14-公开回放底稿.html">K14 公开回放底稿</a>。</p>
 <h2 id="待完成">待完成</h2>
 <ul><li>对公开摘要页的判分标准、题目分割，以及注册人员抽查跨市场候选和其他题目。</li><li>合并 PR-36 后接入 RV-02、R09、M02 与 A、C 的完整验收。真实模型比较、费用、用途选择和非千问复核模型由获准通道跑完后交 Lan 确认。当前生产模型配置仍沿原验收规则。</li></ul>
