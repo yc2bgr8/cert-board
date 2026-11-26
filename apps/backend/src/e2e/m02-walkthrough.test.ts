@@ -55,6 +55,7 @@ test('到期年份以文本送审并逐字引用档案中的数字原文', () =>
   for (const altered of [
     { ...year, value: 2026 },
     { ...year, unit: '年' },
+    { ...year, sources: [{ ...receipt, quote: '"unrelatedYear": 2026' }] },
     { ...year, sources: [{ ...receipt, quote: '"registrationExpiryYear": "2026"' }] },
     { ...year, sources: [{ ...receipt, quote: '"registrationExpiryYear": 20260' }] },
   ]) {
@@ -62,4 +63,11 @@ test('到期年份以文本送审并逐字引用档案中的数字原文', () =>
     expect(() => verifyM02ListingClaims(record, lookup, receipt, submission, review(submission)))
       .toThrow('支持该值的已读档案页');
   }
+});
+
+test('额外的错误年份主张不会被同字段的正确主张掩盖', () => {
+  const extra = { ...claims[2]!, id: 'extra_year', value: '20260' };
+  const submission = [...claims, extra];
+  expect(() => verifyM02ListingClaims(record, lookup, receipt, submission, review(submission)))
+    .toThrow('支持该值的已读档案页');
 });

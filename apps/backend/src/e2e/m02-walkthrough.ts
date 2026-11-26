@@ -77,23 +77,30 @@ export function verifyM02ListingClaims(
     assert.equal(matched.length, 1, '无法在列名回执唯一定位本次检索的商品名');
     return matched[0]!;
   });
-  for (const [field, key, value] of [
+  const expected = [
     [listingFields.company, 'company', listing.company],
     [listingFields.number, 'identifier', listing.identifier],
     [listingFields.year, 'registrationExpiryYear', listing.registrationExpiryYear],
     [listingFields.agent, 'usAgentBusiness', listing.usAgentBusiness],
     ...names.map((name) => [listingFields.name, 'proprietaryNames', name] as const),
-  ] as const) {
-    assert.ok(value !== undefined, '列名回执缺少必须核对的字段');
-    const verified = claims.some(
-      (claim) => claim.status === 'unverified' && claim.field === field &&
-        claim.value === String(value) && claim.unit === null &&
+  ] as const;
+  assert.ok(expected.every(([, , value]) => value !== undefined), '列名回执缺少必须核对的字段');
+  const remaining = new Set(expected);
+  const evidenceError = '审核卡须逐项保留列名回执原值，并引用支持该值的已读档案页';
+  for (const claim of claims) {
+    const fields = expected.filter(([field]) => field === claim.field);
+    if (!fields.length) continue;
+    assert.ok(claim.status === 'unverified' && claim.unit === null, evidenceError);
+    const supported = fields.find(
+      ([, key, value]) => value !== undefined && claim.value === String(value) &&
         claim.sources.some((source) =>
           inReviewedReceipt(source, receipt, citations) && supportsListingField(source.quote, key, value, listing),
         ),
     );
-    assert.ok(verified, '审核卡须逐项保留列名回执原值，并引用支持该值的已读档案页');
+    assert.ok(supported, evidenceError);
+    remaining.delete(supported);
   }
+  assert.equal(remaining.size, 0, evidenceError);
 }
 
 const publicQueries = {
@@ -128,10 +135,10 @@ export async function prepareM02Walkthrough(pool: pg.Pool, blobs: BlobStore) {
       [
         '# L08 公开资料核查',
         '这是独立验收项目。输入只包含公开的检索条件和合成归档提示。使用 M02。三项查询分别是：fda_registration 同时填写登记号、LRK 与 K 号；fda_registration_company 按申请人全名；fda_gudid_search 填写 LRK、K 号和四个商品全名（按资料列出的顺序）。',
-        `列名成功且有本次档案时，列名机构、登记号、到期年份、美国代理人企业和每个商品名称分别用一条 unverified claim。field 依次使用“${Object.values(listingFields).join('”“')}”，value 只写回执中的字段原值并使用文本，unit 填 null。到期年份的档案引语保留数字原文。逐字引用本次列名档案中字段名及值所在的 JSON 原文，字段依次是 company、identifier、registrationExpiryYear、usAgentBusiness、proprietaryNames。每个商品名引用完整的 proprietaryNames 数组。`,
+        `列名成功且有本次档案时，对实际取得的列名机构、登记号、到期年份、美国代理人企业和每个商品名称，逐项记录一条 unverified claim。field 依次使用“${Object.values(listingFields).join('”“')}”，这些字段名专用于本次官方列名档案。value 只写回执中的字段原值并使用文本，unit 填 null。到期年份的档案引语保留数字原文。逐字引用本次列名档案中字段名及值所在的 JSON 原文，字段依次是 company、identifier、registrationExpiryYear、usAgentBusiness、proprietaryNames。每个商品名引用完整的 proprietaryNames 数组。缺失字段或商品名逐项列入 uncertain 或 missing。`,
         '申请人登记及公开 UDI 的查询成功且有本次档案时，各用一条 unverified claim 引用各自档案，id 分别为 applicant_lookup 和 udi_lookup。成功零条时，value 写“本次查询条件下未查到”。成功返回记录时写“本次查询首批匹配 N 条”，N 用实际首批记录数。',
         '任一查询失败或无本次可引用档案时，在 uncertain 或 missing 标明查询名和缺口。仅凭失败结果不能生成该项主张或称未查到。',
-        '登记一项合并的待核实站内提醒，标题包含“年度注册”和“年费”，然后提交审核。',
+        '按技能核对规则包与提醒日期，依据充分时登记一项站内提醒，标题包含“年度注册”和“年费”。至少有两条不同的合格引文且 V1、V3 通过时提交审核。证据不足时说明待补项，保留已有证据并按技能停止缺少依据的写入。',
       ].join('\n'),
     ),
   );
