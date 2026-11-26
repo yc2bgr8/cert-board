@@ -15,7 +15,12 @@ import { developmentProjectId } from '../projects/seed.js';
 import { nanoToUsd } from '../budget/meter.js';
 import { createDependencies } from '../dependencies.js';
 import { BlobStore } from '../documents/blob-store.js';
-import { requiredRevisionSections, revisionSections } from './walkthrough-report.js';
+import {
+  canRequestReviewResubmission,
+  readReviewResubmissionStop,
+  requiredRevisionSections,
+  revisionSections,
+} from './walkthrough-report.js';
 import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthrough-batch.js';
 import { checkOfficialBrowserRun } from './official-walkthrough.js';
 import { checkRulesBrowserRun } from './rules-walkthrough.js';
@@ -30,6 +35,12 @@ import { checkR09PackageReadOnly, checkR09Revision, r09Replacements, readOnlyWor
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
 const budgetOfWaiting = 16 * 60_000;
+type ReviewResubmission = {
+  previousCardId: string | null;
+  runId: string;
+  requested: boolean;
+  message: string;
+};
 let stage = '配置独立走查';
 
 async function installedBrowser() {
@@ -94,39 +105,52 @@ async function waitForReview(
   pool: pg.Pool,
   conversationId: string,
   expectedCount: number,
-  onUnsubmitted?: () => Promise<void>,
+  resubmission?: ReviewResubmission,
 ) {
   const until = Date.now() + budgetOfWaiting;
   let lastAnswered: string | null = null;
-  let continued = false;
   while (Date.now() < until) {
     const cards = (
-      await pool.query<{ id: string; status: string }>(
-        'SELECT id,status FROM review_card WHERE conversation_id=$1 ORDER BY created_at,id',
+      await pool.query<{ id: string; status: string; run_id: string }>(
+        'SELECT id,status,run_id FROM review_card WHERE conversation_id=$1 ORDER BY created_at,id',
         [conversationId],
       )
     ).rows;
     if (cards.length >= expectedCount && cards.at(-1)?.status === 'pending') {
+      if (resubmission) assert.equal(cards.at(-1)?.run_id, resubmission.runId);
       const next = page.getByRole('button', { name: '查看审核', exact: true }).last();
       await next.waitFor({ timeout: 15000 });
       return cards.at(-1)!.id;
     }
     const run = (
-      await pool.query<{ id: string; status: string }>(
-        'SELECT r.id,r.status FROM conversation c JOIN run r ON r.id=c.current_run_id WHERE c.id=$1',
-        [conversationId],
+      await pool.query<{ id: string; status: string; current_run_id: string | null }>(
+        `SELECT r.id,r.status,c.current_run_id FROM conversation c
+          JOIN run r ON r.id=COALESCE($2::uuid,c.current_run_id) AND r.conversation_id=c.id
+          WHERE c.id=$1`,
+        [conversationId, resubmission?.runId ?? null],
       )
     ).rows[0];
+    if (resubmission && run?.current_run_id !== resubmission.runId)
+      throw new Error('WALKTHROUGH_RUN_CHANGED');
     if (run && ['failed', 'stopped', 'budget_exhausted'].includes(run.status)) {
-      if (run.status === 'stopped' && onUnsubmitted && !continued) {
-        const { rows: [last] } = await pool.query<{ reason: string | null }>(
-          `SELECT payload_json->>'reasonCode' AS reason FROM conversation_event
-           WHERE run_id=$1 AND type='run_status' ORDER BY seq DESC LIMIT 1`,
-          [run.id],
-        );
-        if (last?.reason === 'REVIEW_NOT_SUBMITTED') {
-          continued = true;
-          await onUnsubmitted();
+      if (resubmission && !resubmission.requested && run.status === 'stopped') {
+        const stopped = await readReviewResubmissionStop(pool, conversationId, run.id);
+        if (
+          stopped &&
+          canRequestReviewResubmission(
+            resubmission.previousCardId,
+            cards,
+            run.status,
+            stopped.code,
+            resubmission.requested,
+            stopped.toolFailed,
+          )
+        ) {
+          resubmission.requested = true;
+          console.log('本轮未生成审核卡。通过原对话发送一次重提请求。');
+          const resumed = await send(page, resubmission.message);
+          assert.notEqual(resumed.runId, run.id);
+          resubmission.runId = resumed.runId;
           continue;
         }
       }
@@ -158,6 +182,10 @@ async function review(page: Page, pool: pg.Pool, cardId: string, output: string,
   await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
   const card = page.getByRole('article', { name: '审核结果', exact: true });
   await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
+  const evaluation = card.locator('details').filter({ hasText: /运行评测/u });
+  await evaluation.locator('summary').click();
+  await evaluation.getByText(/^答案质量 · /u).waitFor();
+  await evaluation.getByText(/^策略遵守 · /u).waitFor();
   if (pendingReport) {
     const complete = card.locator('details').filter({ hasText: '完整待批改动' });
     await complete.locator('summary').click();
@@ -327,7 +355,8 @@ async function exerciseVerification(
     const { rowCount } = await pool.query(
       `SELECT 1 FROM external_model_exchange e JOIN usage_ledger u ON u.request_key=e.id
        WHERE e.conversation_id=$1 AND e.channel='gateway' AND e.returned->>'text' IS NOT NULL
-       AND u.model_id='cursor/claude-opus-5.5' AND u.status='unknown' AND e.status='unknown'`, [id],
+       AND u.model_id='cursor/claude-opus-5.5' AND u.status='unknown' AND e.status='unknown'`,
+      [id],
     );
     assert.ok(rowCount, '验收时网关核实须来自 Cursor 的 Claude Opus 5.5');
   }
@@ -407,16 +436,18 @@ async function main() {
       const project = await prepareCursorProbe(pool, blobs);
       await page.reload();
       const conversation = await freshConversation(page, project, '合成对比编号核查', 'full');
-      await send(page, [
+      const probeRun = await send(page, [
         `只使用本项目合成资料 ${cursorProbeDoc} 的两页，用 R09 核对对比器械 K 号的写法。不要查外网。`,
         '实际调用工具，先加载技能、列计划并检索资料，再逐页读取。两页分别引用原句，保留待核实结论。',
         '请用工具将报告保存到「交付/合成编号核查.md」，保存工作区版本，运行 check_run，再调用 submit_for_review 生成审核卡。以审核卡为交付。',
       ].join('\n'));
-      let continuedAfterText = false;
-      const cardId = await waitForReview(page, pool, conversation, 1, async () => {
-        continuedAfterText = true;
-        await send(page, `刚才还没有审核卡。请继续合成任务，重新逐页读取 ${cursorProbeDoc} 的两页，使用工具保存报告、运行 check_run 并实际调用 submit_for_review。`);
-      });
+      const probeResubmission: ReviewResubmission = {
+        previousCardId: null,
+        runId: probeRun.runId,
+        requested: false,
+        message: `刚才还没有审核卡。请继续合成任务，重新逐页读取 ${cursorProbeDoc} 的两页，使用工具保存报告、运行 check_run 并实际调用 submit_for_review。`,
+      };
+      const cardId = await waitForReview(page, pool, conversation, 1, probeResubmission);
       const evidence = await pool.query<{ pages: number }>(
         `SELECT count(DISTINCT entry->>'page')::int AS pages
          FROM review_card r CROSS JOIN LATERAL jsonb_array_elements(r.evidence_refs) entry
@@ -434,7 +465,7 @@ async function main() {
       await review(page, pool, cardId, path.join(evidenceFolder, 'cursor-synthetic-review.png'), true);
       assert.equal(blocked, 0);
       await writeFile(path.join(evidenceFolder, 'cursor-probe.json'), JSON.stringify({
-        status:'passed', instance, commit: testedCommit, synthetic:true, continuedAfterText, routesBlocked:blocked,
+        status:'passed', instance, commit: testedCommit, synthetic:true, continuedAfterText: probeResubmission.requested, routesBlocked:blocked,
         modelTransport:'cursor-acp', mainModel:'cursor/gpt-5.6-sol', tools, evidencePages:2,
       }, null, 2), 'utf8');
       console.log('Cursor 合成项目的实际工具调用、引用与浏览器审核通过。');
@@ -618,12 +649,21 @@ async function main() {
     const original = await waitForReview(page, pool, registration, 1);
     const firstReport = await inspectSubmission(pool, original, 'R09');
     await review(page, pool, original, path.join(evidenceFolder, 'r09-first-review.png'), false);
+    const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
     stage = '真实 R09 修改重提和人工通过';
-    await send(
+    const revision = await send(
       page,
       '请修改原路径的 Markdown 报告，新增或更新“核查范围”“已核实”“待核实”三个带 Markdown 标题的小节。各小节都补实质内容，然后保存并重新提交审核。',
     );
-    const revised = await waitForReview(page, pool, registration, 2);
+    const resubmission = cursorAcceptance
+      ? {
+          previousCardId: original,
+          runId: revision.runId,
+          requested: false,
+          message: '请继续刚才的修改，核对同一报告路径内的核查范围、已核实和待核实三个小节，保存文件并重新提交审核卡。',
+        }
+      : undefined;
+    const revised = await waitForReview(page, pool, registration, 2, resubmission);
     await verifyRevision(pool, blobs, revised, firstReport);
     await review(page, pool, revised, path.join(evidenceFolder, 'r09-approved.png'), true);
     const registrationTools = await verifyTools(pool, registration);
@@ -680,7 +720,6 @@ async function main() {
         [startedAt],
       )
     ).rows;
-    const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
     const mainModel = cursorAcceptance ? 'cursor/gpt-5.6-sol' : 'openai/gpt-6.2-astra-pro';
     assert.ok(cost.some(({ model, calls }) => model === mainModel && calls > 0));
     if (cursorAcceptance) {
@@ -690,7 +729,7 @@ async function main() {
           `SELECT DISTINCT u.model_id AS model FROM usage_ledger u JOIN run r ON r.id=u.run_id
            WHERE r.conversation_id=$1 AND u.purpose='agent'`, [conversationId],
         );
-        assert.deepEqual(rows.map(({ model }) => model), [mainModel]);
+        assert.deepEqual(rows.map(({model}) => model), [mainModel]);
       }
     }
     assert.equal(blocked, 0);
@@ -705,6 +744,7 @@ async function main() {
       registration: {
         url: `${config.WEB_ORIGIN}/?conversation=${registration}`,
         tools: registrationTools,
+        resubmissionRequested: resubmission?.requested ?? false,
       },
       maintenance: {
         url: `${config.WEB_ORIGIN}/?conversation=${maintenance}`,

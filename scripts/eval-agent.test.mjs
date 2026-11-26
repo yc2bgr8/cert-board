@@ -26,6 +26,10 @@ test('评测固定执行真实Pi内核的剧本套件与依赖隔离检查，不
     'apps/backend/src/agent/pi/kernel.test.ts',
     'apps/backend/src/agent/pi/dependencies.test.ts',
     'apps/backend/src/agent/evaluation/scenarios.test.ts',
+    'apps/backend/src/agent/evaluation/assessment.test.ts',
+    'apps/backend/src/agent/evaluation/replay.test.ts',
+    'apps/backend/src/agent/evaluation/replay-kernel.test.ts',
+    'apps/backend/src/agent/evaluation/semantic.test.ts',
   ]);
   expect(args.join(' ')).not.toContain('placeholder');
 });

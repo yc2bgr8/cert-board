@@ -49,6 +49,8 @@ import { toolLabel, toolSummary } from './tool-progress.js';
 import { sandboxWorkTimeMs } from '../sandbox/client.js';
 import { investigateSubagents, questionForSubagentConflicts, subagentTool } from './subagents.js';
 import { compactAgentHistory } from './context-history.js';
+import { reviewSemantics } from './evaluation/semantic.js';
+import { captureRunEvaluation } from './evaluation/review-evaluation.js';
 import { assertRunLease, renewRunLease, releaseRunLease } from '../runs/lease.js';
 import { lockOwnedRun } from '../runs/lock.js';
 import { RUN_CONTROL_CHANNEL } from '../runs/control.js';
@@ -988,7 +990,20 @@ export async function executeAgentRun(
                   }),
                 },
               });
-              if (entry.name === 'submit_for_review') {
+              if (entry.name === 'submit_for_review' && reviewId) {
+                await reviewSemantics(
+                  pool,
+                  runId,
+                  reviewId,
+                  dependencies.models,
+                  model,
+                  async (request) => (
+                    await completeModel('evaluation', request, {
+                      requestKey: randomUUID(),
+                      signal: tool.signal,
+                    })
+                  ).message.content,
+                ).catch(() => undefined);
                 return { data: result.data, terminal: 'review' as const };
               }
               if (entry.name === 'ask_user')
@@ -1274,6 +1289,8 @@ export async function executeAgentRun(
     // 用户提前决定时，派发器须等本轮的结束事件写入后才重新排队。
     await releaseAuthority();
   }
+  if (!reviewId && !['queued', 'running'].includes(status))
+    await captureRunEvaluation(pool, runId, status);
   return {
     runId,
     status,

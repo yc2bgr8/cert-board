@@ -5,9 +5,11 @@ import type {
   DeadlineStage,
   ConfirmedFact,
   DocumentCitation,
+  DeterministicEvaluation,
   FactCandidate,
   ReminderProfile,
   RulePackSeed,
+  SemanticEvaluation,
   SkillVersionMetadata,
   SkillRollbackEvidence,
   VerificationClaim,
@@ -1262,6 +1264,8 @@ export const toolInvocation = pgTable(
     argumentsHash: varchar('arguments_hash', { length: 64 }).notNull(),
     effect: toolEffect('effect').notNull(),
     operation: toolInvocationOperation('operation').notNull().default('execute'),
+    evaluatedMode: permissionMode('evaluated_mode'),
+    requiresProcessApproval: boolean('requires_process_approval'),
     status: toolInvocationStatus('status').notNull().default('started'),
     dataLevel: documentDataLevel('data_level').notNull().default('internal'),
     ...timestamps(),
@@ -1286,6 +1290,10 @@ export const toolInvocation = pgTable(
     check('tool_invocation_version_not_blank', sql`length(btrim(${table.toolVersion})) > 0`),
     check('tool_invocation_arguments_hash_format', sql`${table.argumentsHash} ~ '^[0-9a-f]{64}$'`),
     index('tool_invocation_conversation_idx').on(table.conversationId),
+    check(
+      'tool_invocation_eval_policy_pair',
+      sql`(${table.evaluatedMode} IS NULL) = (${table.requiresProcessApproval} IS NULL)`,
+    ),
   ],
 );
 
@@ -2305,6 +2313,7 @@ export const reviewCard = pgTable(
     ...timestamps(),
   },
   (table) => [
+    unique('review_card_id_run_unique').on(table.id, table.runId),
     foreignKey({
       name: 'review_card_run_context_fk',
       columns: [table.runId, table.conversationId, table.createdBy, table.projectId, table.goalId],
@@ -2348,6 +2357,40 @@ export const reviewCard = pgTable(
     index('review_card_skill_statistics_idx')
       .on(table.skillId, table.skillVersion, table.decidedAt)
       .where(sql`${table.status} IN ('approved','rejected')`),
+  ],
+);
+
+export const evalReport = pgTable(
+  'eval_report',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => run.id, { onDelete: 'restrict' }),
+    reviewId: uuid('review_id'),
+    version: varchar('scheme_version', { length: 16 }).notNull(),
+    inputFingerprint: varchar('input_fingerprint', { length: 64 }).notNull(),
+    deterministic: jsonb('deterministic').$type<DeterministicEvaluation>().notNull(),
+    semantic: jsonb('semantic').$type<SemanticEvaluation>().notNull(),
+    result: jsonb('result').$type<DeterministicEvaluation>().notNull(),
+    ...timestamps(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'eval_report_review_run_fk',
+      columns: [table.reviewId, table.runId],
+      foreignColumns: [reviewCard.id, reviewCard.runId],
+    }).onDelete('restrict'),
+    unique('eval_report_input_unique').on(table.runId, table.version, table.inputFingerprint),
+    index('eval_report_review_idx').on(table.reviewId, table.createdAt),
+    check(
+      'eval_report_input_format',
+      sql`${table.inputFingerprint} ~ '^[0-9a-f]{64}$' AND ${table.version} ~ '^[0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}$'`,
+    ),
+    check(
+      'eval_report_payload_shapes',
+      sql`jsonb_typeof(${table.deterministic})='object' AND jsonb_typeof(${table.semantic})='object' AND jsonb_typeof(${table.result})='object'`,
+    ),
   ],
 );
 

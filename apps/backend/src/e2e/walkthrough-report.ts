@@ -1,4 +1,46 @@
+import type { Pool } from 'pg';
+
 export const requiredRevisionSections = ['核查范围', '已核实', '待核实'] as const;
+
+export async function readReviewResubmissionStop(
+  pool: Pick<Pool, 'query'>,
+  conversationId: string,
+  runId: string,
+) {
+  const {
+    rows: [stopped],
+  } = await pool.query<{ code: string | null; toolFailed: boolean }>(
+    `SELECT e.payload_json->>'reasonCode' AS code, (
+       EXISTS (SELECT 1 FROM conversation_event f WHERE f.run_id=e.run_id AND f.type='tool_failed')
+       OR EXISTS (SELECT 1 FROM run_event f WHERE f.run_id=e.run_id AND f.type='tool_failed')
+     ) AS "toolFailed"
+     FROM conversation_event e JOIN conversation c ON c.current_run_id=e.run_id
+     WHERE c.id=$1 AND e.run_id=$2 AND e.type='run_status' ORDER BY e.seq DESC LIMIT 1`,
+    [conversationId, runId],
+  );
+  return stopped;
+}
+
+export function canRequestReviewResubmission(
+  previousCardId: string | null,
+  cards: { id: string; status: string }[],
+  runStatus: string,
+  reasonCode: string | null,
+  alreadyRequested: boolean,
+  hadToolError: boolean,
+) {
+  const expectedCards =
+    previousCardId === null
+      ? cards.length === 0
+      : cards.length === 1 && cards[0]?.id === previousCardId && cards[0].status === 'rejected';
+  return (
+    !alreadyRequested &&
+    !hadToolError &&
+    expectedCards &&
+    runStatus === 'stopped' &&
+    reasonCode === 'REVIEW_NOT_SUBMITTED'
+  );
+}
 
 export function revisionSections(markdown: Buffer) {
   const sections = new Map<string, string>();

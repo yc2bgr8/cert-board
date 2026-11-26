@@ -42,3 +42,4 @@ export * from './rules.js';
 export * from './deadlines.js';
 export * from './knowledge.js';
 export * from './m02.js';
+export * from './evaluation.js';

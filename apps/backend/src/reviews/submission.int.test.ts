@@ -3,6 +3,11 @@ import { afterEach, expect, test } from 'vitest';
 import { reviewSubmitResultSchema } from '@cert-board/shared';
 import { createReviewTestContext } from './test-support.js';
 import { stageSkillVersion } from '../skills/service.js';
+import {
+  captureRunEvaluation,
+  readReviewEvaluation,
+  updateSemanticEvaluation,
+} from '../agent/evaluation/review-evaluation.js';
 
 let context: Awaited<ReturnType<typeof createReviewTestContext>> | undefined;
 afterEach(async () => {
@@ -11,6 +16,153 @@ afterEach(async () => {
 });
 const cardCount = async () =>
   Number((await context!.pool.query('SELECT count(*) FROM review_card')).rows[0].count);
+
+test('提交审核自动存档七维评测，重放不重复并且语义回执不能升分', async () => {
+  context = await createReviewTestContext();
+  const { pool, caller } = context;
+  const call = { ...caller, callId: randomUUID() };
+  const { reviewId } = reviewSubmitResultSchema.parse((await context.submit(undefined, call)).data);
+  const stored = await readReviewEvaluation(pool, caller.runId, reviewId);
+  expect(stored?.version).toBe('0.1.0');
+  expect(Object.keys(stored?.result.dimensions ?? {})).toHaveLength(7);
+  expect(stored?.deterministic.dimensions.evidence.status).toBe('passed');
+  expect(stored?.deterministic.dimensions.answer_quality.status).toBe('needs_review');
+  expect((await context.submit(undefined, call)).replayed).toBe(true);
+  expect(
+    (await pool.query('SELECT count(*)::int AS amount FROM eval_report')).rows[0]?.amount,
+  ).toBe(1);
+  expect(JSON.stringify(stored)).not.toContain(context.submission.evidence[0]!.quote);
+  await expect(
+    pool.query(
+      `UPDATE eval_report SET result=jsonb_set(result,'{overall}','"passed"'::jsonb) WHERE review_id=$1`,
+      [reviewId],
+    ),
+  ).rejects.toMatchObject({ code: '42501' });
+  await expect(
+    pool.query(
+      `UPDATE eval_report SET semantic='{"status":"completed","dimensions":{}}'::jsonb,result=deterministic WHERE review_id=$1`,
+      [reviewId],
+    ),
+  ).rejects.toMatchObject({ code: '42501' });
+  await expect(
+    pool.query(
+      `UPDATE eval_report SET semantic='{"status":"completed","dimensions":{"collaboration":"passed"}}'::jsonb,result=deterministic WHERE review_id=$1`,
+      [reviewId],
+    ),
+  ).rejects.toMatchObject({ code: '42501' });
+  await expect(
+    pool.query(
+      `UPDATE eval_report SET semantic='{"status":"completed","dimensions":{"evidence":"needs_review"},"model":"fixture"}'::jsonb WHERE review_id=$1`,
+      [reviewId],
+    ),
+  ).rejects.toMatchObject({ code: '42501' });
+  await expect(
+    pool.query(
+      `UPDATE eval_report SET semantic='{"status":"completed","dimensions":{"answer_quality":"passed"}}'::jsonb,
+      result=jsonb_set(result,'{dimensions,answer_quality,status}','"passed"'::jsonb) WHERE review_id=$1`,
+      [reviewId],
+    ),
+  ).rejects.toMatchObject({ code: '42501' });
+  await updateSemanticEvaluation(pool, caller.runId, reviewId, {
+    status: 'completed',
+    dimensions: { answer_quality: 'passed', evidence: 'needs_review' },
+  });
+  const scored = await readReviewEvaluation(pool, caller.runId, reviewId);
+  expect(scored?.result.dimensions.answer_quality.status).toBe('needs_review');
+  expect(scored?.result.dimensions.evidence.status).toBe('needs_review');
+  await updateSemanticEvaluation(pool, caller.runId, reviewId, {
+    status: 'completed',
+    dimensions: { answer_quality: 'failed' },
+  });
+  expect(await readReviewEvaluation(pool, caller.runId, reviewId)).toEqual(scored);
+  await expect(
+    pool.query("UPDATE eval_report SET deterministic='{}'::jsonb WHERE review_id=$1", [reviewId]),
+  ).rejects.toMatchObject({ code: '42501' });
+});
+
+test('评测持久化失败保留审核卡，无卡运行仍能存档可观察的评测维度', async () => {
+  context = await createReviewTestContext();
+  const { pool, caller } = context;
+  await pool.query(`CREATE FUNCTION reject_eval_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN RAISE EXCEPTION '合成评测存档故障'; END; $$`);
+  await pool.query(
+    'CREATE TRIGGER reject_eval_fixture BEFORE INSERT ON eval_report FOR EACH ROW EXECUTE FUNCTION reject_eval_fixture()',
+  );
+  const { reviewId } = reviewSubmitResultSchema.parse((await context.submit()).data);
+  expect(await readReviewEvaluation(pool, caller.runId, reviewId)).toBeNull();
+  expect(await cardCount()).toBe(1);
+  expect(
+    (
+      await pool.query(
+        "SELECT 1 FROM audit_log WHERE target_id=$1 AND action='evaluation.unavailable'",
+        [reviewId],
+      )
+    ).rowCount,
+  ).toBe(1);
+  const member = await context.login('MEMBER_B');
+  const retryUrl = `/api/reviews/${reviewId}/evaluation/retry`;
+  const rejected = await context.app.inject({
+    method: 'POST',
+    url: retryUrl,
+    headers: { ...member.headers, 'x-csrf-token': 'invalid' },
+    payload: {},
+  });
+  expect(rejected.statusCode).toBe(403);
+  const replay = () =>
+    context!.app.inject({ method: 'POST', url: retryUrl, headers: member.headers, payload: {} });
+  const failed = await replay();
+  expect(failed.statusCode).toBe(503);
+  expect(failed.json()).toMatchObject({ error: { code: 'EVALUATION_RETRY_FAILED' } });
+  expect(
+    (
+      await pool.query(
+        "SELECT 1 FROM audit_log WHERE target_id=$1 AND action='evaluation.unavailable'",
+        [reviewId],
+      )
+    ).rowCount,
+  ).toBe(2);
+  await pool.query('DROP TRIGGER reject_eval_fixture ON eval_report');
+  const restored = await replay();
+  expect(restored.statusCode).toBe(200);
+  expect(restored.json()).toMatchObject({
+    version: '0.1.0',
+    semantic: { status: 'not_evaluated' },
+  });
+  expect((await replay()).json()).toEqual(restored.json());
+  expect(await cardCount()).toBe(1);
+  expect((await pool.query('SELECT count(*)::int AS amount FROM run')).rows[0]?.amount).toBe(1);
+  const {
+    rows: [run],
+  } = await pool.query<{ id: string }>(
+    `INSERT INTO run(conversation_id,user_id,project_id,goal_id,status,finished_at)
+      SELECT conversation_id,user_id,project_id,goal_id,'completed',clock_timestamp() FROM run WHERE id=$1 RETURNING id`,
+    [caller.runId],
+  );
+  await pool.query(
+    'CREATE TRIGGER reject_eval_fixture BEFORE INSERT ON eval_report FOR EACH ROW EXECUTE FUNCTION reject_eval_fixture()',
+  );
+  await captureRunEvaluation(pool, run!.id, 'completed');
+  expect(
+    (
+      await pool.query(
+        "SELECT 1 FROM audit_log WHERE target_type='run' AND target_id=$1 AND action='evaluation.unavailable'",
+        [run!.id],
+      )
+    ).rowCount,
+  ).toBe(1);
+  expect((await pool.query('SELECT status FROM run WHERE id=$1', [run!.id])).rows[0]?.status).toBe(
+    'completed',
+  );
+  await pool.query('DROP TRIGGER reject_eval_fixture ON eval_report');
+  await captureRunEvaluation(pool, run!.id, 'completed');
+  await captureRunEvaluation(pool, run!.id, 'completed');
+  const final = await pool.query('SELECT review_id, result FROM eval_report WHERE run_id=$1', [
+    run!.id,
+  ]);
+  expect(final.rows).toMatchObject([
+    { review_id: null, result: { dimensions: { task_completion: { status: 'not_evaluated' } } } },
+  ]);
+});
 
 test('同对话重提独立显示本次修改与所有待批文件', async () => {
   const attachment = { path: '交付/待批附件.md', text: '仍待批的附件' };
