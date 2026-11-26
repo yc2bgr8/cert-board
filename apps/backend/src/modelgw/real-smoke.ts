@@ -11,6 +11,8 @@ import { AppError } from '../api/errors.js';
 import { developmentProjectId, developmentGoalId } from '../projects/seed.js';
 import { getBudgetSummary } from '../budget/service.js';
 import { runRealCx } from '../agent/evaluation/r09-cx-real.js';
+import { runCertLineGateway } from '../agent/evaluation/cert-line-gateway.js';
+import { requireCertLineVm } from '../../../../scripts/cert-line-vm.js';
 import { nanoToUsd, usdToNano } from '../budget/meter.js';
 import { loadModelGatewayConfig, parseAllowedModelHosts, ModelConfigError } from './config.js';
 import { ModelGateway, type GatewayTransport } from './service.js';
@@ -24,11 +26,15 @@ async function main() {
       'REAL_TEST_ENVIRONMENT',
       '真实连通性测试仅使用本地开发环境及持久账本。',
     );
+  const certLine = process.argv.includes('--cert-line');
+  const setup = certLine ? await requireCertLineVm(runtime.DATABASE_URL) : undefined;
   const config = await loadModelGatewayConfig({ environment: 'development' });
   const model = selectGatewayModel(config, 'evaluation');
   if (!model || model.transport === 'local' || model.transport === 'cursor-acp' || !process.env[model.apiKeyEnv])
     throw new AppError(403, 'REAL_TEST_CONFIG', '未配置可用测试模型或模型凭据。');
   const cx = process.argv.includes('--cx');
+  if (certLine && (model.provider.zdr !== true || model.provider.data_collection !== 'deny'))
+    throw new AppError(403, 'CERT_LINE_MODEL_POLICY', '认证线真实评测须使用已配置的零保留模型。');
   if (cx && model.upstreamModel !== 'openai/gpt-6.2-astra-pro')
     throw new AppError(403, 'REAL_TEST_CONFIG', 'CX 真实评测须使用已选定的开发旗舰模型。');
   const hosts = parseAllowedModelHosts(
@@ -68,6 +74,13 @@ async function main() {
         'REAL_TEST_PRICE_CHANGED',
         '模型目录价格与当前配置不一致，请核对配置后再运行真实测试。',
       );
+    if (setup) {
+      const { directory, assertActive, ...scope } = setup;
+      const gateway = new ModelGateway(pool, config, transport, { environment: 'development' });
+      const { comparison } = await runCertLineGateway({ pool, gateway, model, directory, scope, assertActive });
+      console.log(`认证线实际评测完成，脱敏对照 ${JSON.stringify(comparison)}`);
+      return;
+    }
     const accounts = await pool.query<{ id: string }>(
       "SELECT id FROM app_user WHERE username='zhangsan' AND is_development=true AND status='active'",
     );

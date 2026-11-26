@@ -7,12 +7,15 @@ import { localProcessEnvironment } from './dev.mjs';
 try {
   const official = process.argv.includes('--official');
   const cx = process.argv.includes('--cx');
+  const certLine = process.argv.includes('--cert-line');
+  if (certLine && (official || cx || process.argv.includes('--agent') || process.argv.includes('--l08')))
+    throw new Error('认证线真实评测应单独运行。');
   const local = official
     ? {}
     : parseEnv(await readFile(new URL('../.env.local', import.meta.url), 'utf8'));
   if (!official && !local.OPENROUTER_API_KEY) {
-    if (cx) {
-      console.error('CX 真实评测未通过。请在独立客体核对旗舰模型配置。');
+    if (cx || certLine) {
+      console.error('专项真实评测未通过。请在独立客体核对已授权模型配置。');
       process.exitCode = 1;
     } else {
       console.log('跳过真实模型测试：.env.local 未配置 OPENROUTER_API_KEY。');
@@ -31,6 +34,7 @@ try {
         ...(process.argv.includes('--l08') ? ['--l08'] : []),
         ...(official && process.argv.includes('--m02') ? ['--m02'] : []),
         ...(cx ? ['--cx'] : []),
+        ...(certLine ? ['--cert-line'] : []),
       ],
       {
         cwd: new URL('..', import.meta.url),

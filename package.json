@@ -30,6 +30,7 @@
     "test:network": "node scripts/test-isolated-network.mjs",
     "eval": "node scripts/eval.mjs",
     "eval:cert-line:compare": "node --import tsx apps/backend/src/agent/evaluation/cert-line-comparison.ts",
+    "eval:cert-line:real": "node scripts/test-real.mjs --cert-line",
     "eval:m02": "node scripts/test-integration.mjs apps/backend/src/agent/evaluation/m02-regression.int.test.ts",
     "eval:agent": "node scripts/eval-agent.mjs",
     "eval:agent:baseline": "node --import tsx apps/backend/src/agent/evaluation/baseline.ts",

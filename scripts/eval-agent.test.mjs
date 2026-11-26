@@ -41,6 +41,7 @@ test('集成模式复用真实测试库的 Agent、工作区和浏览器命令�
     'apps/backend/src/agent/runtime.int.test.ts',
     'apps/backend/src/agent/l08-flow.int.test.ts',
     'apps/backend/src/agent/evaluation/m02-regression.int.test.ts',
+    'apps/backend/src/agent/evaluation/cert-line-gateway.int.test.ts',
     'apps/backend/src/workspace/service.int.test.ts',
     'apps/backend/src/api/conversation-write-routes.int.test.ts',
   ]);
