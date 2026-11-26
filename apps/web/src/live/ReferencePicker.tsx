@@ -37,6 +37,10 @@ export function ReferencePicker({
           aria-label="筛选已加载的资料"
           placeholder="按资料名称或编号筛选"
           onChange={(event) => setSearch(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229)
+              event.preventDefault();
+          }}
         />
         <button
           type="button"

@@ -14,6 +14,7 @@ import {
 import type { PermissionMode } from '@cert-board/shared';
 import { ReferencePicker } from './ReferencePicker.js';
 import { ShellIcon } from './ShellIcon.js';
+import { joinConversationDraft, splitConversationDraft } from './conversation-draft.js';
 
 const modes = {
   read_only: { label: '只读', description: '可以读取和分析资料，不能执行业务改动。' },
@@ -22,25 +23,7 @@ const modes = {
 } satisfies Record<PermissionMode, { label: string; description: string }>;
 
 const maxLength = 8000;
-const referenceLine = /^资料引用：(.+)（文档编号 [\da-f-]{36}，第 [1-9]\d* 版）$/u;
 const mentionAtEnd = /(?:^|\s)@$/u;
-
-function splitDraft(text: string) {
-  const lines = text.split('\n');
-  const references = [];
-  for (let index = lines.length - 1; index >= 0; index--) {
-    const line = lines[index] ?? '';
-    const match = referenceLine.exec(line);
-    if (!match) break;
-    references.unshift({ line, label: match[1] ?? line });
-    lines.pop();
-  }
-  return { body: lines.join('\n'), references };
-}
-
-function joinDraft(body: string, references: string[]) {
-  return references.length ? [body, ...references].filter(Boolean).join('\n') : body;
-}
 
 function ComposerButton({
   variant = 'ghost',
@@ -93,7 +76,7 @@ export function ConversationComposer({
   const activePopup = useRef<HTMLDivElement>(null);
   const [popup, setPopup] = useState<'references' | 'permissions' | null>(null);
   const [notice, setNotice] = useState<string>();
-  const { body, references } = splitDraft(text);
+  const { body, references } = splitConversationDraft(text);
   const referenceLines = references.map(({ line }) => line);
   const available = popup === 'permissions' ? mayWrite : mayWrite && !blocked && !!projectId;
   const visiblePopup = available ? popup : null;
@@ -138,7 +121,7 @@ export function ConversationComposer({
   }
 
   function editBody(value: string, fromKeyboard: boolean) {
-    const next = joinDraft(value, referenceLines);
+    const next = joinConversationDraft(value, referenceLines);
     if (next.length > maxLength) {
       setNotice('消息和资料引用合计不得超过 8000 字。');
       return;
@@ -151,7 +134,7 @@ export function ConversationComposer({
 
   function addReference(line: string) {
     if (!mayWrite || blocked) return;
-    const next = joinDraft(
+    const next = joinConversationDraft(
       body.replace(/(^|\s)@$/u, '$1').trimEnd(),
       referenceLines.includes(line) ? referenceLines : [...referenceLines, line],
     );
@@ -204,7 +187,7 @@ export function ConversationComposer({
                 disabled={blocked}
                 onClick={() => {
                   setText(
-                    joinDraft(
+                    joinConversationDraft(
                       body,
                       referenceLines.filter((_, i) => i !== index),
                     ),

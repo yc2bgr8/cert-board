@@ -73,6 +73,9 @@
   line-height: 1.75;
   white-space: pre-wrap;
 }
+.live-user-message p { margin: 0; }
+.live-message-references { display: flex; flex-wrap: wrap; gap: 5px; }
+.live-message-references:not(:last-child) { margin-bottom: 6px; }
 .live-agent-message {
   min-width: 0;
   line-height: 1.75;

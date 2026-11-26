@@ -313,7 +313,11 @@ async function main() {
     assert.ok(await composerInput.evaluate((node) => node.getBoundingClientRect().height) > compactHeight);
     await composerInput.fill('核查依据 @');
     const referenceDialog = page.getByRole('dialog', { name: '添加资料引用', exact: true });
-    await referenceDialog.getByRole('textbox', { name: '筛选已加载的资料' }).fill('D035');
+    const referenceSearch = referenceDialog.getByRole('textbox', { name: '筛选已加载的资料' });
+    await referenceSearch.fill('D035');
+    await referenceSearch.press('Enter');
+    await referenceDialog.waitFor();
+    assert.equal(await composerInput.inputValue(), '核查依据 @');
     await page
       .getByRole('dialog', { name: '添加资料引用', exact: true })
       .getByRole('button', { name: /D035/ })
@@ -332,6 +336,9 @@ async function main() {
       )).rows[0]?.text ?? '',
       /资料引用：D035/,
     );
+    const sentReference = page.locator('.live-user-message .live-message-references');
+    await sentReference.getByText('D035 · 第 1 版', { exact: true }).waitFor();
+    assert.doesNotMatch(await sentReference.innerText(), /文档编号/);
     await page.getByText('已读取资料原文，正确编号仍待确认。', { exact: false }).waitFor();
     await until(() => read.observed.calls === 3);
     assert.equal(read.observed.readPage, 1);
