@@ -33,6 +33,8 @@
     "k14:collect": "node scripts/k14-public.mjs collect",
     "k14:verify": "node scripts/k14-public.mjs verify",
     "k14:extract-a": "node scripts/k14-pdf.mjs",
+    "k14:pair": "node scripts/k14-pairs.mjs collect",
+    "k14:verify-pairs": "node scripts/k14-pairs.mjs verify",
     "eval:r09": "vitest run apps/backend/src/agent/evaluation/r09-extraction.test.ts apps/backend/src/agent/evaluation/r09-l08.test.ts apps/backend/src/rules/rv05.test.ts",
     "docs:html": "node scripts/docs-html.mjs",
     "env:init": "node scripts/init-env.mjs",

@@ -242,7 +242,7 @@ function maxSourceBytes(file) {
   return file.endsWith('.pdf') ? maxPdf : maxJson;
 }
 
-async function download(spec, root, { pdf = false, allowMissingFdaCode = false } = {}) {
+export async function download(spec, root, { pdf = false, allowMissingFdaCode = false } = {}) {
   let response;
   try {
     response = await fetch(spec.url, { redirect: 'error', signal: AbortSignal.timeout(180_000) });
@@ -349,7 +349,7 @@ async function collect(root, dataset, through, activeId) {
   console.log(JSON.stringify({ snapshot: id, dataset, ...manifest.counts }));
 }
 
-async function verifyFiles(directory, specs, archived, optional = false) {
+export async function verifyFiles(directory, specs, archived, optional = false) {
   requireValue(Array.isArray(archived) && archived.length === specs.length, '档案清单不完整。');
   for (const [index, spec] of specs.entries()) {
     const entry = archived[index];
