@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>PR-36 评测集与回归准备</title><style>
+:root{color-scheme:light;--ink:#223548;--muted:#5b6b7b;--line:#d9dde2;--soft:#eef1f4;--blue:#0057d2}
+*{box-sizing:border-box}body{margin:0;color:var(--ink);background:#f5f6f7;font:15px/1.7 "Segoe UI","Microsoft YaHei",sans-serif}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1400px;margin:auto}
+nav{position:sticky;top:0;height:100vh;overflow:auto;padding:24px 16px;border-right:1px solid var(--line);background:white;font-size:13px}
+nav a{display:block;padding:3px 6px;text-decoration:none}nav .level-3{padding-left:20px}
+main{min-width:0;padding:32px 48px 80px;background:white}h1{font-size:28px}h2{margin-top:40px;border-bottom:2px solid var(--soft)}
+h3{margin-top:28px}h4{padding:6px 10px;background:#ebf8ff;border-left:3px solid var(--blue)}
+p{margin:8px 0}a{color:var(--blue)}table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}th{background:#f5f6f7}
+code{font-family:Consolas,"Microsoft YaHei",monospace;font-size:13px;background:var(--soft);padding:1px 4px;border-radius:3px}
+pre{overflow:auto;background:#f5f6f7;border:1px solid var(--line);padding:12px;border-radius:6px}pre code{padding:0;background:none}
+blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;background:#fafbfc}
+img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
+@media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
+@media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#待完成">待完成</a></nav><main><h1 id="pr-36-评测集与回归准备">PR-36 评测集与回归准备</h1>
+<p>从已授权的参考快照迁入组长认证线 120 个示例，六类各 20 个。用例、原剧本和判分保留在 <code>evals/cert-line/</code>。校验适配使用后端已有的 Zod 版本，函数来自参考项目的对应认证线实现，供本仓库离线回归使用。</p>
+<p><code>pnpm eval</code> 运行同一 Agent 内核的剧本、R09 回归、现有一致性规则与数值单位校验，以及认证线示例。它复用既有无密钥的评测进程环境。</p>
+<p>在隔离测试库运行 <code>pnpm eval --integration</code> 可同时执行 M02 回归。合成回执覆盖 UDI 有匹配、成功零条和来源失败。浏览器启用定时核查并退出，后台用既有扫描器唤醒维护 Agent，读取存档、计算站内提醒日期、保存报告并送审。检查实际审核卡引语、七个持久化评测维度、注册人员的浏览器审核和零外发。来源失败留在待核实项，FDA 到期年份填为文本并逐字引用数字原文。</p>
+<p><code>pnpm eval:cert-line:compare</code> 检查完整用例覆盖后，输出与 Flash 116/120 分组基线的差值及本次未达标用例。提供同口径逐例报告时，可核对具体用例的状态变化。参考快照只有 Flash 的分组汇总，逐例对照待原报告或新实测数据。<a href="../../evals/baselines/README.html">基线说明</a></p>
+<p>E07 在 T1 内存副本去掉清洁验证报告及重复件、替换一处型号，并把一份报告的储存期限改成 3 年。判分核对 eSTAR 引用、型号和清单原文、以及两份报告的储存期限，拒绝漏项和假引文。离线剧本用同一 Pi 内核读取录制资料并校验判分。真实检出率须另跑具备授权和资料隔离的正式回放。<a href="../参考/需求文档_V0.4/AI原生器械认证与设计开发协同_需求文档_V0.4.html#153-注册线评测">评测要求</a></p>
+<h2 id="待完成">待完成</h2>
+<ul><li>L08 其余回放逐例接入，并补齐待注册人员标注的 E04、E05、E10、E11、E14。现有 R09 评测仍可运行。</li><li>在实际合并基线上复验 M02 和七维回放。继续补齐真实材料的数值和单位用例。</li><li>用获准的真实模型执行认证线 120 例，按用例记录与组长原始真实基线 116/120 的差异、版本和费用。原剧本的分数单独记录。</li><li>新提交与届时的 main 需要完整独立虚拟机验收、真实走查及独立复审。目前仅保留在本机开发分支。</li></ul><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>
