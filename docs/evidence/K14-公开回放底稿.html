@@ -15,7 +15,7 @@ blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #8396a8;backgrou
 img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13px}.footer{margin-top:48px;border-top:1px solid var(--line);padding-top:10px}
 @media(max-width:800px){.layout{display:block}nav{position:static;height:auto;max-height:220px}main{padding:24px}}
 @media print{body{background:white;font-size:11pt}.layout{display:block}nav{display:none}main{padding:0}h2,h3{break-after:avoid}table,blockquote{break-inside:avoid}}
-</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#加拿大历史快照">加拿大历史快照</a><a class="level-2" href="#跨市场同名候选核对">跨市场同名候选核对</a><a class="level-2" href="#2026-年回放候选清单">2026 年回放候选清单</a><a class="level-2" href="#首批-r02-待审题目">首批 R02 待审题目</a></nav><main><h1 id="k14-公开回放底稿">K14 公开回放底稿</h1>
+</style></head><body><div class="layout"><nav aria-label="目录"><strong>目录</strong><a class="level-2" href="#加拿大历史快照">加拿大历史快照</a><a class="level-2" href="#跨市场同名候选核对">跨市场同名候选核对</a><a class="level-2" href="#2026-年回放候选清单">2026 年回放候选清单</a><a class="level-2" href="#首批-r02-待审题目">首批 R02 待审题目</a><a class="level-2" href="#r01-审评排期待审材料">R01 审评排期待审材料</a></nav><main><h1 id="k14-公开回放底稿">K14 公开回放底稿</h1>
 <p>独立 Linux KVM 以代码 <code>caba7d0</code>、当前基线 <code>7bdaa8a</code> 验证。查询截止日期为 2026-11-25。按已批准的公开来源采集，模型调用 0 次。</p>
 <table><thead><tr><th>数据集</th><th>已归档结果</th></tr></thead><tbody><tr><td>A 美国 FDA</td><td>四产品代码共 222 条 SESE 记录。LRK 102、LQZ 6、BZD 76、BTT 38。2026 年候选 25 条，取得 24 份公开摘要，另 1 份返回 HTTP 404</td></tr><tr><td>A 无网解析</td><td>24 份摘要全部完成，得到 250 个物理页，其中 21 页使用 OCR，空白页 0。每份原件和逐页产物均有 SHA-256</td></tr><tr><td>C 加拿大 MDALL</td><td>171 张活动许可，其中 2026 年候选 25 张，关联 661 条器械记录和 1,896 个型号标识记录。器械和标识按原许可及器械编号共同关联</td></tr></tbody></table>
 <p>两份档案均从原始响应离线重算并核对 SHA-256。修改原始档案副本的一个字节后，校验按预期拒绝该副本。专项 5 项、537 项单测、35 项 Agent 剧本、19 项 Docsvc 测试、lint、类型检查、HTML 和索引密钥扫描通过。</p>
@@ -35,4 +35,7 @@ img{max-width:100%;height:auto}.blocked,.footer{color:var(--muted);font-size:13p
 <p>依据三份已归档的 2026 年 FDA 决定和摘要起草三道匿名题。每道题要求给出类别、产品代码、法规编号和申报路径。来源逐一校验和渲染核对。草题覆盖三种产品代码，三个例子的类别和申报主路径相同，类别与路径区分能力仍需补充其他样本。</p>
 <p>题目和参考答案分别保存在本机 <code>pr37-r02-questions-review-only.json</code> 与 <code>pr37-r02-answers-review-only.json</code>。题目摘要为 <code>bab86cd4c7bc7661c291ec67f6beebfbd9daf0080b616f61850bb2e708bc0324</code>，答案摘要为 <code>9572d6866c6f352e492c5d8ed7ac79fb09b1c01ef110d8392c1721961c082721</code>。回放边界使用原始 openFDA 受理日前一日。三份决定通知显示的收到日期均与该归档受理日有差异，复核时须确认摘要内容能否用作原受理时点的题目描述。</p>
 <p>独立判分工具按审阅答案计算四个字段，先核验评测端记录的输入摘要与回放结论。评分报告保留已作答、无效回放、未核验和未作答的覆盖状态。证据出现目标编号、晚于截止日或来源日期无法确认时，依 PR-35 的核验结论排除出字段得分分母。</p>
+<h2 id="r01-审评排期待审材料">R01 审评排期待审材料</h2>
+<p>在禁网虚拟机对 21 条美国候选生成题目、匿名历史历时和独立参考答案。每道题使用归档中同产品代码、严格在目标受理日之前获决定的 31 至 98 条往例。分位数用近秩法，按自然日从题面开始日期推算计划日期。实际历时记录为 29 至 304 天，其中 10 条落在对应的历史中间一半区间内。此结果供审阅题目覆盖和历史样本局限。</p>
+<p>三份文件仅保存在本机，分别为 <code>pr37-r01-questions-review-only.json</code>、<code>pr37-r01-history-review-only.json</code> 和 <code>pr37-r01-answers-review-only.json</code>。参考答案留有输入档案摘要与样本编号，模型训练截止日仍待核实。历史来源仅覆盖此处归档的 SESE 记录。</p>
 <p>候选来源供后续题目制作与抽查。训练截止日、正式测试题与答案、候选配对确认及真实模型验收报告仍待完成。<a href="https://open.fda.gov/apis/device/510k/" target="_blank" rel="noopener noreferrer" title="点击后打开外部网站">FDA 510(k) API（外部链接）</a> · <a href="../pr/PR-37.html">PR-37 范围</a></p><div class="footer">由 Markdown 源文件生成，修改请编辑同名 .md 文件后重新生成。</div></main></div></body></html>

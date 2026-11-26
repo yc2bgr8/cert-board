@@ -12,7 +12,7 @@ const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const reserved = new Set(['K251920', 'K253845', 'K262104']);
 const developmentCompanyId = 184937;
 
-function validDate(value) {
+export function validDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
   const time = new Date(value + 'T00:00:00Z');
   return Number.isFinite(time.valueOf()) && time.toISOString().slice(0, 10) === value;
