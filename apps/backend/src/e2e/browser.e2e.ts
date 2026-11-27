@@ -827,6 +827,12 @@ async function main() {
     assert.equal(await settings.getByRole('button', { name: '维护页', exact: true }).count(), 0);
     await captureWorkbench(page, output, 'pr-u4-15-settings.png');
     await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
+    stage = '只读 Agent 查询尚未发布的模板';
+    await createConversation(page, harness.projectId, 'read_only', '核对待审模板');
+    const pendingTemplate = harness.plan('knowledge_template_pending');
+    await send(page, '请查询合成资料核对模板是否已有发布版本。');
+    await page.getByText('该模板仍在待审，暂无已发布版本。', { exact: true }).waitFor();
+    assert.equal(pendingTemplate.observed.calls, 2);
     stage = '注册人员从待我处理打开规则包和模板审核卡';
     await page.getByRole('button', { name: /待我处理/u }).click();
     const knowledgeFilter = page.getByRole('button', { name: /^知识审核 \d+$/u });
@@ -879,6 +885,13 @@ async function main() {
     await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
     await templateNotice.waitFor({ state: 'hidden' });
     await ruleNotice.waitFor();
+    await page.getByRole('button', { name: /^全部 \d+$/u }).click();
+    stage = '只读 Agent 读取刚发布的模板';
+    await createConversation(page, harness.projectId, 'read_only', '核对已发布模板');
+    const publishedTemplate = harness.plan('knowledge_template_published');
+    await send(page, '请读取审核通过的合成资料核对模板。');
+    await page.getByText('已读取审核通过的模板 1.0.0。', { exact: true }).waitFor();
+    assert.equal(publishedTemplate.observed.calls, 2);
     await page.getByRole('button', { name: '设置', exact: true }).click();
     stage = '技能版本审核、停用与回退';
     const draft = parseSkillDraftMarkdown(
@@ -1731,6 +1744,7 @@ async function main() {
             'skill_rollback_from_inbox_with_browser_approval',
             'knowledge_template_publish_requires_browser_review',
             'knowledge_inbox_opens_exact_card_and_removes_published_notice',
+            'knowledge_agent_uses_template_only_after_browser_publication',
             'knowledge_rule_pack_copy_respects_utf8_limit',
             'agent_verification_waits_and_resumes_with_human_input',
             'stopping_conversation_stops_linked_verification',

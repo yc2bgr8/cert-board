@@ -4,6 +4,7 @@ import {
   internalMessageQueuedSchema,
   documentPageReadSchema,
   documentSearchResultSchema,
+  knowledgeGetResultSchema,
   type ModelGatewayConfig,
 } from '@cert-board/shared';
 import type { GatewayTransport } from '../modelgw/service.js';
@@ -21,6 +22,8 @@ export type BrowserScenario =
   | 'review'
   | 'revision'
   | 'approval_text'
+  | 'knowledge_template_pending'
+  | 'knowledge_template_published'
   | 'review_decision_resume'
   | 'proposal'
   | 'external_quote'
@@ -132,6 +135,24 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
           throw new Error('BROWSER_APPROVAL_RECEIPT_MODEL_CALLED');
         const latest = request.messages.at(-1);
         const previous: unknown = latest?.role === 'tool' ? JSON.parse(latest.content) : null;
+        if (kind === 'knowledge_template_pending' || kind === 'knowledge_template_published') {
+          if (phase++ === 0)
+            return call('knowledge_get', { kind: 'template', code: 'synthetic_record_review' });
+          const result = knowledgeGetResultSchema.parse(previous);
+          const pending = kind === 'knowledge_template_pending';
+          if (
+            result.kind !== 'template' ||
+            (pending
+              ? result.template !== null
+              : result.template?.version !== '1.0.0' ||
+                !result.template.body.includes('核对资料编号、文件版本和原文页码。'))
+          )
+            throw new Error('BROWSER_TEMPLATE_PUBLICATION_MISMATCH');
+          return response({
+            role: 'assistant',
+            content: pending ? '该模板仍在待审，暂无已发布版本。' : '已读取审核通过的模板 1.0.0。',
+          });
+        }
         if (kind === 'approval_text') {
           observed.reviewVerificationReceived = request.messages.some(
             (message) =>
