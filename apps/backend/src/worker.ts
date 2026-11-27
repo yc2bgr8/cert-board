@@ -10,6 +10,7 @@ import { FetcherClient } from './documents/fetcher-client.js';
 import { loadModelGatewayConfig, parseAllowedModelHosts } from './modelgw/config.js';
 import { ModelGateway } from './modelgw/service.js';
 import { createWorkerModelTransport, type RealGatewayTransport } from './modelgw/transport.js';
+import { readCursorAcceptanceConfig } from './modelgw/cursor-acceptance.js';
 import { buildAgentTools } from './agent/default-tools.js';
 import { buildWebTools } from './tools/web-tools.js';
 import { executeAgentRun } from './agent/runtime.js';
@@ -39,6 +40,7 @@ import {
 } from './goals/verification-wakeups.js';
 import { scanGoalEvents, scanReviewDecisionEvents } from './goals/goal-events.js';
 import { scanSkillRollbackProposals } from './skills/rollback.js';
+import { scanM02Schedules } from './goals/m02-schedule.js';
 
 export async function startWorker() {
   const config = parseBackendConfig(process.env);
@@ -105,7 +107,11 @@ export async function startWorker() {
   try {
     dependencies = createDependencies(config);
     const resources = dependencies;
-    const models = await loadModelGatewayConfig({ environment: config.NODE_ENV });
+    const cursorAcceptance = await readCursorAcceptanceConfig(config.NODE_ENV);
+    const models = await loadModelGatewayConfig({
+      environment: config.NODE_ENV,
+      allowCursorAcceptance: cursorAcceptance !== undefined,
+    });
     const allowedHosts = parseAllowedModelHosts(
       await readFile(new URL('../../../deploy/egress/allowlist', import.meta.url), 'utf8'),
     );
@@ -113,6 +119,7 @@ export async function startWorker() {
       ...(process.env.HTTPS_PROXY ? { proxyUrl: process.env.HTTPS_PROXY } : {}),
       containerRuntime: config.CONTAINER_RUNTIME,
       allowedHosts,
+      ...(cursorAcceptance && { cursorAcceptance }),
     });
     const gateway = new ModelGateway(resources.database, models, transport, {
       environment: config.NODE_ENV,
@@ -342,6 +349,7 @@ export async function startWorker() {
         await reconcile();
         await purgeExpiredModelRequests(resources.database);
         await scanSkillRollbackProposals(resources.database);
+        await scanM02Schedules(resources.database, config.NODE_ENV);
       })()
         .catch(() => logger.warn({ event: 'maintenance_deferred' }, '后台维护暂未完成，稍后重试。'))
         .finally(() => {

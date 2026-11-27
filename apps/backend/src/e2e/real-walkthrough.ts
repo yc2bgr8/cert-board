@@ -20,6 +20,12 @@ import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthro
 import { checkOfficialBrowserRun } from './official-walkthrough.js';
 import { checkRulesBrowserRun } from './rules-walkthrough.js';
 import { checkKnowledgeWalkthrough } from './knowledge-walkthrough.js';
+import { cursorProbeDoc, prepareCursorProbe } from './cursor-probe.js';
+import {
+  inspectM02Walkthrough,
+  prepareM02Walkthrough,
+  waitForM02OfflineReview,
+} from './m02-walkthrough.js';
 import { checkR09PackageReadOnly, checkR09Revision, r09Replacements, readOnlyWorkspaceSnapshot } from './r09-walkthrough.js';
 
 const maintenanceProjectId = '81c152b6-21ed-496e-824f-f718cc47a101';
@@ -88,9 +94,11 @@ async function waitForReview(
   pool: pg.Pool,
   conversationId: string,
   expectedCount: number,
+  onUnsubmitted?: () => Promise<void>,
 ) {
   const until = Date.now() + budgetOfWaiting;
   let lastAnswered: string | null = null;
+  let continued = false;
   while (Date.now() < until) {
     const cards = (
       await pool.query<{ id: string; status: string }>(
@@ -110,6 +118,18 @@ async function waitForReview(
       )
     ).rows[0];
     if (run && ['failed', 'stopped', 'budget_exhausted'].includes(run.status)) {
+      if (run.status === 'stopped' && onUnsubmitted && !continued) {
+        const { rows: [last] } = await pool.query<{ reason: string | null }>(
+          `SELECT payload_json->>'reasonCode' AS reason FROM conversation_event
+           WHERE run_id=$1 AND type='run_status' ORDER BY seq DESC LIMIT 1`,
+          [run.id],
+        );
+        if (last?.reason === 'REVIEW_NOT_SUBMITTED') {
+          continued = true;
+          await onUnsubmitted();
+          continue;
+        }
+      }
       console.error(`${stage}出现运行错误。错误编号 ${run.id}`);
       throw new Error('WALKTHROUGH_RUN_STOPPED');
     }
@@ -243,6 +263,7 @@ async function exerciseVerification(
   evidenceFolder: string,
   onOpened?: (id: string) => void,
 ) {
+  const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
   const readyUntil = Date.now() + 30_000;
   let workerReady = false;
   while (Date.now() < readyUntil) {
@@ -255,7 +276,7 @@ async function exerciseVerification(
     }
     await wait(500);
   }
-  assert.ok(workerReady, '外部核实进程必须同时就绪 Cursor 和 OpenRouter');
+  assert.ok(workerReady, '外部核实进程必须同时就绪 Cursor 与模型网关');
   await page.getByRole('button', { name: '外部模型', exact: true }).click();
   const group = page.getByRole('region', { name: '外部核实群聊', exact: true });
   const created = page.waitForResponse(
@@ -302,13 +323,21 @@ async function exerciseVerification(
   assert.ok(
     tested.some((item) => item.channel === 'gateway' && item.model === 'claude-opus-5-5-gateway'),
   );
+  if (cursorAcceptance) {
+    const { rowCount } = await pool.query(
+      `SELECT 1 FROM external_model_exchange e JOIN usage_ledger u ON u.request_key=e.id
+       WHERE e.conversation_id=$1 AND e.channel='gateway' AND e.returned->>'text' IS NOT NULL
+       AND u.model_id='cursor/claude-opus-5.5' AND u.status='unknown' AND e.status='unknown'`, [id],
+    );
+    assert.ok(rowCount, '验收时网关核实须来自 Cursor 的 Claude Opus 5.5');
+  }
   const stop = group.getByRole('button', { name: '停止并整理', exact: true });
   if ((await stop.count()) === 1 && (await stop.isEnabled())) await stop.click();
   await group
     .getByRole('complementary', { name: '核实结论', exact: true })
     .waitFor({ timeout: 120000 });
   await page.screenshot({ path: path.join(evidenceFolder, 'verification-v7.png') });
-  return { id, channels: tested };
+  return { id, channels: tested, gatewayTransport: cursorAcceptance ? 'cursor-acp' : 'openrouter' };
 }
 
 export type WalkthroughBatchContext = {
@@ -365,10 +394,91 @@ async function main() {
       assert.ok(instance);
       assert.equal(home?.headers()['x-cert-preview-instance'], instance);
     }
-    await page.getByRole('textbox', { name: '账号', exact: true }).fill('zhangsan');
-    await page.getByLabel('密码', { exact: true }).fill(password);
-    await page.getByRole('button', { name: '登录', exact: true }).click();
-    await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
+    const login = async () => {
+      await page.getByRole('textbox', { name: '账号', exact: true }).fill('zhangsan');
+      await page.getByLabel('密码', { exact: true }).fill(password);
+      await page.getByRole('button', { name: '登录', exact: true }).click();
+      await page.getByRole('button', { name: '新对话', exact: true }).waitFor();
+    };
+    await login();
+    if (process.env.CERT_WALKTHROUGH_CURSOR_PROBE === '1') {
+      assert.equal(process.env.CERT_WALKTHROUGH_CURSOR, '1');
+      stage = 'Cursor 合成项目工具与浏览器审核';
+      const project = await prepareCursorProbe(pool, blobs);
+      await page.reload();
+      const conversation = await freshConversation(page, project, '合成对比编号核查', 'full');
+      await send(page, [
+        `只使用本项目合成资料 ${cursorProbeDoc} 的两页，用 R09 核对对比器械 K 号的写法。不要查外网。`,
+        '实际调用工具，先加载技能、列计划并检索资料，再逐页读取。两页分别引用原句，保留待核实结论。',
+        '请用工具将报告保存到「交付/合成编号核查.md」，保存工作区版本，运行 check_run，再调用 submit_for_review 生成审核卡。以审核卡为交付。',
+      ].join('\n'));
+      let continuedAfterText = false;
+      const cardId = await waitForReview(page, pool, conversation, 1, async () => {
+        continuedAfterText = true;
+        await send(page, `刚才还没有审核卡。请继续合成任务，重新逐页读取 ${cursorProbeDoc} 的两页，使用工具保存报告、运行 check_run 并实际调用 submit_for_review。`);
+      });
+      const evidence = await pool.query<{ pages: number }>(
+        `SELECT count(DISTINCT entry->>'page')::int AS pages
+         FROM review_card r CROSS JOIN LATERAL jsonb_array_elements(r.evidence_refs) entry
+         JOIN document d ON d.id=(entry->>'documentId')::uuid
+         WHERE r.id=$1 AND r.skill_id='R09' AND d.project_id=$2 AND d.source_key=$3`,
+        [cardId,project,cursorProbeDoc],
+      );
+      assert.equal(evidence.rows[0]?.pages, 2);
+      const tools = await verifyTools(pool, conversation);
+      const models = await pool.query<{ model: string }>(
+        `SELECT DISTINCT u.model_id AS model FROM usage_ledger u JOIN run r ON r.id=u.run_id
+         WHERE r.conversation_id=$1 AND u.purpose='agent'`, [conversation],
+      );
+      assert.deepEqual(models.rows.map(({model}) => model), ['cursor/gpt-5.6-sol']);
+      await review(page, pool, cardId, path.join(evidenceFolder, 'cursor-synthetic-review.png'), true);
+      assert.equal(blocked, 0);
+      await writeFile(path.join(evidenceFolder, 'cursor-probe.json'), JSON.stringify({
+        status:'passed', instance, commit: testedCommit, synthetic:true, continuedAfterText, routesBlocked:blocked,
+        modelTransport:'cursor-acp', mainModel:'cursor/gpt-5.6-sol', tools, evidencePages:2,
+      }, null, 2), 'utf8');
+      console.log('Cursor 合成项目的实际工具调用、引用与浏览器审核通过。');
+      return;
+    }
+    if (process.env.CERT_WALKTHROUGH_M02_ONLY === '1') {
+      stage = '维护负责人在工作目标中启用 M02 定时核查';
+      const sample = await prepareM02Walkthrough(pool, blobs);
+      await page.reload();
+      const openProject = async () => {
+        await page.getByRole('button', { name: '维护Agent', exact: true }).click();
+        await page.getByRole('button', { name: sample.name, exact: true }).click();
+      };
+      await openProject();
+      await page.getByRole('button', { name: '启用定时核查', exact: true }).click();
+      await page.getByRole('button', { name: '停用定时核查', exact: true }).waitFor();
+      await page.screenshot({ path: path.join(evidenceFolder, 'm02-schedule.png') });
+      await page.getByRole('button', { name: '设置', exact: true }).click();
+      await page.getByRole('button', { name: '退出登录', exact: true }).click();
+      await page.getByRole('button', { name: '登录', exact: true }).waitFor();
+      await pool.query(
+        "UPDATE run SET status='completed',finished_at=clock_timestamp() WHERE id=$1",
+        [sample.blocker],
+      );
+      stage = '负责人离线时，后台按月或年度窗口启动 M02 并送审';
+      const result = await waitForM02OfflineReview(pool, sample.goal, startedAt);
+      stage = '负责人返回后在工作台查看待审核查结果';
+      await login();
+      await page.goto(`${config.WEB_ORIGIN}/?conversation=${result.conversation}`);
+      const proof = await inspectM02Walkthrough(page, pool, sample.goal, result.run, result.card);
+      await page.screenshot({ path: path.join(evidenceFolder, 'm02-review.png') });
+      await page.goto(config.WEB_ORIGIN);
+      await openProject();
+      await page.getByRole('button', { name: '停用定时核查', exact: true }).click();
+      await page.getByRole('button', { name: '启用定时核查', exact: true }).waitFor();
+      assert.equal(blocked, 0);
+      await writeFile(
+        path.join(evidenceFolder, 'm02-result.json'),
+        JSON.stringify({ ...proof, status: 'passed', instance, commit: testedCommit }, null, 2),
+        'utf8',
+      );
+      console.log('M02 官方资料、负责人离线唤醒、站内提醒与浏览器送审专项通过。');
+      return;
+    }
     if (process.env.CERT_WALKTHROUGH_KNOWLEDGE_ONLY === '1') {
       stage = '维护 Agent 读取规则包并记录运行版本';
       await page.getByRole('button', { name: '维护Agent', exact: true }).click();
@@ -535,7 +645,7 @@ async function main() {
     let errorId: string | null = null;
     let verification: Awaited<ReturnType<typeof exerciseVerification>> | null = null;
     if (process.env.CERT_WALKTHROUGH_DIAGNOSTIC !== '1') {
-      stage = '真实核实验证 Cursor 与 OpenRouter 两条通道';
+      stage = '真实核实验证 Cursor 与模型网关两条应用通道';
       verification = await exerciseVerification(page, pool, evidenceFolder);
       stage = '错误编号与日志关联';
       await page.goto(`${config.WEB_ORIGIN}/?conversation=${randomUUID()}`);
@@ -562,19 +672,34 @@ async function main() {
       await wait(1000);
     }
     const cost = (
-      await pool.query<{ model: string; paid: string; unknown: number; calls: number }>(
+      await pool.query<{ model: string; paid: string; unknown: number; notSent: number; calls: number }>(
         `SELECT model_id AS model,COALESCE(sum(actual_nano) FILTER(WHERE status='settled'),0)::text AS paid,
-       count(*) FILTER(WHERE status IN ('unknown','reserved'))::int AS unknown,count(*)::int AS calls
+       count(*) FILTER(WHERE status IN ('unknown','reserved'))::int AS unknown,
+       count(*) FILTER(WHERE status='not_sent')::int AS "notSent",count(*)::int AS calls
        FROM usage_ledger WHERE created_at>=$1 GROUP BY model_id ORDER BY model_id`,
         [startedAt],
       )
     ).rows;
-    assert.ok(cost.some(({ model }) => model === 'openai/gpt-6.2-astra-pro'));
+    const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
+    const mainModel = cursorAcceptance ? 'cursor/gpt-5.6-sol' : 'openai/gpt-6.2-astra-pro';
+    assert.ok(cost.some(({ model, calls }) => model === mainModel && calls > 0));
+    if (cursorAcceptance) {
+      assert.ok(cost.every(({ calls, unknown, notSent, paid }) => calls === unknown + notSent && paid === '0'));
+      for (const conversationId of [registration, maintenance]) {
+        const { rows } = await pool.query<{ model: string }>(
+          `SELECT DISTINCT u.model_id AS model FROM usage_ledger u JOIN run r ON r.id=u.run_id
+           WHERE r.conversation_id=$1 AND u.purpose='agent'`, [conversationId],
+        );
+        assert.deepEqual(rows.map(({ model }) => model), [mainModel]);
+      }
+    }
     assert.equal(blocked, 0);
     const proof = {
       status: 'passed',
       commit: testedCommit,
       instance,
+      mainModel,
+      modelTransport: cursorAcceptance ? 'cursor-acp' : 'openrouter',
       errorId,
       verification,
       registration: {

@@ -9,6 +9,7 @@ import { createLogger } from './logger.js';
 import { loadVerificationModelGatewayConfig, parseAllowedModelHosts } from './modelgw/config.js';
 import { ModelGateway } from './modelgw/service.js';
 import { createWorkerModelTransport } from './modelgw/transport.js';
+import { readCursorAcceptanceConfig } from './modelgw/cursor-acceptance.js';
 
 async function start() {
   const config = parseBackendConfig(process.env);
@@ -16,6 +17,7 @@ async function start() {
   const logger = createLogger(config);
   const dependencies = createDependencies(config);
   const proxyUrl = process.env.HTTPS_PROXY;
+  const cursorAcceptance = await readCursorAcceptanceConfig(config.NODE_ENV);
   const moderatorUnavailable = () => {
     logger.warn(
       { event: 'verification_moderator_model_unavailable' },
@@ -23,9 +25,10 @@ async function start() {
     );
     return undefined;
   };
-  const models = await loadVerificationModelGatewayConfig({ environment: config.NODE_ENV }).catch(
-    moderatorUnavailable,
-  );
+  const models = await loadVerificationModelGatewayConfig({
+    environment: config.NODE_ENV,
+    allowCursorAcceptance: cursorAcceptance !== undefined,
+  }).catch(moderatorUnavailable);
   const remoteProxy = proxyUrl && process.env.OPENROUTER_API_KEY ? proxyUrl : undefined;
   let transport: ReturnType<typeof createWorkerModelTransport> | undefined;
   if (models) {
@@ -36,6 +39,7 @@ async function start() {
       transport = createWorkerModelTransport(models, {
         ...(remoteProxy ? { proxyUrl: remoteProxy } : {}),
         allowedHosts,
+        ...(cursorAcceptance && { cursorAcceptance }),
       });
     } catch {
       moderatorUnavailable();
@@ -64,7 +68,7 @@ async function start() {
     gateway,
     checker,
     selected?.transport === 'local' ? selected.id : undefined,
-    remoteProxy && models ? selectGatewayModel(models, 'verification')?.id : undefined,
+    (remoteProxy || cursorAcceptance) && models ? selectGatewayModel(models, 'verification')?.id : undefined,
   );
   let closed = false;
   function shutdown() {

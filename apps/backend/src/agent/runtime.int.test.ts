@@ -15,11 +15,14 @@ import { seedDevelopmentBudgetPolicy } from '../budget/service.js';
 import { appendConversationMessage } from '../conversations/storage.js';
 import * as conversationStorage from '../conversations/storage.js';
 import { ModelGateway, type GatewayTransport } from '../modelgw/service.js';
+import { cursorAcceptanceModels, CursorReplyFormatError } from '../modelgw/cursor-acceptance.js';
+import { CursorAcpNativeToolError } from '../external-model/cursor-acp.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { ingestParsedDocument } from '../documents/service.js';
 import type { ToolDefinition } from '../tools/registry.js';
 import { executeAgentRun } from './runtime.js';
 import { buildAgentTools } from './default-tools.js';
+import { appendRunEvent } from '../runs/events.js';
 import * as leaseService from '../runs/lease.js';
 import { queueInternalMessageTool } from '../tools/queue-internal-message.js';
 import { agentInteractionTools } from '../tools/agent-interaction.js';
@@ -104,6 +107,143 @@ afterEach(async () => {
   vi.restoreAllMocks();
   await close?.();
   close = undefined;
+});
+
+test.each([
+  { label: '格式恢复', errors: [new CursorReplyFormatError('invalid_json')], calls: 2, done: true },
+  {
+    label: '两次格式失败',
+    errors: [new CursorReplyFormatError('empty'), new CursorReplyFormatError('invalid_envelope')],
+    calls: 2,
+    done: false,
+  },
+  { label: '原生工具被阻止', errors: [new CursorAcpNativeToolError()], calls: 1, done: false },
+  { label: '其他派发后失败', errors: [new Error('合成上游连接中断')], calls: 1, done: false },
+])('Cursor 主模型回合单独计量并限制复试（$label）', async ({ errors, calls, done }) => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const target = await queued(context, 'read_only');
+  const models: ModelGatewayConfig = { version: 1, models: cursorAcceptanceModels };
+  const corrections: boolean[] = [];
+  const gateway = new ModelGateway(
+    context.pool,
+    models,
+    {
+      kind: 'fixture',
+      async send(_model, request) {
+        corrections.push(
+          request.messages[0]?.content?.includes('上一次返回未通过回合结构校验') ?? false,
+        );
+        const error = errors[corrections.length - 1];
+        if (error) throw error;
+        const reply = result({ role: 'assistant', content: '合成核查完成。' });
+        return { id: reply.id, object: reply.object, choices: reply.choices };
+      },
+    },
+    { environment: 'test' },
+  );
+  const outcome = await executeAgentRun(
+    { pool: context.pool, store, gateway, models, definitions: [] },
+    target.runId,
+  );
+  expect(outcome.status).toBe(done ? 'completed' : 'failed');
+  expect(corrections).toEqual(calls === 2 ? [false, true] : [false]);
+  const { rows } = await context.pool.query<{
+    request_key: string;
+    status: string;
+    reason_code: string;
+    reply_action: string | null;
+  }>(
+    `SELECT u.request_key,u.status,u.reason_code,a.action AS reply_action
+     FROM usage_ledger u LEFT JOIN audit_log a ON a.target_type='usage_ledger'
+       AND a.target_id=u.id::text AND a.action LIKE 'model.cursor_reply.%'
+     WHERE u.run_id=$1 ORDER BY u.created_at`,
+    [target.runId],
+  );
+  expect(rows.map(({ status }) => status)).toEqual(Array.from({ length: calls }, () => 'unknown'));
+  expect(rows.map(({ reply_action }) => reply_action)).toEqual(
+    Array.from({ length: calls }, (_, i) => {
+      const error = errors[i];
+      return error instanceof CursorReplyFormatError ? `model.cursor_reply.${error.failure}` : null;
+    }),
+  );
+  expect(rows.filter(({ reply_action }) => reply_action).every(
+    ({ reason_code }) => reason_code === 'request_uncertain',
+  )).toBe(true);
+  expect(new Set(rows.map(({ request_key }) => request_key)).size).toBe(calls);
+  const completed = await context.pool.query<{ request_id: string }>(
+    "SELECT request_id FROM run_event WHERE run_id=$1 AND type='model_completed'",
+    [target.runId],
+  );
+  expect(completed.rows).toEqual(done ? [{ request_id: rows[1]?.request_key }] : []);
+});
+
+test.each([
+  { plan: 'running', canReview: true, finishes: true, retries: true, status: 'waiting' },
+  { plan: 'running', canReview: true, finishes: false, retries: true, status: 'stopped' },
+  { plan: 'completed', canReview: true, finishes: false, retries: false, status: 'stopped' },
+  { plan: 'running', canReview: false, finishes: false, retries: false, status: 'stopped' },
+])('Cursor 主模型只在有未完计划和送审工具时续做一次（$plan / $canReview / $finishes）', async (fixture) => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const target = await queued(context, 'ask');
+  const models: ModelGatewayConfig = { version: 1, models: cursorAcceptanceModels };
+  const corrections: boolean[] = [];
+  const text = () => result({ role: 'assistant', content: '已读资料。' });
+  const gateway = new ModelGateway(
+    context.pool,
+    models,
+    {
+      kind: 'fixture',
+      async send(_model, request) {
+        const correction = request.messages[0]?.content?.includes('已登记的计划仍有未完成步骤') ?? false;
+        corrections.push(correction);
+        let reply = text();
+        if (corrections.length === 1) {
+          reply = call('plan_update', {
+            steps: [{ title: '核对资料并提交人工审核', status: fixture.plan }],
+            progress: '核对资料。',
+          });
+        } else if (correction && fixture.finishes) {
+          reply = call('ask_user', { question: '请确认合成证据冲突。', options: [] });
+        }
+        return { id: reply.id, object: reply.object, choices: reply.choices };
+      },
+    },
+    { environment: 'test' },
+  );
+  const outcome = await executeAgentRun(
+    {
+      pool: context.pool,
+      store,
+      gateway,
+      models,
+      definitions: async (code) =>
+        (await buildAgentTools(store, code, context.pool)).filter(
+          (tool) => fixture.canReview || tool.metadata.name !== 'submit_for_review',
+        ),
+    },
+    target.runId,
+  );
+  expect(corrections).toEqual(fixture.retries ? [false, false, true] : [false, false]);
+  expect(outcome.status).toBe(fixture.status);
+  const { rows } = await context.pool.query<{ request_key: string; status: string }>(
+    'SELECT request_key,status FROM usage_ledger WHERE run_id=$1 ORDER BY created_at',
+    [target.runId],
+  );
+  expect(rows.map(({ status }) => status)).toEqual(corrections.map(() => 'unknown'));
+  expect(new Set(rows.map(({ request_key }) => request_key)).size).toBe(corrections.length);
+  const completed = await context.pool.query<{ request_id: string }>(
+    "SELECT request_id FROM run_event WHERE run_id=$1 AND type='model_completed' ORDER BY seq",
+    [target.runId],
+  );
+  expect(completed.rows).toEqual(rows.map(({ request_key }) => ({ request_id: request_key })));
 });
 
 test('Agent 剧本在容器模式收不到核实工具，宿主模式仍能使用', async () => {
@@ -1786,9 +1926,14 @@ test('模型文字声称已提交不能伪造审核成功', async () => {
   ).toBe(0);
 });
 
-test.each(['allow_once', 'reject'] as const)(
-  'ask经%s的浏览器决定继续原运行，使用真实回执并保留原消息',
-  async (action) => {
+test.each([
+  { action: 'allow_once', cursor: 'off' },
+  { action: 'reject', cursor: 'off' },
+  { action: 'reject', cursor: 'unused' },
+  { action: 'reject', cursor: 'used' },
+] as const)(
+  '浏览器决定继续原运行并保留真实回执 ($action / Cursor $cursor)',
+  async ({ action, cursor }) => {
     const context = await createIntegrationContext();
     close = () => context.close();
     await setTestReminderClock(context.pool);
@@ -1802,6 +1947,9 @@ test.each(['allow_once', 'reject'] as const)(
         [context.projectId, context.userId('MEMBER_B')],
       )
     ).rows[0]!.id;
+    const gatewayModels = cursor === 'off' ? config : { version: 1 as const, models: cursorAcceptanceModels };
+    const approvalTurn = cursor === 'off' ? 1 : 2;
+    const expectedCalls = approvalTurn + (cursor === 'unused' ? 2 : 1);
     let models = 0,
       lateReads = 0;
     const late: ToolDefinition = {
@@ -1831,12 +1979,21 @@ test.each(['allow_once', 'reject'] as const)(
     };
     const gateway = new ModelGateway(
       context.pool,
-      config,
+      gatewayModels,
       {
         kind: 'fixture',
         async send(_model, request) {
           models++;
-          if (models === 2) {
+          if (cursor !== 'off' && models === 1)
+            return call('plan_update', {
+              steps: [{ title: '核实后提交人工审核', status: 'running' }],
+              progress: '已开始核对。',
+            });
+          if (models > approvalTurn + 1) {
+            expect(request.messages[0]?.content).toContain('已登记的计划仍有未完成步骤');
+            return result({ role: 'assistant', content: '需补充证据。' });
+          }
+          if (models === approvalTurn + 1) {
             const response = request.messages.filter((message) => message.role === 'tool').at(-2);
             expect(response?.role).toBe('tool');
             if (response?.role !== 'tool') throw new Error('原调用回执缺失');
@@ -1881,8 +2038,16 @@ test.each(['allow_once', 'reject'] as const)(
       pool: context.pool,
       store,
       gateway,
-      models: config,
-      definitions: [queueInternalMessageTool(), late],
+      models: gatewayModels,
+      definitions: async (code: 'registration' | 'maintenance') => [
+        ...(cursor === 'off'
+          ? []
+          : (await buildAgentTools(store, code, context.pool)).filter(
+              ({ metadata }) => ['plan_update', 'submit_for_review'].includes(metadata.name),
+            )),
+        queueInternalMessageTool(),
+        late,
+      ],
     };
     const done = await executeAgentRun(dependencies, target.runId);
     expect(done.status).toBe('waiting');
@@ -1893,7 +2058,7 @@ test.each(['allow_once', 'reject'] as const)(
       [target.runId],
     );
     expect(waitingTool.rows).toMatchObject([{ payload_json: { awaitingApproval: true } }]);
-    expect(models).toBe(1);
+    expect(models).toBe(approvalTurn);
     expect(lateReads).toBe(0);
     expect(
       (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
@@ -1928,8 +2093,14 @@ test.each(['allow_once', 'reject'] as const)(
       (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
         .n,
     ).toBe(0);
-    expect(models).toBe(1);
+    expect(models).toBe(approvalTurn);
     const ticketId = String(decision.json().continuationId);
+    if (cursor === 'used')
+      await appendRunEvent(context.pool, {
+        runId: target.runId,
+        userId: target.userId,
+        event: { type: 'model_started', reasonCode: 'validation_failed' },
+      });
     const savedHistory = (
       await context.pool.query<{ id: string; message_json: unknown }>(
         'SELECT id,message_json FROM conversation_message WHERE run_id=$1 ORDER BY seq',
@@ -1941,9 +2112,9 @@ test.each(['allow_once', 'reject'] as const)(
     expect(resumed).toMatchObject({
       status: 'stopped',
       reasonCode: 'REVIEW_NOT_SUBMITTED',
-      usage: { steps: 2 },
+      usage: { steps: expectedCalls },
     });
-    expect(models).toBe(2);
+    expect(models).toBe(expectedCalls);
     expect(lateReads).toBe(0);
     expect(
       (await context.pool.query('SELECT count(*)::int AS n FROM internal_outbound_message')).rows[0]
@@ -1961,7 +2132,7 @@ test.each(['allow_once', 'reject'] as const)(
     ).rows;
     expect(after).toEqual(savedHistory);
     expect((await executeAgentRun(dependencies, target.runId, { ticketId })).skipped).toBe(true);
-    expect(models).toBe(2);
+    expect(models).toBe(expectedCalls);
   },
 );
 

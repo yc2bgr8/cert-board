@@ -13,6 +13,8 @@ import {
 } from '../budget/service.js';
 import { ModelGateway, type GatewayTransport, type UpstreamChatRequest } from './service.js';
 import { createWorkerModelTransport } from './transport.js';
+import { cursorAcceptanceModels } from './cursor-acceptance.js';
+import { VerificationChannelError } from '../external-model/verification-runtime.js';
 
 let context: Awaited<ReturnType<typeof createIntegrationContext>>;
 let caller: GatewayContext;
@@ -161,6 +163,118 @@ async function localEndpoint(mock: () => unknown, timeoutMs = 2000) {
   };
 }
 
+test('Cursor 验收模型与其他外部模型一样禁止发送保密请求', async () => {
+  await context.pool.query("UPDATE conversation SET max_data_level='confidential' WHERE id=$1", [
+    caller.conversationId,
+  ]);
+  const fixture = transport(response());
+  const gateway = new ModelGateway(
+    context.pool,
+    {
+      version: 1,
+      models: cursorAcceptanceModels,
+    },
+    fixture.handler,
+    { environment: 'test' },
+  );
+  await expect(gateway.complete(request, caller)).rejects.toMatchObject({
+    code: 'MODEL_LOCAL_REQUIRED',
+  });
+  expect(fixture.calls()).toBe(0);
+});
+
+test('Cursor 最终路由拒绝已换代的执行租约，账本记录未发送', async () => {
+  const ownerId = randomUUID();
+  await context.pool.query(
+    "UPDATE run SET lease_owner=$1,lease_generation=1,lease_expires_at=clock_timestamp()+interval '1 minute' WHERE id=$2",
+    [ownerId, caller.runId],
+  );
+  const paidSend = vi.fn(() => response());
+  const remote: GatewayTransport = {
+    kind: 'fixture',
+    async send(_model, _body, _signal, dispatch) {
+      try {
+        await dispatch?.prepare?.();
+        await context.pool.query('UPDATE run SET lease_generation=2 WHERE id=$1', [caller.runId]);
+        await dispatch?.recheckRouting?.();
+        dispatch?.assertMayWrite?.();
+      } catch {
+        throw new VerificationChannelError('failed', true);
+      }
+      return paidSend();
+    },
+  };
+  const gateway = new ModelGateway(
+    context.pool,
+    { version: 1, models: cursorAcceptanceModels },
+    remote,
+    { environment: 'test' },
+  );
+  await expect(
+    gateway.complete(request, { ...caller, lease: { ownerId, generation: 1 } }),
+  ).rejects.toMatchObject({ code: 'MODEL_DISPATCH_BLOCKED' });
+  expect(paidSend).not.toHaveBeenCalled();
+  const ledger = await context.pool.query<{ status: string }>(
+    'SELECT status FROM usage_ledger WHERE request_key=$1',
+    [caller.requestKey],
+  );
+  expect(ledger.rows).toEqual([{ status: 'not_sent' }]);
+});
+
+test('Cursor 范围复核期间建立计量拦截时，最终同步门禁拒绝已预占请求', async () => {
+  const actualSend = vi.fn(() => response());
+  const transport: GatewayTransport = {
+    kind: 'fixture',
+    async send(_model, _body, _signal, dispatch) {
+      await dispatch?.prepare?.();
+      await dispatch?.recheckRouting?.();
+      // 路由查询结束前另一请求进入计量处理。
+      Reflect.get(gateway, 'meteringBlocks').set(randomUUID(), null);
+      try {
+        dispatch?.assertMayWrite?.();
+      } catch {
+        throw new VerificationChannelError('failed', true);
+      }
+      return actualSend();
+    },
+  };
+  const gateway = new ModelGateway(
+    context.pool, { version: 1, models: cursorAcceptanceModels }, transport, { environment: 'test' },
+  );
+  await expect(gateway.complete(request, caller)).rejects.toMatchObject({
+    code: 'MODEL_DISPATCH_BLOCKED',
+  });
+  expect(actualSend).not.toHaveBeenCalled();
+  const ledger = await context.pool.query<{ status: string }>(
+    'SELECT status FROM usage_ledger WHERE request_key=$1', [caller.requestKey],
+  );
+  expect(ledger.rows).toEqual([{ status: 'not_sent' }]);
+});
+
+test.each([
+  { confirmedNotSent: true, state: 'not_sent', code: 'MODEL_DISPATCH_BLOCKED' },
+  { confirmedNotSent: false, state: 'unknown', code: 'MODEL_UPSTREAM_FAILED' },
+])('Cursor 失败时按实际发送状态标记网关账本 $state', async ({ confirmedNotSent, state, code }) => {
+  const remote: GatewayTransport = {
+    kind: 'fixture',
+    async send() {
+      throw new VerificationChannelError('failed', confirmedNotSent);
+    },
+  };
+  const gateway = new ModelGateway(
+    context.pool,
+    { version: 1, models: cursorAcceptanceModels },
+    remote,
+    { environment: 'test' },
+  );
+  await expect(gateway.complete(request, caller)).rejects.toMatchObject({ code });
+  const ledger = await context.pool.query<{ status: string }>(
+    'SELECT status FROM usage_ledger WHERE request_key=$1',
+    [caller.requestKey],
+  );
+  expect(ledger.rows).toEqual([{ status: state }]);
+});
+
 test('本地 OpenAI 兼容端点接收保密请求，保留工具参数并按实际令牌零费结算', async () => {
   const fixture = await localEndpoint(() => {
     const raw = response();
@@ -187,7 +301,8 @@ test('本地 OpenAI 兼容端点接收保密请求，保留工具参数并按实
   });
   try {
     const remote = configuration.models[0];
-    if (!remote || remote.transport === 'local') throw new Error('REMOTE_FIXTURE_MISSING');
+    if (!remote || remote.transport === 'local' || remote.transport === 'cursor-acp')
+      throw new Error('REMOTE_FIXTURE_MISSING');
     await expect(fixture.transport.catalog(remote)).rejects.toMatchObject({
       code: 'MODEL_PROXY_INVALID',
     });

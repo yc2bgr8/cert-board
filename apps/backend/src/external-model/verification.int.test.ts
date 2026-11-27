@@ -7,11 +7,13 @@ import {
   verificationSettingsSchema,
 } from '@cert-board/shared';
 import { createApp } from '../app.js';
-import { AppError } from '../api/errors.js';
+import { AppError, ModelNotDispatchedError } from '../api/errors.js';
 import { recoverAbandonedAgentRuns } from '../queue/agent-queue.js';
 import { reserveUsage, seedDevelopmentBudgetPolicy, settleUsage } from '../budget/service.js';
 import { createIntegrationContext } from '../test-support/context.js';
 import { verificationFixture } from '../test-support/verification-fixture.js';
+import { cursorAcceptanceModels, parseCursorModelTurn } from '../modelgw/cursor-acceptance.js';
+import { ModelGateway } from '../modelgw/service.js';
 import { createVerificationModerator } from './verification-moderator.js';
 import { ExternalModels } from './service.js';
 import { createVerificationSourceChecker } from './source-verification.js';
@@ -149,7 +151,7 @@ test('网关已结算但无可用回复时，在本月核实用量中计入实�
       outputTokens: 10,
       actualCostNano: '240000',
     });
-    throw new VerificationChannelError('failed');
+    throw new AppError(502, 'MODEL_CURSOR_REPLY_INVALID', '合成上游错误细节');
   };
   const roomId = await start('模拟已计费的网关失败。', context.projectId);
   await expect.poll(async () => (await detail(roomId)).room.status).toBe('completed');
@@ -159,6 +161,72 @@ test('网关已结算但无可用回复时，在本月核实用量中计入实�
   expect(result.gatewayUsage).toEqual([
     { model: gatewayPeer.id, actualNano: '240000', unknown: 0 },
   ]);
+  const archived = await context.pool.query<{ returned: unknown }>(
+    'SELECT returned FROM external_model_exchange WHERE conversation_id=$1 AND channel=$2',
+    [roomId, 'gateway'],
+  );
+  expect(archived.rows).toEqual([
+    { returned: { error: 'failed', gatewayCode: 'MODEL_CURSOR_REPLY_INVALID' } },
+  ]);
+});
+
+test('网关在核实许可后确认未出网时归档和界面均标记未发送', async () => {
+  fixture.runtime.gatewayReady = true;
+  fixture.runtime.catalog = [...fixture.runtime.catalog, gatewayPeer];
+  fixture.runtime.send = async (_model, _prompt, beforeDispatch) => {
+    await beforeDispatch();
+    throw new ModelNotDispatchedError();
+  };
+  const id = await start('合成核实的派发前失败。', context.projectId);
+  await expect.poll(async () => (await detail(id)).room.status).toBe('completed');
+  const { rows } = await context.pool.query(
+    `SELECT status,dispatched_at,actual_nano,returned FROM external_model_exchange
+      WHERE conversation_id=$1 AND channel='gateway'`,
+    [id],
+  );
+  expect(rows).toEqual([
+    { status: 'not_sent', dispatched_at: expect.any(Date), actual_nano: '0', returned: null },
+  ]);
+  expect((await detail(id)).messages.some(({ text }) => text.includes('请求未发出'))).toBe(true);
+  const settings = verificationSettingsSchema.parse(
+    (await app.inject({ headers, url: `${prefix}/settings` })).json(),
+  );
+  expect(settings.gatewayUsage).toEqual([]);
+});
+
+test('只读 Cursor 网关把核实原回执交给主持人并保留未结算账目', async () => {
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const review = await context.run('MEMBER_A', 'read_only');
+  const room = (await detail(await start('合成的双通道回执验证。', context.projectId))).room;
+  const exchangeId = randomUUID();
+  const reply = { text: '两处写法有差异，证据不足，待核实。', claims: [] };
+  const gateway = new ModelGateway(
+    context.pool,
+    { version: 1, models: cursorAcceptanceModels },
+    {
+      kind: 'fixture',
+      async send(_model, request, _signal, dispatch) {
+        await dispatch?.prepare?.();
+        await dispatch?.recheckRouting?.();
+        dispatch?.assertMayWrite?.();
+        expect(request.tool_choice).toBe('none');
+        return parseCursorModelTurn(JSON.stringify(reply), request, true);
+      },
+    },
+    { environment: 'test' },
+  );
+  const policy = new ExternalModels(context.pool, undefined, undefined, 20_000_000_000n);
+  const moderator = createVerificationModerator(context.pool, gateway, policy);
+  await expect(moderator.peer(
+    { room, ownerId: review.userId, exchangeId },
+    { instructions: '返回核实 JSON。', transcript: [{ role: 'human', text: '合成问题' }] },
+    'cursor-claude-opus-5.5',
+    async () => undefined,
+  )).resolves.toEqual({ ...reply, costNano: null });
+  const usage = await context.pool.query('SELECT status FROM usage_ledger WHERE request_key=$1', [
+    exchangeId,
+  ]);
+  expect(usage.rows).toEqual([{ status: 'unknown' }]);
 });
 
 test('按默认 7 轮和管理员设置的 3 轮调度，通道只记次数', async () => {

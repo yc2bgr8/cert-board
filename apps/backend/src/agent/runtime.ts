@@ -44,7 +44,7 @@ import {
   parkGoalWaitTx,
 } from '../goals/goal-events.js';
 import { createToolRuntime } from './tool-runtime.js';
-import { loadManagedAgentDefinition } from './definitions.js';
+import { loadManagedAgentDefinition, permitsDraftAgentExecution } from './definitions.js';
 import { toolLabel, toolSummary } from './tool-progress.js';
 import { sandboxWorkTimeMs } from '../sandbox/client.js';
 import { investigateSubagents, questionForSubagentConflicts, subagentTool } from './subagents.js';
@@ -111,6 +111,7 @@ type Context = {
   projectName: string;
   workspaceVersion: string;
   approvedReviewId: string | null;
+  m02Wake: boolean;
   actor: AgentIdentity;
 };
 const denied = () =>
@@ -141,6 +142,7 @@ async function loadContext(pool: Pool, runId: string): Promise<Context> {
       owner_user_id: string;
       current_version_id: string;
       approved_review_id: string | null;
+      m02_wake: boolean;
     }>(
       `SELECT r.id,r.user_id,r.conversation_id,r.project_id,r.goal_id,r.status,r.lease_generation,c.permission_mode,c.agent_code,u.username,u.display_name,u.is_development,u.is_management,p.name AS project_name,p.owner_user_id,w.current_version_id,
        (SELECT card.id FROM goal_event e JOIN review_decision d ON d.id::text=e.source_key
@@ -149,11 +151,16 @@ async function loadContext(pool: Pool, runId: string): Promise<Context> {
           AND e.source='review_decision' AND e.state='queued' AND d.action='approved'
           AND card.status='approved' AND card.conversation_id=r.conversation_id
           AND card.project_id=r.project_id AND card.goal_id=r.goal_id
-        ORDER BY e.created_at,e.id LIMIT 1) AS approved_review_id
+        ORDER BY e.created_at,e.id LIMIT 1) AS approved_review_id,
+       COALESCE(recurrence.present,false) AS m02_wake
     FROM run r JOIN conversation c ON c.id=r.conversation_id AND c.user_id=r.user_id
     JOIN app_user u ON u.id=r.user_id JOIN cert_project p ON p.id=r.project_id JOIN workspace w ON w.project_id=p.id JOIN goal g ON g.id=r.goal_id
+    LEFT JOIN LATERAL (SELECT true AS present FROM goal_event e WHERE e.wake_run_id=r.id AND e.goal_id=g.id
+      AND e.source='timer' AND e.source_key LIKE 'm02:'||g.id::text||':%' LIMIT 1) recurrence ON r.trigger_type='wakeup'
     WHERE r.id=$1 AND u.status='active' AND c.status='active' AND c.project_id=r.project_id AND c.goal_id=r.goal_id
-      AND g.project_id=r.project_id AND g.status='active' AND g.direction_version=r.direction_version`,
+      AND g.project_id=r.project_id AND g.status='active' AND g.direction_version=r.direction_version
+      AND (recurrence.present IS NULL OR (p.status NOT IN ('closed','cancelled') AND g.owner_user_id=r.user_id
+        AND EXISTS(SELECT 1 FROM m02_schedule s WHERE s.goal_id=g.id AND s.enabled AND s.enabled_by=r.user_id)))`,
       [runId],
     )
   ).rows[0];
@@ -195,6 +202,7 @@ async function loadContext(pool: Pool, runId: string): Promise<Context> {
     projectName: row.project_name,
     workspaceVersion: row.current_version_id,
     approvedReviewId: row.approved_review_id,
+    m02Wake: row.m02_wake,
     actor,
   };
 }
@@ -280,7 +288,7 @@ export async function executeAgentRun(
     verificationId?: string;
   } = {},
 ): Promise<AgentRunOutcome> {
-  if (!['development', 'test'].includes(process.env.NODE_ENV ?? 'production'))
+  if (!permitsDraftAgentExecution(process.env.NODE_ENV ?? 'production'))
     throw new AppError(
       403,
       'AGENT_DEFINITION_UNREVIEWED',
@@ -365,6 +373,8 @@ export async function executeAgentRun(
       context.agentCode,
       context.permissionMode,
     );
+    if (context.m02Wake && !definition.skills.some(({ id }) => id === 'M02'))
+      throw new AppError(409, 'M02_SKILL_UNAVAILABLE', '当前维护 Agent 没有生效的 M02 技能，本轮核查已停止。');
     const definitions =
       typeof dependencies.definitions === 'function'
         ? await dependencies.definitions(context.agentCode)
@@ -572,6 +582,23 @@ export async function executeAgentRun(
       if (resumedTerminal === 'review')
         reviewId = reviewSubmitResultSchema.parse(resolved.result.data).reviewId;
     }
+    const cursorResume =
+      model.transport === 'cursor-acp' && (ticket || verification?.callId)
+        ? (
+            await pool.query<{ plan: unknown; corrected: boolean }>(
+              `SELECT (SELECT payload_json FROM conversation_event
+                WHERE run_id=$1 AND type='plan_updated' ORDER BY seq DESC LIMIT 1) AS plan,
+                EXISTS (SELECT 1 FROM run_event WHERE run_id=$1 AND type='model_started'
+                  AND reason_code='validation_failed') AS corrected`,
+              [runId],
+            )
+          ).rows[0]
+        : undefined;
+    const planHasPendingSteps = (plan: z.infer<typeof agentPlanSchema>) =>
+      plan.steps.some(({ status }) => status !== 'completed');
+    let planIncomplete = cursorResume?.plan
+      ? planHasPendingSteps(agentPlanSchema.parse(cursorResume.plan))
+      : false;
     const onEvent = async (event: KernelEvent) => {
       if (event.type === 'message') {
         const saved = await appendConversationMessage(pool, {
@@ -618,8 +645,11 @@ export async function executeAgentRun(
               : {}),
           },
         });
-        if (!event.isError && event.name === 'plan_update')
-          await emit({ type: 'plan_updated', payload: agentPlanSchema.parse(event.data) });
+        if (!event.isError && event.name === 'plan_update') {
+          const plan = agentPlanSchema.parse(event.data);
+          planIncomplete = planHasPendingSteps(plan);
+          await emit({ type: 'plan_updated', payload: plan });
+        }
         if (!event.isError && event.name === 'ask_user')
           await emit({
             type: 'question',
@@ -674,6 +704,7 @@ export async function executeAgentRun(
       )
         readyHistory = [...readyHistory, reference];
     }
+    let retriedCursorReply = cursorResume?.corrected ?? false;
     const completeModel = async (
       purpose: string,
       request: ChatRequest,
@@ -696,36 +727,88 @@ export async function executeAgentRun(
             userId: context.userId,
             event: { type: 'model_started' },
           });
-        const response = await gateway.complete(
-          request,
-          {
-            requestKey,
+        const attempt = async (input: ChatRequest, key: string) => {
+          const response = await gateway.complete(
+            input,
+            {
+              requestKey: key,
+              runId,
+              conversationId: context.conversationId,
+              userId: context.userId,
+              purpose,
+              lease: { ownerId: leaseIdentity.ownerId, generation: leaseIdentity.generation },
+            },
+            signal,
+            ensureActive,
+          );
+          if (response.requestKey !== key)
+            throw new KernelToolError('MODEL_RESPONSE_INVALID', '模型回执的请求编号不匹配。', {
+              recoverable: false,
+            });
+          await appendRunEvent(pool, {
             runId,
-            conversationId: context.conversationId,
             userId: context.userId,
-            purpose,
-          },
-          signal,
-          ensureActive,
-        );
-        await appendRunEvent(pool, {
-          runId,
-          userId: context.userId,
-          event: {
-            type: 'model_completed',
-            requestId: requestKey,
-            ...(response.usage
-              ? {
-                  inputTokens: response.usage.inputTokens,
-                  outputTokens: response.usage.outputTokens,
-                  totalTokens: response.usage.totalTokens,
-                }
-              : {}),
-            costNano: response.usage?.costNano ?? null,
-            dataLevel: response.dataLevel,
-          },
+            event: {
+              type: 'model_completed',
+              requestId: response.requestKey,
+              ...(response.usage
+                ? {
+                    inputTokens: response.usage.inputTokens,
+                    outputTokens: response.usage.outputTokens,
+                    totalTokens: response.usage.totalTokens,
+                  }
+                : {}),
+              costNano: response.usage?.costNano ?? null,
+              dataLevel: response.dataLevel,
+            },
+          });
+          return response;
+        };
+        let acceptedKey = requestKey;
+        const canRetryCursorReply = () =>
+          model.transport === 'cursor-acp' &&
+          purpose === 'agent' &&
+          !retriedCursorReply &&
+          request.messages.length < 256;
+        const retry = async (content: string) => {
+          await ensureActive();
+          retriedCursorReply = true;
+          await appendRunEvent(pool, {
+            runId,
+            userId: context.userId,
+            event: { type: 'model_started', reasonCode: 'validation_failed' },
+          });
+          acceptedKey = randomUUID();
+          return attempt(
+            {
+              ...request,
+              messages: [{ role: 'system', content }, ...request.messages],
+            },
+            acceptedKey,
+          );
+        };
+        let response = await attempt(request, requestKey).catch((error: unknown) => {
+          if (
+            !(error instanceof AppError) ||
+            error.code !== 'MODEL_CURSOR_REPLY_INVALID' ||
+            !canRetryCursorReply()
+          )
+            throw error;
+          return retry(
+            '上一次返回未通过回合结构校验。请重新根据本轮请求返回一个完整的 JSON 回合，并在 actions 中声明下一步所需的已登记工具。',
+          );
         });
-        return response;
+        if (
+          response.finishReason === 'stop' &&
+          planIncomplete &&
+          request.tool_choice !== 'none' &&
+          request.tools?.some(({ function: tool }) => tool.name === 'submit_for_review') &&
+          canRetryCursorReply()
+        )
+          response = await retry(
+            '已登记的计划仍有未完成步骤。上一次仅返回了文字，未完成交付。请依据已有工具回执和当前权限继续，选择下一步允许的工具。缺少事实或需要人工判断时请用 ask_user，完成交付后用 submit_for_review。',
+          );
+        return acceptedKey === requestKey ? response : { ...response, requestKey };
       } catch (error) {
         throw new KernelToolError(
           error instanceof AppError || error instanceof KernelToolError

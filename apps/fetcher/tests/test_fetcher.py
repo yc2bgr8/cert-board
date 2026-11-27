@@ -83,9 +83,10 @@ def test_url_preserves_node_serialization_of_square_brackets_and_query():
     assert proxy.calls[1][1] == "/guides/[public]?item=%27known%27"
 
 
-def test_only_confirmed_official_query_empty_is_a_downloadable_snapshot():
+@pytest.mark.parametrize("dataset", ["510k", "udi"])
+def test_only_confirmed_official_query_empty_is_a_downloadable_snapshot(dataset):
     body = b'{"error":{"code":"NOT_FOUND","message":"No matches found!"}}'
-    fda_url = "https://api.fda.gov/device/510k.json?search=fixture"
+    fda_url = f"https://api.fda.gov/device/{dataset}.json?search=fixture"
     supported = Connection(Reply(404, body, {"Content-Type": "application/json"}))
     assert base64.b64decode(fetch_page(fda_url, lambda: supported)["bodyBase64"]) == body
 

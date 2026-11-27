@@ -29,6 +29,7 @@ try {
             ? 'apps/backend/src/agent/real-smoke.ts'
             : 'apps/backend/src/modelgw/real-smoke.ts',
         ...(process.argv.includes('--l08') ? ['--l08'] : []),
+        ...(official && process.argv.includes('--m02') ? ['--m02'] : []),
         ...(cx ? ['--cx'] : []),
       ],
       {

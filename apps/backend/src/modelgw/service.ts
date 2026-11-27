@@ -17,7 +17,7 @@ import {
   type UpstreamUsage,
   type BudgetIncomplete,
 } from '@cert-board/shared';
-import { AppError } from '../api/errors.js';
+import { AppError, ModelNotDispatchedError } from '../api/errors.js';
 import { enforceCostLimits } from '../budget/cost-policy.js';
 import {
   reserveUsage,
@@ -26,6 +26,8 @@ import {
   markUsageNotDispatched,
   meteringCanResume,
 } from '../budget/service.js';
+import { CursorOutputLimitError, CursorReplyFormatError, type CursorDispatchChecks } from './cursor-acceptance.js';
+import { CursorAcpNativeToolError } from '../external-model/cursor-acp.js';
 
 export type UpstreamChatRequest = Omit<ChatRequest, 'model' | 'stream'> & {
   model: string;
@@ -42,6 +44,7 @@ export interface GatewayTransport {
     model: GatewayModelConfig,
     body: UpstreamChatRequest,
     signal?: AbortSignal,
+    cursorDispatch?: CursorDispatchChecks,
   ): Promise<unknown>;
 }
 type GatewayOptions = { environment?: 'development' | 'test' | 'production' };
@@ -173,15 +176,17 @@ export class ModelGateway {
       conversation_status: string;
       user_status: string;
       data_level: DataLevel;
+      lease_current: boolean | null;
     }>(
       `SELECT r.conversation_id,r.user_id,r.project_id,r.goal_id,r.status,c.user_id AS conversation_user,
       c.project_id AS conversation_project,c.goal_id AS conversation_goal,c.status AS conversation_status,u.status AS user_status,
+      (r.lease_owner=$2::uuid AND r.lease_generation=$3::bigint AND r.lease_expires_at>clock_timestamp()) AS lease_current,
       GREATEST(r.max_data_level,c.max_data_level,COALESCE(w.data_level,'internal'::document_data_level),
         COALESCE((SELECT wd.data_level FROM workspace_draft wd WHERE wd.conversation_id=c.id),'internal'::document_data_level),
         COALESCE((SELECT v.data_level FROM document d JOIN document_version v ON v.document_id=d.id WHERE d.project_id=r.project_id ORDER BY v.data_level DESC LIMIT 1),'internal'::document_data_level)) AS data_level
       FROM run r JOIN conversation c ON c.id=r.conversation_id JOIN app_user u ON u.id=r.user_id
       LEFT JOIN workspace w ON w.project_id=r.project_id WHERE r.id=$1`,
-      [context.runId],
+      [context.runId, context.lease?.ownerId ?? null, context.lease?.generation ?? null],
     );
     const row = result.rows[0];
     if (
@@ -193,6 +198,8 @@ export class ModelGateway {
       row.goal_id !== row.conversation_goal
     )
       throw rejected('MODEL_CONTEXT_FORBIDDEN', '模型请求的运行、对话或用户归属不一致。');
+    if (context.lease && !row.lease_current)
+      throw rejected('MODEL_RUN_LEASE_LOST', '当前执行租约已变化，已停止模型派发。');
     if (
       row.status !== 'running' ||
       row.conversation_status !== 'active' ||
@@ -259,6 +266,7 @@ export class ModelGateway {
   private async recordIncomplete(
     context: GatewayContext,
     reasonCode: BudgetIncomplete['reasonCode'],
+    cursorReplyFailure?: BudgetIncomplete['cursorReplyFailure'],
   ) {
     this.meteringBlocks.set(context.requestKey, null);
     const recorded = await markUsageIncomplete(this.pool, {
@@ -266,6 +274,7 @@ export class ModelGateway {
       runId: context.runId,
       userId: context.userId,
       reasonCode,
+      ...(cursorReplyFailure ? { cursorReplyFailure } : {}),
     });
     if (enforceCostLimits(this.environment))
       this.meteringBlocks.set(context.requestKey, recorded.id);
@@ -287,9 +296,10 @@ export class ModelGateway {
   private async incomplete(
     context: GatewayContext,
     reasonCode: 'missing_usage' | 'request_uncertain' | 'aborted',
+    cursorReplyFailure?: BudgetIncomplete['cursorReplyFailure'],
   ) {
     try {
-      await this.recordIncomplete(context, reasonCode);
+      await this.recordIncomplete(context, reasonCode, cursorReplyFailure);
     } catch {
       throw rejected(
         'MODEL_METERING_FAILED',
@@ -342,7 +352,7 @@ export class ModelGateway {
       model: model.upstreamModel,
       max_tokens: requested,
       stream: false,
-      ...(model.transport === 'local'
+      ...(model.transport === 'local' || model.transport === 'cursor-acp'
         ? {}
         : {
             provider: {
@@ -399,7 +409,7 @@ export class ModelGateway {
       await this.releaseUnsent(context, signal);
       throw error;
     }
-    if (beforeDispatch) {
+    if (beforeDispatch && model.transport !== 'cursor-acp') {
       try {
         await beforeDispatch();
         if (signal?.aborted) throw new Error('dispatch_cancelled');
@@ -437,8 +447,50 @@ export class ModelGateway {
       completion_tokens: maxOutputTokens,
     };
     try {
-      raw = await this.transport.send(model, body, signal);
+      raw =
+        model.transport === 'cursor-acp'
+          ? await this.transport.send(
+              model,
+              body,
+              signal,
+              {
+                prepare: async () => {
+                  if (this.meteringBlocks.size || signal?.aborted)
+                    throw new Error('dispatch_cancelled');
+                  await this.routing(context, model);
+                  await beforeDispatch?.();
+                },
+                recheckRouting: async () => {
+                  await this.routing(context, model);
+                },
+                assertMayWrite: () => {
+                  if (this.meteringBlocks.size || signal?.aborted)
+                    throw new Error('dispatch_cancelled');
+                },
+              },
+            )
+          : await this.transport.send(model, body, signal);
     } catch (error) {
+      if (error instanceof CursorOutputLimitError) {
+        await this.incomplete(context, 'missing_usage');
+        throw rejected('MODEL_OUTPUT_LIMIT', error.message, 502);
+      }
+      if (model.transport === 'cursor-acp' && object(error)?.confirmedNotSent === true) {
+        await this.releaseUnsent(context, signal);
+        throw new ModelNotDispatchedError();
+      }
+      if (model.transport === 'cursor-acp' && error instanceof CursorReplyFormatError) {
+        await this.incomplete(context, 'request_uncertain', error.failure);
+        throw rejected('MODEL_CURSOR_REPLY_INVALID', error.message, 502);
+      }
+      if (model.transport === 'cursor-acp' && error instanceof CursorAcpNativeToolError) {
+        await this.incomplete(context, 'request_uncertain');
+        throw rejected(
+          'MODEL_CURSOR_NATIVE_TOOL_BLOCKED',
+          'Cursor 请求了自身工具，已阻止本轮继续。',
+          502,
+        );
+      }
       const rawUsage = object(error)?.usage,
         usage = this.usage(rawUsage);
       if (usage || local)

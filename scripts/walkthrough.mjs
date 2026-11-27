@@ -33,15 +33,17 @@ const specialties = [
     environment: 'CERT_WALKTHROUGH_KNOWLEDGE_ONLY',
     receipt: 'knowledge-result.json',
   },
+  { flag: '--m02-only', environment: 'CERT_WALKTHROUGH_M02_ONLY', receipt: 'm02-result.json' },
+  { flag: '--cursor-probe', environment: 'CERT_WALKTHROUGH_CURSOR_PROBE', receipt: 'cursor-probe.json' },
 ].filter(({ flag }) => process.argv.includes(flag));
 const specialty = specialties[0];
-const officialOnly = specialty?.flag === '--official-only';
+const useOfficialFetcher = ['--official-only', '--m02-only'].includes(specialty?.flag);
 
 async function main() {
   if (verificationOnly && (!diagnostic || batch)) throw new Error('正式走查需要完整执行全部场景。');
   if (specialty && (batch || diagnostic || specialties.length > 1))
     throw new Error('正式走查每次只能运行一个专项。');
-  if (specialty?.flag === '--knowledge-only') {
+  if (specialty?.flag === '--knowledge-only' || specialty?.flag === '--cursor-probe') {
     const vm = await readFile('/etc/cert-board-acceptance-vm', 'utf8').catch(() => '');
     if (process.platform !== 'linux' || vm.trim() !== 'cert-board-acceptance')
       throw new Error('规则包真实专项应在独立 Linux 验收虚拟机运行。');
@@ -58,8 +60,10 @@ async function main() {
     new Date().toISOString().replace(/[:.]/gu, '-'),
   );
   await mkdir(folder, { recursive: true });
-  const { runtime } = await previewEnvironment('walkthrough', officialOnly);
-  const live = diagnostic ? null : await startPreview('walkthrough', undefined, officialOnly);
+  const { runtime } = await previewEnvironment('walkthrough', useOfficialFetcher);
+  if (specialty?.flag === '--cursor-probe' && !runtime.CERT_CURSOR_ACCEPTANCE_WORKER)
+    throw new Error('正式走查的 Cursor 合成预检须启用验收专用通道。');
+  const live = diagnostic ? null : await startPreview('walkthrough', undefined, useOfficialFetcher);
   try {
     const child = spawn(
       process.execPath,
@@ -78,6 +82,7 @@ async function main() {
           CERT_WALKTHROUGH_DIAGNOSTIC: diagnostic ? '1' : '0',
           CERT_WALKTHROUGH_VERIFICATION_ONLY: verificationOnly ? '1' : '0',
           CERT_WALKTHROUGH_BATCH: batch ? '1' : '0',
+          ...(runtime.CERT_CURSOR_ACCEPTANCE_WORKER && { CERT_WALKTHROUGH_CURSOR: '1' }),
           ...(specialty ? { [specialty.environment]: '1' } : {}),
         },
       },

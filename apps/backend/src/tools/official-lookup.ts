@@ -82,12 +82,12 @@ export function officialLookupTool(
       outputDataLevel: 'public',
       description: {
         purpose:
-          '按明确编号回查 openFDA、AccessGUDID 或加拿大 MDALL，返回精简记录与可引用的公开存档。',
-        whenToUse: '已知公开的 K 号、产品代码、法规条款号、企业注册号、器械标识或加拿大许可编号。',
+          '按明确公开条件回查 openFDA、AccessGUDID 或加拿大 MDALL，返回精简记录与可引用的公开存档。',
+        whenToUse: '已知公开编号，或需要按公开企业名、品牌和产品代码核对 FDA 注册及 GUDID 数据。',
         avoid:
           '不要传保密或内部编号、患者信息、完整 UDI 中的生产批次或序列号。网页正文使用 web_fetch。',
         parameters:
-          'dataset 选择 fda_510k/kNumber、fda_classification/productCode、fda_regulation/regulationNumber、fda_registration/registrationNumber、gudid_device/deviceIdentifier、mdall_company_licences/companyId、mdall_licence/licenceNumber、mdall_device/deviceId、mdall_identifier/deviceIdentifier。可选 asOf 形如 2025-12-31；分页时传回 nextOffset。注册列名标有截断时，可传 listedProductCode 核对同编号的单个代码；有存档时可下载原件。空列表表示未匹配。只读会话可以读取记录，不新建存档。',
+          'dataset 选择 fda_510k/kNumber、fda_classification/productCode、fda_regulation/regulationNumber、fda_registration/registrationNumber、fda_registration_company/companyName、fda_gudid_search/productCode（另需 kNumber、companyName 或 brandNames）、gudid_device/deviceIdentifier、mdall_company_licences/companyId、mdall_licence/licenceNumber、mdall_device/deviceId、mdall_identifier/deviceIdentifier。注册列名可加 listedProductCode 与 listedKNumber。可验证的历史查询可传 asOf；分页使用 nextOffset。空列表只表示本次条件未匹配。只读可以查询，可写模式由系统保存可引用存档。',
         example: { dataset: 'fda_510k', kNumber: 'K170825' },
       },
     },

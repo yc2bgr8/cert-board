@@ -28,6 +28,7 @@ import { DiffPanel } from './live/DiffPanel.js';
 import { FilePanel } from './live/FilePanel.js';
 import { displayTime, Inbox, noticeLabels, ProjectHomeAside } from './live/WorkspacePages.js';
 import { VerificationWorkbench } from './live/VerificationWorkbench.js';
+import { M02Schedule } from './live/M02Schedule.js';
 import type {
   EvidenceTarget,
   WorkspaceDiffTarget,
@@ -825,6 +826,18 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
                             {goal.dueAt && <small>目标时间：{displayTime(goal.dueAt)}</small>}
                           </p>
                           <span className="live-muted">{goalStatuses[goal.status]}</span>
+                          {selectedProject?.projectType === 'maintenance' &&
+                            selectedProject.market === 'US' &&
+                            goal.ownerUserId === userId && (
+                              <M02Schedule
+                                goalId={goal.id}
+                                userId={userId}
+                                canEnable={
+                                  goal.status === 'active' &&
+                                  !['closed', 'cancelled'].includes(selectedProject.status)
+                                }
+                              />
+                            )}
                         </div>
                       ))}
                     {!goalsQuery.isPending &&

@@ -126,11 +126,26 @@ export const localGatewayModelSchema = z
   .strict();
 
 export const gatewayModelConfigSchema = z
-  .union([openRouterGatewayModelSchema, localGatewayModelSchema])
+  .union([
+    openRouterGatewayModelSchema,
+    localGatewayModelSchema,
+    z
+      .object({
+        ...gatewayModelFields,
+        transport: z.literal('cursor-acp'),
+        developmentOnly: z.literal(true),
+        accepted: z.literal(false),
+        baseUrl: z.literal('cursor:acp'),
+        maxDataLevel: z.literal('internal'),
+        cursorModel: z.enum(['gpt-flagship', 'claude-flagship']),
+      })
+      .strict(),
+  ])
   .refine((model) => model.maxOutputTokens <= model.contextLength, '输出上限不能超过上下文上限。');
 export type OpenRouterGatewayModel = z.infer<typeof openRouterGatewayModelSchema>;
 export type LocalGatewayModel = z.infer<typeof localGatewayModelSchema>;
 export type GatewayModelConfig = z.infer<typeof gatewayModelConfigSchema>;
+export type CursorGatewayModel = Extract<GatewayModelConfig, { transport: 'cursor-acp' }>;
 export type RuntimeModelConfig = GatewayModelConfig;
 export const modelGatewayConfigSchema = z
   .object({
@@ -233,7 +248,14 @@ export const chatRequestSchema = z
   );
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export const gatewayContextSchema = z
-  .object({ requestKey: id, runId: id, conversationId: id, userId: id, purpose })
+  .object({
+    requestKey: id,
+    runId: id,
+    conversationId: id,
+    userId: id,
+    purpose,
+    lease: z.strictObject({ ownerId: id, generation: count.positive() }).optional(),
+  })
   .strict();
 export type GatewayContext = z.infer<typeof gatewayContextSchema>;
 
