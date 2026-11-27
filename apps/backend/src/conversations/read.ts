@@ -431,7 +431,7 @@ export async function readMemberNotifications(database: Database, actor: Browser
      ) SELECT p.id,p.kind,p.conversation_id AS "conversationId",p.project_id AS "projectId",p.created_at AS "createdAt",p.deadline,
        CASE WHEN v.id IS NOT NULL THEN jsonb_build_object('roomId',v.room_id,'kind',v.kind) END AS verification,
        CASE WHEN rb.id IS NOT NULL THEN jsonb_build_object('skillId',rb.skill_id,'activeVersion',sv.version) END AS "skillRollback",
-       CASE WHEN kr.id IS NOT NULL THEN jsonb_build_object('kind',kr.kind,'title',kr.title,'version',kr.version) END AS "knowledgeReview"
+       CASE WHEN kr.id IS NOT NULL THEN jsonb_build_object('kind',kr.kind,'title',kr.content->>'title','version',kr.version) END AS "knowledgeReview"
        FROM (
          (SELECT * FROM pending WHERE kind<>'skill' ORDER BY created_at DESC,id DESC LIMIT $2)
          UNION ALL
