@@ -1396,8 +1396,13 @@ async function main() {
     const kickoffGoal = kickoffDialog.getByRole('combobox', { name: '工作目标', exact: true });
     await until(async () => (await kickoffGoal.inputValue()) === createdProject.goalId);
     assert.equal(await kickoffProject.inputValue(), createdProject.project.id);
-    assert.equal(await kickoffDialog.getByRole('combobox', { name: '权限模式', exact: true }).inputValue(), 'full');
-    await kickoffDialog.getByRole('textbox', { name: '对话标题', exact: true }).fill('合成项目立项对话');
+    assert.equal(
+      await kickoffDialog.getByRole('combobox', { name: '权限模式', exact: true }).inputValue(),
+      'full',
+    );
+    await kickoffDialog
+      .getByRole('textbox', { name: '对话标题', exact: true })
+      .fill('合成项目立项对话');
     const openingMessage = '先做立项规划，请列出本项目待确认的资料。';
     await kickoffDialog.getByRole('textbox', { name: '首条消息', exact: true }).fill(openingMessage);
     await kickoffDialog.getByRole('button', { name: '创建对话', exact: true }).click();

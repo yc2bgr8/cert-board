@@ -103,8 +103,8 @@ export function LiveApp() {
   return <AuthenticatedShell key={session.session.user.id} user={session.session.user} />;
 }
 
-function bookmarkedConversation() {
-  const found = new URL(window.location.href).searchParams.get('conversation');
+function bookmarkedId(kind: 'project' | 'conversation') {
+  const found = new URL(window.location.href).searchParams.get(kind);
   return found && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(found)
     ? found
     : null;
@@ -114,8 +114,10 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const { logout } = useSession();
   const queryClient = useQueryClient();
   const userId = user.id;
-  const [initialConversation] = useState(bookmarkedConversation);
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const [initialConversation] = useState(() => bookmarkedId('conversation'));
+  const [projectId, setProjectId] = useState(() =>
+    initialConversation ? null : bookmarkedId('project'),
+  );
   const [conversationId, setConversationId] = useState<string | null>(initialConversation);
   const [messageDrafts, setMessageDrafts] = useState(() => new Map<string, string>());
   const [view, setView] = useState<'project' | 'conversation' | 'inbox' | 'external'>(
@@ -131,7 +133,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const panelKey = useRef(0);
   const panelOrigin = useRef<HTMLElement | null>(null);
   const [scope, setScope] = useState<'mine' | 'department'>('mine');
-  const [sidebarAgent, setSidebarAgent] = useState<AgentCode>('registration');
+  const [sidebarAgentChoice, setSidebarAgent] = useState<AgentCode | null>(null);
   const [newHeaderAgent, setNewHeaderAgent] = useState<AgentCode>('registration');
   const [dialog, setDialog] = useState<'new' | 'newProject' | 'search' | 'settings' | null>(null);
   const [maintenanceSettings, setMaintenanceSettings] = useState(false);
@@ -175,6 +177,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     staleTime: 30_000,
   });
   const selectedProject = projectQuery.data ?? projects.find((project) => project.id === projectId);
+  const sidebarAgent = sidebarAgentChoice ?? selectedProject?.projectType ?? 'registration';
   const goalsQuery = useInfiniteQuery({
     queryKey: ['live', 'goals', userId, projectId],
     queryFn: ({ pageParam, signal }) =>
@@ -428,7 +431,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     const cancel = new AbortController();
     void api.conversation(initialConversation, cancel.signal).then(
       (record) => {
-        if (!cancel.signal.aborted && bookmarkedConversation() === initialConversation)
+        if (!cancel.signal.aborted && bookmarkedId('conversation') === initialConversation)
           openConversation(record);
       },
       () => undefined,
@@ -440,9 +443,11 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
     if (view === 'conversation' && conversationId)
       current.searchParams.set('conversation', conversationId);
     else current.searchParams.delete('conversation');
+    if (view === 'project' && projectId) current.searchParams.set('project', projectId);
+    else current.searchParams.delete('project');
     if (current.href !== window.location.href)
       window.history.replaceState(window.history.state, '', current);
-  }, [view, conversationId]);
+  }, [view, conversationId, projectId]);
   const openNotice = (item: MemberNotificationSnapshot['items'][number]) => {
     if (item.kind === 'skill') {
       openDialog('settings', item.id);
