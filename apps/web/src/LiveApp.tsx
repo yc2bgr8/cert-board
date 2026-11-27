@@ -15,6 +15,7 @@ import { Logo } from './live/Logo.js';
 import { Sidebar } from './live/Sidebar.js';
 import { ShellIcon } from './live/ShellIcon.js';
 import { ProjectShell } from './live/ProjectShell.js';
+import { ProjectTasks } from './live/ProjectTasks.js';
 import { NewConversation } from './live/NewConversation.js';
 import { Search } from './live/Search.js';
 import { Settings } from './live/Settings.js';
@@ -123,7 +124,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const [externalId, setExternalId] = useState<string | null>(null);
   const [externalDraft, setExternalDraft] = useState(0);
   const [externalNotice, setExternalNotice] = useState<string | null>(null);
-  const [tab, setTab] = useState<'conversation' | 'files' | 'documents'>('conversation');
+  const [tab, setTab] = useState<'conversation' | 'tasks' | 'files' | 'documents'>('conversation');
   const [panels, setPanels] = useState<
     (PanelTarget & { key: number; trigger: HTMLElement | null })[]
   >([]);
@@ -775,9 +776,18 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
                     </div>
                   )}
                 </dl>
-                <button className="live-primary" type="button" onClick={() => openDialog('new')}>
-                  创建项目对话
-                </button>
+                <div className="live-project-actions">
+                  <button
+                    className="live-secondary"
+                    type="button"
+                    onClick={() => openDialog('new')}
+                  >
+                    创建项目对话
+                  </button>
+                  <button className="live-primary" type="button" onClick={() => setTab('tasks')}>
+                    选择任务
+                  </button>
+                </div>
               </div>
               {projectQuery.isError && (
                 <p className="live-error" role="alert">
@@ -971,6 +981,20 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               onVerification={openVerification}
             />
           </div>
+        )}
+        {selectedProject && tab === 'tasks' && !hidesWorkspace && (
+          <ProjectTasks
+            key={selectedProject.id}
+            project={selectedProject}
+            userId={userId}
+            onStart={(id) => {
+              void queryClient.invalidateQueries({
+                queryKey: ['live', 'goals', userId, selectedProject.id],
+              });
+              created(id, selectedProject.id, selectedProject.projectType, '');
+            }}
+            onSkillSettings={() => openDialog('settings')}
+          />
         )}
         {projectId && tab === 'files' && (
           <div className="live-view-content" hidden={hidesWorkspace}>

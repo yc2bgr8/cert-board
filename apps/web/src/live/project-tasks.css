@@ -1,0 +1,102 @@
+.live-task-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.live-task-controls label,
+.live-task-detail label {
+  display: grid;
+  gap: 5px;
+  font-weight: 600;
+}
+.live-task-page input,
+.live-task-page select,
+.live-task-page textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--cb-line, #d6dfdb);
+  border-radius: 7px;
+  background: var(--cb-white, #fff);
+  padding: 8px 10px;
+  color: inherit;
+  font: inherit;
+}
+.live-task-controls label:last-child {
+  flex: 1 1 200px;
+}
+.live-task-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+.live-task-layout:has(.live-task-detail) {
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 320px);
+}
+.live-task-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(215px, 100%), 1fr));
+  gap: 10px;
+}
+.live-task-card {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  border: 1px solid var(--cb-line, #d6dfdb);
+  border-radius: 9px;
+  background: var(--cb-white, #fff);
+  padding: 12px;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+.live-task-card:hover,
+.live-task-card[aria-pressed='true'] {
+  border-color: #0d7168;
+  background: #eff8f5;
+}
+.live-task-card-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 8px;
+}
+.live-task-status {
+  color: #495b55;
+  font-size: 12px;
+}
+.live-task-status[data-availability='ready'] {
+  color: #09544d;
+}
+.live-task-detail {
+  padding: 14px;
+}
+.live-task-detail h3 {
+  margin: 0 0 10px;
+}
+.live-task-detail dl,
+.live-task-detail form {
+  display: grid;
+  gap: 8px;
+}
+.live-task-detail dd {
+  margin: 0;
+}
+.live-task-detail .live-primary {
+  justify-self: start;
+}
+@media (max-width: 740px) {
+  .live-task-layout:has(.live-task-detail) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .live-task-detail {
+    grid-row: 1;
+  }
+}
+
+.live-project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

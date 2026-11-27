@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { taskAssignmentSchema, taskSelectionSchema } from './task-catalog.js';
 import {
   agentCodeSchema,
   permissionModeSchema,
@@ -28,6 +29,7 @@ export const conversationCreateInputSchema = z
     agentCode: agentCodeSchema.optional(),
     permissionMode: permissionModeSchema.default(defaultPermissionMode),
     goalId: id.optional(),
+    task: taskSelectionSchema.optional(),
   })
   .strict();
 export const conversationMessageInputSchema = z
@@ -56,6 +58,7 @@ export const conversationStopInputSchema = z.object({ requestKey: id, runId: id 
 export const conversationCreateResultSchema = z
   .object({
     conversation: conversationRecordSchema,
+    task: taskAssignmentSchema.optional(),
     permissionVersion: sequence,
     replayed: z.boolean(),
   })

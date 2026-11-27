@@ -737,3 +737,56 @@ it('已停止手势改绑新运行先拒绝，不能向新运行提前发出取�
     listener.release();
   }
 });
+
+it('项目任务目录、权限与幂等回执覆盖完整交办', async () => {
+  const catalog = `/api/projects/${c.projectId}/task-catalog?mode=ask`;
+  expect((await c.app.inject({ url: catalog })).statusCode).toBe(401);
+  const listed = await c.app.inject({ url: catalog, headers: auth.headers });
+  expect(listed.statusCode).toBe(200);
+  expect(listed.json().entries).toHaveLength(29);
+  expect(listed.json().entries).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ code: 'R09', availability: 'draft', skillVersion: '0.1.0' }),
+      expect.objectContaining({ code: 'M02', availability: 'other_project' }),
+      expect.objectContaining({ code: 'S05', availability: 'system' }),
+    ]),
+  );
+
+  const url = `/api/projects/${c.projectId}/conversations`;
+  const task = { code: 'R09', skillVersion: '0.1.0', scope: '只核对合成资料的编号' };
+  const payload = { requestKey: randomUUID(), permissionMode: 'ask', task };
+  const noCsrf = await post(url, payload, { cookie: auth.headers.cookie! });
+  expect(noCsrf.statusCode).toBe(403);
+  expect((await post(url, { ...payload, task: { ...task, code: 'M02' } })).statusCode).toBe(409);
+  expect(
+    (await post(url, { ...payload, task: { ...task, skillVersion: '9.9.9' } })).statusCode,
+  ).toBe(409);
+  expect((await post('/api/conversations', payload)).statusCode).toBe(400);
+
+  const results = await Promise.all([post(url, payload), post(url, payload)]);
+  expect(results.map((item) => item.statusCode)).toEqual([200, 200]);
+  const [first, second] = results.map((item) => item.json());
+  expect([first.replayed, second.replayed].sort()).toEqual([false, true]);
+  expect(first.task).toEqual(second.task);
+  expect(first.conversation).toEqual(second.conversation);
+  expect(first.conversation.goalId).not.toBe(c.goalId);
+  expect(
+    (await post(url, { ...payload, task: { ...task, scope: '改了交办范围' } })).statusCode,
+  ).toBe(409);
+  const detail = await c.app.inject({
+    url: `/api/conversations/${first.conversation.id}`,
+    headers: auth.headers,
+  });
+  expect(detail.json()).toMatchObject({ currentRunId: first.task.runId, task: first.task });
+  const queue = await c.pool.query(
+    `SELECT r.status,m.message_json FROM run r JOIN conversation_message m ON m.run_id=r.id
+     WHERE r.conversation_id=$1`,
+    [first.conversation.id],
+  );
+  expect(queue.rows).toEqual([
+    {
+      status: 'queued',
+      message_json: { role: 'user', content: expect.stringContaining('只核对合成资料的编号') },
+    },
+  ]);
+});

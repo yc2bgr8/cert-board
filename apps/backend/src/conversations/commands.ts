@@ -22,6 +22,8 @@ import {
 import { AppError } from '../api/errors.js';
 import { appendConversationEventTx, appendConversationMessageTx } from './storage.js';
 import { stopOwnedRun } from '../runs/control.js';
+import { loadAgentDefinition, loadSelectedSkill } from '../agent/definitions.js';
+import { taskForProject } from './task-catalog.js';
 
 type Conversation = {
   id: string;
@@ -349,12 +351,20 @@ export async function createConversationTx(
     payloadForDefaultMode,
   );
   if (intent.prior) return conversationCreateResultSchema.parse(intent.prior);
+  if (data.task && (!projectId || data.goalId))
+    throw new AppError(
+      400,
+      'TASK_PROJECT_REQUIRED',
+      '请在项目中启动此任务，系统会建立专属工作目标。',
+    );
+  let taskTitle: string | undefined;
+  let taskText: string | undefined;
   let agentCode = data.agentCode ?? 'registration';
   let goalId: string | null = null;
   if (projectId) {
     const project = (
-      await tx.query<{ project_type: AgentCode }>(
-        'SELECT project_type FROM cert_project WHERE id=$1 FOR SHARE',
+      await tx.query<{ project_type: AgentCode; status: string }>(
+        'SELECT project_type,status FROM cert_project WHERE id=$1 FOR SHARE',
         [projectId],
       )
     ).rows[0];
@@ -362,7 +372,50 @@ export async function createConversationTx(
     if (data.agentCode && data.agentCode !== project.project_type)
       throw new AppError(400, 'CONVERSATION_AGENT_MISMATCH', '项目对话必须使用该项目对应的Agent。');
     agentCode = project.project_type;
-    if (data.goalId) {
+    if (data.task) {
+      if (project.status === 'closed' || project.status === 'cancelled')
+        throw new AppError(409, 'TASK_PROJECT_INACTIVE', '项目已关闭或取消，请选择在办项目。');
+      const task = taskForProject(data.task.code, agentCode);
+      await loadAgentDefinition(agentCode);
+      const skill = await loadSelectedSkill(
+        tx,
+        agentCode,
+        { id: task.code, version: data.task.skillVersion },
+        data.permissionMode,
+      ).catch((error: unknown) => {
+        if (!(error instanceof AppError) || error.code !== 'SKILL_UNAVAILABLE') throw error;
+        throw new AppError(
+          409,
+          'TASK_SKILL_UNAVAILABLE',
+          '当前技能版本已停用、更新或不适用所选权限。请刷新任务目录。',
+        );
+      });
+      taskTitle = task.title;
+      const scope =
+        data.task.scope ??
+        (task.code === 'R09'
+          ? '检查当前项目的整套申报资料。'
+          : '在当前项目的资料和目标范围内处理。');
+      const completion =
+        data.permissionMode === 'read_only'
+          ? '只读运行。根据资料给结论、依据和待确认事项。'
+          : '按技能要求保留证据、保存工作区交付物并提交浏览器审核。';
+      taskText = [task.title, `范围：${scope}`, `交付：${task.deliverable}。`, completion].join(
+        '\n',
+      );
+      goalId = (
+        await tx.query<{ id: string }>(
+          `INSERT INTO goal(project_id,owner_user_id,title,acceptance_criteria,created_by)
+         VALUES($1,$2,$3,$4,$2) RETURNING id`,
+          [
+            projectId,
+            actor.userId,
+            taskTitle,
+            `${skill.skill.id}@${skill.skill.version} · ${task.deliverable}`,
+          ],
+        )
+      ).rows[0]!.id;
+    } else if (data.goalId) {
       const goal = await tx.query('SELECT id FROM goal WHERE id=$1 AND project_id=$2', [
         data.goalId,
         projectId,
@@ -387,21 +440,37 @@ export async function createConversationTx(
     }
   } else if (data.goalId)
     throw new AppError(400, 'CONVERSATION_PROJECT_REQUIRED', '项目外对话不能指定其他项目的目标。');
-  const row = (
+  let row = (
     await tx.query<Conversation>(
       'INSERT INTO conversation(project_id,goal_id,user_id,title,agent_code,permission_mode) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',
       [
         projectId ?? null,
         goalId,
         actor.userId,
-        data.title ?? '新对话',
+        taskTitle ?? data.title ?? '新对话',
         agentCode,
         data.permissionMode,
       ],
     )
   ).rows[0]!;
+  let taskRunId: string | undefined;
+  if (taskText) {
+    const context = await lockConversation(tx, actor, row.id);
+    const run = await newRun(tx, actor, context, data.requestKey, taskText);
+    taskRunId = run.runId;
+    const updated = await tx.query<Conversation>(
+      'UPDATE conversation SET current_run_id=$2,version=version+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING *',
+      [row.id, taskRunId],
+    );
+    row = updated.rows[0]!;
+  }
   const result = conversationCreateResultSchema.parse({
     conversation: record(row),
+    ...(data.task && taskRunId
+      ? {
+          task: { code: data.task.code, skillVersion: data.task.skillVersion, runId: taskRunId },
+        }
+      : {}),
     permissionVersion: row.permission_version,
     replayed: false,
   });

@@ -140,7 +140,7 @@ export async function loadAgentSkill(
 }
 
 export async function loadManagedAgentDefinition(
-  pool: Pool,
+  pool: Pick<Pool, 'query'>,
   code: AgentCode,
   mode: PermissionMode,
 ) {

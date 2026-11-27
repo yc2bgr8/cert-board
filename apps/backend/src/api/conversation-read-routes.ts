@@ -11,6 +11,7 @@ import {
   conversationEventQuerySchema,
   conversationListQuerySchema,
   conversationPublicHistoryQuerySchema,
+  taskCatalogQuerySchema,
   type BackendConfig,
 } from '@cert-board/shared';
 import { AppError } from './errors.js';
@@ -21,6 +22,7 @@ import {
   withConversationReadSession,
 } from '../conversations/read.js';
 import { createConversationStreams } from '../conversations/stream.js';
+import { readTaskCatalog } from '../conversations/task-catalog.js';
 
 export function registerConversationReadRoutes<Logger extends FastifyBaseLogger>(
   app: FastifyInstance<
@@ -59,6 +61,14 @@ export function registerConversationReadRoutes<Logger extends FastifyBaseLogger>
         }),
       );
     });
+  app.get('/api/projects/:id/task-catalog', async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const query = taskCatalogQuerySchema.safeParse(request.query);
+    if (!query.success) throw new AppError(400, 'TASK_MODE_INVALID', '请选择本次任务的权限模式。');
+    return withConversationReadSession(pool, config, request, (tx) =>
+      readTaskCatalog(tx, id(request.params), query.data.mode),
+    );
+  });
   app.get('/api/conversations/:id', async (request, reply) => {
     reply.header('cache-control', 'no-store');
     return withConversationReadSession(pool, config, request, (tx, actor) =>

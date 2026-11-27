@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { taskAssignmentSchema } from './task-catalog.js';
 import { deadlineNoticeSchema } from './deadlines.js';
 import { skillRollbackProposalSchema } from './skill-rollback.js';
 
@@ -43,6 +44,7 @@ export const conversationPublicRecordSchema = z
     createdAt: instant,
     updatedAt: instant,
     canWrite: z.boolean(),
+    task: taskAssignmentSchema.optional(),
   })
   .strict();
 export const conversationPublicListSchema = z

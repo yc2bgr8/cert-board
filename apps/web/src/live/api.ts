@@ -12,6 +12,8 @@ import {
   conversationPublicRecordSchema,
   conversationCreateInputSchema,
   conversationCreateResultSchema,
+  taskCatalogSchema,
+  type PermissionMode,
   conversationMessageInputSchema,
   conversationWriteResultSchema,
   conversationAnswerInputSchema,
@@ -565,6 +567,12 @@ export const api = {
     request(
       `/api/conversations/${identifier(id)}`,
       conversationPublicRecordSchema,
+      signalOption(signal),
+    ),
+  taskCatalog: (projectId: string, mode: PermissionMode, signal?: AbortSignal) =>
+    request(
+      `/api/projects/${identifier(projectId)}/task-catalog${search({ mode })}`,
+      taskCatalogSchema,
       signalOption(signal),
     ),
   createConversation: (input: ConversationCreateInput, projectId?: string) =>

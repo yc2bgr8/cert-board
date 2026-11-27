@@ -15,6 +15,7 @@ import {
 import { AppError } from '../api/errors.js';
 import { requireBrowserIdentity } from '../auth/session.js';
 import { toolLabel } from '../agent/tool-progress.js';
+import { readTaskAssignment } from './task-catalog.js';
 
 type Database = Pick<Pool, 'query'>;
 const missing = () =>
@@ -73,7 +74,8 @@ export async function readConversation(database: Database, actor: BrowserIdentit
     )
   ).rows[0];
   if (!row) throw missing();
-  return record(row, actor);
+  const task = await readTaskAssignment(database, id, String(row.userId));
+  return record(task ? { ...row, task } : row, actor);
 }
 export async function readConversationList(
   database: Database,

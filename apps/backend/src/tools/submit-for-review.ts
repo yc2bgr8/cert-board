@@ -18,6 +18,7 @@ import {
 } from '../reviews/submission.js';
 import type { ToolDefinition } from './registry.js';
 import { readActiveSkill } from '../skills/service.js';
+import { readTaskAssignment } from '../conversations/task-catalog.js';
 
 const metadata: ToolMetadata = {
   name: 'submit_for_review',
@@ -118,6 +119,18 @@ export function submitForReviewTool(policyInput: ReviewPolicy): ToolDefinition {
         );
       const current = structuredSubmissionSchema.parse(input);
       const selected = skillLoadInputSchema.safeParse(current.skill);
+      const task = await readTaskAssignment(ctx.tx, ctx.conversationId, ctx.actor.userId);
+      if (
+        task &&
+        (!selected.success ||
+          selected.data.id !== task.code ||
+          selected.data.version !== task.skillVersion)
+      )
+        throw new AppError(
+          422,
+          'TOOL_INPUT_INVALID',
+          `请按已交办的技能 ${task.code}@${task.skillVersion} 核对并提交审核。`,
+        );
       const data = (
         await ctx.tx.query<{ agent_code: string }>(
           'SELECT agent_code FROM conversation WHERE id=$1 AND user_id=$2',

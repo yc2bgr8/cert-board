@@ -262,6 +262,12 @@ function ConversationView({
       <header className="live-conversation-header">
         <p className="live-conversation-meta">
           {agentNames[record.agentCode]} · {record.ownerName}
+          {record.task && (
+            <>
+              {' '}
+              · 技能 {record.task.code} · {record.task.skillVersion}
+            </>
+          )}
         </p>
       </header>
       <div

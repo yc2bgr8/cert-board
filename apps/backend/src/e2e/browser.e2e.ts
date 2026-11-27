@@ -1362,6 +1362,60 @@ async function main() {
     } finally {
       harness.verification.runtime.status = savedStatus;
     }
+    stage = '项目任务入口直接启动 R09 并送审';
+    await page.getByRole('button', { name: 'L08 510(k)', exact: true }).click();
+    await page.getByRole('button', { name: '选择任务', exact: true }).click();
+    const tasks = page.getByRole('region', { name: '项目任务' });
+    await tasks.getByRole('button', { name: /检查申报资料是否一致/ }).click();
+    await tasks.getByLabel('任务范围').selectOption('all');
+    assert.equal(await tasks.locator('.live-task-card').count(), 29);
+    await tasks.getByRole('searchbox', { name: '搜索任务' }).fill('申报资料是否一致');
+    assert.equal(await tasks.locator('.live-task-card').count(), 1);
+    const confirmation = tasks.getByRole('region', { name: '任务确认' });
+    await confirmation.getByLabel('本次权限').selectOption('ask');
+    await confirmation.getByLabel('工作范围（可选）').fill('合成验收：只核对对比器械编号。');
+    await captureWorkbench(page, output, 'task-catalog-r09.png');
+    const taskModel = harness.plan('revision');
+    const taskResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && response.url().endsWith('/conversations'),
+    );
+    await confirmation.getByRole('button', { name: '开始任务', exact: true }).click();
+    const started = await taskResponse;
+    assert.equal(started.status(), 200);
+    const startedTask = (await started.json()).task;
+    assert.equal(startedTask.code, 'R09');
+    await page.getByText('合成验收：只核对对比器械编号。', { exact: false }).waitFor();
+    await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
+    await page.getByRole('heading', { name: '不确定事项', exact: true }).waitFor();
+    assert.ok(taskModel.observed.calls > 0);
+    const taskCard = await harness.pool.query(
+      "SELECT id FROM review_card WHERE run_id=$1 AND status='pending'",
+      [startedTask.runId],
+    );
+    assert.equal(taskCard.rowCount, 1);
+    await captureWorkbench(page, output, 'task-catalog-r09-review.png');
+    await page.reload();
+    await page.getByText('技能 R09 · 0.1.0', { exact: false }).waitFor();
+    await page.getByRole('button', { name: '查看审核', exact: true }).waitFor();
+
+    stage = '维护项目任务目录';
+    await page.getByRole('button', { name: '维护Agent', exact: true }).click();
+    await page.getByRole('button', { name: 'L08 年度注册（验收示例）', exact: true }).click();
+    await page.getByRole('button', { name: '选择任务', exact: true }).click();
+    await tasks.getByRole('button', { name: /核查美国年度注册资料/ }).click();
+    await confirmation.getByText('M02 · 0.1.0', { exact: true }).waitFor();
+    assert.equal(
+      await confirmation.getByRole('button', { name: '开始任务', exact: true }).isEnabled(),
+      true,
+    );
+    await tasks.getByRole('button', { name: /准备体系审核并跟踪整改/ }).click();
+    assert.equal(
+      await confirmation.getByRole('button', { name: '开始任务', exact: true }).isDisabled(),
+      true,
+    );
+    await captureWorkbench(page, output, 'task-catalog-maintenance.png');
+
     stage = 'CSP与零外网检查';
     const cspState = await page.evaluate(() => {
       const state = globalThis as typeof globalThis & {
@@ -1470,6 +1524,9 @@ async function main() {
             'agent_verification_waits_and_resumes_with_human_input',
             'stopping_conversation_stops_linked_verification',
             'cursor_unavailable_reaches_review_uncertainty',
+            'project_task_catalog_full_scope_and_search',
+            'project_task_starts_r09_review_and_reopens',
+            'maintenance_task_catalog_checks_skill_availability',
             'width_1280',
           ],
           externalRequests,
@@ -1479,6 +1536,9 @@ async function main() {
           pendingUsage: unknown.rowCount,
           costNano,
           screenshots: [
+            'task-catalog-r09.png',
+            'task-catalog-r09-review.png',
+            'task-catalog-maintenance.png',
             'pr-u1-01-login.png',
             'pr-u1-02-new-conversation.png',
             'pr-u1-13-search.png',
