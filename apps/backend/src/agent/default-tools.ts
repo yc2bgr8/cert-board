@@ -19,6 +19,7 @@ import type { SandboxClient } from '../sandbox/client.js';
 import { waitRegisterTool } from '../tools/wait-register.js';
 import { factProposeTool, knowledgeGetTool } from '../tools/knowledge-tools.js';
 import { workScheduleTool } from '../tools/work-schedule.js';
+import { certContextTool } from '../tools/cert-context.js';
 
 export async function buildAgentTools(
   store: DocumentBlobStore,
@@ -32,6 +33,7 @@ export async function buildAgentTools(
     id: agentCode === 'registration' ? 'R09' : 'M02',
   });
   return [
+    certContextTool(),
     ...buildDocumentTools(),
     ...buildWorkspaceTools(store),
     ...(agentCode === 'registration' ? [workScheduleTool()] : []),
