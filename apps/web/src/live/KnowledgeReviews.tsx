@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   knowledgeDraftMaxBytes,
@@ -32,10 +32,18 @@ function retryKey(attempts: Map<string, string>, fingerprint: string) {
   return key;
 }
 
-export function KnowledgeReviews({ userId, management }: { userId: string; management: boolean }) {
-  const [open, setOpen] = useState(false);
+export function KnowledgeReviews({
+  userId,
+  management,
+  focusId = null,
+}: {
+  userId: string;
+  management: boolean;
+  focusId?: string | null;
+}) {
+  const [open, setOpen] = useState(Boolean(focusId));
   const [page, setPage] = useState<(string | null)[]>([null]);
-  const [selection, setSelection] = useState('');
+  const [selection, setSelection] = useState(focusId ?? '');
   const [kind, setKind] = useState<KnowledgeReviewCreateInput['kind']>('rule_pack');
   const [formOpen, setFormOpen] = useState(false);
   const [yaml, setYaml] = useState('');
@@ -49,6 +57,7 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
   const [notice, setNotice] = useState('');
   const stageAttempts = useRef(new Map<string, string>());
   const decisionAttempts = useRef(new Map<string, string>());
+  const card = useRef<HTMLElement>(null);
   const client = useQueryClient();
   const listKey = ['live', 'knowledge-reviews', userId];
   const after = page.at(-1) ?? null;
@@ -58,8 +67,8 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
     enabled: open,
     retry: false,
   });
-  const selectedId =
-    list.data?.items.find(({ id }) => id === selection)?.id ?? list.data?.items[0]?.id;
+  const pageItems = list.data?.items ?? [];
+  const selectedId = selection || pageItems[0]?.id;
   const detail = useQuery({
     queryKey: [...listKey, 'detail', selectedId],
     queryFn: ({ signal }) => api.knowledgeReview(selectedId!, signal),
@@ -98,6 +107,16 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
     onSettled: () => client.invalidateQueries({ queryKey: listKey }),
   });
   const selected = detail.data;
+  const options =
+    selected && !pageItems.some(({ id }) => id === selected.id)
+      ? [selected, ...pageItems]
+      : pageItems;
+  const readyFocus = focusId !== null && selected?.id === focusId;
+  useEffect(() => {
+    if (!readyFocus) return;
+    card.current?.scrollIntoView?.({ block: 'start' });
+    card.current?.focus({ preventScroll: true });
+  }, [readyFocus]);
   const busy = stage.isPending || decide.isPending;
   const draftTooLarge = utf8.encode(yaml).length > knowledgeDraftMaxBytes;
   const draftIncomplete = copySource ? !copyVersion.trim() : !yaml.trim() || draftTooLarge;
@@ -166,7 +185,10 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
                       decide.reset();
                     }}
                   >
-                    {list.data?.items.map((item) => (
+                    {!options.some(({ id }) => id === selectedId) && (
+                      <option value={selectedId}>已选审核卡</option>
+                    )}
+                    {options.map((item) => (
                       <option key={item.id} value={item.id}>
                         {kindNames[item.kind]} · {item.title} {item.version} ·{' '}
                         {statusNames[item.status]}
@@ -199,7 +221,12 @@ export function KnowledgeReviews({ userId, management }: { userId: string; manag
           )}
           {selectedId && detail.isPending && <p role="status">正在读取审核内容…</p>}
           {selected && (
-            <article aria-label="知识审核卡" className="live-skill-review-card">
+            <article
+              ref={card}
+              tabIndex={-1}
+              aria-label="知识审核卡"
+              className="live-skill-review-card"
+            >
               <h3>
                 {selected.title} {selected.version}
               </h3>

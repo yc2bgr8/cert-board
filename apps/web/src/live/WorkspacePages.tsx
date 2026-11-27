@@ -17,11 +17,13 @@ export const noticeLabels: Record<Notice['kind'], string> = {
   verification: '外部核实',
   outbound: '外发结果',
   skill: '技能回退提醒',
+  knowledge_review: '知识审核',
 };
 const filters = [
   'all',
   'approval',
   'review',
+  'knowledge_review',
   'proposal',
   'question',
   'blocked',
@@ -30,6 +32,7 @@ const filters = [
   'outbound',
   'skill',
 ] as const;
+const reviewKinds = new Set<Notice['kind']>(['review', 'proposal', 'knowledge_review']);
 const time = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai',
   month: 'numeric',
@@ -46,6 +49,7 @@ export function displayTime(value: string) {
 
 function noticeAction(kind: Notice['kind']) {
   if (kind === 'review') return '查看审核';
+  if (kind === 'knowledge_review') return '查看审核卡';
   if (kind === 'proposal') return '查看提案';
   if (kind === 'verification') return '查看核实群聊';
   if (kind === 'outbound') return '查看和对账';
@@ -79,11 +83,11 @@ export function Inbox({
   const groups = [
     {
       label: '需要处理',
-      items: visible.filter((item) => !['review', 'proposal'].includes(item.kind)),
+      items: visible.filter((item) => !reviewKinds.has(item.kind)),
     },
     {
       label: '审核与提案',
-      items: visible.filter((item) => ['review', 'proposal'].includes(item.kind)),
+      items: visible.filter((item) => reviewKinds.has(item.kind)),
     },
   ];
   return (
@@ -182,15 +186,21 @@ export function Inbox({
                         <strong>
                           {item.skillRollback
                             ? `${item.skillRollback.skillId} ${item.skillRollback.activeVersion}`
-                            : (projects.find((project) => project.id === item.projectId)?.name ??
-                              '项目对话')}
+                            : item.knowledgeReview
+                              ? `${item.knowledgeReview.title} ${item.knowledgeReview.version}`
+                              : (projects.find((project) => project.id === item.projectId)?.name ??
+                                '项目对话')}
                         </strong>
                         <span className={`live-notice-chip is-${item.kind}`}>
                           {item.verification?.kind === 'blocked'
                             ? '发起人或原对话已失去访问权限，未续跑'
                             : item.verification?.kind === 'late'
                               ? '迟到的核实结论'
-                              : noticeLabels[item.kind]}
+                              : item.knowledgeReview
+                                ? item.knowledgeReview.kind === 'rule_pack'
+                                  ? '规则包待审阅'
+                                  : '模板待审阅'
+                                : noticeLabels[item.kind]}
                         </span>
                       </span>
                       <span className="live-muted">{displayTime(item.createdAt)}</span>

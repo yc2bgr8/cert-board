@@ -371,7 +371,7 @@ export async function readPublicEvents(
   );
 }
 export async function readMemberNotifications(database: Database, actor: BrowserIdentity) {
-  const conversationLimit = 50;
+  const noticeLimit = 50;
   const skillLimit = 10;
   const rows = (
     await database.query<{
@@ -383,6 +383,7 @@ export async function readMemberNotifications(database: Database, actor: Browser
       deadline: unknown;
       verification: unknown;
       skillRollback: unknown;
+      knowledgeReview: unknown;
     }>(
       `WITH pending AS (
        SELECT a.id,'approval'::text AS kind,a.conversation_id,a.project_id,a.created_at,NULL::jsonb AS deadline FROM tool_approval a
@@ -424,9 +425,13 @@ export async function readMemberNotifications(database: Database, actor: Browser
        SELECT p.id,'skill',NULL::uuid,NULL::uuid,p.created_at,NULL
        FROM skill_rollback_proposal p JOIN skill s ON s.id=p.skill_id AND s.revision=p.release_revision
        WHERE p.status IN ('pending','notice')
+       UNION ALL
+       SELECT r.id,'knowledge_review',NULL::uuid,NULL::uuid,r.created_at,NULL
+       FROM knowledge_review r WHERE r.status='pending'
      ) SELECT p.id,p.kind,p.conversation_id AS "conversationId",p.project_id AS "projectId",p.created_at AS "createdAt",p.deadline,
        CASE WHEN v.id IS NOT NULL THEN jsonb_build_object('roomId',v.room_id,'kind',v.kind) END AS verification,
-       CASE WHEN rb.id IS NOT NULL THEN jsonb_build_object('skillId',rb.skill_id,'activeVersion',sv.version) END AS "skillRollback"
+       CASE WHEN rb.id IS NOT NULL THEN jsonb_build_object('skillId',rb.skill_id,'activeVersion',sv.version) END AS "skillRollback",
+       CASE WHEN kr.id IS NOT NULL THEN jsonb_build_object('kind',kr.kind,'title',kr.title,'version',kr.version) END AS "knowledgeReview"
        FROM (
          (SELECT * FROM pending WHERE kind<>'skill' ORDER BY created_at DESC,id DESC LIMIT $2)
          UNION ALL
@@ -434,25 +439,26 @@ export async function readMemberNotifications(database: Database, actor: Browser
        ) p LEFT JOIN verification_notice v ON v.id=p.id AND p.kind='verification'
        LEFT JOIN skill_rollback_proposal rb ON rb.id=p.id AND p.kind='skill'
        LEFT JOIN skill_version sv ON sv.id=rb.active_version_id
+       LEFT JOIN knowledge_review kr ON kr.id=p.id AND p.kind='knowledge_review'
        ORDER BY (p.kind='skill'),p.created_at DESC,p.id DESC`,
-      [actor.userId, conversationLimit + 1, skillLimit + 1],
+      [actor.userId, noticeLimit + 1, skillLimit + 1],
     )
   ).rows;
-  const conversationItems = rows.filter(({ kind }) => kind !== 'skill');
+  const notices = rows.filter(({ kind }) => kind !== 'skill');
   const skillItems = rows.filter(({ kind }) => kind === 'skill');
-  const items = [
-    ...conversationItems.slice(0, conversationLimit),
-    ...skillItems.slice(0, skillLimit),
-  ];
+  const items = [...notices.slice(0, noticeLimit), ...skillItems.slice(0, skillLimit)];
   return memberNotificationSnapshotSchema.parse({
     generatedAt: new Date().toISOString(),
-    items: items.map(({ createdAt, deadline, verification, skillRollback, ...row }) => ({
-      ...row,
-      createdAt: createdAt.toISOString(),
-      ...(deadline ? { deadline } : {}),
-      ...(verification ? { verification } : {}),
-      ...(skillRollback ? { skillRollback } : {}),
-    })),
-    truncated: conversationItems.length > conversationLimit || skillItems.length > skillLimit,
+    items: items.map(
+      ({ createdAt, deadline, verification, skillRollback, knowledgeReview, ...row }) => ({
+        ...row,
+        createdAt: createdAt.toISOString(),
+        ...(deadline ? { deadline } : {}),
+        ...(verification ? { verification } : {}),
+        ...(skillRollback ? { skillRollback } : {}),
+        ...(knowledgeReview ? { knowledgeReview } : {}),
+      }),
+    ),
+    truncated: notices.length > noticeLimit || skillItems.length > skillLimit,
   });
 }

@@ -9,7 +9,8 @@ import {
   type KnowledgeReviewCreateInput,
   type KnowledgeReviewDecisionInput,
 } from '@cert-board/shared';
-import { createIntegrationContext } from '../test-support/context.js';
+import { createIntegrationContext, memberUsernames } from '../test-support/context.js';
+import { readMemberNotifications } from '../conversations/read.js';
 import { factProposeTool, knowledgeGetTool } from '../tools/knowledge-tools.js';
 import { ToolRegistry, type ToolExecutionContext } from '../tools/registry.js';
 import { readConfirmedFacts, refreshConfirmedFactsLevel } from './facts.js';
@@ -542,6 +543,33 @@ test('模板审核需浏览器，退回版本与草稿都不会进入 Agent 工�
   const pending = knowledgeReviewSummarySchema.parse(created.json());
   expect(pending.status).toBe('pending');
   expect(created.json()).not.toHaveProperty('draft');
+  const reviewerId = context.userId('MEMBER_B');
+  const session = await context.pool.query<{ id: string }>(
+    'SELECT id FROM web_session WHERE user_id=$1',
+    [reviewerId],
+  );
+  const pendingKnowledge = async () =>
+    (
+      await readMemberNotifications(context.pool, {
+        kind: 'browser',
+        userId: reviewerId,
+        sessionId: session.rows[0]!.id,
+        username: memberUsernames.MEMBER_B,
+        displayName: '合成审核成员',
+        isDevelopment: true,
+        isManagement: false,
+      })
+    ).items.filter(({ kind }) => kind === 'knowledge_review');
+  expect(await pendingKnowledge()).toEqual([
+    {
+      id: pending.id,
+      kind: 'knowledge_review',
+      conversationId: null,
+      projectId: null,
+      createdAt: pending.createdAt,
+      knowledgeReview: { kind: 'template', title: draft.title, version: draft.version },
+    },
+  ]);
   expect((await stageReview(admin.headers, request)).json()).toEqual(pending);
   expect(
     (await stageReview(admin.headers, { ...request, requestKey: randomUUID() })).statusCode,
@@ -582,6 +610,7 @@ test('模板审核需浏览器，退回版本与草稿都不会进入 Agent 工�
   const result = await decideReview(reviewer.headers, pending.id, approval);
   expect(result.statusCode).toBe(200);
   expect(result.json()).toMatchObject({ status: 'published' });
+  expect(await pendingKnowledge()).toEqual([]);
   expect(
     (
       await context.pool.query(
@@ -642,6 +671,7 @@ test('模板审核需浏览器，退回版本与草稿都不会进入 Agent 工�
   const rejected = await decideReview(reviewer.headers, next.id, reject);
   expect(rejected.statusCode).toBe(200);
   expect(rejected.json()).toMatchObject({ status: 'rejected', reason: reject.reason });
+  expect((await pendingKnowledge()).map(({ id }) => id)).toEqual([copied.id]);
   expect((await decideReview(reviewer.headers, next.id, reject)).json()).toEqual(rejected.json());
   expect(
     (await decideReview(reviewer.headers, next.id, { ...reject, reason: '另一个原因' })).statusCode,

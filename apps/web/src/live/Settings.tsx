@@ -29,6 +29,7 @@ export function Settings({
   onMaintenanceChange,
   notificationConnection,
   skillRollbackFocus = null,
+  knowledgeReviewFocus = null,
   openVerification,
 }: {
   open: boolean;
@@ -40,6 +41,7 @@ export function Settings({
   onMaintenanceChange(value: boolean): void;
   notificationConnection: StreamConnection;
   skillRollbackFocus?: string | null;
+  knowledgeReviewFocus?: string | null;
   openVerification(roomId: string): void;
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +120,7 @@ export function Settings({
                 <a href="#external-model-words">保密词表</a>
                 <a href="#external-model-archive">外发记录</a>
                 <a href="#skill-versions">技能版本</a>
+                <a href="#knowledge-reviews">规则包与模板</a>
                 {user.isManagement && (
                   <button
                     ref={maintenanceEntry}
@@ -185,7 +188,12 @@ export function Settings({
                   openRoom={openVerification}
                 />
                 <SkillVersions userId={user.id} rollbackFocus={skillRollbackFocus} />
-                <KnowledgeReviews key={user.id} userId={user.id} management={user.isManagement} />
+                <KnowledgeReviews
+                  key={`${user.id}:${knowledgeReviewFocus ?? ''}`}
+                  userId={user.id}
+                  management={user.isManagement}
+                  focusId={knowledgeReviewFocus}
+                />
                 <section id="about-cert-board" className="live-page-card">
                   <header className="live-page-card-head">
                     <h2>关于</h2>

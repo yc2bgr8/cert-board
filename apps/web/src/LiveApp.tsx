@@ -134,7 +134,10 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const [newHeaderAgent, setNewHeaderAgent] = useState<AgentCode>('registration');
   const [dialog, setDialog] = useState<'new' | 'search' | 'settings' | null>(null);
   const [maintenanceSettings, setMaintenanceSettings] = useState(false);
-  const [skillRollbackFocus, setSkillRollbackFocus] = useState<string | null>(null);
+  const [settingsFocus, setSettingsFocus] = useState<{
+    kind: 'skill' | 'knowledge_review';
+    id: string;
+  } | null>(null);
   const [narrow, setNarrow] = useState(
     () => window.matchMedia?.('(max-width: 1023px)').matches ?? false,
   );
@@ -256,13 +259,13 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       : projects;
 
   const openDialog = useCallback(
-    (value: 'new' | 'search' | 'settings', focusSkill: string | null = null) => {
+    (value: 'new' | 'search' | 'settings', focus: typeof settingsFocus = null) => {
       returnFocus.current =
         document.activeElement instanceof HTMLElement ? document.activeElement : null;
       if (value === 'new' || value === 'settings') setMobileOpen(false);
       if (value === 'settings') {
         setMaintenanceSettings(false);
-        setSkillRollbackFocus(focusSkill);
+        setSettingsFocus(focus);
       }
       setDialog(value);
     },
@@ -443,8 +446,8 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       window.history.replaceState(window.history.state, '', current);
   }, [view, conversationId]);
   const openNotice = (item: MemberNotificationSnapshot['items'][number]) => {
-    if (item.kind === 'skill') {
-      openDialog('settings', item.id);
+    if (item.kind === 'skill' || item.kind === 'knowledge_review') {
+      openDialog('settings', { kind: item.kind, id: item.id });
       return;
     }
     if (item.verification) {
@@ -1016,7 +1019,10 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
           maintenance={showMaintenance}
           onMaintenanceChange={setMaintenanceSettings}
           notificationConnection={notifications.connection}
-          skillRollbackFocus={skillRollbackFocus}
+          skillRollbackFocus={settingsFocus?.kind === 'skill' ? settingsFocus.id : null}
+          knowledgeReviewFocus={
+            settingsFocus?.kind === 'knowledge_review' ? settingsFocus.id : null
+          }
           openVerification={openVerification}
         />
       </ProjectShell>

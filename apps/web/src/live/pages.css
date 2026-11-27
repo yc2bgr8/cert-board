@@ -123,6 +123,7 @@
   color: var(--color-cb-teal-ink);
 }
 .live-notice-chip.is-review,
+.live-notice-chip.is-knowledge_review,
 .live-notice-chip.is-proposal {
   background: var(--color-cb-info-bg);
   color: var(--color-cb-info);

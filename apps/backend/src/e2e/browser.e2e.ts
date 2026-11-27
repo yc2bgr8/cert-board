@@ -826,15 +826,35 @@ async function main() {
     await settings.getByText('已连接', { exact: true }).waitFor();
     assert.equal(await settings.getByRole('button', { name: '维护页', exact: true }).count(), 0);
     await captureWorkbench(page, output, 'pr-u4-15-settings.png');
-    stage = '注册人员在浏览器通过并发布模板';
+    await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
+    stage = '注册人员从待我处理打开规则包和模板审核卡';
+    await page.getByRole('button', { name: /待我处理/u }).click();
+    const knowledgeFilter = page.getByRole('button', { name: /^知识审核 \d+$/u });
+    await knowledgeFilter.click();
+    const knowledgeInbox = page.getByRole('region', { name: '待我处理事项', exact: true });
+    const ruleNotice = knowledgeInbox.getByRole('button', {
+      name: /合成核查规则包 1\.0\.0.*查看审核卡/u,
+    });
+    const templateNotice = knowledgeInbox.getByRole('button', {
+      name: /合成资料核对模板 1\.0\.0.*查看审核卡/u,
+    });
+    await ruleNotice.waitFor();
+    await templateNotice.waitFor();
+    await captureWorkbench(page, output, 'pr42-12-knowledge-inbox-1440x900.png');
     const knowledge = settings.getByRole('region', { name: '规则包与模板', exact: true });
-    await knowledge.getByRole('button', { name: '查看审核列表', exact: true }).click();
     const knowledgeCard = knowledge.getByRole('article', { name: '知识审核卡', exact: true });
-    const knowledgeCards = knowledge.getByRole('combobox', { name: '审核卡', exact: true });
-    await knowledgeCards.selectOption({ label: '规则包 · 合成核查规则包 1.0.0 · 待审阅' });
+    await ruleNotice.click();
+    await knowledgeCard
+      .getByRole('heading', { name: '合成核查规则包 1.0.0', exact: true })
+      .waitFor();
     await knowledgeCard.getByText('法域 · US', { exact: true }).waitFor();
     await knowledgeCard.getByText('类别 · 维护', { exact: true }).waitFor();
-    await knowledgeCards.selectOption({ label: '模板 · 合成资料核对模板 1.0.0 · 待审阅' });
+    await until(async () => knowledgeCard.evaluate((card) => document.activeElement === card));
+    await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
+    await until(async () => ruleNotice.evaluate((row) => document.activeElement === row));
+
+    stage = '注册人员从待我处理通过并发布模板';
+    await templateNotice.click();
     await knowledgeCard
       .getByRole('heading', { name: '合成资料核对模板 1.0.0', exact: true })
       .waitFor();
@@ -856,7 +876,10 @@ async function main() {
       ).rows,
       [{ version: '1.0.0', username: 'zhangsan' }],
     );
-    await knowledge.getByRole('button', { name: '收起审核列表', exact: true }).click();
+    await settings.getByRole('button', { name: '关闭设置', exact: true }).click();
+    await templateNotice.waitFor({ state: 'hidden' });
+    await ruleNotice.waitFor();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
     stage = '技能版本审核、停用与回退';
     const draft = parseSkillDraftMarkdown(
       await readFile(
@@ -1707,6 +1730,7 @@ async function main() {
             'browser_review_decision_resumes_original_conversation',
             'skill_rollback_from_inbox_with_browser_approval',
             'knowledge_template_publish_requires_browser_review',
+            'knowledge_inbox_opens_exact_card_and_removes_published_notice',
             'knowledge_rule_pack_copy_respects_utf8_limit',
             'agent_verification_waits_and_resumes_with_human_input',
             'stopping_conversation_stops_linked_verification',
@@ -1746,6 +1770,7 @@ async function main() {
             'pr-15-12-deadline-inbox.png',
             'pr-u4-15-settings.png',
             'pr42-15-knowledge-review-1440x900.png',
+            'pr42-12-knowledge-inbox-1440x900.png',
             'prd8-12-skill-rollback-inbox.png',
             'prd8-15-skill-rollback-settings.png',
             'pr-u4-16-management.png',

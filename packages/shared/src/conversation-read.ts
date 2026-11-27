@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { deadlineNoticeSchema } from './deadlines.js';
+import { knowledgeReviewSummarySchema } from './knowledge.js';
 import { skillRollbackProposalSchema } from './skill-rollback.js';
 
 const id = z.string().uuid();
@@ -199,6 +200,7 @@ export const memberNotificationSnapshotSchema = z
               'verification',
               'outbound',
               'skill',
+              'knowledge_review',
             ]),
             conversationId: id.nullable(),
             projectId: id.nullable(),
@@ -211,14 +213,27 @@ export const memberNotificationSnapshotSchema = z
             skillRollback: skillRollbackProposalSchema
               .pick({ skillId: true, activeVersion: true })
               .optional(),
+            knowledgeReview: knowledgeReviewSummarySchema
+              .pick({ kind: true, title: true, version: true })
+              .optional(),
           })
           .strict()
           .refine(
-            ({ kind, deadline, verification, skillRollback, conversationId }) =>
+            ({
+              kind,
+              deadline,
+              verification,
+              skillRollback,
+              knowledgeReview,
+              conversationId,
+              projectId,
+            }) =>
               (kind === 'deadline') === Boolean(deadline) &&
               (kind === 'verification') === Boolean(verification) &&
               (kind === 'skill') === Boolean(skillRollback) &&
-              (kind === 'skill') === (conversationId === null),
+              (kind === 'knowledge_review') === Boolean(knowledgeReview) &&
+              (kind === 'skill' || kind === 'knowledge_review') === (conversationId === null) &&
+              (kind !== 'knowledge_review' || projectId === null),
           ),
       )
       .max(60),
