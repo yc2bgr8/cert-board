@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import { parseBackendConfig, projectListSchema, goalListSchema } from '@cert-board/shared';
 import { createTestDatabase } from '../db/test-database.js';
@@ -59,7 +60,7 @@ test('登录后可读取L08项目与目标，并保留未知业务期限', async
   expect((await app.inject({ url: '/api/projects?limit=999', headers })).statusCode).toBe(400);
 });
 
-test('任一活动成员能读取项目，未登录拒绝且仍未开放浏览器业务写入口', async () => {
+test('项目读取需要登录，创建项目还需要浏览器安全令牌', async () => {
   expect(
     (await app.inject({ url: '/api/projects', headers: { 'sec-fetch-site': 'same-origin' } }))
       .statusCode,
@@ -67,14 +68,17 @@ test('任一活动成员能读取项目，未登录拒绝且仍未开放浏览�
   expect(
     (await app.inject({ url: '/api/projects', headers: await session('wangmin') })).statusCode,
   ).toBe(200);
-  expect(
-    (
-      await app.inject({
-        method: 'POST',
-        url: '/api/projects',
-        headers: await session('zhangsan'),
-        payload: { name: '非法旁路' },
-      })
-    ).statusCode,
-  ).toBe(404);
+  const headers = await session('zhangsan');
+  const rejected = await app.inject({
+    method: 'POST',
+    url: '/api/projects',
+    headers: { ...headers, origin: 'http://127.0.0.1:28080' },
+    payload: { requestKey: randomUUID(), name: '合成未授权项目', market: 'US' },
+  });
+  expect(rejected.statusCode).toBe(403);
+  expect(rejected.json()).toMatchObject({ error: { code: 'CSRF_REJECTED' } });
+  const projects = await app.inject({ url: '/api/projects', headers });
+  expect(projectListSchema.parse(projects.json()).items.map((project) => project.name)).toEqual([
+    'L08 510(k)',
+  ]);
 });

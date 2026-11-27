@@ -6,7 +6,7 @@
 
 ## 验收
 
-- `pnpm test:int apps/backend/src/api/project-create-routes.int.test.ts apps/backend/src/projects/service.int.test.ts` 检查登录、CSRF、负责人、目标、初版说明、并发重试和失败回滚。
+- `pnpm test:int apps/backend/src/api/project-create-routes.int.test.ts apps/backend/src/projects/routes.int.test.ts apps/backend/src/projects/service.int.test.ts` 检查登录、CSRF、负责人、目标、初版说明、并发重试和失败回滚。原项目路由用例改为在合法请求体缺少 CSRF 时检查 `403 CSRF_REJECTED`，并核对项目列表。
 - `pnpm test:e2e` 用合成项目和剧本模型验证网页创建、空白项目工作区、刷新后恢复项目，以及从项目主页发起对话时预选项目和立项目标。确认发送首条消息后，实际调用登记过的 `plan_update`。正式模型走查与独立复审仍按原合并条件执行。
 - 代码提交 `e94b5c8` 在独立 Linux 虚拟机通过 2 项定点单测、13 项项目集成及 62 项 Chromium 检查。浏览器从空白项目发起的合成对话实际执行 `plan_update`，运行与新项目的首个目标一致。[创建表单](../evidence/pr-v1-01-create-project.png) · [新项目主页](../evidence/pr-v1-02-new-project.png)
 
