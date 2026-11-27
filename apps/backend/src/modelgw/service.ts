@@ -26,6 +26,8 @@ import {
   markUsageNotDispatched,
   meteringCanResume,
 } from '../budget/service.js';
+import { CursorOutputLimitError, CursorReplyFormatError } from './cursor-acceptance.js';
+import { CursorAcpNativeToolError } from '../external-model/cursor-acp.js';
 
 export type UpstreamChatRequest = Omit<ChatRequest, 'model' | 'stream'> & {
   model: string;
@@ -42,6 +44,7 @@ export interface GatewayTransport {
     model: GatewayModelConfig,
     body: UpstreamChatRequest,
     signal?: AbortSignal,
+    beforeCursorDispatch?: () => Promise<void>,
   ): Promise<unknown>;
 }
 type GatewayOptions = { environment?: 'development' | 'test' | 'production' };
@@ -342,7 +345,7 @@ export class ModelGateway {
       model: model.upstreamModel,
       max_tokens: requested,
       stream: false,
-      ...(model.transport === 'local'
+      ...(model.transport === 'local' || model.transport === 'cursor-acp'
         ? {}
         : {
             provider: {
@@ -399,7 +402,7 @@ export class ModelGateway {
       await this.releaseUnsent(context, signal);
       throw error;
     }
-    if (beforeDispatch) {
+    if (beforeDispatch && model.transport !== 'cursor-acp') {
       try {
         await beforeDispatch();
         if (signal?.aborted) throw new Error('dispatch_cancelled');
@@ -437,8 +440,43 @@ export class ModelGateway {
       completion_tokens: maxOutputTokens,
     };
     try {
-      raw = await this.transport.send(model, body, signal);
+      raw =
+        model.transport === 'cursor-acp'
+          ? await this.transport.send(model, body, signal, async () => {
+              if (this.meteringBlocks.size || signal?.aborted)
+                throw new Error('dispatch_cancelled');
+              await this.routing(context, model);
+              await beforeDispatch?.();
+              await this.routing(context, model);
+              if (this.meteringBlocks.size || signal?.aborted)
+                throw new Error('dispatch_cancelled');
+            })
+          : await this.transport.send(model, body, signal);
     } catch (error) {
+      if (error instanceof CursorOutputLimitError) {
+        await this.incomplete(context, 'missing_usage');
+        throw rejected('MODEL_OUTPUT_LIMIT', error.message, 502);
+      }
+      if (model.transport === 'cursor-acp' && object(error)?.confirmedNotSent === true) {
+        await this.releaseUnsent(context, signal);
+        throw rejected(
+          'MODEL_DISPATCH_BLOCKED',
+          'Cursor 尚未发送模型请求。请核对验收配置、数据级别和运行状态。',
+          502,
+        );
+      }
+      if (model.transport === 'cursor-acp' && error instanceof CursorReplyFormatError) {
+        await this.incomplete(context, 'request_uncertain');
+        throw rejected('MODEL_CURSOR_REPLY_INVALID', error.message, 502);
+      }
+      if (model.transport === 'cursor-acp' && error instanceof CursorAcpNativeToolError) {
+        await this.incomplete(context, 'request_uncertain');
+        throw rejected(
+          'MODEL_CURSOR_NATIVE_TOOL_BLOCKED',
+          'Cursor 请求了自身工具，已阻止本轮继续。',
+          502,
+        );
+      }
       const rawUsage = object(error)?.usage,
         usage = this.usage(rawUsage);
       if (usage || local)

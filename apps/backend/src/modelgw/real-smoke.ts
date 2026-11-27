@@ -26,7 +26,7 @@ async function main() {
     );
   const config = await loadModelGatewayConfig({ environment: 'development' });
   const model = selectGatewayModel(config, 'evaluation');
-  if (!model || model.transport === 'local' || !process.env[model.apiKeyEnv])
+  if (!model || model.transport === 'local' || model.transport === 'cursor-acp' || !process.env[model.apiKeyEnv])
     throw new AppError(403, 'REAL_TEST_CONFIG', '未配置可用测试模型或模型凭据。');
   const cx = process.argv.includes('--cx');
   if (cx && model.upstreamModel !== 'openai/gpt-6.2-astra-pro')

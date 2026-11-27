@@ -15,7 +15,11 @@ import { developmentProjectId } from '../projects/seed.js';
 import { nanoToUsd } from '../budget/meter.js';
 import { createDependencies } from '../dependencies.js';
 import { BlobStore } from '../documents/blob-store.js';
-import { requiredRevisionSections, revisionSections } from './walkthrough-report.js';
+import {
+  canRequestReviewResubmission,
+  requiredRevisionSections,
+  revisionSections,
+} from './walkthrough-report.js';
 import { exerciseBatch, maintenancePrompt, registrationPrompt } from './walkthrough-batch.js';
 import { checkOfficialBrowserRun } from './official-walkthrough.js';
 import { checkRulesBrowserRun } from './rules-walkthrough.js';
@@ -88,28 +92,66 @@ async function waitForReview(
   pool: pg.Pool,
   conversationId: string,
   expectedCount: number,
+  resubmission?: { previousCardId: string; runId: string; requested: boolean },
 ) {
   const until = Date.now() + budgetOfWaiting;
   let lastAnswered: string | null = null;
   while (Date.now() < until) {
     const cards = (
-      await pool.query<{ id: string; status: string }>(
-        'SELECT id,status FROM review_card WHERE conversation_id=$1 ORDER BY created_at,id',
+      await pool.query<{ id: string; status: string; run_id: string }>(
+        'SELECT id,status,run_id FROM review_card WHERE conversation_id=$1 ORDER BY created_at,id',
         [conversationId],
       )
     ).rows;
     if (cards.length >= expectedCount && cards.at(-1)?.status === 'pending') {
+      if (resubmission) assert.equal(cards.at(-1)?.run_id, resubmission.runId);
       const next = page.getByRole('button', { name: '查看审核', exact: true }).last();
       await next.waitFor({ timeout: 15000 });
       return cards.at(-1)!.id;
     }
     const run = (
-      await pool.query<{ id: string; status: string }>(
-        'SELECT r.id,r.status FROM conversation c JOIN run r ON r.id=c.current_run_id WHERE c.id=$1',
-        [conversationId],
+      await pool.query<{ id: string; status: string; current_run_id: string | null }>(
+        `SELECT r.id,r.status,c.current_run_id FROM conversation c
+          JOIN run r ON r.id=COALESCE($2::uuid,c.current_run_id) AND r.conversation_id=c.id
+          WHERE c.id=$1`,
+        [conversationId, resubmission?.runId ?? null],
       )
     ).rows[0];
+    if (resubmission && run?.current_run_id !== resubmission.runId)
+      throw new Error('WALKTHROUGH_RUN_CHANGED');
     if (run && ['failed', 'stopped', 'budget_exhausted'].includes(run.status)) {
+      if (resubmission && !resubmission.requested && run.status === 'stopped') {
+        const reason = await pool.query<{ code: string | null; tool_failed: boolean }>(
+          `SELECT e.payload_json->>'reasonCode' AS code,EXISTS(
+              SELECT 1 FROM conversation_event f WHERE f.run_id=e.run_id AND f.type='tool_failed'
+            ) AS tool_failed
+            FROM conversation_event e JOIN conversation c ON c.current_run_id=e.run_id
+            WHERE c.id=$2 AND e.run_id=$1 AND e.type='run_status' ORDER BY e.seq DESC LIMIT 1`,
+          [run.id, conversationId],
+        );
+        const stopped = reason.rows[0];
+        if (
+          stopped &&
+          canRequestReviewResubmission(
+            resubmission.previousCardId,
+            cards,
+            run.status,
+            stopped.code,
+            resubmission.requested,
+            stopped.tool_failed,
+          )
+        ) {
+          resubmission.requested = true;
+          console.log('真实 R09 改稿轮未生成审核卡。通过原对话发送一次重提请求。');
+          const resumed = await send(
+            page,
+            '请继续刚才的修改，核对同一报告路径内的核查范围、已核实和待核实三个小节，保存文件并重新提交审核卡。',
+          );
+          assert.notEqual(resumed.runId, run.id);
+          resubmission.runId = resumed.runId;
+          continue;
+        }
+      }
       console.error(`${stage}出现运行错误。错误编号 ${run.id}`);
       throw new Error('WALKTHROUGH_RUN_STOPPED');
     }
@@ -138,6 +180,10 @@ async function review(page: Page, pool: pg.Pool, cardId: string, output: string,
   await page.getByRole('button', { name: '查看审核', exact: true }).last().click();
   const card = page.getByRole('article', { name: '审核结果', exact: true });
   await card.getByRole('heading', { name: '审核卡', exact: true }).waitFor();
+  const evaluation = card.locator('details').filter({ hasText: /运行评测/u });
+  await evaluation.locator('summary').click();
+  await evaluation.getByText(/^答案质量 · /u).waitFor();
+  await evaluation.getByText(/^策略遵守 · /u).waitFor();
   if (pendingReport) {
     const complete = card.locator('details').filter({ hasText: '完整待批改动' });
     await complete.locator('summary').click();
@@ -243,6 +289,7 @@ async function exerciseVerification(
   evidenceFolder: string,
   onOpened?: (id: string) => void,
 ) {
+  const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
   const readyUntil = Date.now() + 30_000;
   let workerReady = false;
   while (Date.now() < readyUntil) {
@@ -255,7 +302,7 @@ async function exerciseVerification(
     }
     await wait(500);
   }
-  assert.ok(workerReady, '外部核实进程必须同时就绪 Cursor 和 OpenRouter');
+  assert.ok(workerReady, '外部核实进程必须同时就绪 Cursor 与模型网关');
   await page.getByRole('button', { name: '外部模型', exact: true }).click();
   const group = page.getByRole('region', { name: '外部核实群聊', exact: true });
   const created = page.waitForResponse(
@@ -302,13 +349,22 @@ async function exerciseVerification(
   assert.ok(
     tested.some((item) => item.channel === 'gateway' && item.model === 'claude-opus-5-5-gateway'),
   );
+  if (cursorAcceptance) {
+    const { rowCount } = await pool.query(
+      `SELECT 1 FROM external_model_exchange e JOIN usage_ledger u ON u.request_key=e.id
+       WHERE e.conversation_id=$1 AND e.channel='gateway' AND e.returned->>'text' IS NOT NULL
+       AND u.model_id='cursor/claude-opus-5.5' AND u.status='unknown' AND e.status='unknown'`,
+      [id],
+    );
+    assert.ok(rowCount, '验收时网关核实须来自 Cursor 的 Claude Opus 5.5');
+  }
   const stop = group.getByRole('button', { name: '停止并整理', exact: true });
   if ((await stop.count()) === 1 && (await stop.isEnabled())) await stop.click();
   await group
     .getByRole('complementary', { name: '核实结论', exact: true })
     .waitFor({ timeout: 120000 });
   await page.screenshot({ path: path.join(evidenceFolder, 'verification-v7.png') });
-  return { id, channels: tested };
+  return { id, channels: tested, gatewayTransport: cursorAcceptance ? 'cursor-acp' : 'openrouter' };
 }
 
 export type WalkthroughBatchContext = {
@@ -508,12 +564,16 @@ async function main() {
     const original = await waitForReview(page, pool, registration, 1);
     const firstReport = await inspectSubmission(pool, original, 'R09');
     await review(page, pool, original, path.join(evidenceFolder, 'r09-first-review.png'), false);
+    const cursorAcceptance = process.env.CERT_WALKTHROUGH_CURSOR === '1';
     stage = '真实 R09 修改重提和人工通过';
-    await send(
+    const revision = await send(
       page,
       '请修改原路径的 Markdown 报告，新增或更新“核查范围”“已核实”“待核实”三个带 Markdown 标题的小节。各小节都补实质内容，然后保存并重新提交审核。',
     );
-    const revised = await waitForReview(page, pool, registration, 2);
+    const resubmission = cursorAcceptance
+      ? { previousCardId: original, runId: revision.runId, requested: false }
+      : undefined;
+    const revised = await waitForReview(page, pool, registration, 2, resubmission);
     await verifyRevision(pool, blobs, revised, firstReport);
     await review(page, pool, revised, path.join(evidenceFolder, 'r09-approved.png'), true);
     const registrationTools = await verifyTools(pool, registration);
@@ -535,7 +595,7 @@ async function main() {
     let errorId: string | null = null;
     let verification: Awaited<ReturnType<typeof exerciseVerification>> | null = null;
     if (process.env.CERT_WALKTHROUGH_DIAGNOSTIC !== '1') {
-      stage = '真实核实验证 Cursor 与 OpenRouter 两条通道';
+      stage = '真实核实验证 Cursor 与模型网关两条应用通道';
       verification = await exerciseVerification(page, pool, evidenceFolder);
       stage = '错误编号与日志关联';
       await page.goto(`${config.WEB_ORIGIN}/?conversation=${randomUUID()}`);
@@ -562,24 +622,39 @@ async function main() {
       await wait(1000);
     }
     const cost = (
-      await pool.query<{ model: string; paid: string; unknown: number; calls: number }>(
+      await pool.query<{ model: string; paid: string; unknown: number; notSent: number; calls: number }>(
         `SELECT model_id AS model,COALESCE(sum(actual_nano) FILTER(WHERE status='settled'),0)::text AS paid,
-       count(*) FILTER(WHERE status IN ('unknown','reserved'))::int AS unknown,count(*)::int AS calls
+       count(*) FILTER(WHERE status IN ('unknown','reserved'))::int AS unknown,
+       count(*) FILTER(WHERE status='not_sent')::int AS "notSent",count(*)::int AS calls
        FROM usage_ledger WHERE created_at>=$1 GROUP BY model_id ORDER BY model_id`,
         [startedAt],
       )
     ).rows;
-    assert.ok(cost.some(({ model }) => model === 'openai/gpt-6.2-astra-pro'));
+    const mainModel = cursorAcceptance ? 'cursor/gpt-5.6-sol' : 'openai/gpt-6.2-astra-pro';
+    assert.ok(cost.some(({ model, calls }) => model === mainModel && calls > 0));
+    if (cursorAcceptance) {
+      assert.ok(cost.every(({ calls, unknown, notSent, paid }) => calls === unknown + notSent && paid === '0'));
+      for (const conversationId of [registration, maintenance]) {
+        const { rows } = await pool.query<{ model: string }>(
+          `SELECT DISTINCT u.model_id AS model FROM usage_ledger u JOIN run r ON r.id=u.run_id
+           WHERE r.conversation_id=$1 AND u.purpose='agent'`, [conversationId],
+        );
+        assert.deepEqual(rows.map(({model}) => model), [mainModel]);
+      }
+    }
     assert.equal(blocked, 0);
     const proof = {
       status: 'passed',
       commit: testedCommit,
       instance,
+      mainModel,
+      modelTransport: cursorAcceptance ? 'cursor-acp' : 'openrouter',
       errorId,
       verification,
       registration: {
         url: `${config.WEB_ORIGIN}/?conversation=${registration}`,
         tools: registrationTools,
+        resubmissionRequested: resubmission?.requested ?? false,
       },
       maintenance: {
         url: `${config.WEB_ORIGIN}/?conversation=${maintenance}`,

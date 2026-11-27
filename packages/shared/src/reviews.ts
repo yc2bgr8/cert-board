@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { evaluationStatusViewSchema } from './evaluation.js';
 import {
   checkReportSchema,
   documentCitationSchema,
@@ -162,6 +163,7 @@ const reviewCardBaseSchema = z
     requiresJudgment: z.literal(false),
     sections: reviewSectionsSchema,
     checks: checkReportSchema,
+    evaluation: evaluationStatusViewSchema.nullable().optional(),
     diff: reviewDiffSchema,
     evidenceRefs: z.array(reviewEvidenceRefSchema).max(40),
     judgment: reviewJudgmentRecordSchema.nullable(),

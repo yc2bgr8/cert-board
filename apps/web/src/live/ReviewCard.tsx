@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DocumentCitation, ReviewCardView, ReviewDecisionInput } from '@cert-board/shared';
 import { SafeMarkdown } from '../SafeMarkdown.js';
 import { useBrowserCommand } from './ApprovalCard.js';
@@ -35,6 +35,28 @@ const statusLabels = {
   cancelled: '已取消',
 };
 const checkStatus = { passed: '通过', failed: '未通过', not_run: '未执行' };
+const evaluationStatuses = {
+  passed: '通过',
+  needs_review: '需复核',
+  failed: '未通过',
+  not_evaluated: '未评测',
+};
+const evaluationDimensions = {
+  task_completion: '任务完成',
+  answer_quality: '答案质量',
+  evidence: '依据充分',
+  tool_reliability: '工具可靠',
+  policy: '策略遵守',
+  efficiency: '效率',
+  collaboration: '协作质量',
+};
+const evaluationUnavailable = {
+  model_unavailable: '当前缺少本地语义复核端点',
+  same_model_family: '本地复核模型需与任务模型来自不同家族',
+  same_upstream_model: '任务模型与复核模型指向同一本地模型',
+  invalid_response: '语义复核回执格式无效',
+  provider_failure: '语义复核服务未完成请求',
+};
 const claimStatus = { checked: '已核对', inferred: '推断', unverified: '待核对' };
 const changeLabels = { added: '新增', modified: '修改', deleted: '删除' };
 const dateTime = new Intl.DateTimeFormat('zh-CN', {
@@ -157,6 +179,14 @@ function ReviewCardContent({
     retry: false,
   });
   const card = review.data;
+  const evaluationRetry = useMutation({
+    mutationFn: () => api.retryReviewEvaluation(reviewId),
+    onSuccess: (evaluation) =>
+      client.setQueryData<ReviewCardView>(
+        reviewKey,
+        (current) => current && { ...current, evaluation },
+      ),
+  });
   const linked = useLinkedVerifications(card && onOpenVerification ? reviewId : null, true);
   const verificationSettings = useQuery({
     queryKey: verificationSettingsKey(userId ?? ''),
@@ -250,7 +280,7 @@ function ReviewCardContent({
       ref.version !== sources[0]?.version ||
       ref.page !== sources[0]?.page,
   );
-  const { submission } = card;
+  const { submission, evaluation } = card;
 
   function refresh() {
     setRefreshing(true);
@@ -476,8 +506,59 @@ function ReviewCardContent({
               </li>
             ))}
           </ul>
-          <p className="live-review-meta">未执行 {card.checks.notRun.join('、')}</p>
+          <p className="live-review-meta">
+            未执行{' '}
+            {card.checks.notRun
+              .filter((code) => code !== 'V5' || evaluation?.semantic.status !== 'completed')
+              .join('、')}
+          </p>
           <p className="live-review-meta">V6 复算结构化期限。请人工核对叙述中的期限。</p>
+          {evaluation ? (
+            <details className="live-review-claims">
+              <summary>运行评测 · {evaluationStatuses[evaluation.result.overall]}</summary>
+              {evaluation.semantic.status !== 'completed' && (
+                <p className="live-review-meta">
+                  {evaluation.semantic.status === 'unavailable'
+                    ? evaluationUnavailable[evaluation.semantic.reason]
+                    : 'V5 语义复核待执行'}
+                </p>
+              )}
+              {evaluation.semantic.status === 'completed' &&
+                (!evaluation.semantic.dimensions.answer_quality ||
+                  !evaluation.semantic.dimensions.evidence) && (
+                  <p className="live-review-meta">V5 仍有关键维度待复核</p>
+                )}
+              <ul>
+                {(Object.keys(evaluationDimensions) as (keyof typeof evaluationDimensions)[]).map(
+                  (dimension) => (
+                    <li key={dimension}>
+                      {evaluationDimensions[dimension]} ·{' '}
+                      {evaluationStatuses[evaluation.result.dimensions[dimension].status]}
+                    </li>
+                  ),
+                )}
+              </ul>
+            </details>
+          ) : (
+            evaluation === null && (
+              <p className="live-review-meta">
+                运行评测未生成。{' '}
+                {!card.legacySubmission && (
+                  <button
+                    className="live-review-link"
+                    type="button"
+                    disabled={evaluationRetry.isPending}
+                    onClick={() => evaluationRetry.mutate()}
+                  >
+                    {evaluationRetry.isPending ? '正在重试评测…' : '重试评测存档'}
+                  </button>
+                )}
+                {evaluationRetry.isError && (
+                  <span role="alert">{errorMessage(evaluationRetry.error)}</span>
+                )}
+              </p>
+            )
+          )}
           <details className="live-review-claims">
             <summary>核对的陈述</summary>
             <ul>

@@ -2,7 +2,11 @@
   "headless": [
     "apps/backend/src/agent/pi/kernel.test.ts",
     "apps/backend/src/agent/pi/dependencies.test.ts",
-    "apps/backend/src/agent/evaluation/scenarios.test.ts"
+    "apps/backend/src/agent/evaluation/scenarios.test.ts",
+    "apps/backend/src/agent/evaluation/assessment.test.ts",
+    "apps/backend/src/agent/evaluation/replay.test.ts",
+    "apps/backend/src/agent/evaluation/replay-kernel.test.ts",
+    "apps/backend/src/agent/evaluation/semantic.test.ts"
   ],
   "integration": [
     "apps/backend/src/agent/runtime.int.test.ts",

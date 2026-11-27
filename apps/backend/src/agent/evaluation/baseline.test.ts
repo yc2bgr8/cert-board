@@ -98,6 +98,74 @@ test('拒绝旧提交、失败走查、缺模型计量及未齐备的工具或�
       verification: { channels: [proof.verification.channels[0], proof.verification.channels[0]] },
     }),
   ).toThrow();
+  expect(() =>
+    summarize(report, {
+      ...proof,
+      verification: {
+        channels: [
+          { ...proof.verification.channels[0], status: 'unknown' },
+          proof.verification.channels[1],
+        ],
+      },
+    }),
+  ).toThrow();
+});
+
+test('Cursor 真实回执只接受相符的通道、两种模型并如实保留待核账', () => {
+  const cursor = {
+    ...proof,
+    modelTransport: 'cursor-acp',
+    mainModel: 'cursor/gpt-5.6-sol',
+    verification: {
+      gatewayTransport: 'cursor-acp',
+      channels: [
+        proof.verification.channels[0],
+        { ...proof.verification.channels[1], status: 'unknown' },
+      ],
+    },
+    cost: [
+      { model: 'cursor/gpt-5.6-sol', calls: 4, unknown: 4, notSent: 0, usd: '0' },
+      { model: 'cursor/claude-opus-5.5', calls: 1, unknown: 1, notSent: 0, usd: '0' },
+    ],
+  };
+  expect(summarize(report, cursor)).toMatchObject({
+    primaryModel: 'cursor/gpt-5.6-sol',
+    modelTransport: 'cursor-acp',
+    unsettledRequests: 5,
+    settledUsd: '0',
+  });
+  expect(() => summarize(report, { ...cursor, mainModel: 'openai/gpt-6.2-astra-pro' })).toThrow();
+  expect(() => summarize(report, { ...cursor, cost: proof.cost })).toThrow();
+  expect(() =>
+    summarize(report, {
+      ...cursor,
+      verification: { ...cursor.verification, channels: proof.verification.channels },
+    }),
+  ).toThrow();
+  expect(() =>
+    summarize(report, {
+      ...cursor,
+      cost: [cursor.cost[0], { ...cursor.cost[1], unknown: 0 }],
+    }),
+  ).toThrow();
+  expect(() =>
+    summarize(report, { ...cursor, cost: [{ ...cursor.cost[0], unknown: 0 }, cursor.cost[1]] }),
+  ).toThrow();
+  expect(() =>
+    summarize(report, { ...cursor, cost: [{ ...cursor.cost[0], unknown: 2 }, cursor.cost[1]] }),
+  ).toThrow();
+  expect(() =>
+    summarize(report, {
+      ...cursor,
+      cost: [{ ...cursor.cost[0], notSent: undefined }, cursor.cost[1]],
+    }),
+  ).toThrow();
+  expect(
+    summarize(report, {
+      ...cursor,
+      cost: [{ ...cursor.cost[0], unknown: 2, notSent: 2 }, cursor.cost[1]],
+    }),
+  ).toMatchObject({ requests: 5, unsettledRequests: 3 });
 });
 
 test('只接受虚拟机走查步骤记录的那轮回执', () => {

@@ -49,6 +49,8 @@ import { toolLabel, toolSummary } from './tool-progress.js';
 import { sandboxWorkTimeMs } from '../sandbox/client.js';
 import { investigateSubagents, questionForSubagentConflicts, subagentTool } from './subagents.js';
 import { compactAgentHistory } from './context-history.js';
+import { reviewSemantics } from './evaluation/semantic.js';
+import { captureRunEvaluation } from './evaluation/review-evaluation.js';
 import { assertRunLease, renewRunLease, releaseRunLease } from '../runs/lease.js';
 import { lockOwnedRun } from '../runs/lock.js';
 import { RUN_CONTROL_CHANNEL } from '../runs/control.js';
@@ -674,6 +676,7 @@ export async function executeAgentRun(
       )
         readyHistory = [...readyHistory, reference];
     }
+    let retriedCursorReply = false;
     const completeModel = async (
       purpose: string,
       request: ChatRequest,
@@ -696,24 +699,63 @@ export async function executeAgentRun(
             userId: context.userId,
             event: { type: 'model_started' },
           });
-        const response = await gateway.complete(
-          request,
-          {
-            requestKey,
+        const attempt = (input: ChatRequest, key: string) =>
+          gateway.complete(
+            input,
+            {
+              requestKey: key,
+              runId,
+              conversationId: context.conversationId,
+              userId: context.userId,
+              purpose,
+            },
+            signal,
+            ensureActive,
+          );
+        let acceptedKey = requestKey;
+        const response = await attempt(request, requestKey).catch(async (error: unknown) => {
+          if (
+            !(error instanceof AppError) ||
+            error.code !== 'MODEL_CURSOR_REPLY_INVALID' ||
+            model.transport !== 'cursor-acp' ||
+            purpose !== 'agent' ||
+            retriedCursorReply ||
+            request.messages.length >= 256
+          )
+            throw error;
+          await ensureActive();
+          retriedCursorReply = true;
+          await appendRunEvent(pool, {
             runId,
-            conversationId: context.conversationId,
             userId: context.userId,
-            purpose,
-          },
-          signal,
-          ensureActive,
-        );
+            event: { type: 'model_started' },
+          });
+          acceptedKey = randomUUID();
+          return attempt(
+            {
+              ...request,
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    '上一次返回未通过回合结构校验。请重新根据本轮请求返回一个完整的 JSON 回合，并在 actions 中声明下一步所需的已登记工具。',
+                },
+                ...request.messages,
+              ],
+            },
+            acceptedKey,
+          );
+        });
+        if (response.requestKey !== acceptedKey)
+          throw new KernelToolError('MODEL_RESPONSE_INVALID', '模型回执的请求编号不匹配。', {
+            recoverable: false,
+          });
         await appendRunEvent(pool, {
           runId,
           userId: context.userId,
           event: {
             type: 'model_completed',
-            requestId: requestKey,
+            requestId: response.requestKey,
             ...(response.usage
               ? {
                   inputTokens: response.usage.inputTokens,
@@ -725,7 +767,7 @@ export async function executeAgentRun(
             dataLevel: response.dataLevel,
           },
         });
-        return response;
+        return acceptedKey === requestKey ? response : { ...response, requestKey };
       } catch (error) {
         throw new KernelToolError(
           error instanceof AppError || error instanceof KernelToolError
@@ -905,7 +947,20 @@ export async function executeAgentRun(
                   }),
                 },
               });
-              if (entry.name === 'submit_for_review') {
+              if (entry.name === 'submit_for_review' && reviewId) {
+                await reviewSemantics(
+                  pool,
+                  runId,
+                  reviewId,
+                  dependencies.models,
+                  model,
+                  async (request) => (
+                    await completeModel('evaluation', request, {
+                      requestKey: randomUUID(),
+                      signal: tool.signal,
+                    })
+                  ).message.content,
+                ).catch(() => undefined);
                 return { data: result.data, terminal: 'review' as const };
               }
               if (entry.name === 'ask_user')
@@ -1191,6 +1246,8 @@ export async function executeAgentRun(
     // 用户提前决定时，派发器须等本轮的结束事件写入后才重新排队。
     await releaseAuthority();
   }
+  if (!reviewId && !['queued', 'running'].includes(status))
+    await captureRunEvaluation(pool, runId, status);
   return {
     runId,
     status,

@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReviewCardView, WorkspaceRecord } from '@cert-board/shared';
+import { evaluationDimensionSchema, evaluationStatusViewSchema } from '@cert-board/shared';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { api, ApiError } from './api.js';
@@ -148,6 +149,29 @@ function fixture(configure?: (card: ReviewCardView) => void) {
   );
   return { card, workspace, callbacks };
 }
+
+it('审核卡可展开七维评测及语义复核失败的原因', async () => {
+  fixture((card) => {
+    const dimensions = Object.fromEntries(
+      evaluationDimensionSchema.options.map((name) => [
+        name,
+        { status: 'needs_review', findings: [] },
+      ]),
+    );
+    const score = { dimensions, overall: 'needs_review' };
+    card.evaluation = evaluationStatusViewSchema.parse({
+      version: '0.1.0',
+      deterministic: score,
+      semantic: { status: 'unavailable', reason: 'model_unavailable' },
+      result: score,
+    });
+  });
+  const details = await screen.findByText('运行评测 · 需复核');
+  fireEvent.click(details);
+  expect(screen.getByText('当前缺少本地语义复核端点')).toBeTruthy();
+  expect(screen.getByText('依据充分 · 需复核')).toBeTruthy();
+  expect(screen.getByRole('button', { name: '通过' })).toBeTruthy();
+});
 
 it('结构化期限通过 V6 时仍提示人工核对同卡的叙述期限', async () => {
   fixture((card) => {

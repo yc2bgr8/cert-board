@@ -10,6 +10,7 @@ import { FetcherClient } from './documents/fetcher-client.js';
 import { loadModelGatewayConfig, parseAllowedModelHosts } from './modelgw/config.js';
 import { ModelGateway } from './modelgw/service.js';
 import { createWorkerModelTransport, type RealGatewayTransport } from './modelgw/transport.js';
+import { readCursorAcceptanceConfig } from './modelgw/cursor-acceptance.js';
 import { buildAgentTools } from './agent/default-tools.js';
 import { buildWebTools } from './tools/web-tools.js';
 import { executeAgentRun } from './agent/runtime.js';
@@ -105,7 +106,11 @@ export async function startWorker() {
   try {
     dependencies = createDependencies(config);
     const resources = dependencies;
-    const models = await loadModelGatewayConfig({ environment: config.NODE_ENV });
+    const cursorAcceptance = await readCursorAcceptanceConfig(config.NODE_ENV);
+    const models = await loadModelGatewayConfig({
+      environment: config.NODE_ENV,
+      allowCursorAcceptance: cursorAcceptance !== undefined,
+    });
     const allowedHosts = parseAllowedModelHosts(
       await readFile(new URL('../../../deploy/egress/allowlist', import.meta.url), 'utf8'),
     );
@@ -113,6 +118,7 @@ export async function startWorker() {
       ...(process.env.HTTPS_PROXY ? { proxyUrl: process.env.HTTPS_PROXY } : {}),
       containerRuntime: config.CONTAINER_RUNTIME,
       allowedHosts,
+      ...(cursorAcceptance && { cursorAcceptance }),
     });
     const gateway = new ModelGateway(resources.database, models, transport, {
       environment: config.NODE_ENV,

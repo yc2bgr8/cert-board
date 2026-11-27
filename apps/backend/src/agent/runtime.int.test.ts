@@ -15,6 +15,7 @@ import { seedDevelopmentBudgetPolicy } from '../budget/service.js';
 import { appendConversationMessage } from '../conversations/storage.js';
 import * as conversationStorage from '../conversations/storage.js';
 import { ModelGateway, type GatewayTransport } from '../modelgw/service.js';
+import { cursorAcceptanceModels, CursorReplyFormatError } from '../modelgw/cursor-acceptance.js';
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { ingestParsedDocument } from '../documents/service.js';
 import type { ToolDefinition } from '../tools/registry.js';
@@ -104,6 +105,50 @@ afterEach(async () => {
   vi.restoreAllMocks();
   await close?.();
   close = undefined;
+});
+
+test.each([false, true])('Cursor 格式回合只复试一次并单独计量（再次失败：%s）', async (again) => {
+  const context = await createIntegrationContext();
+  close = () => context.close();
+  const store = new MemoryStore();
+  await seedDevelopmentWorkspace(context.pool, store, { NODE_ENV: 'test' });
+  await seedDevelopmentBudgetPolicy(context.pool, 'test');
+  const target = await queued(context, 'read_only');
+  const models: ModelGatewayConfig = { version: 1, models: cursorAcceptanceModels };
+  const corrections: boolean[] = [];
+  const gateway = new ModelGateway(
+    context.pool,
+    models,
+    {
+      kind: 'fixture',
+      async send(_model, request) {
+        corrections.push(
+          request.messages[0]?.content?.includes('上一次返回未通过回合结构校验') ?? false,
+        );
+        if (corrections.length === 1 || again) throw new CursorReplyFormatError();
+        const reply = result({ role: 'assistant', content: '合成核查完成。' });
+        return { id: reply.id, object: reply.object, choices: reply.choices };
+      },
+    },
+    { environment: 'test' },
+  );
+  const outcome = await executeAgentRun(
+    { pool: context.pool, store, gateway, models, definitions: [] },
+    target.runId,
+  );
+  expect(outcome.status).toBe(again ? 'failed' : 'completed');
+  expect(corrections).toEqual([false, true]);
+  const { rows } = await context.pool.query<{ request_key: string; status: string }>(
+    'SELECT request_key,status FROM usage_ledger WHERE run_id=$1 ORDER BY created_at',
+    [target.runId],
+  );
+  expect(rows.map(({ status }) => status)).toEqual(['unknown', 'unknown']);
+  expect(rows[0]?.request_key).not.toBe(rows[1]?.request_key);
+  const completed = await context.pool.query<{ request_id: string }>(
+    "SELECT request_id FROM run_event WHERE run_id=$1 AND type='model_completed'",
+    [target.runId],
+  );
+  expect(completed.rows).toEqual(again ? [] : [{ request_id: rows[1]?.request_key }]);
 });
 
 test('Agent 剧本在容器模式收不到核实工具，宿主模式仍能使用', async () => {
