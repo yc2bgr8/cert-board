@@ -8,6 +8,7 @@
 
 - `pnpm test:int apps/backend/src/api/project-create-routes.int.test.ts apps/backend/src/projects/service.int.test.ts` 检查登录、CSRF、负责人、目标、初版说明、并发重试和失败回滚。
 - `pnpm test:e2e` 用剧本模型验证网页创建、空白项目工作区、真实工具登记并执行首轮计划。使用合成项目，不依赖 L08 资料。正式模型走查与独立复审仍按原合并条件执行。
+- 代码提交 `e94b5c8` 在独立 Linux 虚拟机通过 2 项定点单测、13 项项目集成及 62 项 Chromium 检查。浏览器从空白项目发起的合成对话实际执行 `plan_update`，运行与新项目的首个目标一致。[创建表单](../evidence/pr-v1-01-create-project.png) · [新项目主页](../evidence/pr-v1-02-new-project.png)
 
 ## 余项
 
