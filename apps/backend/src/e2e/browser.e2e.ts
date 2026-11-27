@@ -1395,7 +1395,7 @@ async function main() {
       await until(async () => (await queryReceipts.count()) === 3);
       await queryReceipts.nth(0).getByText('完整', { exact: true }).waitFor();
       await queryReceipts.nth(0).getByText('当前项目', { exact: true }).waitFor();
-      await queryReceipts.nth(0).getByText('1.0.0', { exact: true }).waitFor();
+      await queryReceipts.nth(0).getByText('目录 1.0.0', { exact: true }).waitFor();
       await queryReceipts
         .nth(0)
         .getByText(/按项目法域日历日比较/u)

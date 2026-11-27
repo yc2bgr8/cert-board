@@ -54,33 +54,26 @@ const queryGaps: Record<PublicCertQueryReceipt['gaps'][number], string> = {
 
 function QueryReceipt({ receipt }: { receipt: PublicCertQueryReceipt }) {
   return (
-    <div role="group" aria-label="台账查询回执">
-      <dl>
-        <dt>查询</dt>
-        <dd>{queryNames[receipt.template]}</dd>
-        <dt>可回答性</dt>
-        <dd>{queryStatuses[receipt.status]}</dd>
-        <dt>范围</dt>
-        <dd>{receipt.scope === 'project' ? '当前项目' : '部门台账'}</dd>
-        <dt>目录版本</dt>
-        <dd>{receipt.catalogVersion}</dd>
-        <dt>查询时间</dt>
-        <dd>
-          <time dateTime={receipt.asOf}>{dateTime.format(new Date(receipt.asOf))}</time>
-        </dd>
-        {receipt.method && (
-          <>
-            <dt>口径</dt>
-            <dd>{receipt.method}</dd>
-          </>
-        )}
-        {receipt.gaps.length > 0 && (
-          <>
-            <dt>数据缺口</dt>
-            <dd>{receipt.gaps.map((gap) => queryGaps[gap]).join('、')}</dd>
-          </>
-        )}
-      </dl>
+    <div className="live-query-receipt" role="group" aria-label="台账查询回执">
+      <div className="live-query-receipt-heading">
+        <strong>{queryNames[receipt.template]}</strong>
+        <span className="live-notice-chip live-query-receipt-status" data-status={receipt.status}>
+          {queryStatuses[receipt.status]}
+        </span>
+      </div>
+      <p className="live-query-receipt-meta">
+        <span>{receipt.scope === 'project' ? '当前项目' : '部门台账'}</span>
+        <span>目录 {receipt.catalogVersion}</span>
+        <time dateTime={receipt.asOf} title="查询时间（北京时间）">
+          {dateTime.format(new Date(receipt.asOf))}
+        </time>
+      </p>
+      {receipt.method && <p>{receipt.method}</p>}
+      {receipt.gaps.length > 0 && (
+        <p className="live-query-receipt-gaps">
+          {receipt.gaps.map((gap) => queryGaps[gap]).join('、')}
+        </p>
+      )}
     </div>
   );
 }
@@ -136,11 +129,16 @@ export function RunDetails({ run }: { run: LiveRun }) {
           <ol className="live-run-timeline">
             {run.tools.map((tool) => (
               <li key={tool.id}>
-                <time dateTime={tool.createdAt}>{clock.format(new Date(tool.createdAt))}</time>
-                <p>
-                  {tool.summary || tool.name} · {toolStateNames[tool.status]}
-                </p>
-                {tool.certQuery && <QueryReceipt receipt={tool.certQuery} />}
+                {tool.certQuery ? (
+                  <QueryReceipt receipt={tool.certQuery} />
+                ) : (
+                  <>
+                    <time dateTime={tool.createdAt}>{clock.format(new Date(tool.createdAt))}</time>
+                    <p>
+                      {tool.summary || tool.name} · {toolStateNames[tool.status]}
+                    </p>
+                  </>
+                )}
               </li>
             ))}
           </ol>

@@ -380,6 +380,29 @@
 .live-run-timeline time {
   font: 12px var(--font-workbench-mono);
 }
+.live-query-receipt {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-cb-line);
+  border-radius: 8px;
+}
+.live-query-receipt-heading,
+.live-query-receipt-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 10px;
+}
+.live-query-receipt-meta,
+.live-query-receipt-gaps {
+  color: var(--color-cb-muted);
+  font-size: 12px;
+}
+.live-query-receipt-status[data-status='complete'] {
+  background: var(--color-cb-teal-soft);
+  color: var(--color-cb-teal-ink);
+}
 @media (max-width: 540px) {
   .live-composer-controls {
     align-items: flex-start;
