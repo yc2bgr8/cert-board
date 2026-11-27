@@ -260,6 +260,20 @@
 .live-human-revision {
   margin-top: 12px;
 }
+.live-revision-panel {
+  margin: 0 10px 10px;
+  border: 1px solid var(--color-cb-line-2);
+  border-radius: 12px;
+  background: var(--color-cb-paper);
+}
+.live-revision-panel-heading {
+  justify-content: space-between;
+}
+.live-revision-panel-heading h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
 .live-human-revision form {
   display: grid;
   gap: 10px;
@@ -269,15 +283,67 @@
   display: grid;
   gap: 4px;
 }
-.live-human-file span {
-  padding: 6px 8px;
+.live-revision-source {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--color-cb-soft);
+}
+.live-revision-source small, .live-human-file small {
+  color: var(--color-cb-muted);
+}
+.live-revision-path {
+  overflow-wrap: anywhere;
+}
+.live-human-file .live-revision-file-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 9px;
   border: 1px solid var(--color-cb-line);
-  border-radius: 6px;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
-.live-human-file:focus-within span {
+.live-human-file .live-revision-file-button svg {
+  flex-shrink: 0;
+}
+.live-human-file:focus-within .live-revision-file-button {
   outline: 2px solid var(--color-cb-teal-ink);
   outline-offset: 2px;
+}
+.live-revision-submit {
+  justify-self: start;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 7px;
+  background: var(--color-cb-mark);
+  color: white;
+}
+.live-revision-submit:disabled {
+  background: var(--color-cb-soft);
+  color: var(--color-cb-muted);
+}
+.live-revision-receipt, .live-revision-difference {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-cb-line);
+  border-radius: 8px;
+}
+.live-revision-receipt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+  background: var(--color-cb-teal-soft);
+}
+.live-revision-receipt p {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .live-human-revision pre {
   white-space: pre-wrap;

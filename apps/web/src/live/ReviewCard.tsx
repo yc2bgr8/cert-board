@@ -432,6 +432,7 @@ function ReviewCardContent({
                 projectId={card.projectId}
                 reviewId={card.id}
                 sourceVersionId={card.workspaceVersion}
+                sourceVersionNumber={version?.number}
                 expectedCurrentVersionId={workspace.data.currentVersionId}
                 current={version?.authorType === 'ai'}
                 paths={card.diff.changes

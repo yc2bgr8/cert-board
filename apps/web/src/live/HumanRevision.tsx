@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   humanRevisionMaxBytes,
@@ -8,6 +8,9 @@ import {
 } from '@cert-board/shared';
 import { useBrowserCommand } from './ApprovalCard.js';
 import { api, ApiError, errorMessage } from './api.js';
+import { ShellIcon } from './ShellIcon.js';
+
+type RevisionReceipt = Awaited<ReturnType<typeof api.saveHumanRevision>>;
 
 type RevisionAttempt = {
   number: number;
@@ -20,6 +23,7 @@ export function HumanRevision({
   reviewId,
   projectId,
   sourceVersionId,
+  sourceVersionNumber,
   expectedCurrentVersionId,
   current,
   paths,
@@ -30,6 +34,7 @@ export function HumanRevision({
   reviewId: string;
   projectId: string;
   sourceVersionId: string;
+  sourceVersionNumber?: number | undefined;
   expectedCurrentVersionId: string;
   current: boolean;
   paths: string[];
@@ -44,11 +49,15 @@ export function HumanRevision({
   const [uploadError, setUploadError] = useState('');
   const [reading, setReading] = useState(false);
   const [pending, setPending] = useState<RevisionAttempt>();
+  const [receipt, setReceipt] = useState<RevisionReceipt>();
+  const [openDifference, setOpenDifference] = useState<string>();
   useEffect(
     () => onPendingChange?.(reading || Boolean(pending)),
     [onPendingChange, reading, pending],
   );
   const fileInput = useRef<HTMLInputElement>(null);
+  const savedDifference = useRef<HTMLDetailsElement>(null);
+  const sourceControlId = useId();
   const nextAttempt = useRef(0);
   const [pages, setPages] = useState<(string | null)[]>([null]);
   const command = useBrowserCommand();
@@ -65,6 +74,10 @@ export function HumanRevision({
   const path = paths.includes(selection) ? selection : paths[0];
   const word = humanRevisionWordPathPattern.test(pending?.input.path ?? path ?? '');
   const fileLabel = word ? '修改稿（Word .docx）' : '修改稿（Markdown 或纯文本）';
+  function clearFile() {
+    setFile(undefined);
+    if (fileInput.current) fileInput.current.value = '';
+  }
   const refreshWorkspace = () =>
     client.invalidateQueries({
       predicate: ({ queryKey }) => {
@@ -138,8 +151,8 @@ export function HumanRevision({
     setReading(false);
     if (!receipt) return;
     setPending(undefined);
-    setFile(undefined);
-    if (fileInput.current) fileInput.current.value = '';
+    clearFile();
+    setReceipt(receipt);
     setPages([null]);
     await Promise.all([client.invalidateQueries({ queryKey: key }), refreshWorkspace()]);
   }
@@ -150,7 +163,7 @@ export function HumanRevision({
       open={expanded}
       onToggle={(event) => {
         setExpanded(event.currentTarget.open);
-        if (!event.currentTarget.open && !pending) setFile(undefined);
+        if (!event.currentTarget.open && !pending && !reading) clearFile();
       }}
     >
       <summary>人工修改稿</summary>
@@ -161,20 +174,41 @@ export function HumanRevision({
             void upload();
           }}
         >
-          <label>
-            替换文件
-            <select
-              value={path}
-              disabled={reading || Boolean(pending)}
-              onChange={(event) => setSelection(event.target.value)}
-            >
-              {paths.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="live-revision-source">
+            {paths.length > 1 ? (
+              <>
+                <label htmlFor={sourceControlId}>对照原稿</label>
+                <select
+                  id={sourceControlId}
+                  value={path}
+                  disabled={reading || Boolean(pending)}
+                  onChange={(event) => {
+                    setSelection(event.target.value);
+                    clearFile();
+                    setFileError('');
+                    setUploadError('');
+                    setReceipt(undefined);
+                  }}
+                >
+                  {paths.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : (
+              <>
+                <span>对照原稿</span>
+                <strong className="live-revision-path">{pending?.input.path ?? path}</strong>
+              </>
+            )}
+            <small>
+              {sourceVersionNumber
+                ? `Agent 工作区第 ${sourceVersionNumber} 版`
+                : '关联的 Agent 审核原稿'}
+            </small>
+          </div>
           <label className="live-human-file">
             {fileLabel}
             <input
@@ -193,7 +227,11 @@ export function HumanRevision({
                 setFileError('');
               }}
             />
-            <span aria-hidden="true">{file?.name ?? '选择修改稿'}</span>
+            <span className="live-revision-file-button" aria-hidden="true">
+              <ShellIcon name="attachment" />
+              {file?.name ?? '选择本机修改稿'}
+            </span>
+            <small>{word ? '完整 .docx 文件，最多 16 MiB' : '完整 UTF-8 文本，最多 128 KiB'}</small>
           </label>
           <label>
             资料密级
@@ -209,11 +247,11 @@ export function HumanRevision({
             </select>
           </label>
           <button
-            className="live-review-neutral"
+            className="live-review-primary live-revision-submit"
             type="submit"
             disabled={(!file && !pending) || reading || command.busy}
           >
-            {pending ? '确认上次上传' : '上传并保存新版本'}
+            {reading ? '正在保存…' : pending ? '确认上次上传' : '上传并保存新版本'}
           </button>
           {pending && !reading && !command.busy && (
             <button
@@ -221,8 +259,7 @@ export function HumanRevision({
               className="live-text-button"
               onClick={() => {
                 setPending(undefined);
-                setFile(undefined);
-                if (fileInput.current) fileInput.current.value = '';
+                clearFile();
                 setUploadError('');
                 void client.invalidateQueries({ queryKey: key });
                 void refreshWorkspace();
@@ -234,10 +271,40 @@ export function HumanRevision({
           {(fileError || uploadError) && <p role="alert">{fileError || uploadError}</p>}
         </form>
       )}
+      {expanded && receipt && (
+        <div className="live-revision-receipt">
+          <p role="status">
+            {receipt.path} 已保存为工作区第 {receipt.version.number} 版。
+          </p>
+          <button
+            type="button"
+            className="live-review-neutral"
+            disabled={!history.data?.items.some(({ id }) => id === receipt.id)}
+            onClick={() => {
+              setOpenDifference(receipt.id);
+              savedDifference.current?.scrollIntoView?.({ block: 'nearest' });
+              savedDifference.current?.querySelector('summary')?.focus();
+            }}
+          >
+            查看本次修改对比
+          </button>
+        </div>
+      )}
       {history.isError && <p role="alert">读取修改记录失败，请折叠后重新打开。</p>}
       {expanded &&
         history.data?.items.map((item) => (
-          <details key={item.id}>
+          <details
+            key={item.id}
+            className="live-revision-difference"
+            ref={receipt?.id === item.id ? savedDifference : undefined}
+            open={openDifference === item.id}
+            onToggle={(event) => {
+              const opened = event.currentTarget.open;
+              setOpenDifference((previous) =>
+                opened ? item.id : previous === item.id ? undefined : previous,
+              );
+            }}
+          >
             <summary>
               {item.path} · 人工修改第 {item.version.number} 版
             </summary>

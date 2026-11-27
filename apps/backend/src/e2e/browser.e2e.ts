@@ -1389,6 +1389,8 @@ async function main() {
       .getByRole('button', { name: `上传修改稿：${browserReviewPath}`, exact: true })
       .click();
     const upload = files.getByRole('region', { name: '上传工作区修改稿', exact: true });
+    await upload.getByRole('heading', { name: '上传修改稿', exact: true }).waitFor();
+    await upload.getByText(/Agent 工作区第 \d+ 版/u).waitFor();
     const revisionFile = upload.getByLabel('修改稿（Markdown 或纯文本）', { exact: true });
     await revisionFile.setInputFiles({
       name: '合成修改稿.md',
@@ -1436,7 +1438,8 @@ async function main() {
     page.off('request', observeRevisionRequest);
     assert.equal(attempts.length, 2);
     assert.deepEqual(attempts[1], attempts[0]);
-    await humanVersion.click();
+    await upload.getByRole('status').filter({ hasText: /已保存为工作区第 \d+ 版/u }).waitFor();
+    await upload.getByRole('button', { name: '查看本次修改对比', exact: true }).click();
     await upload.getByText('合成修改后的结论', { exact: true }).waitFor();
     await humanVersion.scrollIntoViewIfNeeded();
     await page.evaluate(async () => {

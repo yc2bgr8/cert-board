@@ -45,7 +45,13 @@ export const humanRevisionSourceQuerySchema = z.strictObject({
   path: workspacePathSchema,
 });
 export const humanRevisionSourceSchema = z.strictObject({
-  source: z.strictObject({ reviewId, sourceVersionId: z.uuid() }).nullable(),
+  source: z
+    .strictObject({
+      reviewId,
+      sourceVersionId: z.uuid(),
+      sourceVersionNumber: z.number().int().positive(),
+    })
+    .nullable(),
 });
 export const humanRevisionViewSchema = z.strictObject({
   id: z.uuid(),

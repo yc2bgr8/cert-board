@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ProjectFiles } from './ProjectFiles.js';
 import { ProjectDocuments } from './ProjectDocuments.js';
+import { HumanRevision } from './HumanRevision.js';
 import { setSessionCredentials } from './api.js';
 
 const mocks = vi.hoisted(() => ({
@@ -30,6 +31,18 @@ const oldId = '10000000-0000-4000-8000-000000000003';
 const currentId = '10000000-0000-4000-8000-000000000004';
 const documentId = '10000000-0000-4000-8000-000000000005';
 const clients: QueryClient[] = [];
+const revisionReceipt = {
+  id: documentId,
+  path: '结果/核查.docx',
+  version: { id: currentId, number: 3 },
+  skillId: 'R09',
+  skillVersion: '1.0.0',
+  difference: {
+    added: 1,
+    removed: 0,
+    paragraphs: [{ kind: 'added', number: 1, text: '合成新增段落' }],
+  },
+};
 function show(content: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   clients.push(client);
@@ -40,7 +53,7 @@ beforeEach(() => {
   mocks.intakeHistory.mockResolvedValue({ items: [], nextCursor: null });
   mocks.humanRevisionSource.mockResolvedValue({ source: null });
   mocks.humanRevisions.mockResolvedValue({ items: [], nextCursor: null });
-  mocks.saveWordRevision.mockResolvedValue({});
+  mocks.saveWordRevision.mockResolvedValue(revisionReceipt);
   mocks.workspace.mockResolvedValue({ id: workspaceId, currentVersionId: currentId });
   mocks.workspaceVersions.mockResolvedValue({
     items: [
@@ -78,7 +91,7 @@ it('项目文件页关联原审核卡并用原始字节上传 Word 修改稿', a
     nextCursor: null,
   });
   mocks.humanRevisionSource.mockResolvedValue({
-    source: { reviewId: documentId, sourceVersionId: oldId },
+    source: { reviewId: documentId, sourceVersionId: oldId, sourceVersionNumber: 1 },
   });
   mocks.saveWordRevision.mockRejectedValueOnce(new Error('合成上传响应丢失'));
   show(
@@ -90,6 +103,7 @@ it('项目文件页关联原审核卡并用原始字节上传 Word 修改稿', a
     />,
   );
   fireEvent.click(await screen.findByRole('button', { name: `上传修改稿：${path}` }));
+  await screen.findByText('Agent 工作区第 1 版');
   const input = await screen.findByLabelText('修改稿（Word .docx）');
   const file = new File(['合成修改稿字节'], '修改稿.docx', { type: mediaType });
   fireEvent.change(input, { target: { files: [file] } });
@@ -118,6 +132,56 @@ it('项目文件页关联原审核卡并用原始字节上传 Word 修改稿', a
   expect(mocks.saveWordRevision.mock.calls[1]![1].requestKey).not.toBe(
     mocks.saveWordRevision.mock.calls[0]![1].requestKey,
   );
+});
+
+it('切换对照原稿后清除旧的本机文件，保存回执可直接打开当前差异', async () => {
+  const first = '结果/主稿.docx';
+  const second = revisionReceipt.path;
+  let saved = false;
+  mocks.humanRevisions.mockImplementation(async () => ({
+    items: saved ? [revisionReceipt] : [],
+    nextCursor: null,
+  }));
+  mocks.saveWordRevision.mockImplementationOnce(async () => {
+    saved = true;
+    return revisionReceipt;
+  });
+  show(
+    <HumanRevision
+      workspaceId={workspaceId}
+      projectId={projectId}
+      reviewId={documentId}
+      sourceVersionId={oldId}
+      sourceVersionNumber={1}
+      expectedCurrentVersionId={currentId}
+      paths={[first, second]}
+      current
+      initiallyOpen
+    />,
+  );
+  const input = await screen.findByLabelText('修改稿（Word .docx）');
+  const submit = screen.getByRole<HTMLButtonElement>('button', { name: '上传并保存新版本' });
+  fireEvent.change(input, { target: { files: [new File(['第一份'], '主稿修改.docx')] } });
+  expect(submit.disabled).toBe(false);
+  fireEvent.change(screen.getByLabelText('对照原稿'), { target: { value: second } });
+  expect(submit.disabled).toBe(true);
+  fireEvent.click(submit);
+  expect(mocks.saveWordRevision).not.toHaveBeenCalled();
+  const file = new File(['第二份'], '核查修改.docx');
+  fireEvent.change(input, { target: { files: [file] } });
+  fireEvent.click(submit);
+  await screen.findByText(`${second} 已保存为工作区第 3 版。`);
+  expect(mocks.saveWordRevision).toHaveBeenCalledWith(
+    workspaceId,
+    expect.objectContaining({ path: second, sourceVersionId: oldId }),
+    file,
+  );
+  const compare = await screen.findByRole<HTMLButtonElement>('button', {
+    name: '查看本次修改对比',
+  });
+  await waitFor(() => expect(compare.disabled).toBe(false));
+  fireEvent.click(compare);
+  expect(screen.getByText('合成新增段落').closest('details')?.open).toBe(true);
 });
 
 it('从资料页提交 ZIP 并展示导入报告', async () => {

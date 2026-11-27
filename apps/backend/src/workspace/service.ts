@@ -1056,7 +1056,7 @@ export async function findHumanRevisionSource(
   const {
     rows: [source],
   } = await pool.query(
-    `SELECT r.id AS "reviewId",v.id AS "sourceVersionId"
+    `SELECT r.id AS "reviewId",v.id AS "sourceVersionId",v.number AS "sourceVersionNumber"
      FROM review_card r
      JOIN workspace_version v ON v.id=r.workspace_version_id AND v.workspace_id=$1 AND v.author_type='ai'
      JOIN workspace_file original ON original.version_id=v.id AND original.path=$4

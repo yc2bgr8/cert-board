@@ -212,7 +212,9 @@ test('浏览器把人工修改稿保存在新版本并保留原稿、审阅状�
           headers: reviewer.headers,
         })
       ).json(),
-    ).toEqual({ source: { reviewId: card.reviewId, sourceVersionId: sourceId } });
+    ).toEqual({
+      source: { reviewId: card.reviewId, sourceVersionId: sourceId, sourceVersionNumber: 2 },
+    });
     const wordInput = new URLSearchParams({
       reviewId: card.reviewId,
       sourceVersionId: sourceId,

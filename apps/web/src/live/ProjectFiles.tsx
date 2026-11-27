@@ -168,12 +168,12 @@ export function ProjectFiles({
             )}
             {revisionTarget && (
               <section
-                className="live-page-message"
+                className="live-page-message live-revision-panel"
                 aria-label="上传工作区修改稿"
                 hidden={!revisionOpen}
               >
-                <div className="live-human-feedback-actions">
-                  <strong>{revisionTarget.path}</strong>
+                <div className="live-human-feedback-actions live-revision-panel-heading">
+                  <h3>上传修改稿</h3>
                   <button
                     type="button"
                     className="live-text-button"
@@ -194,6 +194,7 @@ export function ProjectFiles({
                     projectId={projectId}
                     reviewId={revisionSource.data.source.reviewId}
                     sourceVersionId={revisionSource.data.source.sourceVersionId}
+                    sourceVersionNumber={revisionSource.data.source.sourceVersionNumber}
                     expectedCurrentVersionId={workspace.data.currentVersionId}
                     paths={[revisionTarget.path]}
                     current
