@@ -314,6 +314,16 @@ body {
 .live-project-group {
   margin-bottom: 23px;
 }
+.live-project-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.live-project-group-heading .live-icon-button {
+  margin-inline-end: 3px;
+  width: 27px;
+  height: 27px;
+}
 .live-project-group h2,
 .live-agent-group h2 {
   color: var(--muted);
@@ -736,6 +746,51 @@ body {
   background: var(--color-cb-bg);
   box-shadow: none;
   z-index: 2;
+}
+.live-new-project-dialog {
+  width: min(100% - 32px, 480px);
+  padding: 20px 22px;
+}
+.live-new-project-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.live-new-project-heading h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+}
+.live-new-project-heading p {
+  margin: 5px 0 0;
+  color: var(--color-cb-muted);
+}
+.live-new-project-dialog fieldset {
+  display: grid;
+  gap: 12px;
+}
+.live-new-project-dialog label {
+  display: grid;
+  gap: 5px;
+  color: var(--color-cb-ink);
+}
+.live-new-project-dialog label small { color: var(--color-cb-muted); }
+.live-new-project-dialog :where(input, select) {
+  width: 100%;
+  min-height: 36px;
+  padding-inline: 9px;
+  border: 1px solid var(--color-cb-line-2);
+  border-radius: 7px;
+  background: var(--color-cb-paper);
+}
+.live-new-project-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
 }
 .live-new-close {
   position: absolute;

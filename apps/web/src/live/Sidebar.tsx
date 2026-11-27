@@ -43,6 +43,7 @@ type Props = {
   onAgent(agent: AgentCode): void;
   onConversation(conversation: ConversationDetail): void;
   onNew(): void;
+  onNewProject(): void;
   onSearch(): void;
   onInbox(): void;
   onSettings(): void;
@@ -58,7 +59,13 @@ export function Sidebar(props: Props) {
   );
   const group = (type: 'registration' | 'maintenance', name: string) => (
     <section className="live-project-group" aria-label={name}>
-      <h2>{name}</h2>
+      <div className="live-project-group-heading">
+        <h2>{name}</h2>
+        {type === 'registration' && (
+          <button type="button" className="live-icon-button" aria-label="新建项目" title="新建项目"
+            onClick={props.onNewProject}><ShellIcon name="plus"/></button>
+        )}
+      </div>
       {props.projects
         .filter((project) => project.projectType === type)
         .map((project) => (

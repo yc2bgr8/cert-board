@@ -401,6 +401,26 @@ export const goal = pgTable(
   ],
 );
 
+export const browserProjectCreation = pgTable(
+  'browser_project_creation',
+  {
+    userId: uuid('user_id').notNull().references(() => appUser.id, { onDelete: 'restrict' }),
+    requestKey: uuid('request_key').notNull(),
+    payloadHash: varchar('payload_hash', { length: 64 }).notNull(),
+    projectId: uuid('project_id').notNull().unique().references(() => certProject.id, { onDelete: 'restrict' }),
+    goalId: uuid('goal_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.requestKey] }),
+    foreignKey({
+      name: 'browser_project_creation_goal_project_fk',
+      columns: [table.goalId, table.projectId],
+      foreignColumns: [goal.id, goal.projectId],
+    }).onDelete('restrict'),
+  ],
+);
+
 export const contact = pgTable(
   'contact',
   {

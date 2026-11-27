@@ -1362,6 +1362,38 @@ async function main() {
     } finally {
       harness.verification.runtime.status = savedStatus;
     }
+    stage = '空白注册项目进入工作区并发起立项';
+    await page.getByRole('button', { name: '注册Agent', exact: true }).click();
+    await page.getByRole('button', { name: '新建项目', exact: true }).click();
+    const projectDialog = page.getByRole('dialog', { name: '新建注册项目', exact: true });
+    const projectName = '合成北美器械立项';
+    await projectDialog.getByRole('textbox', { name: '项目名称' }).fill(projectName);
+    await projectDialog.getByRole('combobox', { name: '目标市场' }).selectOption('US_CA');
+    await captureWorkbench(page, output, 'pr-v1-01-create-project.png');
+    const creation = page.waitForResponse((response) =>
+      response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/projects',
+    );
+    await projectDialog.getByRole('button', { name: '创建并打开项目' }).click();
+    const savedProject = await creation;
+    assert.equal(savedProject.status(), 200);
+    const createdProject = await savedProject.json() as { project: { id: string }; goalId: string };
+    await projectDialog.waitFor({ state: 'hidden' });
+    await page.getByRole('heading', { name: projectName, exact: true }).first().waitFor();
+    await page.getByRole('region', { name: '工作目标' }).getByText('注册立项', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '文件', exact: true }).click();
+    await page.getByText('AGENTS.md', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '对话', exact: true }).click();
+    await captureWorkbench(page, output, 'pr-v1-02-new-project.png');
+    await createConversation(page, createdProject.project.id, 'full', '合成项目立项对话');
+    const kickoff = harness.plan('new_project_kickoff');
+    const firstRun = await send(page, '先做立项规划，请列出本项目待确认的资料。');
+    await page.getByText('已建立首轮立项计划，器械用途和申报路径待确认。', { exact: true }).waitFor();
+    assert.equal(kickoff.observed.calls, 2);
+    const createdRun = (
+      await harness.pool.query('SELECT goal_id,project_id FROM run WHERE id=$1', [firstRun.runId])
+    ).rows[0];
+    assert.deepEqual(createdRun, { goal_id: createdProject.goalId, project_id: createdProject.project.id });
+
     stage = 'CSP与零外网检查';
     const cspState = await page.evaluate(() => {
       const state = globalThis as typeof globalThis & {
@@ -1413,6 +1445,7 @@ async function main() {
             'browser_login_cookie_csrf',
             'redesigned_login_and_logo',
             'redesigned_agent_navigation_and_new_conversation',
+            'browser_creates_empty_project_with_workspace_and_starts_first_run',
             'mobile_sidebar_keeps_new_conversation',
             'redesigned_keyboard_search_at_1280_and_1440',
             'l08_real_tools',

@@ -14,6 +14,7 @@ import {
 
 export type BrowserScenario =
   | 'read'
+  | 'new_project_kickoff'
   | 'steering'
   | 'stop'
   | 'mode'
@@ -132,6 +133,13 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
           throw new Error('BROWSER_APPROVAL_RECEIPT_MODEL_CALLED');
         const latest = request.messages.at(-1);
         const previous: unknown = latest?.role === 'tool' ? JSON.parse(latest.content) : null;
+        if (kind === 'new_project_kickoff') {
+          if (phase++ === 0) return call('plan_update', {
+            steps: [{ title: '列出待确认的资料', status: 'completed' }],
+            progress: '已整理首轮立项计划。',
+          });
+          return response({ role: 'assistant', content: '已建立首轮立项计划，器械用途和申报路径待确认。' });
+        }
         if (kind === 'approval_text') {
           observed.reviewVerificationReceived = request.messages.some(
             (message) =>

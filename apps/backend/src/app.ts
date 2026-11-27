@@ -73,7 +73,7 @@ export function createApp(
       dependencies.blobStore ??
       (dependencies.storage ? new BlobStore(dependencies.storage, config.MINIO_BUCKET) : undefined);
     registerAuthRoutes(app, dependencies.database, config);
-    registerProjectRoutes(app, dependencies.database, config);
+    registerProjectRoutes(app, dependencies.database, config, blobStore);
     const originals =
       dependencies.blobStore ??
       (dependencies.storage

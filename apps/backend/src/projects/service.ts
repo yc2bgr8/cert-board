@@ -9,11 +9,16 @@ import {
   projectListOptionsSchema,
   projectPatchSchema,
   projectRecordSchema,
+  registrationProjectCreateSchema,
+  registrationProjectResultSchema,
+  type BrowserIdentity,
+  type ProjectCreate,
   type ServiceIdentity,
 } from '@cert-board/shared';
 import { authorize } from '../auth/authorization.js';
 import { currentServiceIdentity } from '../auth/member.js';
 import { AppError } from '../api/errors.js';
+import type { DocumentBlobStore } from '../documents/blob-store.js';
 
 type Executor = Pick<Pool, 'query'>;
 type Pagination = { cursor?: string; limit?: number };
@@ -168,21 +173,11 @@ function safeWriteError(error: unknown): never {
   throw new AppError(500, 'PROJECT_WRITE_FAILED', '项目保存失败，本次修改未生效，请稍后重试。');
 }
 
-export async function createProject(pool: Pool, identity: ServiceIdentity, input: unknown) {
-  const owner = actor(identity);
-  const parsed = projectCreateSchema.safeParse(input);
-  if (!parsed.success)
-    throw new AppError(400, 'PROJECT_INPUT_INVALID', '项目字段缺失或格式无效，请核对后重试。');
-  const data = parsed.data;
+async function insertProject(client: PoolClient, owner: ServiceIdentity, data: ProjectCreate) {
   const id = randomUUID();
   if (!authorize(owner, 'project.write', { projectId: id, ownerUserId: owner.userId }))
     throw forbidden();
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await activeActor(client, owner);
-    await reviewerAllowed(client, data.reviewerUserId ?? null);
-    const result = await client.query<Record<string, unknown>>(
+  const result = await client.query<Record<string, unknown>>(
       `INSERT INTO cert_project AS p
        (id, name, project_type, market, pathway, model_id, owner_user_id, reviewer_user_id,
         applicant_entity_id, holder_entity_id, target_at, jurisdiction_tz, next_action, created_by)
@@ -203,10 +198,24 @@ export async function createProject(pool: Pool, identity: ServiceIdentity, input
         data.nextAction ?? null,
       ],
     );
-    const row = result.rows[0];
-    if (!row) throw new Error('项目保存未返回记录');
-    const record = projectRecord(row);
-    await auditProject(client, owner, 'project.created', record.id, null, record);
+  const row = result.rows[0];
+  if (!row) throw new Error('项目保存未返回记录');
+  const record = projectRecord(row);
+  await auditProject(client, owner, 'project.created', record.id, null, record);
+  return record;
+}
+
+export async function createProject(pool: Pool, identity: ServiceIdentity, input: unknown) {
+  const owner = actor(identity);
+  const parsed = projectCreateSchema.safeParse(input);
+  if (!parsed.success)
+    throw new AppError(400, 'PROJECT_INPUT_INVALID', '项目字段缺失或格式无效，请核对后重试。');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await activeActor(client, owner);
+    await reviewerAllowed(client, parsed.data.reviewerUserId);
+    const record = await insertProject(client, owner, parsed.data);
     await client.query('COMMIT');
     return record;
   } catch (error) {
@@ -215,6 +224,75 @@ export async function createProject(pool: Pool, identity: ServiceIdentity, input
   } finally {
     client.release();
   }
+}
+
+const initialInstructions = [
+  '# 项目说明',
+  '',
+  '这是新建立的注册项目。以项目记录和注册人员已确认的资料为依据。',
+  '把缺失资料和未确定的事项列为待确认，保留结论依据，交注册人员审核。',
+  '',
+].join('\n');
+
+export async function createRegistrationProjectTx(
+  client: PoolClient,
+  owner: BrowserIdentity,
+  input: unknown,
+  store: DocumentBlobStore,
+) {
+  const parsed = registrationProjectCreateSchema.safeParse(input);
+  if (!parsed.success)
+    throw new AppError(400, 'PROJECT_INPUT_INVALID', '请填写项目名称、目标市场并检查申报路径。');
+  const { requestKey, name, market, pathway } = parsed.data;
+  const pendingPathway = pathway || '待研判';
+  const hash = digest({ name, market, pathway: pendingPathway });
+  await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+    `project-create:${owner.userId}:${requestKey}`,
+  ]);
+  const previous = (await client.query<{ project_id: string; goal_id: string; payload_hash: string }>(
+    'SELECT project_id,goal_id,payload_hash FROM browser_project_creation WHERE user_id=$1 AND request_key=$2',
+    [owner.userId, requestKey],
+  )).rows[0];
+  if (previous) {
+    if (previous.payload_hash !== hash)
+      throw new AppError(409, 'PROJECT_REQUEST_CONFLICT', '此请求已用于另一组项目内容，请重新提交。');
+    const project = await readProject(client, owner, previous.project_id);
+    return registrationProjectResultSchema.parse({ project, goalId: previous.goal_id, replayed: true });
+  }
+  const project = await insertProject(client, owner, projectCreateSchema.parse({
+    name,
+    market,
+    pathway: pendingPathway,
+    projectType: 'registration',
+    jurisdictionTz: market === 'CA' ? 'America/Toronto' : 'America/New_York',
+  }));
+  const goalId = randomUUID();
+  const workspaceId = randomUUID();
+  const versionId = randomUUID();
+  await client.query(
+    `INSERT INTO goal(id,project_id,owner_user_id,title,acceptance_criteria,created_by)
+     VALUES($1,$2,$3,'注册立项','明确项目目标、首批资料与待确认事项，提交注册人员审核。',$3)`,
+    [goalId, project.id, owner.userId],
+  );
+  await client.query("INSERT INTO workspace(id,project_id,data_level) VALUES($1,$2,'internal')", [workspaceId, project.id]);
+  await client.query(
+    `INSERT INTO workspace_version(id,workspace_id,project_id,number,author_type,summary,data_level)
+     VALUES($1,$2,$3,1,'system','建立项目工作区','internal')`,
+    [versionId, workspaceId, project.id],
+  );
+  const file = await store.put(Buffer.from(initialInstructions, 'utf8'));
+  await client.query(
+    `INSERT INTO workspace_file(version_id,path,sha256,byte_size,data_level,media_type)
+     VALUES($1,'AGENTS.md',$2,$3,'internal','text/markdown; charset=utf-8')`,
+    [versionId, file.sha256, file.byteSize],
+  );
+  await client.query('UPDATE workspace SET current_version_id=$1 WHERE id=$2', [versionId, workspaceId]);
+  await client.query(
+    `INSERT INTO browser_project_creation(user_id,request_key,payload_hash,project_id,goal_id)
+     VALUES($1,$2,$3,$4,$5)`,
+    [owner.userId, requestKey, hash, project.id, goalId],
+  );
+  return registrationProjectResultSchema.parse({ project, goalId, replayed: false });
 }
 
 export async function updateProject(

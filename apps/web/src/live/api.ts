@@ -4,6 +4,9 @@ import {
   loginInputSchema,
   projectListSchema,
   projectRecordSchema,
+  registrationProjectCreateSchema,
+  registrationProjectResultSchema,
+  type RegistrationProjectCreate,
   goalListSchema,
   projectListOptionsSchema,
   projectIdSchema,
@@ -539,6 +542,11 @@ export const api = {
     ),
   project: (id: string, signal?: AbortSignal) =>
     request(`/api/projects/${identifier(id)}`, projectRecordSchema, signalOption(signal)),
+  createRegistrationProject: (input: RegistrationProjectCreate) =>
+    request('/api/projects', registrationProjectResultSchema, {
+      method: 'POST',
+      body: checked(registrationProjectCreateSchema, input),
+    }),
   goals: (id: string, options: { cursor?: string; limit?: number } = {}, signal?: AbortSignal) =>
     request(
       `/api/projects/${identifier(id)}/goals${search(checked(projectListOptionsSchema, options))}`,

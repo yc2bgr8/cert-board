@@ -16,6 +16,7 @@ import { Sidebar } from './live/Sidebar.js';
 import { ShellIcon } from './live/ShellIcon.js';
 import { ProjectShell } from './live/ProjectShell.js';
 import { NewConversation } from './live/NewConversation.js';
+import { NewProject } from './live/NewProject.js';
 import { Search } from './live/Search.js';
 import { Settings } from './live/Settings.js';
 import { Inspector, type InspectorEntry } from './live/Inspector.js';
@@ -132,7 +133,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
   const [scope, setScope] = useState<'mine' | 'department'>('mine');
   const [sidebarAgent, setSidebarAgent] = useState<AgentCode>('registration');
   const [newHeaderAgent, setNewHeaderAgent] = useState<AgentCode>('registration');
-  const [dialog, setDialog] = useState<'new' | 'search' | 'settings' | null>(null);
+  const [dialog, setDialog] = useState<'new' | 'newProject' | 'search' | 'settings' | null>(null);
   const [maintenanceSettings, setMaintenanceSettings] = useState(false);
   const [skillRollbackFocus, setSkillRollbackFocus] = useState<string | null>(null);
   const [narrow, setNarrow] = useState(
@@ -256,10 +257,10 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
       : projects;
 
   const openDialog = useCallback(
-    (value: 'new' | 'search' | 'settings', focusSkill: string | null = null) => {
+    (value: 'new' | 'newProject' | 'search' | 'settings', focusSkill: string | null = null) => {
       returnFocus.current =
         document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      if (value === 'new' || value === 'settings') setMobileOpen(false);
+      if (value === 'new' || value === 'newProject' || value === 'settings') setMobileOpen(false);
       if (value === 'settings') {
         setMaintenanceSettings(false);
         setSkillRollbackFocus(focusSkill);
@@ -622,6 +623,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
         }}
         onConversation={openConversation}
         onNew={() => (view === 'external' ? newExternal() : openDialog('new'))}
+        onNewProject={() => openDialog('newProject')}
         onSearch={() => openDialog('search')}
         onInbox={() => {
           setPanels([]);
@@ -775,7 +777,7 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
                     </div>
                   )}
                 </dl>
-                <button className="live-primary" type="button" onClick={() => openDialog('new')}>
+                <button className="live-primary" type="button" data-project-start onClick={() => openDialog('new')}>
                   创建项目对话
                 </button>
               </div>
@@ -943,6 +945,9 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
               <p className="live-muted">
                 在左栏选择注册项目或维护事项，打开已有对话，或创建一段新对话。
               </p>
+              <button type="button" className="live-secondary" onClick={() => openDialog('newProject')}>
+                新建注册项目
+              </button>
               {projectsQuery.isError && (
                 <button
                   className="live-secondary"
@@ -993,6 +998,18 @@ function AuthenticatedShell({ user }: { user: PublicUser }) {
             />
           </div>
         )}
+        <NewProject
+          open={dialog === 'newProject'}
+          returnFocus={returnFocus}
+          onOpenChange={(open) => { if (!open) setDialog(null); }}
+          onCreated={(project) => {
+            queryClient.setQueryData(['live', 'project', userId, project.id], project);
+            void queryClient.invalidateQueries({ queryKey: ['live', 'projects', userId] });
+            setSidebarAgent('registration');
+            openProject(project.id);
+            setDialog(null);
+          }}
+        />
         <NewConversation
           open={isNewConversation}
           onOpenChange={(open) => {

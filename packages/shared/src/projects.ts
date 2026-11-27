@@ -31,6 +31,7 @@ export const goalStatusSchema = z.enum([
 const instantSchema = z.string().datetime({ offset: true });
 const optionalId = z.string().uuid().nullable();
 const nameSchema = z.string().trim().min(1).max(255);
+const projectMarketSchema = z.enum(['US', 'CA', 'US_CA']);
 const jurisdictionSchema = z
   .string()
   .max(80)
@@ -47,7 +48,7 @@ export const projectCreateSchema = z
   .object({
     name: nameSchema,
     projectType: projectTypeSchema,
-    market: z.enum(['US', 'CA', 'US_CA']),
+    market: projectMarketSchema,
     pathway: z.string().trim().min(1).max(120),
     reviewerUserId: optionalId.default(null),
     modelId: optionalId.optional().default(null),
@@ -59,6 +60,14 @@ export const projectCreateSchema = z
   })
   .strict();
 export type ProjectCreate = z.infer<typeof projectCreateSchema>;
+
+export const registrationProjectCreateSchema = z.strictObject({
+  name: nameSchema,
+  market: projectMarketSchema,
+  pathway: z.string().trim().max(120).default(''),
+  requestKey: z.uuid(),
+});
+export type RegistrationProjectCreate = z.input<typeof registrationProjectCreateSchema>;
 
 export const projectPatchSchema = z
   .object({
@@ -76,7 +85,7 @@ export const projectRecordSchema = z
     code: z.string().min(1).max(32),
     name: nameSchema,
     projectType: projectTypeSchema,
-    market: z.enum(['US', 'CA', 'US_CA']),
+    market: projectMarketSchema,
     pathway: z.string().min(1).max(120),
     modelId: optionalId,
     ownerUserId: z.string().uuid(),
@@ -96,6 +105,12 @@ export const projectRecordSchema = z
   })
   .strict();
 export type ProjectRecord = z.infer<typeof projectRecordSchema>;
+
+export const registrationProjectResultSchema = z.strictObject({
+  project: projectRecordSchema,
+  goalId: z.uuid(),
+  replayed: z.boolean(),
+});
 
 export const goalRecordSchema = z
   .object({
