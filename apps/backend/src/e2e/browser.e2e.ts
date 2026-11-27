@@ -173,6 +173,17 @@ async function main() {
     let pageErrors = 0;
     let priorCspViolations = 0;
     const priorCspDirectives = new Set<string>();
+    const beforeReload = async () => {
+      const previous = await page!.evaluate(() => {
+        const state = globalThis as typeof globalThis & {
+          __certCspViolations: number;
+          __certCspDirectives: string[];
+        };
+        return { count: state.__certCspViolations, directives: state.__certCspDirectives };
+      });
+      priorCspViolations += previous.count;
+      for (const directive of previous.directives) priorCspDirectives.add(directive);
+    };
     page.on('pageerror', () => {
       pageErrors++;
     });
@@ -543,17 +554,7 @@ async function main() {
         create: (title) => createConversation(page!, harness.projectId, 'ask', title),
         send: (text) => send(page!, text),
         until,
-        async beforeReload() {
-          const previous = await page!.evaluate(() => {
-            const state = globalThis as typeof globalThis & {
-              __certCspViolations: number;
-              __certCspDirectives: string[];
-            };
-            return { count: state.__certCspViolations, directives: state.__certCspDirectives };
-          });
-          priorCspViolations += previous.count;
-          for (const directive of previous.directives) priorCspDirectives.add(directive);
-        },
+        beforeReload,
         stage: (name) => {
           stage = name;
         },
@@ -1384,9 +1385,27 @@ async function main() {
     await page.getByText('AGENTS.md', { exact: true }).waitFor();
     await page.getByRole('button', { name: '对话', exact: true }).click();
     await captureWorkbench(page, output, 'pr-v1-02-new-project.png');
-    await createConversation(page, createdProject.project.id, 'full', '合成项目立项对话');
+    stage = '刷新后回到新项目并从项目首页发起立项';
+    await beforeReload();
+    await page.reload();
+    await page.getByRole('heading', { name: projectName, exact: true }).first().waitFor();
+    assert.equal(new URL(page.url()).searchParams.get('project'), createdProject.project.id);
+    await page.getByRole('button', { name: '创建项目对话', exact: true }).click();
+    const kickoffDialog = page.getByRole('dialog', { name: '新对话', exact: true });
+    const kickoffProject = kickoffDialog.getByRole('combobox', { name: '选择项目', exact: true });
+    const kickoffGoal = kickoffDialog.getByRole('combobox', { name: '工作目标', exact: true });
+    await until(async () => (await kickoffGoal.inputValue()) === createdProject.goalId);
+    assert.equal(await kickoffProject.inputValue(), createdProject.project.id);
+    assert.equal(await kickoffDialog.getByRole('combobox', { name: '权限模式', exact: true }).inputValue(), 'full');
+    await kickoffDialog.getByRole('textbox', { name: '对话标题', exact: true }).fill('合成项目立项对话');
+    const openingMessage = '先做立项规划，请列出本项目待确认的资料。';
+    await kickoffDialog.getByRole('textbox', { name: '首条消息', exact: true }).fill(openingMessage);
+    await kickoffDialog.getByRole('button', { name: '创建对话', exact: true }).click();
+    await kickoffDialog.waitFor({ state: 'hidden' });
+    const kickoffComposer = page.getByRole('textbox', { name: '消息', exact: true });
+    await until(async () => (await kickoffComposer.inputValue()) === openingMessage);
     const kickoff = harness.plan('new_project_kickoff');
-    const firstRun = await send(page, '先做立项规划，请列出本项目待确认的资料。');
+    const firstRun = await send(page, openingMessage);
     await page.getByText('已建立首轮立项计划，器械用途和申报路径待确认。', { exact: true }).waitFor();
     assert.equal(kickoff.observed.calls, 2);
     const createdRun = (
@@ -1446,6 +1465,7 @@ async function main() {
             'redesigned_login_and_logo',
             'redesigned_agent_navigation_and_new_conversation',
             'browser_creates_empty_project_with_workspace_and_starts_first_run',
+            'browser_reopens_created_project_and_preserves_first_run_context',
             'mobile_sidebar_keeps_new_conversation',
             'redesigned_keyboard_search_at_1280_and_1440',
             'l08_real_tools',
