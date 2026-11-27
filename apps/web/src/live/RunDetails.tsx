@@ -1,3 +1,4 @@
+import type { PublicCertQueryReceipt } from '@cert-board/shared';
 import type { LiveRun } from './events.js';
 import { toolStateNames } from './InlineExecution.js';
 
@@ -18,6 +19,71 @@ const clock = new Intl.DateTimeFormat('zh-CN', {
   second: '2-digit',
   hour12: false,
 });
+const dateTime = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
+
+const queryNames: Record<PublicCertQueryReceipt['template'], string> = {
+  credentials_expiring: '即将到期的证照',
+  model_market_status: '型号市场状态',
+  market_sellable_models: '市场可售型号',
+  overdue_milestones: '逾期节点',
+  pending_my_reviews: '待我审核',
+  unsupported: '目录无匹配模板',
+};
+const queryStatuses: Record<PublicCertQueryReceipt['status'], string> = {
+  complete: '完整',
+  partial: '部分',
+  unanswerable: '无法回答',
+};
+const queryGaps: Record<PublicCertQueryReceipt['gaps'][number], string> = {
+  template_unavailable: '查询模板不可用',
+  project_required: '请指定项目',
+  subject_unverified: '查询对象待核对',
+  coverage_unverified: '台账覆盖范围待核验',
+  records_incomplete: '台账记录不完整',
+  results_truncated: '结果已截断，最多返回 100 条',
+};
+
+function QueryReceipt({ receipt }: { receipt: PublicCertQueryReceipt }) {
+  return (
+    <div role="group" aria-label="台账查询回执">
+      <dl>
+        <dt>查询</dt>
+        <dd>{queryNames[receipt.template]}</dd>
+        <dt>可回答性</dt>
+        <dd>{queryStatuses[receipt.status]}</dd>
+        <dt>范围</dt>
+        <dd>{receipt.scope === 'project' ? '当前项目' : '部门台账'}</dd>
+        <dt>目录版本</dt>
+        <dd>{receipt.catalogVersion}</dd>
+        <dt>查询时间</dt>
+        <dd>
+          <time dateTime={receipt.asOf}>{dateTime.format(new Date(receipt.asOf))}</time>
+        </dd>
+        {receipt.method && (
+          <>
+            <dt>口径</dt>
+            <dd>{receipt.method}</dd>
+          </>
+        )}
+        {receipt.gaps.length > 0 && (
+          <>
+            <dt>数据缺口</dt>
+            <dd>{receipt.gaps.map((gap) => queryGaps[gap]).join('、')}</dd>
+          </>
+        )}
+      </dl>
+    </div>
+  );
+}
 
 export function RunDetails({ run }: { run: LiveRun }) {
   const completed = run.tools.filter((tool) => tool.status === 'completed').length;
@@ -74,6 +140,7 @@ export function RunDetails({ run }: { run: LiveRun }) {
                 <p>
                   {tool.summary || tool.name} · {toolStateNames[tool.status]}
                 </p>
+                {tool.certQuery && <QueryReceipt receipt={tool.certQuery} />}
               </li>
             ))}
           </ol>

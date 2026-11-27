@@ -1,6 +1,7 @@
 import {
   certQueryInputSchema,
   certQueryResultSchema,
+  type CertQueryEvent,
   type CertQueryInput,
   type CertQueryResult,
 } from '@cert-board/shared';
@@ -10,6 +11,12 @@ import type { ToolDefinition, ToolExecutionContext } from './registry.js';
 
 const maxRows = 100;
 const catalog = certQueryCatalogV1;
+
+export function certQueryReceipt(data: unknown): CertQueryEvent {
+  const { status, template, catalogVersion, scope, asOf, gaps, truncated } =
+    certQueryResultSchema.parse(data);
+  return { status, template, catalogVersion, scope: scope.kind, asOf, gaps, truncated };
+}
 
 async function withReader<T>(ctx: ToolExecutionContext, read: () => Promise<T>): Promise<T> {
   await ctx.tx.query('SAVEPOINT cert_query_reader');

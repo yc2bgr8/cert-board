@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { publicCertQueryReceiptSchema } from './cert-query.js';
 import { deadlineNoticeSchema } from './deadlines.js';
 import { skillRollbackProposalSchema } from './skill-rollback.js';
 
@@ -112,7 +113,7 @@ export const conversationPublicEventSchema = z.discriminatedUnion('type', [
   ),
   event('model_started', z.object({ summary: text(400) }).strict()),
   event('tool_started', tool),
-  event('tool_completed', tool),
+  event('tool_completed', tool.extend({ certQuery: publicCertQueryReceiptSchema.optional() })),
   event('tool_failed', tool),
   event(
     'plan_updated',

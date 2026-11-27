@@ -2,6 +2,7 @@ import {
   conversationPublicEventSchema,
   type ConversationPublicEvent,
   type PermissionMode,
+  type PublicCertQueryReceipt,
 } from '@cert-board/shared';
 
 export type LiveMessage = {
@@ -20,6 +21,7 @@ export type LiveToolStep = {
   callId?: string;
   name?: string;
   summary: string;
+  certQuery?: PublicCertQueryReceipt;
   status: 'running' | 'completed' | 'failed' | 'awaiting_approval';
   seq: number;
   createdAt: string;
@@ -188,6 +190,9 @@ export function reduceConversationEvent(
         createdAt: event.createdAt,
         ...(p.callId ? { callId: p.callId } : {}),
         ...(p.name ? { name: p.name } : {}),
+        ...(event.type === 'tool_completed' && event.payload.certQuery
+          ? { certQuery: event.payload.certQuery }
+          : {}),
       };
       const index = run.tools.findIndex((tool) => tool.id === key);
       if (index === -1) run.tools.push(step);

@@ -84,3 +84,9 @@ export const certQueryEventSchema = z.strictObject({
   gaps,
   truncated: z.boolean(),
 });
+export type CertQueryEvent = z.infer<typeof certQueryEventSchema>;
+
+export const publicCertQueryReceiptSchema = certQueryEventSchema.extend({
+  method: z.string().min(1).max(450).optional(),
+});
+export type PublicCertQueryReceipt = z.infer<typeof publicCertQueryReceiptSchema>;

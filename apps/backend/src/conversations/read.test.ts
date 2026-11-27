@@ -31,6 +31,45 @@ describe('公开对话过程投影', () => {
     });
     expect(JSON.stringify(result)).not.toMatch(/旧资料正文|原参数|旧摘要|收件人|待批准正文/);
   });
+  it('已完成的台账查询只显示经过校验的回执和对应目录的口径', () => {
+    const certQuery = {
+      status: 'partial',
+      template: 'overdue_milestones',
+      catalogVersion: '1.0.0',
+      scope: 'department',
+      asOf: row.createdAt,
+      gaps: ['coverage_unverified'],
+      truncated: false,
+    };
+    const payload = {
+      name: 'cert_query',
+      callId: 'call-1',
+      certQuery,
+      data: { rows: [{ title: '合成台账正文' }] },
+      arguments: '合成查询参数',
+    };
+    const project = (type: string, event = payload) =>
+      projectConversationEvent({ ...row, type, payload: event }).payload;
+    expect(project('tool_completed')).toMatchObject({
+      certQuery: { ...certQuery, method: expect.stringContaining('法域日历日') },
+    });
+    expect(JSON.stringify(project('tool_completed'))).not.toMatch(/合成台账正文|合成查询参数|rows/);
+    expect(project('tool_completed', { ...payload, name: 'doc_read' })).not.toHaveProperty(
+      'certQuery',
+    );
+    expect(project('tool_failed')).not.toHaveProperty('certQuery');
+    const badReceipt = { ...certQuery, rows: ['不得混入回执'] };
+    expect(project('tool_completed', { ...payload, certQuery: badReceipt })).not.toHaveProperty(
+      'certQuery',
+    );
+    const oldReceipt = { ...certQuery, catalogVersion: '0.9.0' };
+    expect(project('tool_completed', { ...payload, certQuery: oldReceipt })).toMatchObject({
+      certQuery: oldReceipt,
+    });
+    expect(project('tool_completed', { ...payload, certQuery: oldReceipt })).not.toHaveProperty(
+      'certQuery.method',
+    );
+  });
   it('等待过程批准的当前标志和完整旧回执都不能显示工具已完成', () => {
     for (const payload of [
       { name: 'queue_internal_message', awaitingApproval: true, summary: '不可直接透传的摘要' },

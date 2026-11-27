@@ -5,7 +5,6 @@ import {
   agentIdentitySchema,
   chatMessageSchema,
   codeRunReceiptSchema,
-  certQueryResultSchema,
   runControlNotificationSchema,
   reviewSubmitResultSchema,
   toolApprovalPendingResultSchema,
@@ -25,6 +24,7 @@ import {
 import type { DocumentBlobStore } from '../documents/blob-store.js';
 import { getDocument } from '../documents/service.js';
 import type { ToolDefinition } from '../tools/registry.js';
+import { certQueryReceipt } from '../tools/cert-query.js';
 import { AppError } from '../api/errors.js';
 import { authorize } from '../auth/authorization.js';
 import {
@@ -614,6 +614,9 @@ export async function executeAgentRun(
             callId: event.callId,
             name: event.name,
             summary: toolSummary(event.name, event.data, event.isError),
+            ...(!event.isError && event.name === 'cert_query'
+              ? { certQuery: certQueryReceipt(event.data) }
+              : {}),
             ...(!event.isError && approval.success && approval.data.status === 'pending'
               ? { awaitingApproval: true }
               : {}),
@@ -891,8 +894,6 @@ export async function executeAgentRun(
                 }
               }
               const sandbox = runsSandbox ? codeRunReceiptSchema.parse(result.data) : undefined;
-              const certQuery =
-                entry.name === 'cert_query' ? certQueryResultSchema.parse(result.data) : undefined;
               await appendRunEvent(pool, {
                 runId,
                 userId: context.userId,
@@ -900,17 +901,9 @@ export async function executeAgentRun(
                   type: 'tool_completed',
                   invocationId: result.invocationId,
                   dataLevel,
-                  ...(certQuery && {
-                    certQuery: {
-                      status: certQuery.status,
-                      template: certQuery.template,
-                      catalogVersion: certQuery.catalogVersion,
-                      scope: certQuery.scope.kind,
-                      asOf: certQuery.asOf,
-                      gaps: certQuery.gaps,
-                      truncated: certQuery.truncated,
-                    },
-                  }),
+                  ...(entry.name === 'cert_query'
+                    ? { certQuery: certQueryReceipt(result.data) }
+                    : {}),
                   ...(sandbox && {
                     contentHash: sandbox.codeSha256,
                     sandboxInputHashes: sandbox.inputHashes.map(({ sha256 }) => sha256),

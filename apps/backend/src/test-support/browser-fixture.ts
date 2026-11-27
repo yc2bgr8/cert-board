@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   approvalResolutionSchema,
+  certQueryResultSchema,
   internalMessageQueuedSchema,
   documentPageReadSchema,
   documentSearchResultSchema,
@@ -21,6 +22,7 @@ export type BrowserScenario =
   | 'review'
   | 'revision'
   | 'approval_text'
+  | 'cert_query_receipts'
   | 'review_decision_resume'
   | 'proposal'
   | 'external_quote'
@@ -132,6 +134,32 @@ export function browserScenario(kind: BrowserScenario, contactId: string) {
           throw new Error('BROWSER_APPROVAL_RECEIPT_MODEL_CALLED');
         const latest = request.messages.at(-1);
         const previous: unknown = latest?.role === 'tool' ? JSON.parse(latest.content) : null;
+        if (kind === 'cert_query_receipts') {
+          const queries = [
+            { input: { template: 'overdue_milestones', scope: 'project' }, status: 'complete' },
+            { input: { template: 'overdue_milestones', scope: 'department' }, status: 'partial' },
+            {
+              input: { template: 'credentials_expiring', scope: 'project', days: 90 },
+              status: 'unanswerable',
+            },
+          ] as const;
+          const last = queries[phase - 1];
+          if (last) {
+            const result = certQueryResultSchema.parse(previous);
+            if (
+              result.template !== last.input.template ||
+              result.scope.kind !== last.input.scope ||
+              result.status !== last.status ||
+              (last.status !== 'unanswerable' &&
+                !result.rows.some((row) => row.fields.title === '合成台账节点原文'))
+            )
+              throw new Error('BROWSER_CERT_QUERY_RESULT_MISMATCH');
+          }
+          const next = queries[phase++];
+          return next
+            ? call('cert_query', next.input)
+            : response({ role: 'assistant', content: '本次台账查询已执行，可查看各项回执。' });
+        }
         if (kind === 'approval_text') {
           observed.reviewVerificationReceived = request.messages.some(
             (message) =>

@@ -173,6 +173,17 @@ async function main() {
     let pageErrors = 0;
     let priorCspViolations = 0;
     const priorCspDirectives = new Set<string>();
+    const beforeReload = async () => {
+      const previous = await page!.evaluate(() => {
+        const state = globalThis as typeof globalThis & {
+          __certCspViolations: number;
+          __certCspDirectives: string[];
+        };
+        return { count: state.__certCspViolations, directives: state.__certCspDirectives };
+      });
+      priorCspViolations += previous.count;
+      for (const directive of previous.directives) priorCspDirectives.add(directive);
+    };
     page.on('pageerror', () => {
       pageErrors++;
     });
@@ -543,17 +554,7 @@ async function main() {
         create: (title) => createConversation(page!, harness.projectId, 'ask', title),
         send: (text) => send(page!, text),
         until,
-        async beforeReload() {
-          const previous = await page!.evaluate(() => {
-            const state = globalThis as typeof globalThis & {
-              __certCspViolations: number;
-              __certCspDirectives: string[];
-            };
-            return { count: state.__certCspViolations, directives: state.__certCspDirectives };
-          });
-          priorCspViolations += previous.count;
-          for (const directive of previous.directives) priorCspDirectives.add(directive);
-        },
+        beforeReload,
         stage: (name) => {
           stage = name;
         },
@@ -1362,6 +1363,58 @@ async function main() {
     } finally {
       harness.verification.runtime.status = savedStatus;
     }
+    stage = '只读对话实际查询台账并查看三种回执';
+    await harness.pool.query(
+      `INSERT INTO cert_milestone(project_id,owner_user_id,milestone_type,title,planned_date)
+       SELECT id,owner_user_id,'合成节点','合成台账节点原文',
+         (clock_timestamp() AT TIME ZONE jurisdiction_tz)::date - 2
+       FROM cert_project WHERE id=$1`,
+      [harness.projectId],
+    );
+    await harness.pool.query(
+      `INSERT INTO cert_query_coverage(project_id,dataset,source,verified_at)
+       VALUES($1,'cert_milestone','合成核验',clock_timestamp())`,
+      [harness.projectId],
+    );
+    await harness.pool.query(
+      `INSERT INTO cert_project(name,market,pathway,owner_user_id,jurisdiction_tz)
+       SELECT '合成未核验范围',market,pathway,owner_user_id,jurisdiction_tz
+       FROM cert_project WHERE id=$1`,
+      [harness.projectId],
+    );
+    await createConversation(page, harness.projectId, 'read_only', '认证台账查询验收');
+    const ledger = harness.plan('cert_query_receipts');
+    await send(page, '请查询当前项目及部门的逾期节点，再查询 90 天内到期的证照。');
+    const ledgerReply = page.getByText('本次台账查询已执行，可查看各项回执。', { exact: true });
+    await ledgerReply.waitFor();
+    assert.equal(ledger.observed.calls, 4);
+    const ledgerDetails = page.getByRole('complementary', { name: '运行详情', exact: true });
+    const queryReceipts = ledgerDetails.getByRole('group', { name: '台账查询回执', exact: true });
+    const openReceipts = async () => {
+      await page!.getByRole('button', { name: '运行详情', exact: true }).click();
+      await until(async () => (await queryReceipts.count()) === 3);
+      await queryReceipts.nth(0).getByText('完整', { exact: true }).waitFor();
+      await queryReceipts.nth(0).getByText('当前项目', { exact: true }).waitFor();
+      await queryReceipts.nth(0).getByText('1.0.0', { exact: true }).waitFor();
+      await queryReceipts
+        .nth(0)
+        .getByText(/按项目法域日历日比较/u)
+        .waitFor();
+      assert.ok(await queryReceipts.nth(0).locator('time').getAttribute('datetime'));
+      await queryReceipts.nth(1).getByText('部分', { exact: true }).waitFor();
+      await queryReceipts.nth(1).getByText('部门台账', { exact: true }).waitFor();
+      await queryReceipts.nth(1).getByText('台账覆盖范围待核验', { exact: true }).waitFor();
+      await queryReceipts.nth(2).getByText('无法回答', { exact: true }).waitFor();
+      assert.equal(await ledgerDetails.getByText(/合成台账节点原文/u).count(), 0);
+    };
+    await openReceipts();
+    stage = '刷新后恢复只读台账查询回执';
+    await beforeReload();
+    await page.reload();
+    await ledgerReply.waitFor();
+    await openReceipts();
+    await captureWorkbench(page, output, 'pr41-11-cert-query-receipts.png');
+
     stage = 'CSP与零外网检查';
     const cspState = await page.evaluate(() => {
       const state = globalThis as typeof globalThis & {
@@ -1470,6 +1523,7 @@ async function main() {
             'agent_verification_waits_and_resumes_with_human_input',
             'stopping_conversation_stops_linked_verification',
             'cursor_unavailable_reaches_review_uncertainty',
+            'cert_query_read_only_receipts_reopen_without_rows',
             'width_1280',
           ],
           externalRequests,
@@ -1510,6 +1564,7 @@ async function main() {
             'pr-d6-14a-verification.png',
             'pr-d6-14b-verification.png',
             'pr-d6-15-privacy.png',
+            'pr41-11-cert-query-receipts.png',
             'pr-d6-16-budget.png',
             'pr-d4-04-agent-verification.png',
             'pr-d5-05-review-verification.png',

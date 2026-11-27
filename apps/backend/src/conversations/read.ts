@@ -2,6 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import {
+  certQueryEventSchema,
   conversationPublicRecordSchema,
   conversationPublicListSchema,
   conversationPublicHistorySchema,
@@ -15,6 +16,7 @@ import {
 import { AppError } from '../api/errors.js';
 import { requireBrowserIdentity } from '../auth/session.js';
 import { toolLabel } from '../agent/tool-progress.js';
+import { certQueryCatalogV1 } from '../knowledge/cert-query/v1.js';
 
 type Database = Pick<Pool, 'query'>;
 const missing = () =>
@@ -216,6 +218,17 @@ export function projectConversationEvent(row: {
           ? '等待发起人在浏览器批准后继续'
           : `${label}${type === 'tool_failed' ? '未完成' : type === 'tool_completed' ? '已完成' : ''}`,
       };
+      if (type === 'tool_completed' && name === 'cert_query' && !awaitingApproval) {
+        const receipt = certQueryEventSchema.safeParse(p.certQuery);
+        if (receipt.success) {
+          const { template, catalogVersion } = receipt.data;
+          const method =
+            catalogVersion === certQueryCatalogV1.version && template !== 'unsupported'
+              ? certQueryCatalogV1.templates[template].method
+              : undefined;
+          payload.certQuery = { ...receipt.data, ...optional('method', method) };
+        }
+      }
       break;
     }
     case 'plan_updated': {
