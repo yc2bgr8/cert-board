@@ -218,9 +218,9 @@ test('空白项目的 R01 和 R02 由已审阅技能进入真实内核，读取�
                 goal: { id: goalId, title: '注册立项' },
               });
               if (skill === 'R02')
-                return answer({
-                  role: 'assistant',
-                  content: '需要先确认器械用途、技术特征及预期使用人群。',
+                return invoke('ask_user', {
+                  question: '请提供器械用途、技术特征及预期使用人群，便于研判路径。',
+                  options: [],
                 });
               return invoke('work_schedule_calculate', {
                 targetDate: '2031-01-08',
@@ -238,9 +238,9 @@ test('空白项目的 R01 和 R02 由已审阅技能进入真实内核，读取�
               expect(
                 z.object({ latestStartDate: z.string() }).parse(previous).latestStartDate,
               ).toBe('2031-01-06');
-              return answer({
-                role: 'assistant',
-                content: '首轮立项候选计划已倒排，待人员核对工期。',
+              return invoke('ask_user', {
+                question: '按目标日期倒排的最晚开始日是 2031-01-06。请确认工期和负责人。',
+                options: [],
               });
             default:
               throw Error('意外的剧本调用');
@@ -260,15 +260,17 @@ test('空白项目的 R01 和 R02 由已审阅技能进入真实内核，读取�
         },
         runId,
       );
-      expect(result.status).toBe('completed');
+      expect(result.status).toBe('waiting');
+      expect(result.questionId).toBeTruthy();
+      expect(result.reviewId).toBeUndefined();
       const invocations = await context.pool.query(
         'SELECT tool_name FROM tool_invocation WHERE run_id=$1 AND status=$2 ORDER BY created_at',
         [runId, 'completed'],
       );
       expect(invocations.rows.map(({ tool_name }) => tool_name)).toEqual(
         skill === 'R01'
-          ? ['skill_load', 'cert_context', 'work_schedule_calculate']
-          : ['skill_load', 'cert_context'],
+          ? ['skill_load', 'cert_context', 'work_schedule_calculate', 'ask_user']
+          : ['skill_load', 'cert_context', 'ask_user'],
       );
     }
   } finally {
